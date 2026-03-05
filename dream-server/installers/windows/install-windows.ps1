@@ -843,6 +843,42 @@ if ($perplexicaOk) {
     Write-AIWarn "Perplexica auto-config skipped -- complete setup at http://localhost:3004"
 }
 
+# ── Create Desktop & Start Menu shortcuts (link to Dashboard) ──
+try {
+    $dashboardUrl = "http://localhost:3001"
+    $shortcutName = "Dream Server"
+
+    # Desktop shortcut (.url -- opens in default browser)
+    $desktopDir = [Environment]::GetFolderPath("Desktop")
+    $desktopUrl = Join-Path $desktopDir "$shortcutName.url"
+    $urlContent = @"
+[InternetShortcut]
+URL=$dashboardUrl
+IconIndex=0
+"@
+    Write-Utf8NoBom -Path $desktopUrl -Content $urlContent
+
+    # Start Menu shortcut (Programs folder)
+    $startMenuDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
+    $startMenuUrl = Join-Path $startMenuDir "$shortcutName.url"
+    Write-Utf8NoBom -Path $startMenuUrl -Content $urlContent
+
+    # Attempt taskbar pin via Shell COM verb (works on most Win 11 builds, silent no-op if not)
+    try {
+        $shell = New-Object -ComObject Shell.Application
+        $folder = $shell.Namespace($desktopDir)
+        $item = $folder.ParseName("$shortcutName.url")
+        if ($item) {
+            $verbs = $item.Verbs() | Where-Object { $_.Name -match "pin.*taskbar|Taskbar" }
+            if ($verbs) { $verbs | ForEach-Object { $_.DoIt() } }
+        }
+    } catch { }
+
+    Write-AISuccess "Added Dream Server shortcut to Desktop and Start Menu"
+} catch {
+    Write-AIWarn "Could not create shortcuts: $_"
+}
+
 # ── Success card ──
 if ($allHealthy) {
     Write-SuccessCard
