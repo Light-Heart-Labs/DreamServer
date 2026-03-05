@@ -49,7 +49,7 @@ function Resolve-TierConfig {
             return @{
                 TierName   = "Strix Halo Compact"
                 LlmModel   = "qwen3-30b-a3b"
-                GgufFile   = "qwen3-30b-a3b-Q4_K_M.gguf"
+                GgufFile   = "Qwen3-30B-A3B-Q4_K_M.gguf"
                 GgufUrl    = "https://huggingface.co/unsloth/Qwen3-30B-A3B-GGUF/resolve/main/Qwen3-30B-A3B-Q4_K_M.gguf"
                 GgufSha256 = "9f1a24700a339b09c06009b729b5c809e0b64c213b8af5b711b3dbdfd0c5ba48"
                 MaxContext = 131072
@@ -78,10 +78,10 @@ function Resolve-TierConfig {
         "3" {
             return @{
                 TierName   = "Pro"
-                LlmModel   = "qwen3-14b"
-                GgufFile   = "Qwen3-14B-Q4_K_M.gguf"
-                GgufUrl    = "https://huggingface.co/unsloth/Qwen3-14B-GGUF/resolve/main/Qwen3-14B-Q4_K_M.gguf"
-                GgufSha256 = "5eaa0870bd81ed3b58a630a271234cfa604e43ffb3a19cd68e54a80dd9d52a66"
+                LlmModel   = "qwen3-30b-a3b"
+                GgufFile   = "Qwen3-30B-A3B-Q4_K_M.gguf"
+                GgufUrl    = "https://huggingface.co/unsloth/Qwen3-30B-A3B-GGUF/resolve/main/Qwen3-30B-A3B-Q4_K_M.gguf"
+                GgufSha256 = "9f1a24700a339b09c06009b729b5c809e0b64c213b8af5b711b3dbdfd0c5ba48"
                 MaxContext = 32768
             }
         }
@@ -89,7 +89,7 @@ function Resolve-TierConfig {
             return @{
                 TierName   = "Enterprise"
                 LlmModel   = "qwen3-30b-a3b"
-                GgufFile   = "qwen3-30b-a3b-Q4_K_M.gguf"
+                GgufFile   = "Qwen3-30B-A3B-Q4_K_M.gguf"
                 GgufUrl    = "https://huggingface.co/unsloth/Qwen3-30B-A3B-GGUF/resolve/main/Qwen3-30B-A3B-Q4_K_M.gguf"
                 GgufSha256 = "9f1a24700a339b09c06009b729b5c809e0b64c213b8af5b711b3dbdfd0c5ba48"
                 MaxContext = 131072
@@ -143,7 +143,7 @@ function ConvertTo-ModelFromTier {
         "^(SH_COMPACT|SH)$"     { return "qwen3-30b-a3b" }
         "^(1|T1)$"               { return "qwen3-8b" }
         "^(2|T2)$"               { return "qwen3-8b" }
-        "^(3|T3)$"               { return "qwen3-14b" }
+        "^(3|T3)$"               { return "qwen3-30b-a3b" }
         "^(4|T4)$"               { return "qwen3-30b-a3b" }
         default                  { return "" }
     }
