@@ -2,7 +2,7 @@
 
 Production-tested tools, frameworks, research, and recipes from building a local AI stack. Everything here was built by the Light Heart Labs team (4 AI agents + humans) while developing DreamServer.
 
-**299 files. Zero fluff.**
+**315+ files. Zero fluff.**
 
 ---
 
@@ -69,6 +69,18 @@ Ready-to-polish content: "Why Self-Host AI in 2026", "Dream Server vs Cloud AI",
 
 GPU cluster setup, deployment runbooks, golden build reference, LiveKit deployment, zero-cloud recipes, ship-readiness audits, architecture decisions, and operational patterns.
 
+### [`dev/`](dev/) — Active Development Builds
+
+**What we're building next — shared early so you can see it, fork it, test it.**
+
+| Project | Status | What It Is |
+|---------|--------|-----------|
+| [`normie-installer/`](dev/normie-installer/) | Testing | One-click installers for Windows (.bat/.ps1/.exe), macOS (.command/Homebrew), and Linux. Handles Docker, WSL2, GPU drivers — everything a non-technical user needs. |
+| [`bootstrap/`](dev/bootstrap/) | Testing | Docker bootstrap image (~50MB) for running the installer in environments where installing dependencies directly isn't practical. |
+| [`download-page/`](dev/download-page/) | Draft | Static landing page that auto-detects OS and shows the right install command. |
+
+These are actively being tested and used internally but not yet cleared for production. See [`dev/README.md`](dev/README.md) for usage instructions and the full roadmap.
+
 ### [`legacy/`](legacy/) — 14 Historical Files
 
 Old compose files, systemd units, and configs from earlier DreamServer iterations. Kept for reference.
@@ -86,6 +98,8 @@ Old compose files, systemd units, and configs from earlier DreamServer iteration
 **Running a multi-agent team?** → [`frameworks/agent-coordination/`](frameworks/agent-coordination/)
 
 **Need capacity numbers?** → [`research/`](research/) — look for the capacity baseline and cluster benchmark docs
+
+**Want to see what's coming?** → [`dev/`](dev/) — pre-production builds you can test today
 
 ---
 
