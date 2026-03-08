@@ -1,0 +1,27 @@
+name: chromadb
+
+services:
+  chromadb:
+    image: chromadb/chroma:v0.5.20
+    container_name: chromadb
+    ports:
+      - "${CHROMADB_PORT:-8000}:8000"
+    volumes:
+      - ./data/chromadb:/chromadb
+    environment:
+      - CHROMA_DB_ANSI_COLOR_ENABLED=true
+      - LLM_API_URL=${LLM_API_URL:-http://localhost:8000}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - dream-network
+
+networks:
+  dream-network:
+    external: true
+    name: dream-network

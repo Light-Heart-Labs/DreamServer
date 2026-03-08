@@ -1,0 +1,18 @@
+name: chromadb
+version: "1.0.0"
+description: ChromaDB - The AI-native vector database
+category: database
+authors:
+  - chromadb
+website: https://chromadb.com/
+image: chromadb/chroma:v0.5.20
+gpu: [amd, nvidia]
+port: 8000
+data:
+  - ./data/chromadb:/chromadb
+healthcheck:
+  - wget -q --spider http://localhost:8000/api/v1/heartbeat
+env:
+  - LLM_API_URL
+dependencies: []
+tags: [database, vector, ai]
