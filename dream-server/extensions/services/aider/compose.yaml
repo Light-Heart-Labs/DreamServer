@@ -1,0 +1,29 @@
+name: aider
+
+services:
+  aider:
+    image: paulgauthier/aider:v0.86.2
+    container_name: aider
+    volumes:
+      - ./data/aider:/app
+      - ${HOME}/.gitconfig:/home/aider/.gitconfig:ro
+      - ${HOME}/.ssh:/home/aider/.ssh:ro
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - AIDER_MODEL=${AIDER_MODEL:-openrouter/anthropic/claude-sonnet-4}
+      - AIDER_WEAK_MODEL=${AIDER_WEAK_MODEL:-openrouter/anthropic/claude-haiku-3}
+      - AIDER_OPENAI_API_BASE=${AIDER_OPENAI_API_BASE:-}
+      - LLM_API_URL=${LLM_API_URL:-http://localhost:8000}
+    working_dir: /app
+    stdin_open: true
+    tty: true
+    restart: "no"  # One-shot CLI tool
+    networks:
+      - dream-network
+    command: ["sh", "-c", "echo 'Run: docker compose run --rm aider <files>'"]
+
+networks:
+  dream-network:
+    external: true
+    name: dream-network

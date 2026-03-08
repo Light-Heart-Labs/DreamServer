@@ -1,0 +1,17 @@
+name: aider
+version: "1.0.0"
+description: Aider - AI pair programming in your terminal
+category: tool
+authors:
+  - Paul Gauthier
+website: https://aider.chat/
+image: paulgauthier/aider:v0.86.2
+gpu: []  # CPU-based, no GPU required
+port: 0  # CLI tool, no web port
+data:
+  - ./data/aider:/app
+healthcheck: []  # CLI tool, no healthcheck
+env:
+  - LLM_API_URL
+dependencies: []
+tags: [coding, ai, cli, development]
