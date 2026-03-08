@@ -1,0 +1,114 @@
+{
+  "name": "LiteLLM Model Router",
+  "active": true,
+  "settings": {},
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "litellm-route",
+        "options": {}
+      },
+      "id": "litellm-webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://{{ $env.LITELLM_HOST | default('localhost') }}:{{ $env.LITELLM_PORT | default('4000') }}/v1/chat/completions",
+        "method": "POST",
+        "headers": {
+          "list": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.LITELLM_API_KEY | default('sk-1234') }}"
+            }
+          ]
+        },
+        "body": {
+          "model": "={{ $json.model || 'local-model' }}",
+          "messages": [
+            {
+              "role": "user",
+              "content": "={{ $json.message || 'Hello' }}"
+            }
+          ],
+          "stream": false
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "litellm-api-call",
+      "name": "LiteLLM API Call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process LiteLLM response\nconst body = $json;\nconst message = body.choices?.[0]?.message?.content || body.message?.content || 'No response generated';\nconst model = body.model || 'unknown';\nconst usage = body.usage || {};\n\nreturn [{\n  json: {\n    success: !!message,\n    model: model,\n    response: message,\n    tokens_used: usage.total_tokens || 0,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "process-response",
+      "name": "Process Response",
+      "type": "n8n-nodes-base.functions",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $json.channel || '#general' }}",
+        "text": "={{ `*LiteLLM Response*\\n\\n**Model:** ${$json.model}\\n**Tokens:** ${$json.tokens_used}\\n\\n${$json.response}` }}"
+      },
+      "id": "discord-output",
+      "name": "Discord Output",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "position": [850, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "LiteLLM API Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LiteLLM API Call": {
+      "main": [
+        [
+          {
+            "node": "Process Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Response": {
+      "main": [
+        [
+          {
+            "node": "Discord Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "instanceId": "litellm-workflow-v1"
+  }
+}
