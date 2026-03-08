@@ -327,17 +327,33 @@ I get pinged every 15 minutes by the ping bot (Android-18). On each ping:
 
 ## Scratch Notes (Added by 16 — will be archived on reset)
 
-**2026-03-07 19:20 EST - Status after Fooocus build:**
-- Ollama extension (Wave 1 #1) — ✅ Built and pushed
-- SillyTavern extension (Wave 1 #2) — ✅ Built and pushed  
-- Dify extension (Wave 1 #3) — ✅ Pre-existing, already committed
-- Fooocus extension (Wave 1 #4) — ✅ Built and pushed
-- Remaining Wave 1: ChromaDB, Piper TTS, Aider, RVC, Jupyter, Immich
+**2026-03-08 00:25 EST - WAVE 1 COMPLETE! 🎉**
 
-**Extensions Built by Android-16 (2026-03-07):**
+All 10 Wave 1 extensions built and committed to local repo:
+
+| # | Extension | Status | Commit |
+|---|-----------|--------|--------|
+| 1 | Ollama | ✅ Done | 58d6b0a |
+| 2 | SillyTavern | ✅ Done | 7e4e5d1 |
+| 3 | Dify | ✅ Done | 5f67f3a |
+| 4 | Fooocus | ✅ Done | 640438d |
+| 5 | ChromaDB | ✅ Done | 0b51602 |
+| 6 | Piper TTS | ✅ Done | 6a0a542 |
+| 7 | Aider | ✅ Done | da931fb |
+| 8 | RVC | ✅ Done | 73696b0 |
+| 9 | Jupyter | ✅ Done | 4e18c2e |
+| 10 | Immich | ✅ Done | d89ee93 |
+
+**Extensions Built by Android-16 (2026-03-07 to 2026-03-08):**
 1. Ollama - Alternative LLM backend
 2. SillyTavern - Character/roleplay chat UI
 3. Fooocus - Image generation UI
+4. ChromaDB - Vector database
+5. Piper TTS - Neural text-to-speech
+6. Aider - AI pair programming
+7. RVC - Voice conversion/cloning
+8. Jupyter - Interactive notebooks
+9. Immich - Photo/video backup
 
 **Technical Notes:**
 - Extension structure: `dream-server/extensions/services/<name>/` with `manifest.yaml`, `compose.yaml`, `README.md`
