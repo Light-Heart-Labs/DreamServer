@@ -2,7 +2,7 @@ name: chromadb
 
 services:
   chromadb:
-    image: chromadb/chroma:v0.5.4
+    image: chromadb/chroma:1.5.3
     container_name: chromadb
     ports:
       - "${CHROMADB_PORT:-8000}:8000"
