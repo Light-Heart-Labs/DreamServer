@@ -1,18 +1,37 @@
-name: jupyter
-version: "1.0.0"
-description: Jupyter Notebook - Interactive data science and coding environment
-category: tool
-authors:
-  - Project Jupyter
-website: https://jupyter.org/
-image: jupyter/scipy-notebook:notebook-7.3.3
-gpu: [amd, nvidia]
-port: 8888
-data:
-  - ./data/jupyter:/home/jovyan/work
-healthcheck:
-  - wget -q --spider http://localhost:8888/api
-env:
-  - LLM_API_URL
-dependencies: []
-tags: [notebook, python, data-science, coding]
+schema_version: dream.services.v1
+
+service:
+  id: jupyter
+  name: Jupyter
+  aliases: [jupyter-notebook, notebook]
+  container_name: jupyter
+  host_env: JUPYTER_HOST
+  default_host: jupyter
+  port: 8888
+  external_port_env: JUPYTER_PORT
+  external_port_default: 8888
+  health: /api
+  type: docker
+  gpu_backends: [amd, nvidia]
+  compose_file: compose.yaml
+  category: optional
+  depends_on: []
+  env_vars:
+    - key: JUPYTER_TOKEN
+      required: false
+      secret: true
+      description: Access token for Jupyter
+
+features:
+  - id: data-science
+    name: Data Science Environment
+    description: Interactive data science and coding notebooks
+    icon: BookOpen
+    category: development
+    requirements:
+      services: [jupyter]
+      vram_gb: 4
+    enabled_services_all: [jupyter]
+    setup_time: ~2 minutes
+    priority: 13
+    gpu_backends: [amd, nvidia]

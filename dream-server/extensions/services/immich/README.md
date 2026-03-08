@@ -1,82 +1,69 @@
-# Immich Extension for Dream Server
+# Immich Extension
+
+Self-hosted photo and video management system with AI-powered features.
 
 ## Overview
 
-Immich is a high-performance self-hosted photo and video backup solution. It provides a mobile app for automatic backup and a web interface for browsing, organizing, and sharing your media library.
+Immich is a high-performance photo and video backup solution that runs on your own server. It offers automatic backups from your mobile device, AI-powered organization, and privacy-first design.
 
 ## Features
 
-- Automatic mobile photo/video backup (iOS & Android)
-- AI-powered face recognition and clustering
-- Object detection and smart search
-- Duplicate detection
-- Album creation and sharing
-- Timeline and map views
-- RAW format support
-- Hardware-accelerated transcoding
-
-## Usage
-
-### Enable the extension
-
-```bash
-dream extensions enable immich
-```
-
-### Access Immich
-
-```
-http://localhost:${IMMICH_PORT:-2283}
-```
-
-### First Setup
-
-1. Open the web UI
-2. Create an admin account
-3. Download the mobile app
-4. Configure server URL and login
-5. Enable auto-backup in app settings
+- **Automatic Backup**: Backup photos and videos from your mobile device
+- **AI Organization**: Face recognition, object detection, and automatic tagging
+- **Privacy First**: All data stays on your server
+- **Web Interface**: Access photos and videos from any browser
 
 ## Configuration
 
-| Environment Variable | Default | Description |
-|---------------------|---------|-------------|
-| `IMMICH_PORT` | 2283 | Web UI port |
-| `IMMICH_DB_USERNAME` | immich | PostgreSQL username |
-| `IMMICH_DB_PASSWORD` | immich | PostgreSQL password |
-| `IMMICH_DB_NAME` | immich | PostgreSQL database name |
+### Environment Variables
 
-## Data Directories
+- `IMMICH_PORT` - Port for web interface (default: 2283)
+- `LLM_API_URL` - URL for your LLM API (from .env)
+- `IMMICH_DB_USER` - PostgreSQL username (default: postgres)
+- `IMMICH_DB_PASS` - PostgreSQL password (default: postgres)
+- `IMMICH_DB_NAME` - Database name (default: immich)
+- `IMMICH_REDIS_HOST` - Redis hostname (default: redis)
+- `IMMICH_REDIS_PORT` - Redis port (default: 6379)
 
-| Path | Purpose |
-|------|---------|
-| `./data/immich/upload/` | Photo/video storage |
-| `./data/immich/postgres/` | Database files |
-| `./data/immich/model-cache/` | ML model cache |
+### Volumes
 
-## GPU Acceleration
+- `./data/immich/upload` - Uploaded photos and videos
+- `./data/immich/backup` - Backup storage
+- `./data/immich/postgres` - Database storage
+- `./data/immich/redis` - Redis cache
 
-For hardware-accelerated ML inference and transcoding, modify the compose file:
-- Machine Learning: Add `-cuda` suffix to image tag
-- Transcoding: Use NVENC for NVIDIA GPUs
+### Ports
 
-## Integration
+- `2283` - Web interface
+- `5432` - PostgreSQL (internal)
+- `6379` - Redis (internal)
 
-Immich integrates with:
-- **Mobile apps** — iOS and Android auto-backup
-- **n8n workflows** — Trigger on new uploads
-- **LLM API** — Generate descriptions via future integration
-
-## Uninstall
+## Quick Start
 
 ```bash
-dream extensions disable immich
+# Add to your dream-server/extensions/enabled.yaml
+- immich
+
+# Start the extension
+cd dream-server
+./dream.sh up immich
+
+# Or with docker-compose
+docker-compose -f extensions/services/immich/compose.yaml up -d
 ```
 
-Media in `./data/immich/` is preserved.
+## Usage
 
-## Documentation
+### Web Interface
 
-- Website: <https://immich.app/>
-- Docs: <https://immich.app/docs/>
-- GitHub: <https://github.com/immich-app/immich>
+Access the web interface at `http://localhost:2283`.
+
+### Mobile App
+
+Download the Immich app for iOS or Android and connect to your server.
+
+## Links
+
+- [Immich Documentation](https://immich.app/docs)
+- [GitHub Repository](https://github.com/immich-app/immich)
+- [Docker Hub](https://hub.docker.com/r/immichapp/immich-server)

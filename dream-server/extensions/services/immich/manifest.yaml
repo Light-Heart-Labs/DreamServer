@@ -1,20 +1,37 @@
-name: immich
-version: "1.0.0"
-description: Immich - High performance self-hosted photo and video backup solution
-category: tool
-authors:
-  - Immich App
-website: https://immich.app/
-image: ghcr.io/immich-app/immich-server:v1.130.3
-gpu: [amd, nvidia]  # For ML acceleration
-port: 2283
-data:
-  - ./data/immich/upload:/data
-  - ./data/immich/postgres:/var/lib/postgresql/data
-  - ./data/immich/model-cache:/cache
-healthcheck:
-  - wget -q --spider http://localhost:2283/api/server/ping
-env:
-  - LLM_API_URL
-dependencies: []
-tags: [photos, videos, backup, media, ai]
+schema_version: dream.services.v1
+
+service:
+  id: immich
+  name: Immich
+  aliases: [photos, media-backup]
+  container_name: immich-server
+  host_env: IMMICH_HOST
+  default_host: immich-server
+  port: 2283
+  external_port_env: IMMICH_PORT
+  external_port_default: 2283
+  health: /api/server/ping
+  type: docker
+  gpu_backends: [amd, nvidia]
+  compose_file: compose.yaml
+  category: optional
+  depends_on: []
+  env_vars:
+    - key: IMMICH_DB_PASSWORD
+      required: true
+      secret: true
+      description: PostgreSQL password
+
+features:
+  - id: photo-backup
+    name: Photo & Video Backup
+    description: High-performance self-hosted photo and video backup
+    icon: Camera
+    category: media
+    requirements:
+      services: [immich]
+      vram_gb: 2
+    enabled_services_all: [immich]
+    setup_time: ~3 minutes
+    priority: 14
+    gpu_backends: [amd, nvidia]

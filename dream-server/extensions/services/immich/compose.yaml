@@ -2,80 +2,65 @@ name: immich
 
 services:
   immich-server:
-    container_name: immich-server
-    image: ghcr.io/immich-app/immich-server:v1.130.3
+    image: ghcr.io/immich-app/immich-server:release
+    container_name: immich
     ports:
       - "${IMMICH_PORT:-2283}:2283"
     volumes:
-      - ./data/immich/upload:/data
-      - /etc/localtime:/etc/localtime:ro
+      - ./data/immich/upload:/usr/src/app/upload
+      - ./data/immich/backup:/usr/src/app/backup
     environment:
-      - DB_HOSTNAME=immich-postgres
-      - DB_USERNAME=${IMMICH_DB_USERNAME:-immich}
-      - DB_PASSWORD=${IMMICH_DB_PASSWORD:-immich}
-      - DB_DATABASE_NAME=${IMMICH_DB_NAME:-immich}
-      - REDIS_HOSTNAME=immich-redis
       - LLM_API_URL=${LLM_API_URL:-http://localhost:8000}
+      - DB_HOSTNAME=${IMMICH_DB_HOST:-postgres}
+      - DB_USERNAME=${IMMICH_DB_USER:-postgres}
+      - DB_PASSWORD=${IMMICH_DB_PASS:-postgres}
+      - DB_DATABASE_NAME=${IMMICH_DB_NAME:-immich}
+      - REDIS_HOSTNAME=${IMMICH_REDIS_HOST:-redis}
+      - REDIS_PORT=${IMMICH_REDIS_PORT:-6379}
     depends_on:
-      - immich-redis
-      - immich-postgres
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:2283/api/server/ping"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:2283/api/server-info"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
+      start_period: 120s
     networks:
       - dream-network
 
-  immich-machine-learning:
-    container_name: immich-machine-learning
-    image: ghcr.io/immich-app/immich-machine-learning:v1.130.3
-    volumes:
-      - ./data/immich/model-cache:/cache
-    environment:
-      - REDIS_HOSTNAME=immich-redis
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:3003/ping')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    networks:
-      - dream-network
-
-  immich-redis:
-    container_name: immich-redis
-    image: docker.io/valkey/valkey:9-alpine
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "valkey-cli", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    networks:
-      - dream-network
-
-  immich-postgres:
+  postgres:
+    image: postgres:16-alpine
     container_name: immich-postgres
-    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0
-    environment:
-      POSTGRES_USER: ${IMMICH_DB_USERNAME:-immich}
-      POSTGRES_PASSWORD: ${IMMICH_DB_PASSWORD:-immich}
-      POSTGRES_DB: ${IMMICH_DB_NAME:-immich}
-      POSTGRES_INITDB_ARGS: '--data-checksums'
     volumes:
       - ./data/immich/postgres:/var/lib/postgresql/data
-    shm_size: 128mb
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=immich
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${IMMICH_DB_USERNAME:-immich} -d ${IMMICH_DB_NAME:-immich}"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dream-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: immich-redis
+    volumes:
+      - ./data/immich/redis:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - dream-network
 

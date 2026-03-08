@@ -1,18 +1,33 @@
-name: chromadb
-version: "1.0.0"
-description: ChromaDB - The AI-native vector database
-category: database
-authors:
-  - chromadb
-website: https://chromadb.com/
-image: chromadb/chroma:v0.5.20
-gpu: [amd, nvidia]
-port: 8000
-data:
-  - ./data/chromadb:/chromadb
-healthcheck:
-  - wget -q --spider http://localhost:8000/api/v1/heartbeat
-env:
-  - LLM_API_URL
-dependencies: []
-tags: [database, vector, ai]
+schema_version: dream.services.v1
+
+service:
+  id: chromadb
+  name: ChromaDB
+  aliases: [chroma, vector-db]
+  container_name: chromadb
+  host_env: CHROMADB_HOST
+  default_host: chromadb
+  port: 8000
+  external_port_env: CHROMADB_PORT
+  external_port_default: 8000
+  health: /api/v1/heartbeat
+  type: docker
+  gpu_backends: []
+  compose_file: compose.yaml
+  category: optional
+  depends_on: []
+  env_vars: []
+
+features:
+  - id: vector-database
+    name: Vector Database
+    description: AI-native vector database for embeddings
+    icon: Database
+    category: data
+    requirements:
+      services: [chromadb]
+      vram_gb: 0
+    enabled_services_all: [chromadb]
+    setup_time: ~1 minute
+    priority: 9
+    gpu_backends: []

@@ -2,32 +2,28 @@ name: jupyter
 
 services:
   jupyter:
-    image: jupyter/scipy-notebook:notebook-7.3.3
+    image: jupyter/scipy-notebook:latest
     container_name: jupyter
     ports:
       - "${JUPYTER_PORT:-8888}:8888"
     volumes:
-      - ./data/jupyter:/home/jovyan/work
+      - ./data/jupyter/workspaces:/home/jovyan/work
+      - ./data/jupyter/notebooks:/home/jovyan/notebooks
+      - ${PWD}:/home/jovyan/workspace
     environment:
-      - JUPYTER_ENABLE_LAB=yes
-      - JUPYTER_TOKEN=${JUPYTER_TOKEN:-}
       - LLM_API_URL=${LLM_API_URL:-http://localhost:8000}
+      - JUPYTER_TOKEN=${JUPYTER_TOKEN:-jupyter}
+      - NB_PREFIX=/
+    command: start.sh jupyter lab --NotebookApp.token=${JUPYTER_TOKEN:-jupyter} --NotebookApp.password='' --NotebookApp.port=8888 --NotebookApp.ip=0.0.0.0 --NotebookApp.open_browser=False
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8888/api"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8888/tree"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
     networks:
       - dream-network
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
 
 networks:
   dream-network:

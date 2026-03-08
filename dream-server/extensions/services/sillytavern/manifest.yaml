@@ -2,17 +2,32 @@ schema_version: dream.services.v1
 
 service:
   id: sillytavern
-  name: SillyTavern (Character Chat)
-  aliases: [st, character, roleplay]
+  name: SillyTavern
+  aliases: [tavern, character-chat]
   container_name: dream-sillytavern
   host_env: SILLYTAVERN_HOST
   default_host: sillytavern
   port: 8000
   external_port_env: SILLYTAVERN_PORT
-  external_port_default: 8001
+  external_port_default: 8000
   health: /
   type: docker
-  gpu_backends: [amd, nvidia]
+  gpu_backends: []
   compose_file: compose.yaml
   category: optional
-  depends_on: [llama-server]
+  depends_on: []
+  env_vars: []
+
+features:
+  - id: character-chat
+    name: Character Chat
+    description: Character-based roleplay chat interface
+    icon: MessageCircle
+    category: chat
+    requirements:
+      services: [sillytavern]
+      vram_gb: 0
+    enabled_services_all: [sillytavern]
+    setup_time: ~1 minute
+    priority: 6
+    gpu_backends: []

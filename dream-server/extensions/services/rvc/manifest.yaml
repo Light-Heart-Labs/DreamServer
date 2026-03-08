@@ -1,20 +1,33 @@
-name: rvc
-version: "1.0.0"
-description: RVC - Retrieval-based Voice Conversion for voice cloning
-category: tool
-authors:
-  - RVC-Project
-website: https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI
-image: aladdin1234/rvc-webui:0.1
-gpu: [amd, nvidia]
-port: 7865
-data:
-  - ./data/rvc/weights:/app/assets/weights
-  - ./data/rvc/opt:/app/opt
-  - ./data/rvc/dataset:/app/dataset
-healthcheck:
-  - wget -q --spider http://localhost:7865
-env:
-  - LLM_API_URL
-dependencies: []
-tags: [voice, audio, ai, conversion, cloning]
+schema_version: dream.services.v1
+
+service:
+  id: rvc
+  name: RVC
+  aliases: [voice-conversion, voice-clone]
+  container_name: rvc
+  host_env: RVC_HOST
+  default_host: rvc
+  port: 7865
+  external_port_env: RVC_PORT
+  external_port_default: 7865
+  health: /
+  type: docker
+  gpu_backends: [amd, nvidia]
+  compose_file: compose.yaml
+  category: optional
+  depends_on: []
+  env_vars: []
+
+features:
+  - id: voice-cloning
+    name: Voice Cloning
+    description: Retrieval-based voice conversion and cloning
+    icon: Mic
+    category: voice
+    requirements:
+      services: [rvc]
+      vram_gb: 6
+    enabled_services_all: [rvc]
+    setup_time: ~2 minutes
+    priority: 12
+    gpu_backends: [amd, nvidia]

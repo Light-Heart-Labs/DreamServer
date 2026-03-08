@@ -1,76 +1,64 @@
-# RVC Extension for Dream Server
+# RVC Extension
+
+Retrieval-Based Voice Conversion - Local AI voice conversion with web UI.
 
 ## Overview
 
-RVC (Retrieval-based Voice Conversion) is a voice cloning and conversion system. Train voice models with just 10 minutes of audio data, then convert any voice to match your trained model.
+RVC (Retrieval-Based Voice Conversion) is an open-source voice conversion framework that allows you to transform voices while preserving the original characteristics. This extension provides a web interface for easy voice manipulation.
 
 ## Features
 
-- Train voice models with minimal data (≤10 mins)
-- Real-time voice conversion
-- Singing voice conversion
-- Pre-trained model support
-- GPU accelerated inference
-
-## Usage
-
-### Enable the extension
-
-```bash
-dream extensions enable rvc
-```
-
-### Access the WebUI
-
-```
-http://localhost:${RVC_PORT:-7865}
-```
-
-### Basic Workflow
-
-1. **Prepare dataset**: Place audio files in `./data/rvc/dataset/`
-2. **Process data**: Use the WebUI to preprocess and extract features
-3. **Train model**: Train your voice model (30 mins - 4 hours depending on data)
-4. **Convert voice**: Use trained model to convert new audio
-
-## Data Directories
-
-| Path | Purpose |
-|------|---------|
-| `./data/rvc/dataset/` | Training audio files |
-| `./data/rvc/weights/` | Model weights and checkpoints |
-| `./data/rvc/opt/` | Output converted audio |
-| `./data/rvc/logs/` | Training logs, TensorBoard |
+- **Voice Conversion**: Transform voices while preserving speaker characteristics
+- **Web UI**: Easy-to-use interface on port 7860
+- **Local Processing**: All processing happens locally
+- **Multiple Models**: Support for various RVC models
 
 ## Configuration
 
-| Environment Variable | Default | Description |
-|---------------------|---------|-------------|
-| `RVC_PORT` | 7865 | Web UI port |
+### Environment Variables
 
-## GPU Memory Requirements
+- `RVC_PORT` - Port for web interface (default: 7860)
+- `LLM_API_URL` - URL for your LLM API (from .env)
 
-| Quality | VRAM Required |
-|---------|--------------|
-| Low | 4 GB |
-| Medium | 6 GB |
-| High | 8+ GB |
+### Volumes
 
-## Integration
+- `./data/rvc/models` - RVC models storage
+- `./data/rvc/voices` - Input/output voices
+- `./data/rvc/index` - Index files for voice conversion
+- `./data/rvc/logs` - Processing logs
 
-RVC works standalone for voice conversion. Combined with other extensions:
-- **Piper TTS** → RVC: TTS output → voice conversion
-- **Whisper** → RVC: Transcribe → convert voice → synthesize
+### Ports
 
-## Uninstall
+- `7860` - Web interface
+
+## Quick Start
 
 ```bash
-dream extensions disable rvc
+# Add to your dream-server/extensions/enabled.yaml
+- rvc
+
+# Start the extension
+cd dream-server
+./dream.sh up rvc
+
+# Or with docker-compose
+docker-compose -f extensions/services/rvc/compose.yaml up -d
 ```
 
-Models and data in `./data/rvc/` are preserved.
+## Usage
 
-## Documentation
+### Web Interface
 
-- GitHub: <https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI>
-- Models: <https://huggingface.co/lj1995/VoiceConversionWebUI>
+Access the web interface at `http://localhost:7860`.
+
+### Voice Conversion Workflow
+
+1. Upload your source voice audio
+2. Select a pre-trained RVC model
+3. Configure conversion parameters
+4. Process and download converted audio
+
+## Links
+
+- [RVC GitHub](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI)
+- [Docker Hub](https://hub.docker.com/_/python)

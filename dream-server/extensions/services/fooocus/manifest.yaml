@@ -2,8 +2,8 @@ schema_version: dream.services.v1
 
 service:
   id: fooocus
-  name: Fooocus (Image Generation)
-  aliases: [image, generation, fooocus-ui]
+  name: Fooocus
+  aliases: [fooocus-ui, image, generation]
   container_name: dream-fooocus
   host_env: FOOOCUS_HOST
   default_host: fooocus
@@ -16,3 +16,18 @@ service:
   compose_file: compose.yaml
   category: optional
   depends_on: []
+  env_vars: []
+
+features:
+  - id: image-generation
+    name: Image Generation
+    description: User-friendly image generation with Stable Diffusion
+    icon: Image
+    category: media
+    requirements:
+      services: [fooocus]
+      vram_gb: 8
+    enabled_services_all: [fooocus]
+    setup_time: ~3 minutes
+    priority: 8
+    gpu_backends: [amd, nvidia]

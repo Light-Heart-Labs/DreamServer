@@ -2,17 +2,36 @@ schema_version: dream.services.v1
 
 service:
   id: dify
-  name: Dify (AI Workflow Builder)
-  aliases: [workflow, agent, llm-app]
+  name: Dify
+  aliases: [llm-app, workflow, agent]
   container_name: dream-dify
   host_env: DIFY_HOST
   default_host: dify
-  port: 5001
+  port: 80
   external_port_env: DIFY_PORT
-  external_port_default: 8002
+  external_port_default: 8080
   health: /health
   type: docker
   gpu_backends: [amd, nvidia]
   compose_file: compose.yaml
   category: optional
-  depends_on: [llama-server]
+  depends_on: []
+  env_vars:
+    - key: DIFY_SECRET_KEY
+      required: true
+      secret: true
+      description: Dify secret key for API access
+
+features:
+  - id: agent-platform
+    name: AI Agent Platform
+    description: Build and deploy AI agents and workflows
+    icon: Bot
+    category: ai
+    requirements:
+      services: [dify]
+      vram_gb: 4
+    enabled_services_all: [dify]
+    setup_time: ~2 minutes
+    priority: 7
+    gpu_backends: [amd, nvidia]
