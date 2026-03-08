@@ -324,4 +324,21 @@ I get pinged every 15 minutes by the ping bot (Android-18). On each ping:
 **Michael**: 1469752283842478356 | **17 bot**: 1469755091899908096 | **Todd bot**: 1469775716076753010 | **My bot**: 1470898132668776509
 
 ---
+
 ## Scratch Notes (Added by 16 — will be archived on reset)
+
+**2026-03-07 19:05 EST - Status after redirect:**
+- Ollama extension (Wave 1 #1) — ✅ Built and pushed
+- SillyTavern extension (Wave 1 #2) — ✅ Built and pushed
+- Branch `16/upstream-pins` pushed to dev repo with 8 commits
+- Installer testing on .143 — halted waiting for user input
+- Next: Build Dify, Fooocus, ChromaDB, Piper TTS, Aider, RVC, Jupyter, Immich
+
+**Push command that worked:**
+```bash
+git push dev 16/upstream-pins
+```
+The dev repo is `git@github-ssignall:SSignall/Lighthouse-AI-Dev.git`
+
+**Extension structure note:**
+Extensions live in `./dream-server/extensions/services/` not `./extensions/services/`
