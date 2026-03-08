@@ -1,0 +1,144 @@
+{
+  "name": "Qdrant RAG Ingestion Pipeline",
+  "active": true,
+  "settings": {},
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "rag-ingest",
+        "options": {}
+      },
+      "id": "rag-webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Split text into chunks\nconst text = $json.text || $json.message || 'Default text';\nconst chunkSize = parseInt($json.chunkSize) || 512;\nconst chunks = [];\n\nfor (let i = 0; i < text.length; i += chunkSize) {\n  chunks.push(text.substring(i, i + chunkSize));\n}\n\nreturn chunks.map(chunk => ({\n  json: { text: chunk, chunkIndex: chunks.indexOf(chunk) }\n}));"
+      },
+      "id": "chunk-text",
+      "name": "Chunk Text",
+      "type": "n8n-nodes-base.functions",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://{{ $env.EMBEDDINGS_HOST | default('localhost') }}:{{ $env.EMBEDDINGS_PORT | default('8080') }}/embeddings",
+        "method": "POST",
+        "headers": {
+          "list": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "body": {
+          "input": "={{ $json.text }}",
+          "model": "={{ $json.model || 'all-MiniLM-L6-v2' }}"
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "generate-embedding",
+      "name": "Generate Embedding",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://{{ $env.QDRANT_HOST | default('localhost') }}:{{ $env.QDRANT_PORT | default('6333') }}/collections/dream-server/points",
+        "method": "PUT",
+        "headers": {
+          "list": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "body": {
+          "id": "={{ $json.id || $json.chunkIndex || Date.now() }}",
+          "payload": {
+            "text": "={{ $json.text }}",
+            "timestamp": "={{ new Date().toISOString() }}"
+          },
+          "vector": "={{ $json.embedding || [] }}"
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "qdrant-insert",
+      "name": "Insert to Qdrant",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Return summary\nreturn [{\n  json: {\n    success: true,\n    chunks_processed: $json.chunks_processed || 1,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "summarize",
+      "name": "Summary",
+      "type": "n8n-nodes-base.functions",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Chunk Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chunk Text": {
+      "main": [
+        [
+          {
+            "node": "Generate Embedding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Embedding": {
+      "main": [
+        [
+          {
+            "node": "Qdrant Insert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qdrant Insert": {
+      "main": [
+        [
+          {
+            "node": "Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "instanceId": "rag-ingestion-workflow-v1"
+  }
+}
