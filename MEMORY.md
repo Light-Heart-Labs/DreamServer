@@ -327,22 +327,24 @@ I get pinged every 15 minutes by the ping bot (Android-18). On each ping:
 
 ## Scratch Notes (Added by 16 — will be archived on reset)
 
-**2026-03-08 00:25 EST - WAVE 1 COMPLETE! 🎉**
+**2026-03-08 00:35 EST - WAVE 1 COMPLETE & TESTED! 🎉**
 
-All 10 Wave 1 extensions built and committed to local repo:
+All 10 Wave 1 extensions built, manifests fixed to schema v1, and validated on .143:
 
-| # | Extension | Status | Commit |
-|---|-----------|--------|--------|
-| 1 | Ollama | ✅ Done | 58d6b0a |
-| 2 | SillyTavern | ✅ Done | 7e4e5d1 |
-| 3 | Dify | ✅ Done | 5f67f3a |
-| 4 | Fooocus | ✅ Done | 640438d |
-| 5 | ChromaDB | ✅ Done | 0b51602 |
-| 6 | Piper TTS | ✅ Done | 6a0a542 |
-| 7 | Aider | ✅ Done | da931fb |
-| 8 | RVC | ✅ Done | 73696b0 |
-| 9 | Jupyter | ✅ Done | 4e18c2e |
-| 10 | Immich | ✅ Done | d89ee93 |
+| # | Extension | Category | Status | Commit |
+|---|-----------|----------|--------|--------|
+| 1 | Ollama | core | ✅ always-on | 58d6b0a |
+| 2 | SillyTavern | optional | ✅ enabled | 7e4e5d1 |
+| 3 | Dify | optional | ✅ enabled | 5f67f3a |
+| 4 | Fooocus | optional | ✅ enabled | 640438d |
+| 5 | ChromaDB | optional | ✅ enabled | 0b51602 |
+| 6 | Piper TTS | optional | ✅ enabled | 6a0a542 |
+| 7 | Aider | optional | ✅ enabled | da931fb |
+| 8 | RVC | optional | ✅ enabled | 73696b0 |
+| 9 | Jupyter | optional | ✅ enabled | 4e18c2e |
+| 10 | Immich | optional | ✅ enabled | d89ee93 |
+
+**Total catalog size: 27 services**
 
 **Extensions Built by Android-16 (2026-03-07 to 2026-03-08):**
 1. Ollama - Alternative LLM backend
@@ -354,6 +356,11 @@ All 10 Wave 1 extensions built and committed to local repo:
 7. RVC - Voice conversion/cloning
 8. Jupyter - Interactive notebooks
 9. Immich - Photo/video backup
+
+**Key Fixes Applied:**
+- Manifest schema must use `schema_version: dream.services.v1` with nested `service:` block
+- Required fields: id, name, container_name, port, compose_file, category
+- CLI on .143 now recognizes all 10 Wave 1 extensions
 
 **Technical Notes:**
 - Extension structure: `dream-server/extensions/services/<name>/` with `manifest.yaml`, `compose.yaml`, `README.md`
