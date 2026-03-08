@@ -1,0 +1,104 @@
+{
+  "name": "Embeddings Vector Generation",
+  "active": true,
+  "settings": {},
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "embeddings-generate",
+        "options": {}
+      },
+      "id": "embeddings-webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://{{ $env.EMBEDDINGS_HOST | default('localhost') }}:{{ $env.EMBEDDINGS_PORT | default('8080') }}/embeddings",
+        "method": "POST",
+        "headers": {
+          "list": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "body": {
+          "input": "={{ $json.text || $json.message || 'Default text' }}",
+          "model": "={{ $json.model || 'all-MiniLM-L6-v2' }}"
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "embeddings-api-call",
+      "name": "Embeddings API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process embeddings response\nconst body = $json;\nconst embeddings = body.data || [];\nconst firstEmbedding = embeddings[0]?.embedding || [];\nconst usage = body.usage || {};\n\nreturn [{\n  json: {\n    success: embeddings.length > 0,\n    embedding_dim: firstEmbedding.length,\n    total_embeddings: embeddings.length,\n    tokens_used: usage.total_tokens || 0,\n    timestamp: new Date().toISOString()\n  },\n  binary: {\n    embedding: {\n      data: Buffer.from(JSON.stringify(firstEmbedding)),\n      mimeType: 'application/json'\n    }\n  }\n}];"
+      },
+      "id": "process-embeddings",
+      "name": "Process Embeddings",
+      "type": "n8n-nodes-base.functions",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $json.channel || '#general' }}",
+        "text": "={{ `*Embeddings Generated*\\n\\n**Dimension:** ${$json.embedding_dim}\\n**Count:** ${$json.total_embeddings}\\n**Tokens Used:** ${$json.tokens_used}` }}"
+      },
+      "id": "discord-output",
+      "name": "Discord Output",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "position": [850, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Embeddings API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings API": {
+      "main": [
+        [
+          {
+            "node": "Process Embeddings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Embeddings": {
+      "main": [
+        [
+          {
+            "node": "Discord Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "instanceId": "embeddings-workflow-v1"
+  }
+}
