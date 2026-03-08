@@ -33,10 +33,11 @@ RUN pip3 install --no-cache-dir \
         --index-url https://download.pytorch.org/whl/cu128
 
 # ---------------------------------------------------------------------------
-# Layer 3: ComfyUI from source (pinned to release tag)
+# Layer 3: ComfyUI from source (pinned to release tag v0.16.4)
 # ---------------------------------------------------------------------------
 RUN git clone https://github.com/comfyanonymous/ComfyUI.git "$COMFYUI_DIR" \
     && cd "$COMFYUI_DIR" \
+    && git checkout v0.16.4 \
     && pip3 install --no-cache-dir -r requirements.txt
 
 # ---------------------------------------------------------------------------
