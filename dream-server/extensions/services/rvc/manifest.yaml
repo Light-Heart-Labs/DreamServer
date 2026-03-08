@@ -1,0 +1,20 @@
+name: rvc
+version: "1.0.0"
+description: RVC - Retrieval-based Voice Conversion for voice cloning
+category: tool
+authors:
+  - RVC-Project
+website: https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI
+image: aladdin1234/rvc-webui:0.1
+gpu: [amd, nvidia]
+port: 7865
+data:
+  - ./data/rvc/weights:/app/assets/weights
+  - ./data/rvc/opt:/app/opt
+  - ./data/rvc/dataset:/app/dataset
+healthcheck:
+  - wget -q --spider http://localhost:7865
+env:
+  - LLM_API_URL
+dependencies: []
+tags: [voice, audio, ai, conversion, cloning]

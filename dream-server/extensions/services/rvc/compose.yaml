@@ -1,0 +1,37 @@
+name: rvc
+
+services:
+  rvc:
+    image: aladdin1234/rvc-webui:0.1
+    container_name: rvc
+    ports:
+      - "${RVC_PORT:-7865}:7865"
+    volumes:
+      - ./data/rvc/weights:/app/assets/weights
+      - ./data/rvc/opt:/app/opt
+      - ./data/rvc/dataset:/app/dataset
+      - ./data/rvc/logs:/app/logs
+    environment:
+      - LLM_API_URL=${LLM_API_URL:-http://localhost:8000}
+    shm_size: "1gb"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:7865"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+      - dream-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+networks:
+  dream-network:
+    external: true
+    name: dream-network
