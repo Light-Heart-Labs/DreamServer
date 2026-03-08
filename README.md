@@ -334,6 +334,10 @@ Thanks to [kyuz0](https://github.com/kyuz0) for [amd-strix-halo-toolboxes](https
 *   [Speaches](https://github.com/speaches-ai/speaches) — Speech-to-text
 *   [Strix Halo Home Lab](https://strixhalo-homelab.d7.wtf/) — Community knowledge base
 
+### Community Contributors
+
+*   [Yasin Bursali (yasinBursali)](https://github.com/yasinBursali) — Fixed CI workflow discovery, added dashboard-api router test coverage with security-focused tests (auth enforcement, path traversal protection), and documented all 14 undocumented extension services
+
 If we missed anyone, [open an issue](https://github.com/Light-Heart-Labs/DreamServer/issues). We want to get this right.
 
 ---
