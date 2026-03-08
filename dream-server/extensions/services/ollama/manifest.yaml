@@ -1,0 +1,36 @@
+schema_version: dream.services.v1
+
+service:
+  id: ollama
+  name: Ollama (LLM Backend)
+  aliases: [ollama-backend, ollama-api]
+  container_name: dream-ollama
+  host_env: OLLAMA_HOST
+  default_host: ollama
+  port: 11434
+  external_port_env: OLLAMA_PORT
+  external_port_default: 11434
+  health: /api/health
+  type: docker
+  gpu_backends: [amd, nvidia]
+  category: core
+  depends_on: []
+  env_vars:
+    - key: OLLAMA_MODEL
+      required: false
+      default: llama3
+      description: Default model to load on startup
+
+features:
+  - id: llm
+    name: Local LLM Inference
+    description: Run open-source LLMs locally via Ollama
+    icon: Brain
+    category: inference
+    requirements:
+      services: [ollama]
+      vram_gb: 4
+    enabled_services_all: [ollama]
+    setup_time: ~2 minutes
+    priority: 1
+    gpu_backends: [amd, nvidia]
