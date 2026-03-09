@@ -78,15 +78,34 @@ function New-DreamEnv {
         [string]$LlamaServerImage = ""
     )
 
-    # Generate secrets
-    $webuiSecret     = New-SecureHex -Bytes 32
-    $n8nPass         = New-SecureBase64 -Bytes 16
-    $litellmKey      = "sk-dream-$(New-SecureHex -Bytes 16)"
-    $livekitSecret   = New-SecureBase64 -Bytes 32
-    $livekitApiKey   = New-SecureHex -Bytes 16
-    $dashboardApiKey = New-SecureHex -Bytes 32
-    $openclawToken   = New-SecureHex -Bytes 24
-    $searxngSecret   = New-SecureHex -Bytes 32
+    # Preserve existing secrets on re-install (mirrors Linux _env_get logic)
+    $existingEnv = @{}
+    $envPath = Join-Path $InstallDir ".env"
+    if (Test-Path $envPath) {
+        Get-Content $envPath | ForEach-Object {
+            if ($_ -match "^([A-Za-z_][A-Za-z0-9_]*)=(.*)$") {
+                $existingEnv[$Matches[1]] = $Matches[2]
+            }
+        }
+    }
+
+    # Helper: reuse existing value or generate new
+    function Get-EnvOrNew { param([string]$Key, [string]$Default)
+        if ($existingEnv.ContainsKey($Key) -and $existingEnv[$Key]) {
+            return $existingEnv[$Key]
+        }
+        return $Default
+    }
+
+    # Generate secrets (reuse existing on re-install)
+    $webuiSecret     = Get-EnvOrNew "WEBUI_SECRET"       (New-SecureHex -Bytes 32)
+    $n8nPass         = Get-EnvOrNew "N8N_PASS"           (New-SecureBase64 -Bytes 16)
+    $litellmKey      = Get-EnvOrNew "LITELLM_KEY"        "sk-dream-$(New-SecureHex -Bytes 16)"
+    $livekitSecret   = Get-EnvOrNew "LIVEKIT_API_SECRET" (New-SecureBase64 -Bytes 32)
+    $livekitApiKey   = Get-EnvOrNew "LIVEKIT_API_KEY"    (New-SecureHex -Bytes 16)
+    $dashboardApiKey = Get-EnvOrNew "DASHBOARD_API_KEY"  (New-SecureHex -Bytes 32)
+    $openclawToken   = Get-EnvOrNew "OPENCLAW_TOKEN"     (New-SecureHex -Bytes 24)
+    $searxngSecret   = Get-EnvOrNew "SEARXNG_SECRET"     (New-SecureHex -Bytes 32)
 
     # Determine LLM API URL based on backend
     # AMD on Windows: llama-server runs natively, containers reach it via host.docker.internal
@@ -154,9 +173,9 @@ DREAM_MODE=$DreamMode
 LLM_API_URL=$llmApiUrl
 
 #=== Cloud API Keys ===
-ANTHROPIC_API_KEY=
-OPENAI_API_KEY=
-TOGETHER_API_KEY=
+ANTHROPIC_API_KEY=$(Get-EnvOrNew "ANTHROPIC_API_KEY" "")
+OPENAI_API_KEY=$(Get-EnvOrNew "OPENAI_API_KEY" "")
+TOGETHER_API_KEY=$(Get-EnvOrNew "TOGETHER_API_KEY" "")
 
 #=== LLM Settings (llama-server) ===
 LLM_MODEL=$($TierConfig.LlmModel)
