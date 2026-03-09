@@ -1,395 +1,319 @@
+<div align="center">
+
 # Dream Server
 
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](../LICENSE)
-[![Docker](https://img.shields.io/badge/Docker-Required-2496ED?logo=docker)](https://docs.docker.com/get-docker/)
-[![NVIDIA](https://img.shields.io/badge/NVIDIA-GPU%20Accelerated-76B900?logo=nvidia)](https://developer.nvidia.com/cuda-toolkit)
-[![AMD](https://img.shields.io/badge/AMD-Strix%20Halo%20ROCm-ED1C24?logo=amd)](https://rocm.docs.amd.com/)
-[![n8n](https://img.shields.io/badge/n8n-Workflows-FF6D5A?logo=n8n)](https://n8n.io)
+### One command to a fully local AI stack.
 
-**Your turnkey local AI stack.** Buy hardware. Run installer. AI running.
+**LLM inference, chat UI, voice agents, workflow automation, RAG, image generation, and privacy tools — all running on your hardware. No cloud. No subscriptions. No configuration.**
+
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![GitHub Stars](https://img.shields.io/github/stars/Light-Heart-Labs/DreamServer)](https://github.com/Light-Heart-Labs/DreamServer/stargazers)
+[![Release](https://img.shields.io/github/v/release/Light-Heart-Labs/DreamServer)](https://github.com/Light-Heart-Labs/DreamServer/releases)
+
+![Dream Server Dashboard](docs/images/dashboard.png)
+
+[![Watch the demo](https://img.shields.io/badge/Demo-Watch%20on%20YouTube-red?logo=youtube)](https://youtu.be/nO8xFNHX-HA)
+
+**New here?** Read the [Friendly Guide](dream-server/docs/HOW-DREAM-SERVER-WORKS.md) or [listen to the audio version](https://open.spotify.com/episode/40MvqJ41bC8cEgvUyOyE3K) — a complete walkthrough of what Dream Server is, how it works, and how to make it your own. No technical background needed.
+
+</div>
 
 ---
 
-## Platform Support
-
+> **Platform Support — March 2026**
+>
 > | Platform | Status |
 > |----------|--------|
 > | **Linux** (NVIDIA + AMD) | **Supported** — install and run today |
-> | **macOS** (Apple Silicon) | **Supported** — install and run today |
 > | **Windows** (NVIDIA + AMD) | **Supported** — install and run today |
+> | **macOS** (Apple Silicon) | **Supported** — install and run today |
 >
-> All three platforms are fully supported with one-command installers. See [`docs/SUPPORT-MATRIX.md`](docs/SUPPORT-MATRIX.md) for detailed tier status.
-
-See [`docs/SUPPORT-MATRIX.md`](docs/SUPPORT-MATRIX.md) for current support tiers and platform status.
-Launch-claim guardrails: [`docs/PLATFORM-TRUTH-TABLE.md`](docs/PLATFORM-TRUTH-TABLE.md)
-Known-good version baselines: [`docs/KNOWN-GOOD-VERSIONS.md`](docs/KNOWN-GOOD-VERSIONS.md)
-
-## Installer Evidence
-
-- Run simulation suite: `bash scripts/simulate-installers.sh`
-- Output artifacts:
-  - `artifacts/installer-sim/summary.json`
-  - `artifacts/installer-sim/SUMMARY.md`
-- CI uploads these artifacts on each PR via `.github/workflows/test-linux.yml`
-- One-command maintainer gate: `bash scripts/release-gate.sh`
+> **Tested Linux distros:** Ubuntu 24.04/22.04, Debian 12, Fedora 41+, Arch Linux, CachyOS, openSUSE Tumbleweed. Other distros using apt, dnf, pacman, or zypper should also work — [open an issue](https://github.com/Light-Heart-Labs/DreamServer/issues) if yours doesn't.
+>
+> **Windows:** Requires Docker Desktop with WSL2 backend. NVIDIA GPUs use Docker GPU passthrough; AMD Strix Halo runs llama-server natively with Vulkan.
+>
+> **macOS:** Requires Apple Silicon (M1+) and Docker Desktop. llama-server runs natively with Metal GPU acceleration; all other services run in Docker.
+>
+> See the [Support Matrix](dream-server/docs/SUPPORT-MATRIX.md) for details.
 
 ---
 
-## 5-Minute Quickstart (Linux)
+## Why Dream Server?
+
+Setting up local AI usually means stitching together a dozen projects, debugging CUDA drivers, writing Docker configs, and hoping everything talks to each other. Dream Server replaces all of that with a single installer.
+
+- **Run one command** — the installer detects your GPU, picks the right model for your hardware, generates secure credentials, and launches everything
+- **Chat in under 2 minutes** — bootstrap mode starts a small model instantly while your full model downloads in the background
+- **13 integrated services** — chat, agents, voice, workflows, search, RAG, image generation, and more, all pre-wired and working together
+- **Fully moddable** — drop in a folder, run `dream enable`, done. Every service is an extension
 
 ```bash
-# One-line install (Linux — NVIDIA or AMD)
-curl -fsSL https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/main/get-dream-server.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/main/dream-server/get-dream-server.sh | bash
 ```
 
-Or manually:
+Open **http://localhost:3000** and start chatting.
+
+> **No GPU?** Dream Server also runs in cloud mode — same full stack, powered by OpenAI/Anthropic/Together APIs instead of local inference:
+> ```bash
+> ./install.sh --cloud
+> ```
+
+> **Port conflicts?** Every port is configurable via environment variables. See [`.env.example`](dream-server/.env.example) for the full list, or override at install time:
+> ```bash
+> WEBUI_PORT=9090 ./install.sh
+> ```
+
+<div align="center">
+
+![Dream Server Installer](docs/images/installer-splash.gif)
+
+*The DREAMGATE installer handles everything — GPU detection, model selection, service orchestration.*
+
+</div>
+
+<details>
+<summary><b>Manual install (Linux)</b></summary>
 
 ```bash
 git clone https://github.com/Light-Heart-Labs/DreamServer.git
-cd DreamServer
+cd DreamServer/dream-server
 ./install.sh
 ```
 
-The installer auto-detects your GPU, picks the right model, generates secure passwords, and starts everything. Open **http://localhost:3000** and start chatting.
+</details>
 
-### Instant Start (Bootstrap Mode)
+<details>
+<summary><b>Windows (PowerShell)</b></summary>
 
-By default, Dream Server uses **bootstrap mode** for instant gratification:
-
-1. Starts immediately with a tiny 1.5B model (downloads in <1 minute)
-2. You can start chatting within **2 minutes** of running the installer
-3. The full model downloads in the background
-4. When ready, run `./scripts/upgrade-model.sh` to hot-swap to the full model
-
-No more staring at download bars. Start playing immediately.
-
-To skip bootstrap and wait for the full model: `./install.sh --no-bootstrap`
-
-### macOS (Apple Silicon)
-
-> **Prerequisite:** Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and make sure it is running before you start.
-
-```bash
-./install.sh    # Auto-detects chip, launches Metal-accelerated inference + Docker services
-```
-
-llama-server runs natively with Metal GPU acceleration; all other services run in Docker. See [`docs/MACOS-QUICKSTART.md`](docs/MACOS-QUICKSTART.md) for details.
-
-### Windows (NVIDIA + AMD)
-
-> **Prerequisite:** Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) with WSL2 backend and make sure it is running before you start.
+Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) with WSL2 backend enabled.
+**Install Docker Desktop first and make sure it is running before you start.**
 
 ```powershell
-.\install.ps1   # Auto-detects GPU, launches all services via Docker Desktop + WSL2
+git clone https://github.com/Light-Heart-Labs/DreamServer.git
+cd DreamServer
+.\install.ps1
 ```
 
-See [`docs/WINDOWS-QUICKSTART.md`](docs/WINDOWS-QUICKSTART.md) for details.
+The installer detects your GPU, picks the right model, generates credentials, starts all services, and creates a Desktop shortcut to the Dashboard. Manage with `.\dream-server\installers\windows\dream.ps1 status`.
+
+</details>
+
+<details>
+<summary><b>macOS (Apple Silicon)</b></summary>
+
+Requires Apple Silicon (M1+) and [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+**Install Docker Desktop first and make sure it is running before you start.**
+
+```bash
+git clone https://github.com/Light-Heart-Labs/DreamServer.git
+cd DreamServer/dream-server
+./install.sh
+```
+
+The installer detects your chip, picks the right model for your unified memory, launches llama-server natively with Metal acceleration, and starts all other services in Docker. Manage with `./dream-macos.sh status`.
+
+See the [macOS Quickstart](dream-server/docs/MACOS-QUICKSTART.md) for details.
+
+</details>
 
 ---
 
-## What's Included
+## What You Get
 
-| Component | Purpose | Port | Backend |
-|-----------|---------|------|---------|
-| **llama-server** | LLM inference engine | 8080 | Both |
-| **Open WebUI** | Beautiful chat interface | 3000 | Both |
-| **Dashboard** | System status, GPU metrics, service health | 3001 | Both |
-| **Dashboard API** | Backend API for dashboard | 3002 | Both |
-| **LiteLLM** | Multi-model API gateway | 4000 | Both |
-| **OpenClaw** | Autonomous AI agent framework | 7860 | Both |
-| **SearXNG** | Self-hosted web search | 8888 | Both |
-| **Perplexica** | Deep research engine | 3004 | Both |
-| **n8n** | Workflow automation | 5678 | Both |
-| **Qdrant** | Vector database for RAG | 6333 | Both |
-| **Embeddings** | Text embeddings for RAG | 8090 | Both |
-| **Whisper** | Speech-to-text | 9000 | Both |
-| **Kokoro** | Text-to-speech | 8880 | Both |
-| **Privacy Shield** | PII protection for API calls | 8085 | Both |
-| **Memory Shepherd** | Agent memory lifecycle management | — | AMD |
-| **ComfyUI** | Image generation | 8188 | Both |
+### Chat & Inference
+- **Open WebUI** — full-featured chat interface with conversation history, web search, document upload, and [30+ languages](https://docs.openwebui.com)
+- **llama-server** — high-performance LLM inference with continuous batching, auto-selected for your GPU
+- **LiteLLM** — API gateway supporting local/cloud/hybrid modes
 
-## Hardware Tiers
+### Voice
+- **Whisper** — speech-to-text
+- **Kokoro** — text-to-speech
 
-The installer **automatically detects your GPU** and selects the right configuration:
+### Agents & Automation
+- **OpenClaw** — autonomous AI agent framework
+- **n8n** — workflow automation with 400+ integrations (Slack, email, databases, APIs)
+
+### Knowledge & Search
+- **Qdrant** — vector database for retrieval-augmented generation (RAG)
+- **SearXNG** — self-hosted web search (no tracking)
+- **Perplexica** — deep research engine
+
+### Creative
+- **ComfyUI** — node-based image generation
+
+### Privacy & Ops
+- **Privacy Shield** — PII scrubbing proxy for API calls
+- **Dashboard** — real-time GPU metrics, service health, model management
+
+---
+
+## Hardware Auto-Detection
+
+The installer detects your GPU and picks the optimal model automatically. No manual configuration.
+
+### NVIDIA
+
+| VRAM | Model | Example GPUs |
+|------|-------|--------------|
+| 8–11 GB | Qwen 2.5 7B (Q4_K_M) | RTX 4060 Ti, RTX 3060 12GB |
+| 12–20 GB | Qwen 2.5 14B (Q4_K_M) | RTX 3090, RTX 4080 |
+| 20–40 GB | Qwen 2.5 32B (Q4_K_M) | RTX 4090, A6000 |
+| 40+ GB | Qwen 2.5 72B (Q4_K_M) | A100, multi-GPU |
+| 90+ GB | Qwen3 Coder Next 80B MoE | Multi-GPU A100/H100 |
 
 ### AMD Strix Halo (Unified Memory)
 
-| Tier | Unified VRAM | Model | Context | Example Hardware |
-|------|-------------|-------|---------|-----------------|
-| SH_LARGE | 90GB+ | qwen3-coder-next (80B MoE, 3B active) | 128K | Ryzen AI MAX+ 395 (96GB VRAM config) |
-| SH_COMPACT | 64-89GB | qwen3-30b-a3b (30B MoE, 3B active) | 128K | Ryzen AI MAX+ 395 (64GB VRAM config) |
-
-Both tiers use `qwen2.5:7b` as a bootstrap model for instant startup. The full model downloads in the background via GGUF from HuggingFace.
-
-**Inference backend:** llama-server via ROCm 7.2 (Docker image: `kyuz0/amd-strix-halo-toolboxes:rocm-7.2`)
-
-### NVIDIA (Discrete GPU)
-
-| Tier | VRAM | Model | Quant | Context | Example GPUs |
-|------|------|-------|-------|---------|--------------|
-| NV_ULTRA | 90GB+ | qwen3-coder-next | GGUF Q4_K_M | 128K | Multi-GPU A100/H100 |
-| 1 (Entry) | <12GB | qwen2.5-7b-instruct | GGUF Q4_K_M | 16K | RTX 3080, RTX 4070 |
-| 2 (Prosumer) | 12-20GB | qwen2.5-14b-instruct | GGUF Q4_K_M | 16K | RTX 3090, RTX 4080 |
-| 3 (Pro) | 20-40GB | qwen2.5-32b-instruct | GGUF Q4_K_M | 32K | RTX 4090, A6000 |
-| 4 (Enterprise) | 40GB+ | qwen2.5-72b-instruct | GGUF Q4_K_M | 32K | A100, H100, multi-GPU |
+| Unified RAM | Model | Hardware |
+|-------------|-------|----------|
+| 64–89 GB | Qwen3 30B-A3B (30B MoE) | Ryzen AI MAX+ 395 (64GB) |
+| 90+ GB | Qwen3 Coder Next (80B MoE) | Ryzen AI MAX+ 395 (96GB) |
 
 ### Apple Silicon (Unified Memory, Metal)
 
-| Tier | Unified RAM | Model | Quant | Context | Example Hardware |
-|------|-------------|-------|-------|---------|-----------------|
-| 1 (Entry) | 8–24GB | qwen3-4b | GGUF Q4_K_M | 16K | M1/M2 base, M4 Mac Mini (16GB) |
-| 2 (Prosumer) | 32GB | qwen3-8b | GGUF Q4_K_M | 32K | M4 Pro Mac Mini, M3 Max MacBook Pro |
-| 3 (Pro) | 48GB | qwen3-30b-a3b (30B MoE) | GGUF Q4_K_M | 32K | M4 Pro (48GB), M2 Max (48GB) |
-| 4 (Enterprise) | 64GB+ | qwen3-30b-a3b (30B MoE) | GGUF Q4_K_M | 131K | M2 Ultra Mac Studio, M4 Max (64GB+) |
+| Unified RAM | Model | Example Hardware |
+|-------------|-------|-----------------|
+| 8–24 GB | Qwen3 4B (Q4_K_M) | M1/M2 base, M4 Mac Mini (16GB) |
+| 32 GB | Qwen3 8B (Q4_K_M) | M4 Pro Mac Mini, M3 Max MacBook Pro |
+| 48 GB | Qwen3 30B-A3B (MoE, Q4_K_M) | M4 Pro (48GB), M2 Max (48GB) |
+| 64+ GB | Qwen3 30B-A3B (MoE, Q4_K_M) | M2 Ultra Mac Studio, M4 Max (64GB+) |
 
-Override with: `./install.sh --tier 3`
-
-See [docs/HARDWARE-GUIDE.md](docs/HARDWARE-GUIDE.md) for buying recommendations.
+Override tier selection: `./install.sh --tier 3`
 
 ---
 
-## Architecture
+## Bootstrap Mode
 
-### AMD Strix Halo (llama-server + ROCm)
+No waiting for large downloads. Dream Server uses bootstrap mode by default:
 
-```
-┌─────────────────────────────────────────────────┐
-│                   Open WebUI                    │
-│               (localhost:3000)                  │
-└─────────────────────┬───────────────────────────┘
-                      │
-┌─────────────────────▼───────────────────────────┐
-│               llama-server (ROCm 7.2)           │
-│            (localhost:8080/v1/...)               │
-│        qwen3-coder-next / qwen3-30b-a3b         │
-└─────────────────────────────────────────────────┘
-         │                              │
-┌────────▼────────┐            ┌───────▼────────┐
-│   OpenClaw      │            │    Dashboard    │
-│ (Agent :7860)   │            │ (Status :3001)  │
-└─────────────────┘            └────────────────┘
+1. Downloads a tiny 1.5B model in under a minute
+2. You start chatting immediately
+3. The full model downloads in the background
+4. Hot-swap to the full model when it's ready — zero downtime
 
-┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-│ n8n (:5678) │  │Qdrant(:6333)│  │LiteLLM(:4000)│
-│  Workflows  │  │  Vector DB  │  │ API Gateway │
-└─────────────┘  └─────────────┘  └─────────────┘
-```
+<div align="center">
 
-### NVIDIA (llama-server + CUDA)
+![Installer downloading modules](docs/images/installer-download.png)
 
-```
-┌─────────────────────────────────────────────────┐
-│                   Open WebUI                    │
-│               (localhost:3000)                  │
-└─────────────────────┬───────────────────────────┘
-                      │
-┌─────────────────────▼───────────────────────────┐
-│               llama-server (CUDA)               │
-│            (localhost:8080/v1/...)               │
-│            qwen2.5-32b-instruct                 │
-└─────────────────────────────────────────────────┘
-         │                              │
-┌────────▼────────┐            ┌───────▼────────┐
-│    Whisper      │            │     Kokoro      │
-│ (STT :9000)     │            │ (TTS :8880)     │
-└─────────────────┘            └────────────────┘
+*The installer pulls all services in parallel. Downloads are resume-capable — interrupted downloads pick up where they left off.*
 
-┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-│ n8n (:5678) │  │Qdrant(:6333)│  │LiteLLM(:4000)│
-│  Workflows  │  │  Vector DB  │  │ API Gateway │
-└─────────────┘  └─────────────┘  └─────────────┘
+</div>
+
+Skip bootstrap: `./install.sh --no-bootstrap`
+
+---
+
+## Switching Models
+
+The installer picks a model for your hardware, but you can switch anytime:
+
+```bash
+dream model current              # What's running now?
+dream model list                 # Show all available tiers
+dream model swap T3              # Switch to a different tier
 ```
 
-## Modding & Customization
+If the new model isn't downloaded yet, pre-fetch it first:
 
-### Extension Services
+```bash
+./scripts/pre-download.sh --tier 3    # Download before switching
+dream model swap T3                    # Then swap (restarts llama-server)
+```
 
-Each service under `extensions/services/` IS the mod. Drop in a directory, run `dream enable <service>`, and it appears in compose, CLI, dashboard, and health checks.
+Already have a GGUF you want to use? Drop it in `data/models/`, update `GGUF_FILE` and `LLM_MODEL` in `.env`, and restart:
+
+```bash
+docker compose restart llama-server
+```
+
+Rollback is automatic — if a new model fails to load, Dream Server reverts to your previous model.
+
+---
+
+## Extensibility
+
+Dream Server is designed to be modded. Every service is an extension — a folder with a `manifest.yaml` and a `compose.yaml`. The dashboard, CLI, health checks, and compose stack all discover extensions automatically.
 
 ```
 extensions/services/
   my-service/
-    manifest.yaml      # Service metadata, aliases, category
-    compose.yaml       # Docker Compose fragment (auto-merged)
+    manifest.yaml      # Metadata: name, port, health endpoint, GPU backends
+    compose.yaml       # Docker Compose fragment (auto-merged into the stack)
 ```
 
 ```bash
-dream enable my-service    # Enable an extension
-dream disable my-service   # Disable it
-dream list                 # See all services and status
+dream enable my-service     # Enable it
+dream disable my-service    # Disable it
+dream list                  # See everything
 ```
 
-Full guide: [docs/EXTENSIONS.md](docs/EXTENSIONS.md)
+The installer itself is modular — 6 libraries and 13 phases, each in its own file. Want to add a hardware tier, swap a default model, or skip a phase? Edit one file.
 
-### Installer Architecture
-
-The installer is modular — 6 libraries and 13 phases, each in its own file.
-Want to add a hardware tier, swap the theme, or skip a phase? Edit one file.
-
-```
-installers/lib/       # Pure function libraries (colors, GPU detection, tier mapping)
-installers/phases/    # Sequential install steps (01-preflight through 13-summary)
-install-core.sh       # Thin orchestrator (~150 lines)
-```
-
-Every file has a standardized header: Purpose, Expects, Provides, Modder notes.
-
-Full guide with copy-paste recipes: [docs/INSTALLER-ARCHITECTURE.md](docs/INSTALLER-ARCHITECTURE.md)
-
-## Configuration
-
-The installer generates `.env` automatically. Key settings:
-
-```bash
-# NVIDIA
-LLM_MODEL=qwen2.5-32b-instruct            # Model (auto-set by installer)
-CTX_SIZE=32768                             # Context window
-
-# AMD Strix Halo
-LLM_MODEL=qwen3-coder-next                # or qwen3-30b-a3b for compact tier
-CTX_SIZE=131072                            # Context window
-GPU_BACKEND=amd                            # Set automatically by installer
-```
-
-## dream-cli
-
-The `dream` CLI is the primary management tool. It's installed automatically at `~/dream-server/dream-cli` and can be symlinked to your PATH.
-
-```bash
-# Service management
-dream status              # Health checks + GPU status
-dream list                # Show all services and their state
-dream logs <service>      # Tail logs (accepts aliases: llm, stt, tts)
-dream restart [service]   # Restart one or all services
-dream start / stop        # Start or stop the stack
-
-# LLM mode switching
-dream mode                # Show current mode (local/cloud/hybrid)
-dream mode cloud          # Switch to cloud APIs via LiteLLM
-dream mode local          # Switch to local llama-server
-dream mode hybrid         # Local primary, cloud fallback
-
-# Model management (local mode)
-dream model current       # Show active model
-dream model list          # List available tiers
-dream model swap T3       # Switch to a different tier
-
-# Extensions
-dream enable n8n          # Enable an extension
-dream disable whisper     # Disable an extension
-
-# Configuration
-dream config show         # View .env (secrets masked)
-dream config edit         # Open .env in editor
-dream preset save <name>  # Snapshot current config
-dream preset load <name>  # Restore a saved preset
-```
-
-Full mode-switching documentation: [docs/MODE-SWITCH.md](docs/MODE-SWITCH.md)
-
-## Showcase & Demos
-
-```bash
-# Interactive showcase (requires running services)
-./scripts/showcase.sh
-
-# Offline demo mode (no GPU/services needed)
-./scripts/demo-offline.sh
-
-# Run integration tests
-./tests/integration-test.sh
-```
-
-## Useful Commands
-
-```bash
-# dream-cli handles compose flags automatically (works on AMD and NVIDIA)
-dream status                     # Check all services
-dream list                       # See available services and status
-dream logs llm                   # Watch llama-server logs (alias: llm)
-dream logs stt                   # Watch Whisper logs (alias: stt)
-dream restart whisper            # Restart a service
-dream enable n8n                 # Enable an extension
-dream disable comfyui            # Disable an extension
-dream stop                       # Stop everything
-dream start                      # Start everything
-
-# Management scripts
-./scripts/session-cleanup.sh             # Clean up bloated agent sessions
-./scripts/llm-cold-storage.sh --status   # Check model hot/cold storage
-dream mode status                        # Show current mode
-```
-
-## Comparison
-
-| Feature | Dream Server | Ollama + WebUI | LocalAI |
-|---------|:---:|:---:|:---:|
-| Full-stack one-command install | **LLM + agent + workflows + RAG** | LLM + chat only | LLM only |
-| Hardware auto-detect + model selection | **NVIDIA + AMD Strix Halo** | No | No |
-| AMD APU / unified memory support | **ROCm + llama-server** | Partial (Vulkan) | No |
-| Inference engine | **llama-server** (all GPUs) | llama.cpp | llama.cpp |
-| Autonomous AI agent | **OpenClaw** | No | No |
-| Workflow automation | **n8n (400+ integrations)** | No | No |
-| LLM usage monitoring | **Open WebUI built-in** | No | No |
-| Multi-GPU | **Yes** (NVIDIA) | Partial | Partial |
+[Full extension guide](dream-server/docs/EXTENSIONS.md) | [Installer architecture](dream-server/docs/INSTALLER-ARCHITECTURE.md)
 
 ---
 
-## Troubleshooting FAQ
+## dream-cli
 
-**llama-server won't start / OOM errors**
-- Reduce `CTX_SIZE` in `.env` (try 4096)
-- Use a smaller model: `./install.sh --tier 1`
+The `dream` CLI manages your entire stack:
 
-**"Model not found" on first boot**
-- First launch downloads the model (10-30 min depending on size)
-- Watch progress: `dream logs llm`
+```bash
+dream status                # Health checks + GPU status
+dream list                  # All services and their state
+dream logs llm              # Tail logs (aliases: llm, stt, tts)
+dream restart [service]     # Restart one or all services
+dream start / stop          # Start or stop the stack
 
-**Open WebUI shows "Connection error"**
-- llama-server is still loading. Wait for health check to pass: `curl localhost:8080/health`
+dream mode cloud            # Switch to cloud APIs via LiteLLM
+dream mode local            # Switch back to local inference
+dream mode hybrid           # Local primary, cloud fallback
 
-**Port already in use**
-- Change ports in `.env` (e.g., `WEBUI_PORT=3001`)
-- Or stop the conflicting service: `sudo lsof -i :3000`
+dream model swap T3         # Switch to a different hardware tier
+dream enable n8n            # Enable an extension
+dream disable whisper       # Disable one
 
-**Docker permission denied**
-- Add yourself to the docker group: `sudo usermod -aG docker $USER`
-- Log out and back in for it to take effect
+dream config show           # View .env (secrets masked)
+dream preset save gaming    # Snapshot current config
+dream preset load gaming    # Restore it
+```
 
-**WSL: GPU not detected**
-- Install NVIDIA drivers on Windows (not inside WSL)
-- Verify with `nvidia-smi` inside WSL
-- Ensure Docker Desktop has WSL integration enabled
+---
 
-**AMD Strix Halo: llama-server won't start**
-- Check GGUF model exists: `ls -lh data/models/*.gguf`
-- Watch logs: `docker compose -f docker-compose.base.yml -f docker-compose.amd.yml logs -f llama-server`
-- Verify GPU devices: `ls /dev/kfd /dev/dri/renderD128`
-- Ensure ROCm env: `HSA_OVERRIDE_GFX_VERSION=11.5.1` must be set
+## How It Compares
 
-**AMD: "missing tensor" errors**
-- Use upstream llama.cpp GGUF files (from `unsloth/` on HuggingFace)
-- Ollama's GGUF format has incompatible tensor naming for qwen3next architecture
-- Do NOT use Ollama blob files with llama-server
+| | Dream Server | Ollama + Open WebUI | LocalAI |
+|---|:---:|:---:|:---:|
+| One-command full-stack install | LLM + agents + workflows + RAG + voice + images | LLM + chat only | LLM only |
+| Hardware auto-detect + model selection | NVIDIA + AMD Strix Halo | No | No |
+| AMD APU unified memory support | ROCm + llama-server | Partial (Vulkan) | No |
+| Autonomous AI agents | OpenClaw | No | No |
+| Workflow automation | n8n (400+ integrations) | No | No |
+| Voice (STT + TTS) | Whisper + Kokoro | No | No |
+| Image generation | ComfyUI | No | No |
+| RAG pipeline | Qdrant + embeddings | No | No |
+| Extension system | Manifest-based, hot-pluggable | No | No |
+| Multi-GPU | Yes (NVIDIA) | Partial | Partial |
 
 ---
 
 ## Documentation
 
-- [docs/README.md](docs/README.md) — **Full documentation index** (start here)
-- [QUICKSTART.md](QUICKSTART.md) — Detailed setup guide
-- [HARDWARE-GUIDE.md](docs/HARDWARE-GUIDE.md) — What to buy
-- [EXTENSIONS.md](docs/EXTENSIONS.md) — Add services, manifests, dashboard plugins
-- [INSTALLER-ARCHITECTURE.md](docs/INSTALLER-ARCHITECTURE.md) — Modding the installer
-- [INTEGRATION-GUIDE.md](docs/INTEGRATION-GUIDE.md) — Connect your apps
-- [SECURITY.md](SECURITY.md) — Security best practices
-- [CHANGELOG.md](CHANGELOG.md) — Version history
+| | |
+|---|---|
+| [Quickstart](dream-server/QUICKSTART.md) | Step-by-step install guide with troubleshooting |
+| [Hardware Guide](dream-server/docs/HARDWARE-GUIDE.md) | What to buy, tier recommendations |
+| [FAQ](dream-server/FAQ.md) | Common questions and configuration |
+| [Extensions](dream-server/docs/EXTENSIONS.md) | How to add custom services |
+| [Installer Architecture](dream-server/docs/INSTALLER-ARCHITECTURE.md) | Modular installer deep dive |
+| [Changelog](dream-server/CHANGELOG.md) | Version history and release notes |
+| [Contributing](CONTRIBUTING.md) | How to contribute |
+
+---
 
 ## Acknowledgments
 
 Dream Server exists because of the incredible people, projects, and communities that make open-source AI possible. We are grateful to every contributor, maintainer, and tinkerer whose work powers this stack.
 
-Thanks to [kyuz0](https://github.com/kyuz0) for [amd-strix-halo-toolboxes](https://github.com/kyuz0/amd-strix-halo-toolboxes) — pre-built ROCm containers for Strix Halo that saved us from having to build our own. And to [lhl](https://github.com/lhl) for [strix-halo-testing](https://github.com/lhl/strix-halo-testing) — the foundational Strix Halo AI research and rocWMMA performance work that the broader community builds on.
+Thanks to [kyuz0](https://github.com/kyuz0) for [amd-strix-halo-toolboxes](https://github.com/kyuz0/amd-strix-halo-toolboxes) — pre-built ROCm containers for Strix Halo that saved us a lot of pain from having to build our own. And to [lhl](https://github.com/lhl) for [strix-halo-testing](https://github.com/lhl/strix-halo-testing) — the foundational Strix Halo AI research and rocWMMA performance work that the broader community builds on.
 
 ### Projects that make Dream Server possible
 
@@ -423,8 +347,12 @@ If we missed anyone, [open an issue](https://github.com/Light-Heart-Labs/DreamSe
 
 ## License
 
-Apache 2.0 — Use it, modify it, sell it. Just don't blame us.
+Apache 2.0 — Use it, modify it, ship it. See [LICENSE](LICENSE).
 
 ---
 
-*Built by [The Collective](https://github.com/Light-Heart-Labs/DreamServer) — Android-17, Todd, and friends*
+<div align="center">
+
+*Built by [Light Heart Labs](https://github.com/Light-Heart-Labs) and [The Collective](https://github.com/Light-Heart-Labs/DreamServer)*
+
+</div>
