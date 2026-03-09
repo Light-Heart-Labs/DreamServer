@@ -115,7 +115,17 @@ fi
 ai_ok "Docker Desktop running (v${DOCKER_VERSION})"
 
 # Disk space
-test_disk_space "$HOME" 30
+# For a fresh install we require more headroom; for an existing install
+# (where models and binaries may already be downloaded) we can be less strict
+# so that reruns don't fail just because assets are already on disk.
+if [[ -d "$INSTALL_DIR" ]]; then
+    # Upgrade / rerun path: core assets already on disk, just ensure some
+    # breathing room for logs and any small updates.
+    test_disk_space "$HOME" 15
+else
+    # First-time install: enforce full 30GB recommendation.
+    test_disk_space "$HOME" 30
+fi
 info_box "Disk free:" "${DISK_FREE_GB} GB"
 if ! $DISK_SUFFICIENT; then
     ai_err "At least ${DISK_REQUIRED_GB} GB free space required. Found ${DISK_FREE_GB} GB."
