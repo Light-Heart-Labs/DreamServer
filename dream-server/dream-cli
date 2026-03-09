@@ -312,10 +312,12 @@ cmd_chat() {
     local message="${1:-Hello}"
     local model="${2:-}"
 
+    # Resolve llama-server port once, regardless of how the model is provided
+    local _llm_port="${SERVICE_PORTS[llama-server]:-8080}"
+    _llm_port="${LLAMA_SERVER_PORT:-$_llm_port}"
+
     # Get model from llama-server if not specified
     if [[ -z "$model" ]]; then
-        local _llm_port="${SERVICE_PORTS[llama-server]:-8080}"
-        _llm_port="${LLAMA_SERVER_PORT:-$_llm_port}"
         model=$(curl -s "http://localhost:${_llm_port}/v1/models" | grep -oP '"id":\s*"\K[^"]+' | head -1)
     fi
 

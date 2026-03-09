@@ -18,14 +18,35 @@ export SCRIPT_DIR="$PROJECT_DIR"
 . "$PROJECT_DIR/lib/service-registry.sh"
 sr_load
 
-# Source .env for port overrides
-[[ -f "$PROJECT_DIR/.env" ]] && set -a && . "$PROJECT_DIR/.env" && set +a
+# Safe .env loading (aligns with dream-cli pattern)
+load_env_safe() {
+    local env_file="$PROJECT_DIR/.env"
+    [[ -f "$env_file" ]] || return 0
+    set -a
+    while IFS='=' read -r key value; do
+        # Skip comments and empty lines
+        [[ "$key" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "$key" ]] && continue
+        # Only allow alphanumeric + underscore in key names
+        [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+        # Strip surrounding quotes from value
+        value="${value%\"}"
+        value="${value#\"}"
+        value="${value%\'}"
+        value="${value#\'}"
+        export "$key=$value"
+    done < "$env_file"
+    set +a
+}
 
-# Resolve core ports from registry
-LLM_PORT="${SERVICE_PORTS[llama-server]:-8080}"
+# Load .env for port overrides (if present)
+load_env_safe
+
+# Resolve core ports from registry (honoring any env overrides)
+LLM_PORT="${LLAMA_SERVER_PORT:-${SERVICE_PORTS[llama-server]:-8080}}"
 LLM_HEALTH="${SERVICE_HEALTH[llama-server]:-/health}"
-WEBUI_PORT="${SERVICE_PORTS[open-webui]:-3000}"
-WEBUI_HEALTH="${SERVICE_HEALTH[open-webui]:-/}"
+WEBUI_PORT="${WEBUI_PORT:-${SERVICE_PORTS[open-webui]:-3000}}"
+WEBUI_HEALTH="${WEBUI_HEALTH:-${SERVICE_HEALTH[open-webui]:-/}}"
 
 echo ""
 echo "╔═══════════════════════════════════════════╗"
@@ -40,7 +61,8 @@ check() {
     local name="$1"
     local cmd="$2"
     printf "  %-30s " "$name..."
-    if eval "$cmd" > /dev/null 2>&1; then
+    # Run fixed command string via bash -c (no eval)
+    if bash -c "$cmd" > /dev/null 2>&1; then
         echo -e "${GREEN}✓ PASS${NC}"
         ((PASSED++))
     else
