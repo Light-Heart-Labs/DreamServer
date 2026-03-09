@@ -46,7 +46,10 @@ while [[ $# -gt 0 ]]; do
         *)               echo "Unknown option: $1"; exit 1 ;;
     esac
 done
-
+# Default — will be overwritten by resolve_tier_config in Phase 2
+GGUF_FILE=""
+GGUF_URL=""
+GGUF_SHA256=""
 if $ALL_FEATURES; then
     ENABLE_VOICE=true
     ENABLE_WORKFLOWS=true
@@ -118,18 +121,46 @@ ai_ok "Docker Desktop running (v${DOCKER_VERSION})"
 # For a fresh install we require more headroom; for an existing install
 # (where models and binaries may already be downloaded) we can be less strict
 # so that reruns don't fail just because assets are already on disk.
-if [[ -d "$INSTALL_DIR" ]]; then
-    # Upgrade / rerun path: core assets already on disk, just ensure some
-    # breathing room for logs and any small updates.
-    test_disk_space "$HOME" 15
+# Re-check disk space for model + Docker images
+if [[ "$GGUF_FILE" =~ 30B ]]; then
+    MODEL_GB=20
+elif [[ "$GGUF_FILE" =~ 14B ]]; then
+    MODEL_GB=12
 else
-    # First-time install: enforce full 30GB recommendation.
-    test_disk_space "$HOME" 30
+    MODEL_GB=8
 fi
-info_box "Disk free:" "${DISK_FREE_GB} GB"
+DOCKER_IMAGES_GB=8
+
+# Model already on disk? Don't count it.
+MODEL_PATH_CHECK="${INSTALL_DIR}/data/models/${GGUF_FILE}"
+if [[ -f "$MODEL_PATH_CHECK" ]]; then
+    ai "Model already on disk — skipping from disk estimate"
+    MODEL_GB=0
+fi
+
+# Deduct Docker images already pulled
+ALREADY_PULLED_GB=0
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    PULLED_BYTES=$(docker image ls --format '{{.Size}}' 2>/dev/null | awk '
+        /GB/ { gsub(/GB/,""); total += $1 * 1073741824 }
+        /MB/ { gsub(/MB/,""); total += $1 * 1048576 }
+        /kB/ { gsub(/kB/,""); total += $1 * 1024 }
+        END  { printf "%d", total+0 }
+    ')
+    if [[ -n "$PULLED_BYTES" && "$PULLED_BYTES" -gt 0 ]]; then
+        ALREADY_PULLED_GB=$(( PULLED_BYTES / 1073741824 ))
+        [[ "$ALREADY_PULLED_GB" -gt "$DOCKER_IMAGES_GB" ]] && ALREADY_PULLED_GB=$DOCKER_IMAGES_GB
+        ai "Docker images already present: ~${ALREADY_PULLED_GB} GB (deducted)"
+    fi
+fi
+
+NEEDED_GB=$(( MODEL_GB + DOCKER_IMAGES_GB - ALREADY_PULLED_GB ))
+[[ "$NEEDED_GB" -lt 5 ]] && NEEDED_GB=5
+
+test_disk_space "$HOME" "$NEEDED_GB"
 if ! $DISK_SUFFICIENT; then
-    ai_err "At least ${DISK_REQUIRED_GB} GB free space required. Found ${DISK_FREE_GB} GB."
-    exit 1
+    ai_warn "Tier ${SELECTED_TIER} needs ~${NEEDED_GB} GB more. Only ${DISK_FREE_GB} GB free."
+    if ! $FORCE; then exit 1; fi
 fi
 ai_ok "Disk space OK"
 
@@ -200,12 +231,40 @@ info_box "Context:" "${MAX_CONTEXT}"
 
 # Re-check disk space for model + Docker images
 if [[ "$GGUF_FILE" =~ 30B ]]; then
-    NEEDED_GB=35
+    MODEL_GB=20
 elif [[ "$GGUF_FILE" =~ 14B ]]; then
-    NEEDED_GB=27
+    MODEL_GB=12
 else
-    NEEDED_GB=23
+    MODEL_GB=8
 fi
+DOCKER_IMAGES_GB=8
+
+# Model already on disk? Don't count it.
+MODEL_PATH_CHECK="${INSTALL_DIR}/data/models/${GGUF_FILE}"
+if [[ -f "$MODEL_PATH_CHECK" ]]; then
+    ai "Model already on disk — skipping from disk estimate"
+    MODEL_GB=0
+fi
+
+# Deduct Docker images already pulled
+ALREADY_PULLED_GB=0
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    PULLED_BYTES=$(docker image ls --format '{{.Size}}' 2>/dev/null | awk '
+        /GB/ { gsub(/GB/,""); total += $1 * 1073741824 }
+        /MB/ { gsub(/MB/,""); total += $1 * 1048576 }
+        /kB/ { gsub(/kB/,""); total += $1 * 1024 }
+        END  { printf "%d", total+0 }
+    ')
+    if [[ -n "$PULLED_BYTES" && "$PULLED_BYTES" -gt 0 ]]; then
+        ALREADY_PULLED_GB=$(( PULLED_BYTES / 1073741824 ))
+        [[ "$ALREADY_PULLED_GB" -gt "$DOCKER_IMAGES_GB" ]] && ALREADY_PULLED_GB=$DOCKER_IMAGES_GB
+        ai "Docker images already present: ~${ALREADY_PULLED_GB} GB (deducted)"
+    fi
+fi
+
+NEEDED_GB=$(( MODEL_GB + DOCKER_IMAGES_GB - ALREADY_PULLED_GB ))
+[[ "$NEEDED_GB" -lt 5 ]] && NEEDED_GB=5
+
 test_disk_space "$HOME" "$NEEDED_GB"
 if ! $DISK_SUFFICIENT; then
     ai_warn "Tier ${SELECTED_TIER} needs ~${NEEDED_GB} GB (model + Docker images). Only ${DISK_FREE_GB} GB free."
