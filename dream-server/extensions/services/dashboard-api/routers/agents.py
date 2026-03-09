@@ -24,8 +24,9 @@ async def get_agent_metrics_html(api_key: str = Depends(verify_api_key)):
     cluster_class = "status-ok" if metrics["cluster"]["failover_ready"] else "status-warn"
     failover_text = "Ready \u2705" if metrics["cluster"]["failover_ready"] else "Single GPU \u26a0\ufe0f"
     last_update_time = metrics["agent"]["last_update"].split("T")[1][:8]
-    tokens_k = metrics["tokens"]["total_tokens_24h"] // 1000
-    top_models = metrics["tokens"]["top_models"]
+    tokens = metrics.get("tokens", {})
+    tokens_k = tokens.get("total_tokens_24h", 0) // 1000
+    top_models = tokens.get("top_models", [])
     if top_models:
         rows = "".join(
             "<tr><td>{}</td><td>{}K</td><td>{}</td></tr>".format(
@@ -56,12 +57,12 @@ async def get_agent_metrics_html(api_key: str = Depends(verify_api_key)):
         <article class="metric-card">
             <div class="metric-label">Token Usage (24h)</div>
             <div class="metric-value">{tokens_k}K</div>
-            <p style="margin: 0; font-size: 0.875rem;">${metrics["tokens"]["total_cost_24h"]:.4f} | {metrics["tokens"]["requests_24h"]} reqs</p>
+            <p style="margin: 0; font-size: 0.875rem;">${tokens.get("total_cost_24h", 0):.4f} | {tokens.get("requests_24h", 0)} reqs</p>
         </article>
         <article class="metric-card">
             <div class="metric-label">Throughput</div>
-            <div class="metric-value">{metrics["throughput"]["current"]:.1f}</div>
-            <p style="margin: 0; font-size: 0.875rem;">tokens/sec (avg: {metrics["throughput"]["average"]:.1f})</p>
+            <div class="metric-value">{metrics.get("throughput", {}).get("current", 0):.1f}</div>
+            <p style="margin: 0; font-size: 0.875rem;">tokens/sec (avg: {metrics.get("throughput", {}).get("average", 0):.1f})</p>
         </article>
     </div>
     {top_models_html}

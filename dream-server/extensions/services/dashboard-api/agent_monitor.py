@@ -5,10 +5,12 @@ Collects real-time metrics on agent swarms, sessions, and throughput.
 
 import asyncio
 import json
-import subprocess
+import logging
+import os
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
-import os
+
+logger = logging.getLogger(__name__)
 
 
 class AgentMetrics:
@@ -56,8 +58,8 @@ class ClusterStatus:
                 self.total_gpus = len(self.nodes)
                 self.active_gpus = sum(1 for n in self.nodes if n.get("healthy", False))
                 self.failover_ready = self.active_gpus > 1
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Cluster status refresh failed: %s", e)
 
     def to_dict(self) -> dict:
         return {
@@ -118,17 +120,24 @@ async def collect_metrics():
 
             agent_metrics.last_update = datetime.now()
 
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Agent metrics collection failed: %s", e)
 
         await asyncio.sleep(5)  # Update every 5 seconds
 
 
 def get_full_agent_metrics() -> dict:
-    """Get all agent monitoring metrics as a dict"""
+    """Get all agent monitoring metrics as a dict."""
+    th = throughput.get_stats()
     return {
         "timestamp": datetime.now().isoformat(),
         "agent": agent_metrics.to_dict(),
         "cluster": cluster_status.to_dict(),
-        "throughput": throughput.get_stats()
+        "throughput": th,
+        "tokens": {
+            "total_tokens_24h": 0,
+            "top_models": [],
+            "total_cost_24h": 0.0,
+            "requests_24h": 0,
+        },
     }
