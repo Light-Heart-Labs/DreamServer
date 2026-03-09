@@ -27,23 +27,39 @@ if [ -f "$DREAM_DIR/.env" ]; then
 fi
 SERVICE_HOST="${SERVICE_HOST:-localhost}"
 
-# Auto-detect backend from .env or running containers
+# Auto-detect backend from .env or hardware probing.
+# Priority: .env setting → nvidia-smi → AMD sysfs (any card).
+# On dual-GPU systems (AMD iGPU + NVIDIA dGPU) we must prefer
+# NVIDIA when present, since it is always the inference target.
 detect_backend() {
-    # Check .env first
+    # 1. Trust .env if the installer already wrote it.
     if [[ "${GPU_BACKEND:-}" == "amd" ]]; then
         echo "amd"
         return
     fi
-    # Check if llama-server container is running
-    if docker ps --format '{{.Names}}' 2>/dev/null | grep -q 'llama-server'; then
-        echo "amd"
+    if [[ "${GPU_BACKEND:-}" == "nvidia" ]]; then
+        echo "nvidia"
         return
     fi
-    # Fall back to hardware detection
-    if [[ -d /sys/class/drm/card1/device ]] && [[ "$(cat /sys/class/drm/card1/device/vendor 2>/dev/null)" == "0x1002" ]]; then
-        echo "amd"
-        return
+
+    # 2. Probe NVIDIA first (matches installer's detect_gpu order).
+    if command -v nvidia-smi &> /dev/null; then
+        if nvidia-smi --query-gpu=name --format=csv,noheader &> /dev/null; then
+            echo "nvidia"
+            return
+        fi
     fi
+
+    # 3. Probe AMD sysfs — scan all DRM cards, not just card1.
+    for card_dir in /sys/class/drm/card*/device; do
+        [[ -d "$card_dir" ]] || continue
+        if [[ "$(cat "$card_dir/vendor" 2>/dev/null)" == "0x1002" ]]; then
+            echo "amd"
+            return
+        fi
+    done
+
+    # 4. Default to nvidia (installer would have set .env anyway).
     echo "nvidia"
 }
 
