@@ -13,14 +13,14 @@ services:
       - BOOTSTRAP_MODEL=${BOOTSTRAP_MODEL:-qwen3:8b-q4_K_M}
       - OLLAMA_URL=${LLM_API_URL:-http://llama-server:8080}
       - SEARXNG_BASE_URL=http://searxng:8080
-    entrypoint: ["/bin/sh", "-c", "node /config/inject-token.js; exec docker-entrypoint.sh node openclaw.mjs gateway --allow-unconfigured --bind lan"]
+    entrypoint: ["/bin/sh", "-c", "node /config/inject-token.js; exec docker-entrypoint.sh node openclaw.mjs gateway --allow-unconfigured --bind localhost"]
     volumes:
       - ./config/openclaw:/config:ro
       - ./data/openclaw:/data
       - ./data/openclaw/home:/home/node/.openclaw
       - ./config/openclaw/workspace:/home/node/.openclaw/workspace
     ports:
-      - "${OPENCLAW_PORT:-7860}:18789"
+      - "127.0.0.1:${OPENCLAW_PORT:-7860}:18789"
     deploy:
       resources:
         limits:
