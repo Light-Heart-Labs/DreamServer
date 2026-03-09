@@ -507,7 +507,7 @@ async def lookup_customer(phone: str) -> Optional[Dict]:
                     data = await resp.json()
                     if data.get("found"):
                         return data.get("customer")
-    except:
+    except (aiohttp.ClientError, asyncio.TimeoutError):
         pass
 
     return None

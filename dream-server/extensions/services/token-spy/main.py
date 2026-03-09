@@ -1170,9 +1170,9 @@ def _get_remote_session_status(agent: str) -> dict:
         "                c = msg.get('content', '')\n"
         "                if isinstance(c, list):\n"
         "                    history_chars += sum(len(str(x)) for x in c)\n"
-        "                elif isinstance(c, str):\n"
-        "                    history_chars += len(c)\n"
-        "        except: pass\n"
+                "                elif isinstance(c, str):\n"
+                    "                    history_chars += len(c)\n"
+        "        except (json.JSONDecodeError, TypeError, KeyError, AttributeError): pass\n"
         "    print(json.dumps({'turns': turns, 'chars': history_chars, 'tool_results': tool_results,"
         " 'file_bytes': os.path.getsize(largest), 'total_lines': len(lines), 'files': len(files)}))"
     )
@@ -1253,7 +1253,7 @@ def _kill_remote_session(agent: str, reason: str = "dashboard") -> dict:
         "        for k in list(data.keys()):\n"
         "            if isinstance(data[k], dict) and data[k].get('sessionId') == sid: del data[k]\n"
         "        with open(sj, 'w') as fh: json.dump(data, fh, indent=2)\n"
-        "    except: pass\n"
+        "    except (OSError, json.JSONDecodeError, KeyError): pass\n"
         "    print(json.dumps({'action': 'killed', 'session_id': sid, 'size_bytes': size}))"
     )
     try:

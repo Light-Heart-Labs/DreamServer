@@ -346,7 +346,7 @@ class DistilBERTClassifier(IntentClassifier):
         # Load tokenizer
         try:
             self._tokenizer = DistilBertTokenizer.from_pretrained(self.model_path)
-        except:
+        except (OSError, ImportError):
             # Fallback to base tokenizer if not saved with model
             self._tokenizer = DistilBertTokenizer.from_pretrained(
                 "distilbert-base-uncased"
