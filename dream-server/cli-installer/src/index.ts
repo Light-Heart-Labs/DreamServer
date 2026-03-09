@@ -6,6 +6,7 @@ import { install } from './commands/install.ts';
 import { status } from './commands/status.ts';
 import { config } from './commands/config.ts';
 import { update } from './commands/update.ts';
+import { uninstall } from './commands/uninstall.ts';
 import { VERSION, DEFAULT_INSTALL_DIR } from './lib/config.ts';
 
 const program = new Command()
@@ -48,6 +49,14 @@ program
   .option('--skip-self-update', 'Skip CLI binary self-update')
   .option('--dir <path>', 'Installation directory', DEFAULT_INSTALL_DIR)
   .action(update);
+
+program
+  .command('uninstall')
+  .description('Stop services, remove containers/images, and optionally delete data')
+  .option('--keep-data', 'Keep data directory (models, databases, configs)')
+  .option('--force', 'Skip confirmation prompts')
+  .option('--dir <path>', 'Installation directory', DEFAULT_INSTALL_DIR)
+  .action(uninstall);
 
 // Default to install if no command specified
 if (process.argv.length <= 2) {
