@@ -10,10 +10,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DREAM_DIR="$SCRIPT_DIR"
 LOG_FILE="$DREAM_DIR/preflight-$(date +%Y%m%d-%H%M%S).log"
 
-# Load config from .env if available
+# Load config from .env safely (line-by-line, no eval/source)
 if [ -f "$DREAM_DIR/.env" ]; then
-    # shellcheck source=/dev/null
-    source "$DREAM_DIR/.env" 2>/dev/null || true
+    while IFS='=' read -r key value; do
+        # Skip comments and empty lines
+        [[ "$key" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "$key" ]] && continue
+        # Only allow safe variable names
+        key=$(echo "$key" | xargs)  # trim whitespace
+        [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+        # Strip surrounding quotes from value
+        value="${value%\"}" && value="${value#\"}"
+        value="${value%\'}" && value="${value#\'}"
+        export "$key=$value"
+    done < "$DREAM_DIR/.env"
 fi
 SERVICE_HOST="${SERVICE_HOST:-localhost}"
 

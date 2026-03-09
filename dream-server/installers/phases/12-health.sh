@@ -41,12 +41,20 @@ ai "Linking services... standby."
 
 sleep 5
 
-# Health checks are best-effort — don't let set -e kill the script if a service is slow
+# Health checks are best-effort — track failures but don't let set -e kill the install.
+# Services may need more startup time; we report all failures at the end.
+HEALTH_FAILURES=0
+_check_health() {
+    if ! check_service "$@"; then
+        HEALTH_FAILURES=$((HEALTH_FAILURES + 1))
+    fi
+}
+
 # Core service health checks
-check_service "llama-server" "http://localhost:${SERVICE_PORTS[llama-server]:-8080}${SERVICE_HEALTH[llama-server]:-/health}" 120 || true
-check_service "Open WebUI" "http://localhost:${SERVICE_PORTS[open-webui]:-3000}${SERVICE_HEALTH[open-webui]:-/}" 60 || true
-check_service "Perplexica" "http://localhost:${SERVICE_PORTS[perplexica]:-3004}${SERVICE_HEALTH[perplexica]:-/}" 30 || true
-check_service "ComfyUI" "http://localhost:${SERVICE_PORTS[comfyui]:-8188}${SERVICE_HEALTH[comfyui]:-/}" 120 || true
+_check_health "llama-server" "http://localhost:${SERVICE_PORTS[llama-server]:-8080}${SERVICE_HEALTH[llama-server]:-/health}" 120
+_check_health "Open WebUI" "http://localhost:${SERVICE_PORTS[open-webui]:-3000}${SERVICE_HEALTH[open-webui]:-/}" 60
+_check_health "Perplexica" "http://localhost:${SERVICE_PORTS[perplexica]:-3004}${SERVICE_HEALTH[perplexica]:-/}" 30
+_check_health "ComfyUI" "http://localhost:${SERVICE_PORTS[comfyui]:-8188}${SERVICE_HEALTH[comfyui]:-/}" 120
 
 # Perplexica auto-config: seed chat model + embedding model on first boot.
 # The slim-latest image stores config in a database, not just config.json.
@@ -101,10 +109,10 @@ print('ok')
     fi
 fi
 
-[[ "$ENABLE_OPENCLAW" == "true" ]] && check_service "OpenClaw" "http://localhost:${SERVICE_PORTS[openclaw]:-7860}${SERVICE_HEALTH[openclaw]:-/}" 30 || true
-systemctl is-active opencode-web &>/dev/null && check_service "OpenCode Web" "http://localhost:3003/" 10 || true
-[[ "$ENABLE_VOICE" == "true" ]] && check_service "Whisper (STT)" "http://localhost:${SERVICE_PORTS[whisper]:-9000}${SERVICE_HEALTH[whisper]:-/health}" 60 || true
-[[ "$ENABLE_VOICE" == "true" ]] && check_service "Kokoro (TTS)" "http://localhost:${SERVICE_PORTS[tts]:-8880}${SERVICE_HEALTH[tts]:-/health}" 30 || true
+[[ "$ENABLE_OPENCLAW" == "true" ]] && _check_health "OpenClaw" "http://localhost:${SERVICE_PORTS[openclaw]:-7860}${SERVICE_HEALTH[openclaw]:-/}" 30
+systemctl is-active opencode-web &>/dev/null && _check_health "OpenCode Web" "http://localhost:3003/" 10
+[[ "$ENABLE_VOICE" == "true" ]] && _check_health "Whisper (STT)" "http://localhost:${SERVICE_PORTS[whisper]:-9000}${SERVICE_HEALTH[whisper]:-/health}" 60
+[[ "$ENABLE_VOICE" == "true" ]] && _check_health "Kokoro (TTS)" "http://localhost:${SERVICE_PORTS[tts]:-8880}${SERVICE_HEALTH[tts]:-/health}" 30
 
 # Pre-download the Whisper STT model so first transcription is instant.
 # Speaches lazy-downloads on first request, but that causes a long delay +
@@ -128,9 +136,15 @@ if [[ "$ENABLE_VOICE" == "true" ]]; then
     fi
 fi
 
-[[ "$ENABLE_WORKFLOWS" == "true" ]] && check_service "n8n" "http://localhost:${SERVICE_PORTS[n8n]:-5678}${SERVICE_HEALTH[n8n]:-/healthz}" 30 || true
-[[ "$ENABLE_RAG" == "true" ]] && check_service "Qdrant" "http://localhost:${SERVICE_PORTS[qdrant]:-6333}${SERVICE_HEALTH[qdrant]:-/}" 30 || true
+[[ "$ENABLE_WORKFLOWS" == "true" ]] && _check_health "n8n" "http://localhost:${SERVICE_PORTS[n8n]:-5678}${SERVICE_HEALTH[n8n]:-/healthz}" 30
+[[ "$ENABLE_RAG" == "true" ]] && _check_health "Qdrant" "http://localhost:${SERVICE_PORTS[qdrant]:-6333}${SERVICE_HEALTH[qdrant]:-/}" 30
 
 echo ""
-signal "All systems nominal."
-ai_ok "Sovereign intelligence is online."
+if [[ "$HEALTH_FAILURES" -gt 0 ]]; then
+    ai_warn "${HEALTH_FAILURES} service(s) did not pass health checks."
+    ai_warn "Some services may still be starting. Check with: dream status"
+    ai_warn "Logs: docker compose logs <service-name>"
+else
+    signal "All systems nominal."
+    ai_ok "Sovereign intelligence is online."
+fi

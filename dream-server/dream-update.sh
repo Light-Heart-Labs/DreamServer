@@ -12,6 +12,9 @@
 
 set -euo pipefail
 
+# Prerequisites
+command -v jq >/dev/null 2>&1 || { echo "Error: jq is required but not installed." >&2; echo "Install with: apt install jq (Debian/Ubuntu) or brew install jq (macOS)" >&2; exit 1; }
+
 #==============================================================================
 # CONFIGURATION
 #==============================================================================
@@ -94,13 +97,13 @@ cmd_check() {
     
     # Fetch latest release from GitHub
     local api_url="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
-    local auth_header=""
-    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-        auth_header="-H \"Authorization: Bearer ${GITHUB_TOKEN}\""
-    fi
-    
     local response
-    if ! response=$(curl -sf ${auth_header} "${api_url}" 2>/dev/null); then
+    local curl_args=(-sf)
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        curl_args+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+    fi
+
+    if ! response=$(curl "${curl_args[@]}" "${api_url}" 2>/dev/null); then
         log_error "Failed to check for updates. Check network or GITHUB_TOKEN."
         return 1
     fi
@@ -221,16 +224,15 @@ cmd_backup() {
         ((files_backed_up++))
     fi
     
-    # Generate metadata
-    cat > "$backup_path/metadata.json" << EOF
-{
-    "backup_id": "${backup_id}",
-    "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-    "version": "$(get_current_version)",
-    "files_count": ${files_backed_up},
-    "install_dir": "${INSTALL_DIR}"
-}
-EOF
+    # Generate metadata (use jq for safe JSON construction)
+    jq -n \
+        --arg bid "$backup_id" \
+        --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --arg ver "$(get_current_version)" \
+        --argjson fc "$files_backed_up" \
+        --arg dir "$INSTALL_DIR" \
+        '{backup_id: $bid, timestamp: $ts, version: $ver, files_count: $fc, install_dir: $dir}' \
+        > "$backup_path/metadata.json"
     
     log_ok "Backup created: ${backup_path}"
     log_info "Files backed up: ${files_backed_up}"

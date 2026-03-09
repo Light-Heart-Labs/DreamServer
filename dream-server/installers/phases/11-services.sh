@@ -29,8 +29,8 @@ else
     if [[ "${DREAM_MODE:-local}" == "cloud" ]]; then
         ai "Cloud mode — skipping model download"
         # Auto-enable litellm extension
-        local litellm_cf="$INSTALL_DIR/extensions/services/litellm/compose.yaml"
-        local litellm_disabled="${litellm_cf}.disabled"
+        litellm_cf="$INSTALL_DIR/extensions/services/litellm/compose.yaml"
+        litellm_disabled="${litellm_cf}.disabled"
         if [[ -f "$litellm_disabled" && ! -f "$litellm_cf" ]]; then
             mv "$litellm_disabled" "$litellm_cf"
             ai_ok "Auto-enabled litellm for cloud mode"
@@ -40,24 +40,34 @@ else
     # Ensure model directory exists
     mkdir -p "$INSTALL_DIR/data/models"
 
-    # Download GGUF model if not already present
+    # Download GGUF model if not already present (with retry)
     GGUF_DIR="$INSTALL_DIR/data/models"
     if [[ "${DREAM_MODE:-local}" != "cloud" && ! -f "$GGUF_DIR/$GGUF_FILE" && -n "$GGUF_URL" ]]; then
         ai "Downloading GGUF model: $GGUF_FILE"
         signal "This is the big one. I've got it — sit back."
         echo ""
 
-        # Run wget in background, pipe through spin_task for clean UI
-        wget -c -q -O "$GGUF_DIR/$GGUF_FILE.part" "$GGUF_URL" \
-            >> "$INSTALL_DIR/logs/model-download.log" 2>&1 &
-        dl_pid=$!
+        # Retry loop: up to 3 attempts with resume support (-c flag)
+        _dl_success=false
+        for _attempt in 1 2 3; do
+            [[ $_attempt -gt 1 ]] && ai "Retry attempt $_attempt of 3..."
+            wget -c -q -O "$GGUF_DIR/$GGUF_FILE.part" "$GGUF_URL" \
+                >> "$INSTALL_DIR/logs/model-download.log" 2>&1 &
+            dl_pid=$!
 
-        if spin_task $dl_pid "Downloading $GGUF_FILE"; then
-            mv "$GGUF_DIR/$GGUF_FILE.part" "$GGUF_DIR/$GGUF_FILE"
-            printf "\r  ${BGRN}✓${NC} %-60s\n" "Model downloaded: $GGUF_FILE"
-        else
-            printf "\r  ${RED}✗${NC} %-60s\n" "Download failed: $GGUF_FILE"
-            ai "Retry: wget -c -O '$GGUF_DIR/$GGUF_FILE.part' '$GGUF_URL' && mv '$GGUF_DIR/$GGUF_FILE.part' '$GGUF_DIR/$GGUF_FILE'"
+            if spin_task $dl_pid "Downloading $GGUF_FILE"; then
+                mv "$GGUF_DIR/$GGUF_FILE.part" "$GGUF_DIR/$GGUF_FILE"
+                printf "\r  ${BGRN}✓${NC} %-60s\n" "Model downloaded: $GGUF_FILE"
+                _dl_success=true
+                break
+            fi
+            printf "\r  ${AMB}⚠${NC} %-60s\n" "Download attempt $_attempt failed"
+            sleep 3
+        done
+
+        if [[ "$_dl_success" != "true" ]]; then
+            printf "\r  ${RED}✗${NC} %-60s\n" "Download failed after 3 attempts: $GGUF_FILE"
+            ai "Manual retry: wget -c -O '$GGUF_DIR/$GGUF_FILE.part' '$GGUF_URL' && mv '$GGUF_DIR/$GGUF_FILE.part' '$GGUF_DIR/$GGUF_FILE'"
         fi
     elif [[ -f "$GGUF_DIR/$GGUF_FILE" ]]; then
         ai_ok "GGUF model already present: $GGUF_FILE"

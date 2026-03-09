@@ -88,9 +88,13 @@ else
         OPENCLAW_PROVIDER_URL="${OPENCLAW_PROVIDER_URL_DEFAULT}"
 
         # Replace model and provider placeholders to match what the inference backend actually serves
-        sed -i "s|__LLM_MODEL__|${OPENCLAW_MODEL}|g" "$INSTALL_DIR/config/openclaw/openclaw.json"
-        sed -i "s|Qwen/Qwen2.5-[^\"]*|${OPENCLAW_MODEL}|g" "$INSTALL_DIR/config/openclaw/openclaw.json"
-        sed -i "s|local-ollama|${OPENCLAW_PROVIDER_NAME}|g" "$INSTALL_DIR/config/openclaw/openclaw.json"
+        # Escape sed special chars in variable values to prevent injection
+        _sed_escape() { printf '%s\n' "$1" | sed 's/[&/\]/\\&/g'; }
+        _oc_model_esc=$(_sed_escape "$OPENCLAW_MODEL")
+        _oc_prov_esc=$(_sed_escape "$OPENCLAW_PROVIDER_NAME")
+        sed -i "s|__LLM_MODEL__|${_oc_model_esc}|g" "$INSTALL_DIR/config/openclaw/openclaw.json"
+        sed -i "s|Qwen/Qwen2.5-[^\"]*|${_oc_model_esc}|g" "$INSTALL_DIR/config/openclaw/openclaw.json"
+        sed -i "s|local-ollama|${_oc_prov_esc}|g" "$INSTALL_DIR/config/openclaw/openclaw.json"
         log "Installed OpenClaw config: $OPENCLAW_CONFIG -> openclaw.json (model: $OPENCLAW_MODEL)"
         mkdir -p "$INSTALL_DIR/data/openclaw/home/agents/main/sessions"
         # Generate OpenClaw home config with local llama-server provider
@@ -206,13 +210,44 @@ MODELS_EOF
         chown -R 1000:1000 "$INSTALL_DIR/data/openclaw" "$INSTALL_DIR/config/openclaw/workspace" 2>/dev/null || true
     fi
 
-    # Generate secure secrets
-    WEBUI_SECRET=$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)
-    N8N_PASS=$(openssl rand -base64 16 2>/dev/null || head -c 16 /dev/urandom | base64)
-    LITELLM_KEY="sk-dream-$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)"
-    LIVEKIT_SECRET=$(openssl rand -base64 32 2>/dev/null || head -c 32 /dev/urandom | base64)
-    DASHBOARD_API_KEY=$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)
-    OPENCODE_SERVER_PASSWORD=
+    # ── .env merge logic: preserve user-configured values on re-install ──
+    # If an existing .env exists, read user-editable values so we don't
+    # destroy API keys, custom ports, or manually-set secrets.
+    _env_existing=""
+    if [[ -f "$INSTALL_DIR/.env" ]]; then
+        _env_existing="$INSTALL_DIR/.env"
+        log "Found existing .env — preserving user-configured values"
+    fi
+
+    # Safe reader: extract a value from existing .env without sourcing it
+    _env_get() {
+        local key="$1" default="${2:-}"
+        if [[ -n "$_env_existing" ]]; then
+            local val
+            val=$(grep -m1 "^${key}=" "$_env_existing" 2>/dev/null | cut -d= -f2- || true)
+            # Strip surrounding quotes
+            val="${val%\"}" && val="${val#\"}"
+            val="${val%\'}" && val="${val#\'}"
+            if [[ -n "$val" ]]; then
+                echo "$val"
+                return
+            fi
+        fi
+        echo "$default"
+    }
+
+    # Secrets: reuse existing values, generate only if missing
+    WEBUI_SECRET=$(_env_get WEBUI_SECRET "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
+    N8N_PASS=$(_env_get N8N_PASS "$(openssl rand -base64 16 2>/dev/null || head -c 16 /dev/urandom | base64)")
+    LITELLM_KEY=$(_env_get LITELLM_KEY "sk-dream-$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
+    LIVEKIT_SECRET=$(_env_get LIVEKIT_API_SECRET "$(openssl rand -base64 32 2>/dev/null || head -c 32 /dev/urandom | base64)")
+    DASHBOARD_API_KEY=$(_env_get DASHBOARD_API_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
+    OPENCODE_SERVER_PASSWORD=$(_env_get OPENCODE_SERVER_PASSWORD "")
+
+    # Preserve user-supplied cloud API keys
+    ANTHROPIC_API_KEY=$(_env_get ANTHROPIC_API_KEY "${ANTHROPIC_API_KEY:-}")
+    OPENAI_API_KEY=$(_env_get OPENAI_API_KEY "${OPENAI_API_KEY:-}")
+    TOGETHER_API_KEY=$(_env_get TOGETHER_API_KEY "${TOGETHER_API_KEY:-}")
 
     # Generate .env file
     cat > "$INSTALL_DIR/.env" << ENV_EOF
@@ -235,7 +270,6 @@ GGUF_FILE=${GGUF_FILE}
 MAX_CONTEXT=${MAX_CONTEXT}
 CTX_SIZE=${MAX_CONTEXT}
 GPU_BACKEND=${GPU_BACKEND}
-LLAMA_SERVER_PORT=8080
 
 $(if [[ "$GPU_BACKEND" == "amd" ]]; then cat << AMD_ENV
 #=== GPU Group IDs (for container device access) ===
@@ -266,7 +300,7 @@ DASHBOARD_API_KEY=${DASHBOARD_API_KEY}
 N8N_USER=admin
 N8N_PASS=${N8N_PASS}
 LITELLM_KEY=${LITELLM_KEY}
-LIVEKIT_API_KEY=$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)
+LIVEKIT_API_KEY=$(_env_get LIVEKIT_API_KEY "$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
 LIVEKIT_API_SECRET=${LIVEKIT_SECRET}
 OPENCLAW_TOKEN=${OPENCLAW_TOKEN:-$(openssl rand -hex 24 2>/dev/null || head -c 24 /dev/urandom | xxd -p)}
 OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD}

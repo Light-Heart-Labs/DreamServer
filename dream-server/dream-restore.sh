@@ -150,9 +150,18 @@ extract_backup() {
     fi
 
     if [[ -f "$compressed" ]]; then
+        # Validate: reject archives with absolute paths or path traversal
+        if tar -tzf "$compressed" 2>/dev/null | grep -qE '(^/|\.\./)'; then
+            log_error "Backup archive contains unsafe paths (absolute or ../) — refusing to extract"
+            return 1
+        fi
         log_info "Extracting compressed backup..."
         mkdir -p "$uncompressed"
-        tar xzf "$compressed" -C "$BACKUP_ROOT"
+        if ! tar xzf "$compressed" --no-same-owner -C "$BACKUP_ROOT"; then
+            log_error "Failed to extract backup archive"
+            rm -rf "$uncompressed"
+            return 1
+        fi
         echo "$uncompressed"
         return 0
     fi

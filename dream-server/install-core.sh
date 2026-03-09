@@ -17,6 +17,27 @@
 set -e
 
 #=============================================================================
+# Cleanup on Failure
+#=============================================================================
+# Track what phases have completed so we can provide useful context on failure.
+export INSTALL_PHASE="init"
+cleanup_on_error() {
+    local exit_code=$?
+    echo ""
+    echo -e "\033[0;31m[ERROR] Installation failed during phase: ${INSTALL_PHASE}\033[0m"
+    echo -e "\033[0;33m        Log file: ${LOG_FILE:-/tmp/dream-server-install.log}\033[0m"
+    echo ""
+    echo "The install did not complete. Partial state may exist at:"
+    echo "  ${INSTALL_DIR:-~/dream-server}"
+    echo ""
+    echo "To retry, run the installer again. It will resume safely."
+    echo "To start fresh, remove the install directory first:"
+    echo "  rm -rf ${INSTALL_DIR:-~/dream-server} && ./install.sh"
+    exit "$exit_code"
+}
+trap cleanup_on_error ERR
+
+#=============================================================================
 # Interrupt Protection
 #=============================================================================
 # Accidental keypresses (Ctrl+C, Ctrl+Z) shouldn't silently kill the install.
@@ -143,16 +164,16 @@ $DRY_RUN && echo -e "${AMB}>>> DRY RUN MODE — I will simulate everything. No c
 #=============================================================================
 # Run phases
 #=============================================================================
-source "$SCRIPT_DIR/installers/phases/01-preflight.sh"
-source "$SCRIPT_DIR/installers/phases/02-detection.sh"
-source "$SCRIPT_DIR/installers/phases/03-features.sh"
-source "$SCRIPT_DIR/installers/phases/04-requirements.sh"
-source "$SCRIPT_DIR/installers/phases/05-docker.sh"
-source "$SCRIPT_DIR/installers/phases/06-directories.sh"
-source "$SCRIPT_DIR/installers/phases/07-devtools.sh"
-source "$SCRIPT_DIR/installers/phases/08-images.sh"
-source "$SCRIPT_DIR/installers/phases/09-offline.sh"
-source "$SCRIPT_DIR/installers/phases/10-amd-tuning.sh"
-source "$SCRIPT_DIR/installers/phases/11-services.sh"
-source "$SCRIPT_DIR/installers/phases/12-health.sh"
-source "$SCRIPT_DIR/installers/phases/13-summary.sh"
+INSTALL_PHASE="01-preflight";    source "$SCRIPT_DIR/installers/phases/01-preflight.sh"
+INSTALL_PHASE="02-detection";    source "$SCRIPT_DIR/installers/phases/02-detection.sh"
+INSTALL_PHASE="03-features";     source "$SCRIPT_DIR/installers/phases/03-features.sh"
+INSTALL_PHASE="04-requirements"; source "$SCRIPT_DIR/installers/phases/04-requirements.sh"
+INSTALL_PHASE="05-docker";       source "$SCRIPT_DIR/installers/phases/05-docker.sh"
+INSTALL_PHASE="06-directories";  source "$SCRIPT_DIR/installers/phases/06-directories.sh"
+INSTALL_PHASE="07-devtools";     source "$SCRIPT_DIR/installers/phases/07-devtools.sh"
+INSTALL_PHASE="08-images";       source "$SCRIPT_DIR/installers/phases/08-images.sh"
+INSTALL_PHASE="09-offline";      source "$SCRIPT_DIR/installers/phases/09-offline.sh"
+INSTALL_PHASE="10-amd-tuning";   source "$SCRIPT_DIR/installers/phases/10-amd-tuning.sh"
+INSTALL_PHASE="11-services";     source "$SCRIPT_DIR/installers/phases/11-services.sh"
+INSTALL_PHASE="12-health";       source "$SCRIPT_DIR/installers/phases/12-health.sh"
+INSTALL_PHASE="13-summary";      source "$SCRIPT_DIR/installers/phases/13-summary.sh"

@@ -60,3 +60,8 @@ dream-server/.claude/
 dream-server/.pytest_cache/
 dream-server/tests/__pycache__/
 dream-server/internal/
+
+# ============================================
+# Archived / deprecated code (pre-v2.0)
+# ============================================
+archive/

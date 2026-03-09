@@ -128,8 +128,11 @@ OPENCODE_EOF
 
             svc_tmp="/tmp/opencode-web.service.$$"
             cp "$INSTALL_DIR/opencode/opencode-web.service" "$svc_tmp"
-            sed -i "s|__HOME__|$HOME|g" "$svc_tmp"
-            sed -i "s|__OPENCODE_SERVER_PASSWORD__|${OPENCODE_SERVER_PASSWORD}|g" "$svc_tmp"
+            # Escape sed special chars to prevent injection from path or password values
+            _home_esc=$(printf '%s\n' "$HOME" | sed 's/[&/\]/\\&/g')
+            _pass_esc=$(printf '%s\n' "${OPENCODE_SERVER_PASSWORD}" | sed 's/[&/\]/\\&/g')
+            sed -i "s|__HOME__|${_home_esc}|g" "$svc_tmp"
+            sed -i "s|__OPENCODE_SERVER_PASSWORD__|${_pass_esc}|g" "$svc_tmp"
             cp "$svc_tmp" "$SYSTEMD_USER_DIR/opencode-web.service"
             rm -f "$svc_tmp"
 

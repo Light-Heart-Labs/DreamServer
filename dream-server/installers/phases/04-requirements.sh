@@ -122,12 +122,21 @@ else
 fi
 
 # Port availability check (handles IPv4 and IPv6)
+_port_check_warned=false
 check_port() {
     local port=$1
     if command -v ss &> /dev/null; then
         ss -tln 2>/dev/null | grep -qE ":${port}(\s|$)" && return 1
     elif command -v netstat &> /dev/null; then
         netstat -tln 2>/dev/null | grep -qE ":${port}(\s|$)" && return 1
+    else
+        # Neither tool available — warn once, then skip port checks
+        if [[ "$_port_check_warned" != "true" ]]; then
+            warn "Neither 'ss' nor 'netstat' found — cannot verify port availability"
+            warn "Install iproute2 (for ss) or net-tools (for netstat) to enable port checks"
+            _port_check_warned=true
+        fi
+        return 0  # Can't check, assume free but user is warned
     fi
     return 0
 }
