@@ -76,14 +76,13 @@ async def get_release_manifest():
 
 @router.post("/api/update")
 async def trigger_update(action: UpdateAction, background_tasks: BackgroundTasks, api_key: str = Depends(verify_api_key)):
-    """Trigger update actions via dashboard."""
-    script_path = Path(INSTALL_DIR).parent / "scripts" / "dream-update.sh"
-    if not script_path.exists():
-        install_script = Path(INSTALL_DIR) / "install.sh"
-        if install_script.exists():
-            script_path = Path(INSTALL_DIR).parent / "scripts" / "dream-update.sh"
-        else:
-            script_path = Path(INSTALL_DIR) / "scripts" / "dream-update.sh"
+    """Trigger update actions via dashboard. Resolves dream-update.sh from common layouts."""
+    candidates = [
+        Path(INSTALL_DIR) / "dream-update.sh",  # Standard: dream-server/dream-update.sh
+        Path(INSTALL_DIR).parent / "scripts" / "dream-update.sh",  # Repo layout
+        Path(INSTALL_DIR) / "scripts" / "dream-update.sh",
+    ]
+    script_path = next((p for p in candidates if p.exists()), candidates[0])
 
     if not script_path.exists():
         logger.error("dream-update.sh not found at %s", script_path)

@@ -1,3 +1,6 @@
+# SECURITY: The installer overwrites this file with a randomized secret_key.
+# If you deploy without running install.sh, replace the placeholder below — a static
+# secret enables session forgery. Run: openssl rand -hex 32
 use_default_settings: true
 server:
   secret_key: "CHANGEME-run-the-installer-to-generate-a-secure-key"

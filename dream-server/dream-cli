@@ -829,7 +829,7 @@ ${CYAN}Commands:${NC}
   restart [service]   Restart services (all if no service specified)
   start [service]     Start services
   stop [service]      Stop services
-  update              Pull latest images and restart
+  update              Pull latest images and restart (use dream-update.sh for check/rollback/changelog)
   shell <service>     Open shell in container
   config [show|edit]  View or edit configuration
   chat "<message>"    Quick chat with the LLM
