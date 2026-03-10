@@ -2,7 +2,9 @@
 
 import { exec } from '../lib/shell.ts';
 import { getComposeCommand } from '../lib/docker.ts';
+import { getDockerBaseCmd } from '../phases/services.ts';
 import { DEFAULT_INSTALL_DIR } from '../lib/config.ts';
+import { parseEnv } from '../lib/env.ts';
 import * as ui from '../lib/ui.ts';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -26,10 +28,8 @@ export async function status(opts: StatusOptions): Promise<void> {
 
   // Read .env for config info
   const envContent = readFileSync(join(installDir, '.env'), 'utf-8');
-  const getEnv = (key: string): string => {
-    const match = envContent.match(new RegExp(`^${key}=(.+)$`, 'm'));
-    return match?.[1]?.trim() || '';
-  };
+  const envParsed = parseEnv(envContent);
+  const getEnv = (key: string): string => envParsed[key] || '';
 
   // Show current config
   const model = getEnv('LLM_MODEL');
@@ -139,7 +139,7 @@ export async function status(opts: StatusOptions): Promise<void> {
   ui.step('Health checks:');
   const webuiPort = getEnv('WEBUI_PORT') || '3000';
   const dashPort = getEnv('DASHBOARD_PORT') || '3001';
-  const llmPort = getEnv('OLLAMA_PORT') || '11434';
+  const llmPort = getEnv('OLLAMA_PORT') || '8080';
   const checks = [
     { name: 'Chat (WebUI)', url: `http://localhost:${webuiPort}` },
     { name: 'Dashboard', url: `http://localhost:${dashPort}` },
@@ -261,11 +261,12 @@ async function showGpuStatus(backend: string): Promise<GpuInfo | null> {
   }
 }
 
-async function getDockerPidMap(): Promise<Map<number, string>> {
+async function getDockerPidMap(composeCmd?: string[]): Promise<Map<number, string>> {
   const map = new Map<number, string>();
+  const dockerCmd = composeCmd ? getDockerBaseCmd(composeCmd) : ['docker'];
   try {
     const { stdout } = await exec(
-      ['docker', 'ps', '--format', '{{.ID}} {{.Names}}', '--no-trunc'],
+      [...dockerCmd, 'ps', '--format', '{{.ID}} {{.Names}}', '--no-trunc'],
       { throwOnError: false, timeout: 5000 },
     );
     if (!stdout.trim()) return map;
@@ -277,7 +278,7 @@ async function getDockerPidMap(): Promise<Map<number, string>> {
         // Use `docker top` to get ALL process PIDs in the container
         // This catches sub-processes (e.g. python inside comfyui)
         const { stdout: topOut } = await exec(
-          ['docker', 'top', id, '-o', 'pid'],
+          [...dockerCmd, 'top', id, '-o', 'pid'],
           { throwOnError: false, timeout: 3000 },
         );
         for (const pidLine of topOut.trim().split('\n').slice(1)) {
@@ -292,11 +293,12 @@ async function getDockerPidMap(): Promise<Map<number, string>> {
 
 // ── Failure diagnosis ───────────────────────────────────────────────────
 
-async function getContainerLogs(containerName: string): Promise<string | null> {
+async function getContainerLogs(containerName: string, composeCmd?: string[]): Promise<string | null> {
+  const dockerCmd = composeCmd ? getDockerBaseCmd(composeCmd) : ['docker'];
   try {
     // Fetch enough lines for diagnosis (OOM errors appear before the final crash message)
     const { stdout, stderr } = await exec(
-      ['docker', 'logs', '--tail', '20', containerName],
+      [...dockerCmd, 'logs', '--tail', '20', containerName],
       { throwOnError: false, timeout: 5000 },
     );
     return (stderr || stdout).trim() || null;

@@ -2,7 +2,11 @@
 
 import { type InstallContext } from '../lib/config.ts';
 import { exec, execStream } from '../lib/shell.ts';
+import { getComposeCommand } from '../lib/docker.ts';
+import { parseEnv } from '../lib/env.ts';
 import * as ui from '../lib/ui.ts';
+import { readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 export async function services(ctx: InstallContext): Promise<void> {
   ui.phase(6, 6, 'Launch Services', '~2min');
@@ -12,11 +16,14 @@ export async function services(ctx: InstallContext): Promise<void> {
     return;
   }
 
-  // Build compose command
-  const composeCmd = await getComposeCommand();
-  if (!composeCmd) {
+  // Use shared compose command resolver
+  let composeCmd: string[];
+  try {
+    composeCmd = await getComposeCommand();
+  } catch {
     ui.fail('Neither "docker compose" nor "docker-compose" found');
     process.exit(1);
+    return; // unreachable, but satisfies TS
   }
 
   ui.step('Starting containers...');
@@ -39,43 +46,51 @@ export async function services(ctx: InstallContext): Promise<void> {
   console.log('');
 
   // Health check
-  await healthCheck(ctx, composeCmd);
+  const ports = readPorts(ctx);
+  await healthCheck(ctx, ports);
 
   // Success summary
-  showSuccess(ctx, exitCode !== 0);
+  showSuccess(ctx, ports, exitCode !== 0);
 }
 
-async function getComposeCommand(): Promise<string[] | null> {
-  // Try without sudo first
-  try {
-    await exec(['docker', 'compose', 'version'], { timeout: 5000 });
-    // Verify we can actually connect to the daemon
-    const info = await exec(['docker', 'info'], { throwOnError: false, timeout: 5000 });
-    if (info.exitCode === 0) return ['docker', 'compose'];
-  } catch { /* try sudo */ }
+/**
+ * Read configured ports from .env, with sensible defaults.
+ */
+function readPorts(ctx: InstallContext): Record<string, number> {
+  const defaults: Record<string, number> = {
+    WEBUI_PORT: 3000,
+    DASHBOARD_PORT: 3001,
+    LLM_PORT: 8080,
+    SEARXNG_PORT: 8888,
+  };
 
-  // Fall back to sudo (user not in docker group)
-  try {
-    const result = await exec(['sudo', 'docker', 'compose', 'version'], { timeout: 5000 });
-    if (result.exitCode === 0) {
-      ui.info('Using sudo for Docker (user not in docker group)');
-      return ['sudo', 'docker', 'compose'];
-    }
-  } catch { /* try standalone */ }
+  const envPath = join(ctx.installDir, '.env');
+  if (!existsSync(envPath)) return defaults;
 
-  // Try standalone docker-compose
   try {
-    await exec(['docker-compose', '--version'], { timeout: 5000 });
-    return ['docker-compose'];
+    const content = readFileSync(envPath, 'utf-8');
+    const env = parseEnv(content);
+    return {
+      WEBUI_PORT: parseInt(env.WEBUI_PORT || '', 10) || defaults.WEBUI_PORT,
+      DASHBOARD_PORT: parseInt(env.DASHBOARD_PORT || '', 10) || defaults.DASHBOARD_PORT,
+      LLM_PORT: parseInt(env.OLLAMA_PORT || '', 10) || defaults.LLM_PORT,
+      SEARXNG_PORT: parseInt(env.SEARXNG_PORT || '', 10) || defaults.SEARXNG_PORT,
+    };
   } catch {
-    return null;
+    return defaults;
   }
 }
 
-interface ContainerInfo {
-  name: string;
-  status: string;
-  state: string;
+/**
+ * Derive the base docker command from the compose command.
+ * If composeCmd is ['sudo', 'docker', 'compose'], docker base is ['sudo', 'docker'].
+ * If composeCmd is ['docker', 'compose'], docker base is ['docker'].
+ * If composeCmd is ['docker-compose'], docker base is ['docker'].
+ */
+export function getDockerBaseCmd(composeCmd: string[]): string[] {
+  if (composeCmd[0] === 'sudo') return ['sudo', 'docker'];
+  if (composeCmd[0] === 'docker-compose') return ['docker'];
+  return ['docker'];
 }
 
 async function showContainerStatus(ctx: InstallContext, composeCmd: string[]): Promise<void> {
@@ -97,10 +112,8 @@ async function showContainerStatus(ctx: InstallContext, composeCmd: string[]): P
     let containers: Record<string, unknown>[] = [];
     const trimmed = stdout.trim();
     if (trimmed.startsWith('[')) {
-      // JSON array format
       try { containers = JSON.parse(trimmed); } catch { /* fallback below */ }
     } else {
-      // One JSON object per line
       for (const line of trimmed.split('\n')) {
         try { containers.push(JSON.parse(line)); } catch { /* skip */ }
       }
@@ -160,15 +173,14 @@ function showRecoveryHelp(ctx: InstallContext, composeCmd: string[]) {
   console.log(`     ${cmd} logs <service-name>`);
   console.log('');
   ui.info('To retry:');
-  console.log(`     cd ${ctx.installDir}`);
-  console.log(`     ${cmd} up -d`);
+  console.log(`     ${process.execPath} install`);
 }
 
-async function healthCheck(ctx: InstallContext, composeCmd: string[]): Promise<void> {
+async function healthCheck(ctx: InstallContext, ports: Record<string, number>): Promise<void> {
   ui.step('Checking service health...');
 
   const checks = [
-    { name: 'Open WebUI', url: 'http://localhost:3000' },
+    { name: 'Open WebUI', url: `http://localhost:${ports.WEBUI_PORT}` },
   ];
 
   for (const check of checks) {
@@ -189,7 +201,7 @@ async function healthCheck(ctx: InstallContext, composeCmd: string[]): Promise<v
   }
 }
 
-function showSuccess(ctx: InstallContext, hadErrors: boolean) {
+function showSuccess(ctx: InstallContext, ports: Record<string, number>, hadErrors: boolean) {
   const localIP = getLocalIP();
 
   if (hadErrors) {
@@ -202,16 +214,16 @@ function showSuccess(ctx: InstallContext, hadErrors: boolean) {
 
   console.log('');
   ui.table([
-    ['Dashboard', 'http://localhost:3001'],
-    ['Chat', 'http://localhost:3000'],
+    ['Dashboard', `http://localhost:${ports.DASHBOARD_PORT}`],
+    ['Chat', `http://localhost:${ports.WEBUI_PORT}`],
   ]);
 
   if (localIP) {
     console.log('');
     ui.info('LAN access:');
     ui.table([
-      ['Dashboard', `http://${localIP}:3001`],
-      ['Chat', `http://${localIP}:3000`],
+      ['Dashboard', `http://${localIP}:${ports.DASHBOARD_PORT}`],
+      ['Chat', `http://${localIP}:${ports.WEBUI_PORT}`],
     ]);
   }
 
@@ -219,8 +231,8 @@ function showSuccess(ctx: InstallContext, hadErrors: boolean) {
     console.log('');
     ui.ok('Tailscale access (secure, no port forwarding):');
     ui.table([
-      ['Dashboard', `http://${ctx.tailscaleIp}:3001`],
-      ['Chat', `http://${ctx.tailscaleIp}:3000`],
+      ['Dashboard', `http://${ctx.tailscaleIp}:${ports.DASHBOARD_PORT}`],
+      ['Chat', `http://${ctx.tailscaleIp}:${ports.WEBUI_PORT}`],
     ]);
   }
 

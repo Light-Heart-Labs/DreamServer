@@ -22,9 +22,9 @@ export async function preflight(ctx: InstallContext): Promise<PreflightResult> {
   ui.phase(1, 6, 'Preflight', '~5s');
   ui.step('Scanning system...');
 
-  // Root check
-  if (process.getuid?.() === 0) {
-    ui.fail('Do not run as root. Use a regular user with sudo access.');
+  // Root check — allow sudo (SUDO_USER set) but reject direct root login
+  if (process.getuid?.() === 0 && !process.env.SUDO_USER) {
+    ui.fail('Do not run as root. Use sudo instead: sudo dream-installer install');
     process.exit(1);
   }
 
@@ -108,34 +108,3 @@ export async function preflight(ctx: InstallContext): Promise<PreflightResult> {
   return { os, distro, arch: process.arch, hasDocker, hasDockerCompose, hasGit, hasCurl, hasNvidiaSmi, dockerRunning, tailscaleIp };
 }
 
-async function checkDockerCompose(): Promise<boolean> {
-  // Try v2 plugin first, then standalone
-  try {
-    await exec(['docker', 'compose', 'version'], { timeout: 5000 });
-    return true;
-  } catch {
-    return commandExists('docker-compose');
-  }
-}
-
-async function isDockerRunning(): Promise<boolean> {
-  // Method 1: docker info (works if user has socket permissions)
-  try {
-    const result = await exec(['docker', 'info'], { throwOnError: false, timeout: 5000 });
-    if (result.exitCode === 0) return true;
-  } catch { /* try next */ }
-
-  // Method 2: systemctl status (works even without socket perms)
-  try {
-    const result = await exec(['systemctl', 'is-active', 'docker'], { throwOnError: false, timeout: 5000 });
-    if (result.stdout.trim() === 'active') return true;
-  } catch { /* try next */ }
-
-  // Method 3: Check if docker socket exists and is a socket
-  try {
-    const result = await exec(['test', '-S', '/var/run/docker.sock'], { throwOnError: false, timeout: 2000 });
-    if (result.exitCode === 0) return true;
-  } catch { /* give up */ }
-
-  return false;
-}

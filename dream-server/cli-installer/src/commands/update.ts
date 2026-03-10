@@ -1,5 +1,5 @@
 // ── Update Command ──────────────────────────────────────────────────────────
-// Pull latest code, self-update binary, restart services.
+// Pull latest code, self-update binary with SHA256 verification, restart services.
 
 import { exec, execStream } from '../lib/shell.ts';
 import { getComposeCommand } from '../lib/docker.ts';
@@ -13,7 +13,15 @@ export interface UpdateOptions {
   skipSelfUpdate?: boolean;
 }
 
-const RELEASE_URL = 'https://github.com/Light-Heart-Labs/DreamServer/releases/latest/download/dream-installer-linux-x64';
+const RELEASE_BASE = 'https://github.com/Light-Heart-Labs/DreamServer/releases/latest/download';
+
+/**
+ * Get the correct binary name for the current architecture.
+ */
+function getBinaryName(): string {
+  if (process.arch === 'arm64') return 'dream-installer-linux-arm64';
+  return 'dream-installer-linux-x64';
+}
 
 export async function update(opts: UpdateOptions): Promise<void> {
   const installDir = opts.dir || `${process.env.HOME}/dream-server`;
@@ -87,12 +95,14 @@ export async function update(opts: UpdateOptions): Promise<void> {
 async function selfUpdate(): Promise<void> {
   ui.step('Checking for CLI updates...');
 
-  // Get the path to the currently running binary
+  const binaryName = getBinaryName();
+  const binaryUrl = `${RELEASE_BASE}/${binaryName}`;
+  const checksumUrl = `${RELEASE_BASE}/${binaryName}.sha256`;
   const currentBinary = process.execPath;
 
   try {
     // Check latest release via GitHub API (just HEAD request for speed)
-    const resp = await fetch(RELEASE_URL, {
+    const resp = await fetch(binaryUrl, {
       method: 'HEAD',
       redirect: 'follow',
       signal: AbortSignal.timeout(5000),
@@ -103,12 +113,14 @@ async function selfUpdate(): Promise<void> {
       return;
     }
 
-    // Download to temp, then replace
+    // Download binary and checksum
     const tmpPath = '/tmp/dream-installer-update';
+    const tmpChecksum = '/tmp/dream-installer-update.sha256';
     ui.step('Downloading latest CLI...');
 
+    // Download binary
     const downloadExitCode = await execStream(
-      ['curl', '-fSL', '--connect-timeout', '10', '-o', tmpPath, RELEASE_URL],
+      ['curl', '-fSL', '--connect-timeout', '10', '-o', tmpPath, binaryUrl],
     );
 
     if (downloadExitCode !== 0) {
@@ -116,11 +128,52 @@ async function selfUpdate(): Promise<void> {
       return;
     }
 
+    // Download and verify checksum
+    const checksumExitCode = await execStream(
+      ['curl', '-fSL', '--connect-timeout', '10', '-o', tmpChecksum, checksumUrl],
+    );
+
+    if (checksumExitCode === 0) {
+      // Verify SHA256
+      const { exitCode: verifyCode } = await exec(
+        ['sh', '-c', `cd /tmp && sha256sum --check ${tmpChecksum}`],
+        { throwOnError: false, timeout: 10000 },
+      );
+
+      if (verifyCode !== 0) {
+        ui.fail('SHA256 verification failed — update aborted (binary may be tampered)');
+        await exec(['rm', '-f', tmpPath, tmpChecksum], { throwOnError: false });
+        return;
+      }
+      ui.ok('SHA256 checksum verified');
+    } else {
+      ui.warn('No checksum file available — skipping integrity verification');
+    }
+
+    // Keep current binary as backup for rollback
+    const bakPath = `${currentBinary}.bak`;
+    try {
+      await exec(['cp', currentBinary, bakPath], { throwOnError: false });
+    } catch { /* best effort */ }
+
     // Make executable and replace
     await exec(['chmod', '+x', tmpPath]);
     await exec(['mv', tmpPath, currentBinary]);
-    ui.ok(`CLI updated to latest version`);
+    await exec(['rm', '-f', tmpChecksum], { throwOnError: false });
+
+    ui.ok('CLI updated to latest version');
     ui.info('New version will take effect on next run');
+
+    // Verify new binary works
+    try {
+      await exec([currentBinary, '--version'], { throwOnError: false, timeout: 5000 });
+      // Clean up backup on success
+      await exec(['rm', '-f', bakPath], { throwOnError: false });
+    } catch {
+      // Rollback on failure
+      ui.warn('New binary failed to execute — rolling back');
+      await exec(['mv', bakPath, currentBinary], { throwOnError: false });
+    }
   } catch (e) {
     ui.info('Self-update unavailable — continuing with current version');
   }

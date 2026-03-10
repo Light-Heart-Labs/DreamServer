@@ -6,6 +6,7 @@ import { resolveComposeFiles } from '../phases/configure.ts';
 import { downloadModel } from '../phases/model.ts';
 import { exec, execStream } from '../lib/shell.ts';
 import { getComposeCommand } from '../lib/docker.ts';
+import { parseEnv, setEnvValue } from '../lib/env.ts';
 import { select, multiSelect } from '../lib/prompts.ts';
 import * as ui from '../lib/ui.ts';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -32,17 +33,10 @@ export async function config(opts: ConfigOptions): Promise<void> {
 
   // Read current .env
   let envContent = readFileSync(envPath, 'utf-8');
-  const getEnv = (key: string): string => {
-    const match = envContent.match(new RegExp(`^${key}=(.+)$`, 'm'));
-    return match?.[1]?.trim() || '';
-  };
+  const envParsed = parseEnv(envContent);
+  const getEnv = (key: string): string => envParsed[key] || '';
   const setEnv = (key: string, value: string): void => {
-    const regex = new RegExp(`^${key}=.*$`, 'm');
-    if (regex.test(envContent)) {
-      envContent = envContent.replace(regex, `${key}=${value}`);
-    } else {
-      envContent += `\n${key}=${value}`;
-    }
+    envContent = setEnvValue(envContent, key, value);
   };
 
   let changed = false;
@@ -155,11 +149,13 @@ export async function config(opts: ConfigOptions): Promise<void> {
   // Build a context to resolve compose files
   const ctx = createDefaultContext();
   ctx.installDir = installDir;
+  // Rebuild from parsed env for consistency
+  const rebuildParsed = parseEnv(envContent);
   ctx.features = {
-    voice: envContent.includes('ENABLE_VOICE=true'),
-    workflows: envContent.includes('ENABLE_WORKFLOWS=true'),
-    rag: envContent.includes('ENABLE_RAG=true'),
-    openclaw: envContent.includes('ENABLE_OPENCLAW=true'),
+    voice: rebuildParsed.ENABLE_VOICE === 'true',
+    workflows: rebuildParsed.ENABLE_WORKFLOWS === 'true',
+    rag: rebuildParsed.ENABLE_RAG === 'true',
+    openclaw: rebuildParsed.ENABLE_OPENCLAW === 'true',
   };
   const gpuBackend = getEnv('GPU_BACKEND');
   ctx.gpu.backend = (gpuBackend as 'nvidia' | 'amd' | 'cpu') || 'cpu';
