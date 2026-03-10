@@ -5,7 +5,8 @@ import html as html_mod
 from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse
 
-from agent_monitor import get_full_agent_metrics, cluster_status, throughput
+from agent_monitor import get_full_agent_metrics, cluster_status, throughput, request_tracker
+from models import AgentEvent
 from security import verify_api_key
 
 router = APIRouter(tags=["agents"])
@@ -81,3 +82,56 @@ async def get_cluster_status(api_key: str = Depends(verify_api_key)):
 async def get_throughput(api_key: str = Depends(verify_api_key)):
     """Get throughput metrics (tokens/sec)."""
     return throughput.get_stats()
+
+
+@router.get("/api/agents/summary")
+async def get_agent_summary(api_key: str = Depends(verify_api_key)):
+    """Return a compact health summary with a single derived status field.
+
+    Status rules (evaluated in order):
+    - ``"critical"``  — error_rate_1h > 25 % **or** cluster has no active GPUs
+    - ``"degraded"``  — error_rate_1h > 5 % **or** queue_depth > 10
+    - ``"healthy"``   — everything within normal bounds
+    """
+    metrics = get_full_agent_metrics()
+    error_rate = metrics["agent"]["error_rate_1h"]
+    active_gpus = metrics["cluster"]["active_gpus"]
+    queue_depth = metrics["agent"]["queue_depth"]
+
+    if error_rate > 25.0 or active_gpus == 0:
+        status = "critical"
+    elif error_rate > 5.0 or queue_depth > 10:
+        status = "degraded"
+    else:
+        status = "healthy"
+
+    return {
+        "status": status,
+        "active_sessions": metrics["agent"]["session_count"],
+        "queue_depth": queue_depth,
+        "tps_current": metrics["throughput"].get("current", 0),
+        "tps_peak": metrics["throughput"].get("peak", 0),
+        "error_rate_1h": error_rate,
+        "requests_24h": metrics["tokens"]["requests_24h"],
+        "tokens_24h": metrics["tokens"]["total_tokens_24h"],
+        "cost_24h": metrics["tokens"]["total_cost_24h"],
+        "gpus_active": active_gpus,
+        "gpus_total": metrics["cluster"]["total_gpus"],
+        "failover_ready": metrics["cluster"]["failover_ready"],
+        "timestamp": metrics["timestamp"],
+    }
+
+
+@router.post("/api/agents/event")
+async def record_agent_event(event: AgentEvent, api_key: str = Depends(verify_api_key)):
+    """Ingest a request completion event from the llama-server proxy or any service.
+
+    Callers should POST with ``{"error": true}`` on failed/timed-out requests
+    so that the 1h error rate and 24h request counter stay accurate.
+    """
+    request_tracker.record(error=event.error)
+    return {
+        "recorded": True,
+        "requests_24h": request_tracker.requests_24h(),
+        "error_rate_1h": request_tracker.error_rate_1h(),
+    }

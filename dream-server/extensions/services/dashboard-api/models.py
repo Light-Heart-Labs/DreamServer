@@ -104,3 +104,8 @@ class PrivacyShieldStatus(BaseModel):
 
 class PrivacyShieldToggle(BaseModel):
     enable: bool
+
+
+class AgentEvent(BaseModel):
+    error: bool = False
+    session_id: Optional[str] = None

@@ -23,6 +23,9 @@ EXTENSIONS_DIR = Path(
 
 DEFAULT_SERVICE_HOST = os.environ.get("SERVICE_HOST", "host.docker.internal")
 GPU_BACKEND = os.environ.get("GPU_BACKEND", "nvidia")
+# Cost per 1 000 tokens in USD. Defaults to 0 (self-hosted = free).
+# Set TOKEN_COST_PER_1K=0.002 to mirror OpenAI gpt-3.5-turbo pricing for comparison.
+TOKEN_COST_PER_1K: float = float(os.environ.get("TOKEN_COST_PER_1K", "0.0"))
 
 # --- Manifest Loading ---
 
