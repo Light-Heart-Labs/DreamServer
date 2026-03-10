@@ -7,6 +7,7 @@ import * as ui from '../lib/ui.ts';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import * as readline from 'node:readline';
+import * as helpers from './uninstall.ts';
 
 export interface UninstallOptions {
   dir?: string;
@@ -36,7 +37,7 @@ export async function uninstall(opts: UninstallOptions): Promise<void> {
     }
     console.log('');
 
-    const confirmed = await confirm('Are you sure you want to uninstall? (yes/no): ');
+    const confirmed = await helpers._confirm('Are you sure you want to uninstall? (yes/no): ');
     if (!confirmed) {
       ui.info('Uninstall cancelled.');
       return;
@@ -68,7 +69,7 @@ export async function uninstall(opts: UninstallOptions): Promise<void> {
     }
 
     // ── Step 2: Remove images ──
-    const removeImages = opts.force || await confirm('Remove downloaded Docker images? (saves disk space) (yes/no): ');
+    const removeImages = opts.force || await helpers._confirm('Remove downloaded Docker images? (saves disk space) (yes/no): ');
     if (removeImages) {
       const imgSpinner = new ui.Spinner('Removing Docker images...');
       imgSpinner.start();
@@ -116,7 +117,7 @@ export async function uninstall(opts: UninstallOptions): Promise<void> {
   if (opts.keepData) {
     ui.info('Keeping data directory (--keep-data specified)');
   } else {
-    const deleteData = opts.force || await confirm(`Delete installation directory ${installDir}? (yes/no): `);
+    const deleteData = opts.force || await helpers._confirm(`Delete installation directory ${installDir}? (yes/no): `);
     if (deleteData) {
       const delSpinner = new ui.Spinner(`Removing ${installDir}...`);
       delSpinner.start();
@@ -147,7 +148,8 @@ export async function uninstall(opts: UninstallOptions): Promise<void> {
 
 // ── Helpers ──
 
-function confirm(prompt: string): Promise<boolean> {
+// Export for tests
+export function _confirm(prompt: string): Promise<boolean> {
   return new Promise((resolve) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     rl.question(`  ${prompt}`, (answer) => {
