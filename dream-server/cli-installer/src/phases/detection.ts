@@ -77,7 +77,7 @@ export async function detectGpu(): Promise<InstallContext['gpu']> {
 
   try {
     const { stdout, exitCode } = await exec(
-      ['nvidia-smi', '--query-gpu=name,memory.total,count', '--format=csv,noheader,nounits'],
+      ['nvidia-smi', '--query-gpu=name,memory.total', '--format=csv,noheader,nounits'],
       { throwOnError: false, timeout: 10000 },
     );
 

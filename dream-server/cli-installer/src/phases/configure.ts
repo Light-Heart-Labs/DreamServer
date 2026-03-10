@@ -101,7 +101,7 @@ export function resolveComposeFiles(ctx: InstallContext): string[] {
   // Extension service compose files
   const extDir = join(dir, 'extensions', 'services');
   if (existsSync(extDir)) {
-    for (const svc of readdirSync(extDir)) {
+    for (const svc of readdirSync(extDir).sort()) {
       const composeFile = join(extDir, svc, 'compose.yaml');
       if (existsSync(composeFile)) {
         // Check if the service is enabled

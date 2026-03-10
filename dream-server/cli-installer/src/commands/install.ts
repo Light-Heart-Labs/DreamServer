@@ -97,7 +97,7 @@ export async function install(opts: InstallOptions): Promise<void> {
     ui.fail(`Installation failed: ${error instanceof Error ? error.message : String(error)}`);
     console.log('');
     ui.info('To retry, just re-run the installer:');
-    console.log('     /tmp/dream-installer install');
+    console.log(`     ${process.execPath} install`);
     console.log('');
     process.exit(1);
   }

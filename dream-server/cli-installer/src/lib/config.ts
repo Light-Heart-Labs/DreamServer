@@ -4,16 +4,27 @@ export const VERSION = '1.0.0';
 export const REPO_URL = 'https://github.com/Light-Heart-Labs/DreamServer.git';
 export const MIN_DRIVER_VERSION = 570;
 
+import { homedir } from 'node:os';
+import { execSync } from 'node:child_process';
+
 /**
  * Resolve the real user's home directory, even under sudo.
- * When running `sudo dream-installer`, $HOME=/root but we want /home/$SUDO_USER.
+ * When running `sudo dream-installer`, os.homedir() returns /root but we
+ * want the original user's home. Falls back to getent lookup for non-standard
+ * home directories (NFS, custom paths).
  */
 export function getUserHome(): string {
   const sudoUser = process.env.SUDO_USER;
   if (sudoUser && process.getuid?.() === 0) {
+    // Try getent for correct path regardless of home dir layout
+    try {
+      const result = execSync(`getent passwd ${sudoUser}`, { encoding: 'utf-8', timeout: 2000 });
+      const home = result.trim().split(':')[5];
+      if (home) return home;
+    } catch { /* fallback below */ }
     return `/home/${sudoUser}`;
   }
-  return process.env.HOME || '/root';
+  return homedir() || process.env.HOME || '/root';
 }
 
 export const DEFAULT_INSTALL_DIR = `${getUserHome()}/dream-server`;
