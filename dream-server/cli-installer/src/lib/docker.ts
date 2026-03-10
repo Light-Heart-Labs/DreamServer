@@ -4,6 +4,10 @@ import { exec } from './shell.ts';
 
 let _cachedCmd: string[] | null = null;
 
+export function resetCache(): void {
+  _cachedCmd = null;
+}
+
 /**
  * Resolve the docker compose command that can actually talk to the daemon.
  *
