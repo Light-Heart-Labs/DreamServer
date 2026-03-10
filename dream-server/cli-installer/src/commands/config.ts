@@ -112,13 +112,23 @@ export async function config(opts: ConfigOptions): Promise<void> {
 
     const [tierId, tierConfig] = tierEntries[tierChoice];
 
-    if (tierConfig.model !== currentModel) {
+    const currentTier = getEnv('TIER');
+    const tierChanged = tierId !== currentTier;
+    const modelChanged = tierConfig.model !== currentModel;
+
+    if (tierChanged || modelChanged) {
       setEnv('LLM_MODEL', tierConfig.model);
       setEnv('GGUF_FILE', tierConfig.ggufFile);
       setEnv('CTX_SIZE', String(tierConfig.context));
       setEnv('MAX_CONTEXT', String(tierConfig.context));
+      setEnv('TIER', tierId);
       changed = true;
-      ui.ok(`Model: ${currentModel} → ${tierConfig.model}`);
+
+      if (modelChanged) {
+        ui.ok(`Model: ${currentModel} → ${tierConfig.model}`);
+      } else {
+        ui.ok(`Tier ${currentTier} → ${tierId} (context: ${tierConfig.context})`);
+      }
 
       // Check if new model needs downloading
       const modelsDir = join(installDir, 'data', 'models');

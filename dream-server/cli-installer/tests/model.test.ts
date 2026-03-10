@@ -121,7 +121,7 @@ describe('model.ts', () => {
 
     execStreamSpy.mockImplementation(async () => 1); // Mock failure
 
-    await downloadModel(ctx);
+    await expect(downloadModel(ctx)).rejects.toThrow('Model download failed');
 
     // Should retry 3 times
     expect(execStreamSpy).toHaveBeenCalledTimes(3);

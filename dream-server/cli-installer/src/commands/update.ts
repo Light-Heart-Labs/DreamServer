@@ -5,8 +5,9 @@ import { exec, execStream } from '../lib/shell.ts';
 import { getComposeCommand } from '../lib/docker.ts';
 import * as ui from '../lib/ui.ts';
 import { VERSION } from '../lib/config.ts';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 export interface UpdateOptions {
   dir?: string;
@@ -100,6 +101,19 @@ async function selfUpdate(): Promise<void> {
   const checksumUrl = `${RELEASE_BASE}/${binaryName}.sha256`;
   const currentBinary = process.execPath;
 
+  // Create a secure temporary directory (prevents symlink attacks on /tmp)
+  let tmpDir: string;
+  try {
+    tmpDir = mkdtempSync(join(tmpdir(), 'dream-update-'));
+  } catch {
+    ui.warn('Cannot create temp directory — skipping self-update');
+    return;
+  }
+
+  // Download using artifact name so sha256sum --check can find the file
+  const tmpPath = join(tmpDir, binaryName);
+  const tmpChecksum = join(tmpDir, `${binaryName}.sha256`);
+
   try {
     // Check latest release via GitHub API (just HEAD request for speed)
     const resp = await fetch(binaryUrl, {
@@ -113,12 +127,8 @@ async function selfUpdate(): Promise<void> {
       return;
     }
 
-    // Download binary and checksum
-    const tmpPath = '/tmp/dream-installer-update';
-    const tmpChecksum = '/tmp/dream-installer-update.sha256';
-    ui.step('Downloading latest CLI...');
-
     // Download binary
+    ui.step('Downloading latest CLI...');
     const downloadExitCode = await execStream(
       ['curl', '-fSL', '--connect-timeout', '10', '-o', tmpPath, binaryUrl],
     );
@@ -134,15 +144,14 @@ async function selfUpdate(): Promise<void> {
     );
 
     if (checksumExitCode === 0) {
-      // Verify SHA256
+      // Verify SHA256 (cwd = tmpDir so sha256sum finds the artifact by name)
       const { exitCode: verifyCode } = await exec(
-        ['sh', '-c', `cd /tmp && sha256sum --check ${tmpChecksum}`],
-        { throwOnError: false, timeout: 10000 },
+        ['sha256sum', '--check', `${binaryName}.sha256`],
+        { cwd: tmpDir, throwOnError: false, timeout: 10000 },
       );
 
       if (verifyCode !== 0) {
         ui.fail('SHA256 verification failed — update aborted (binary may be tampered)');
-        await exec(['rm', '-f', tmpPath, tmpChecksum], { throwOnError: false });
         return;
       }
       ui.ok('SHA256 checksum verified');
@@ -159,22 +168,28 @@ async function selfUpdate(): Promise<void> {
     // Make executable and replace
     await exec(['chmod', '+x', tmpPath]);
     await exec(['mv', tmpPath, currentBinary]);
-    await exec(['rm', '-f', tmpChecksum], { throwOnError: false });
 
     ui.ok('CLI updated to latest version');
     ui.info('New version will take effect on next run');
 
-    // Verify new binary works
-    try {
-      await exec([currentBinary, '--version'], { throwOnError: false, timeout: 5000 });
-      // Clean up backup on success
-      await exec(['rm', '-f', bakPath], { throwOnError: false });
-    } catch {
+    // Verify new binary works — explicitly check exitCode (not catch-based)
+    const { exitCode: verifyExitCode } = await exec(
+      [currentBinary, '--version'],
+      { throwOnError: false, timeout: 5000 },
+    );
+
+    if (verifyExitCode !== 0) {
       // Rollback on failure
       ui.warn('New binary failed to execute — rolling back');
       await exec(['mv', bakPath, currentBinary], { throwOnError: false });
+    } else {
+      // Clean up backup on success
+      await exec(['rm', '-f', bakPath], { throwOnError: false });
     }
   } catch (e) {
     ui.info('Self-update unavailable — continuing with current version');
+  } finally {
+    // Always clean up temp directory
+    try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best effort */ }
   }
 }

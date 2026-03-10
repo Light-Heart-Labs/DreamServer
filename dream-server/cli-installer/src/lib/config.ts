@@ -5,7 +5,7 @@ export const REPO_URL = 'https://github.com/Light-Heart-Labs/DreamServer.git';
 export const MIN_DRIVER_VERSION = 570;
 
 import { homedir } from 'node:os';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
 /**
  * Resolve the real user's home directory, even under sudo.
@@ -18,7 +18,7 @@ export function getUserHome(): string {
   if (sudoUser && process.getuid?.() === 0) {
     // Try getent for correct path regardless of home dir layout
     try {
-      const result = execSync(`getent passwd ${sudoUser}`, { encoding: 'utf-8', timeout: 2000 });
+      const result = execFileSync('getent', ['passwd', sudoUser], { encoding: 'utf-8', timeout: 2000 });
       const home = result.trim().split(':')[5];
       if (home) return home;
     } catch { /* fallback below */ }

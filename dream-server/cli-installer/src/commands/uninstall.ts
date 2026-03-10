@@ -6,7 +6,7 @@ import { DEFAULT_INSTALL_DIR } from '../lib/config.ts';
 import * as ui from '../lib/ui.ts';
 import * as prompts from '../lib/prompts.ts';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 export interface UninstallOptions {
   dir?: string;
@@ -94,14 +94,16 @@ export async function uninstall(opts: UninstallOptions): Promise<void> {
       }
     }
 
-    // ── Step 3: Remove Docker volumes ──
-    try {
-      await exec(
-        [...composeCmd, 'down', '-v'],
-        { cwd: installDir, throwOnError: false, timeout: 30_000 },
-      );
-      ui.ok('Docker volumes removed');
-    } catch { /* volumes may not exist */ }
+    // ── Step 3: Remove Docker volumes (only if NOT keeping data) ──
+    if (!opts.keepData) {
+      try {
+        await exec(
+          [...composeCmd, 'down', '-v'],
+          { cwd: installDir, throwOnError: false, timeout: 30_000 },
+        );
+        ui.ok('Docker volumes removed');
+      } catch { /* volumes may not exist */ }
+    }
 
     // ── Step 4: Remove network ──
     try {
@@ -118,6 +120,14 @@ export async function uninstall(opts: UninstallOptions): Promise<void> {
   } else {
     const deleteData = opts.force || await prompts.confirm(`Delete installation directory ${installDir}?`);
     if (deleteData) {
+      // Safety guard: refuse to rm -rf critical system directories
+      const target = resolve(installDir);
+      const DANGEROUS_PATHS = ['/', '/home', '/root', '/usr', '/etc', '/var', '/boot', '/bin', '/sbin', '/lib', '/opt', '/tmp'];
+      if (DANGEROUS_PATHS.includes(target) || target.split('/').filter(Boolean).length < 2) {
+        ui.fail(`Safety check: refusing to delete system directory: ${target}`);
+        return;
+      }
+
       const delSpinner = new ui.Spinner(`Removing ${installDir}...`);
       delSpinner.start();
       try {

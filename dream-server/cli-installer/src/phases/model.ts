@@ -109,6 +109,7 @@ export async function downloadModel(ctx: InstallContext): Promise<void> {
     console.log(`     wget -c -O "${modelPath}" "${tierConfig.ggufUrl}"`);
     console.log('');
     ui.info('Then re-run the installer to continue');
+    throw new Error('Model download failed — cannot proceed without LLM model');
   }
 }
 
