@@ -1,0 +1,125 @@
+name: Test Linux
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  installer-contracts:
+    name: Installer Contract Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate .env.schema.json
+        run: |
+          set -euo pipefail
+          schema="dream-server/config/.env.schema.json"
+          if [ -f "$schema" ]; then
+            python3 -c "import json; json.load(open('$schema'))"
+            echo "Schema is valid JSON"
+          else
+            echo "No .env.schema.json found, skipping"
+          fi
+
+      - name: Validate manifest.json
+        run: |
+          set -euo pipefail
+          python3 -c "import json; json.load(open('dream-server/manifest.json'))"
+          echo "manifest.json is valid"
+
+      - name: Validate extension manifests (YAML syntax)
+        run: |
+          set -euo pipefail
+          pip install pyyaml
+          python3 -c "
+          import yaml, pathlib, sys
+          errors = 0
+          for f in pathlib.Path('dream-server/extensions/services').rglob('manifest.yaml'):
+              try:
+                  data = yaml.safe_load(f.read_text())
+                  if not isinstance(data, dict):
+                      print(f'ERROR: {f} is not a YAML object')
+                      errors += 1
+                  elif 'schema_version' not in data:
+                      print(f'WARN: {f} missing schema_version')
+                  else:
+                      print(f'OK: {f}')
+              except Exception as e:
+                  print(f'ERROR: {f}: {e}')
+                  errors += 1
+          sys.exit(1 if errors else 0)
+          "
+
+      - name: Validate GPU database JSON
+        run: |
+          set -euo pipefail
+          python3 -c "import json; json.load(open('dream-server/config/gpu-database.json'))"
+          echo "gpu-database.json is valid"
+
+      - name: Validate hardware-classes JSON
+        run: |
+          set -euo pipefail
+          python3 -c "import json; json.load(open('dream-server/config/hardware-classes.json'))"
+          echo "hardware-classes.json is valid"
+
+  docker-compose-syntax:
+    name: Docker Compose Syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate compose files
+        run: |
+          set -euo pipefail
+          for f in dream-server/docker-compose.*.yml; do
+            echo "Validating $f..."
+            docker compose -f "$f" config --quiet 2>&1 || {
+              echo "WARN: $f failed standalone validation (may need .env)"
+            }
+          done
+
+  installer-dry-run:
+    name: Installer Dry Run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify installer scripts have no syntax errors
+        run: |
+          set -euo pipefail
+          for f in dream-server/installers/phases/*.sh dream-server/installers/lib/*.sh; do
+            bash -n "$f" && echo "OK: $f" || { echo "FAIL: $f"; exit 1; }
+          done
+
+      - name: Verify script library syntax
+        run: |
+          set -euo pipefail
+          for f in dream-server/scripts/*.sh dream-server/lib/*.sh; do
+            bash -n "$f" && echo "OK: $f" || { echo "FAIL: $f"; exit 1; }
+          done
+
+  unit-tests:
+    name: Shell Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run tier-map tests
+        run: |
+          cd dream-server
+          if [ -x tests/test-tier-map.sh ]; then
+            bash tests/test-tier-map.sh
+          else
+            echo "test-tier-map.sh not executable, skipping"
+          fi
+
+      - name: Run service-registry tests
+        run: |
+          cd dream-server
+          if [ -x tests/test-service-registry.sh ]; then
+            bash tests/test-service-registry.sh
+          else
+            echo "test-service-registry.sh not executable, skipping"
+          fi

@@ -1,9 +1,11 @@
 import {
   LayoutDashboard,
+  Network,
   Settings,
 } from 'lucide-react'
 
 import Dashboard from '../pages/Dashboard'
+import Workflows from '../pages/Workflows'
 import SettingsPage from '../pages/Settings'
 
 export const coreRoutes = [
@@ -17,6 +19,16 @@ export const coreRoutes = [
     sidebar: true,
   },
   {
+    id: 'workflows',
+    path: '/workflows',
+    label: 'Workflows',
+    icon: Network,
+    component: Workflows,
+    getProps: () => ({}),
+    sidebar: true,
+    order: 5,
+  },
+  {
     id: 'settings',
     path: '/settings',
     label: 'Settings',
@@ -24,6 +36,7 @@ export const coreRoutes = [
     component: SettingsPage,
     getProps: () => ({}),
     sidebar: true,
+    order: 99,
   },
 ]
 

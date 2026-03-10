@@ -1,0 +1,82 @@
+name: Dashboard CI
+
+on:
+  pull_request:
+    paths:
+      - 'dream-server/extensions/services/dashboard/**'
+      - 'dream-server/extensions/services/dashboard-api/**'
+  push:
+    branches: [main]
+    paths:
+      - 'dream-server/extensions/services/dashboard/**'
+      - 'dream-server/extensions/services/dashboard-api/**'
+
+jobs:
+  dashboard-frontend:
+    name: Frontend Lint & Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dream-server/extensions/services/dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: dream-server/extensions/services/dashboard/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Lint
+        run: npm run lint --if-present
+
+      - name: Build
+        run: npm run build
+
+      - name: Check build output
+        run: |
+          test -d dist || { echo "Build did not produce dist/"; exit 1; }
+          test -f dist/index.html || { echo "Missing index.html in dist/"; exit 1; }
+
+  dashboard-api:
+    name: API Lint & Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dream-server/extensions/services/dashboard-api
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r tests/requirements-test.txt
+
+      - name: Run tests
+        run: python -m pytest tests/ -v --tb=short
+
+  docker-syntax:
+    name: Dockerfile Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Dockerfiles
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: dream-server/extensions/services/dashboard/Dockerfile
+          failure-threshold: warning
+
+      - name: Validate API Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: dream-server/extensions/services/dashboard-api/Dockerfile
+          failure-threshold: warning
