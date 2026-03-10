@@ -1,0 +1,29 @@
+# Dream Server — vLLM Backend Overlay
+# Replaces llama-server (llama.cpp) with vLLM for higher throughput
+# Use with: docker compose -f docker-compose.base.yml -f docker-compose.nvidia.yml -f docker-compose.vllm.yml up -d
+
+services:
+  llama-server:
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.17.0}
+    container_name: dream-vllm-server
+    volumes:
+      - ${VLLM_HF_CACHE:-./data/hf-cache}:/root/.cache/huggingface
+    command:
+      - --model
+      - ${VLLM_MODEL:-Qwen/Qwen3.5-4B}
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8080"
+      - --gpu-memory-utilization
+      - "${VLLM_GPU_MEM_UTIL:-0.90}"
+      - --reasoning-parser
+      - "qwen3"
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 300s

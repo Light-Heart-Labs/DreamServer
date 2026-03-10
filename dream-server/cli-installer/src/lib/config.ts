@@ -39,6 +39,9 @@ export interface TierConfig {
   users: string;
   minRam: number;
   minDisk: number;
+  // vLLM-specific fields
+  vllmModel: string;
+  vllmArgs: string[];
 }
 
 export const TIER_MAP: Record<string, TierConfig> = {
@@ -52,6 +55,8 @@ export const TIER_MAP: Record<string, TierConfig> = {
     users: '1-2',
     minRam: 16,
     minDisk: 30,
+    vllmModel: 'Qwen/Qwen3.5-4B',
+    vllmArgs: ['--language-model-only', '--max-model-len', '4096'],
   },
   '2': {
     name: 'Prosumer',
@@ -63,6 +68,8 @@ export const TIER_MAP: Record<string, TierConfig> = {
     users: '3-5',
     minRam: 32,
     minDisk: 50,
+    vllmModel: 'Qwen/Qwen3.5-4B',
+    vllmArgs: ['--language-model-only', '--max-model-len', '4096'],
   },
   '3': {
     name: 'Pro',
@@ -74,6 +81,8 @@ export const TIER_MAP: Record<string, TierConfig> = {
     users: '5-8',
     minRam: 48,
     minDisk: 80,
+    vllmModel: 'Qwen/Qwen3.5-4B',
+    vllmArgs: ['--language-model-only', '--max-model-len', '16384'],
   },
   '4': {
     name: 'Enterprise',
@@ -85,6 +94,8 @@ export const TIER_MAP: Record<string, TierConfig> = {
     users: '10-15',
     minRam: 64,
     minDisk: 150,
+    vllmModel: 'Qwen/Qwen3.5-9B',
+    vllmArgs: ['--language-model-only'],
   },
   NV_ULTRA: {
     name: 'NV Ultra',
@@ -96,6 +107,8 @@ export const TIER_MAP: Record<string, TierConfig> = {
     users: '10-20',
     minRam: 96,
     minDisk: 200,
+    vllmModel: 'Qwen/Qwen3.5-32B',
+    vllmArgs: ['--language-model-only'],
   },
 };
 
@@ -111,12 +124,15 @@ export const FEATURE_PRESETS: Record<string, FeatureSet> = {
   core: { voice: false, workflows: false, rag: false, openclaw: false },
 };
 
+export type LlmBackend = 'llamacpp' | 'vllm';
+
 export interface InstallContext {
   installDir: string;
   interactive: boolean;
   dryRun: boolean;
   force: boolean;
   tier: string;
+  llmBackend: LlmBackend;
   features: FeatureSet;
   gpu: {
     backend: 'nvidia' | 'amd' | 'cpu';
@@ -141,6 +157,7 @@ export function createDefaultContext(): InstallContext {
     dryRun: false,
     force: false,
     tier: '',
+    llmBackend: 'llamacpp',
     features: { ...FEATURE_PRESETS.full },
     gpu: { backend: 'cpu', name: 'Not detected', vramMB: 0, count: 0 },
     system: { os: 'linux', distro: '', ramGB: 0, diskGB: 0, arch: process.arch },

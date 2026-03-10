@@ -7,6 +7,19 @@ import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 export async function downloadModel(ctx: InstallContext): Promise<void> {
+  // vLLM downloads models from HuggingFace at container startup — skip GGUF download
+  if (ctx.llmBackend === 'vllm') {
+    const tierConfig = TIER_MAP[ctx.tier];
+    ui.info(`vLLM backend — model "${tierConfig?.vllmModel}" will be auto-downloaded on first start`);
+    // Create HuggingFace cache directory
+    const hfCacheDir = join(ctx.installDir, 'data', 'hf-cache');
+    if (!existsSync(hfCacheDir)) {
+      mkdirSync(hfCacheDir, { recursive: true });
+      ui.ok('Created HuggingFace cache directory');
+    }
+    return;
+  }
+
   const tierConfig = TIER_MAP[ctx.tier];
   if (!tierConfig?.ggufUrl) {
     ui.info('No model download needed for this tier');

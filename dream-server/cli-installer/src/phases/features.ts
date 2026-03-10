@@ -1,6 +1,6 @@
 // ── Phase 03: Feature Selection ─────────────────────────────────────────────
 
-import { type InstallContext, FEATURE_PRESETS, type FeatureSet } from '../lib/config.ts';
+import { type InstallContext, FEATURE_PRESETS, type FeatureSet, type LlmBackend } from '../lib/config.ts';
 import { select, multiSelect } from '../lib/prompts.ts';
 import * as ui from '../lib/ui.ts';
 
@@ -51,6 +51,11 @@ export async function features(ctx: InstallContext): Promise<FeatureSet> {
       openclaw: results[3],
     };
     ui.ok('Selected: Custom');
+
+    // LLM backend selection — only for NVIDIA GPUs
+    if (ctx.gpu.backend === 'nvidia') {
+      ctx.llmBackend = await selectLlmBackend();
+    }
   }
 
   // Display selected features
@@ -63,6 +68,26 @@ export async function features(ctx: InstallContext): Promise<FeatureSet> {
   } else {
     ui.info('Features: core only');
   }
+  if (ctx.llmBackend !== 'llamacpp') {
+    ui.info(`LLM backend: ${ctx.llmBackend}`);
+  }
 
   return ctx.features;
+}
+
+async function selectLlmBackend(): Promise<LlmBackend> {
+  console.log('');
+  const choice = await select('Select LLM inference backend', [
+    {
+      label: 'llama.cpp',
+      description: 'GGUF quantized models — lower RAM, wider compatibility',
+      hint: 'default',
+    },
+    {
+      label: 'vLLM',
+      description: 'HuggingFace models — higher throughput, FlashAttention, Qwen3.5',
+    },
+  ]);
+
+  return choice === 0 ? 'llamacpp' : 'vllm';
 }
