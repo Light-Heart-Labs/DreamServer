@@ -128,4 +128,3 @@ describe('install.ts', () => {
     expect(configureSpy).toHaveBeenCalled();
   });
 });
-
