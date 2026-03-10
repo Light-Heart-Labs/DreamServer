@@ -127,16 +127,24 @@ function VoiceServicesBanner({ services, loading, onRefresh }) {
 }
 
 // Waveform animation component
+const WAVEFORM_COLORS = {
+  indigo: 'bg-indigo-400',
+  green: 'bg-green-400',
+  red: 'bg-red-400',
+  yellow: 'bg-yellow-400',
+}
+
 function AudioWaveform({ active, color = 'indigo' }) {
   const bars = 5
+  const colorClass = WAVEFORM_COLORS[color] || 'bg-indigo-400'
   return (
     <div className="flex items-center gap-1 h-8">
       {Array.from({ length: bars }).map((_, i) => (
         <div
           key={i}
           className={`w-1 rounded-full transition-all duration-150 ${
-            active 
-              ? `bg-${color}-400 animate-pulse` 
+            active
+              ? `${colorClass} animate-pulse`
               : 'bg-zinc-600'
           }`}
           style={{

@@ -98,7 +98,7 @@ cmd_check() {
     # Fetch latest release from GitHub
     local api_url="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
     local response
-    local curl_args=(-sf)
+    local curl_args=(-sf --max-time 15)
     if [[ -n "${GITHUB_TOKEN:-}" ]]; then
         curl_args+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
     fi
@@ -433,7 +433,7 @@ cmd_changelog() {
         log_info "Fetching changelog for version ${version}..."
         local api_url="https://api.github.com/repos/${GITHUB_REPO}/releases/tags/${version}"
         local response
-        if response=$(curl -sf "${api_url}" 2>/dev/null); then
+        if response=$(curl -sf --max-time 15 "${api_url}" 2>/dev/null); then
             echo "$response" | jq -r '.body // "No changelog available."'
         else
             log_error "Could not fetch changelog for ${version}"
@@ -448,7 +448,7 @@ cmd_changelog() {
         else
             log_warn "No local CHANGELOG.md found."
             log_info "Fetching latest release notes from GitHub..."
-            cmd_changelog "$(curl -sf "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" | jq -r '.tag_name // empty')" || true
+            cmd_changelog "$(curl -sf --max-time 15 "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" | jq -r '.tag_name // empty')" || true
         fi
     fi
 }

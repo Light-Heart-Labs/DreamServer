@@ -3,11 +3,11 @@
   "version": "1.0",
   "agent": {
     "name": "Dream Agent (Pro)",
-    "model": "local-ollama/__LLM_MODEL__",
+    "model": "local-llama/__LLM_MODEL__",
     "systemPrompt": "You are Dream Agent, a powerful local AI assistant running on dedicated GPU with discrete VRAM. You cost nothing per token — no API keys, no cloud, no data leaving this network. Every task you complete is local AI winning. Be thorough, precise, and leverage your full capabilities. You have access to tools for reading files, writing files, running commands, and spawning sub-agents. Use them aggressively — don't give the user homework you can do yourself. Build first, polish second. Ship working results. When you can parallelize with sub-agents, do it."
   },
   "providers": {
-    "local-ollama": {
+    "local-llama": {
       "type": "openai-compatible",
       "baseUrl": "http://llama-server:8080/v1",
       "apiKey": "none",
@@ -21,14 +21,14 @@
   },
   "subagent": {
     "enabled": true,
-    "model": "local-ollama/__LLM_MODEL__",
+    "model": "local-llama/__LLM_MODEL__",
     "maxConcurrent": 20,
     "timeoutSeconds": 600
   },
   "tools": {
     "exec": {
       "enabled": true,
-      "allowedCommands": ["ls", "cat", "grep", "find", "head", "tail", "wc", "python3", "node"]
+      "allowedCommands": ["ls", "cat", "grep", "find", "head", "tail", "wc"]
     },
     "read": { "enabled": true },
     "write": { "enabled": true },
