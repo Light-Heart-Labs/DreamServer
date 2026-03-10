@@ -80,7 +80,7 @@ list_backups() {
     echo ""
     echo "Existing Backups:"
     echo "═══════════════════════════════════════════════════════════════════"
-    printf "%-20s %-12s %-10s %s\n" "ID" "Type" "Size" "Description"
+    printf "%-20s %-12s %-10s %-10s %s\n" "ID" "Type" "Size" "Est.Size" "Description"
     echo "───────────────────────────────────────────────────────────────────"
 
     for backup in "${backups[@]}"; do
@@ -90,6 +90,7 @@ list_backups() {
         local description=""
         local size
         size=$(du -sh "$backup" 2>/dev/null | cut -f1)
+        local est_size=""
 
         if [[ "$backup" == *.tar.gz ]]; then
             # Compressed archive — extract manifest from inside the tar
@@ -98,15 +99,29 @@ list_backups() {
             if manifest_data=$(tar xzf "$backup" -O "${archive_name}/manifest.json" 2>/dev/null); then
                 backup_type=$(echo "$manifest_data" | grep -o '"backup_type": "[^"]*"' 2>/dev/null | cut -d'"' -f4 || echo "compressed")
                 description=$(echo "$manifest_data" | grep -o '"description": "[^"]*"' 2>/dev/null | cut -d'"' -f4 || echo "")
+                local est_bytes
+                est_bytes=$(echo "$manifest_data" | grep -o '"estimated_size_bytes": "[^"]*"' 2>/dev/null | cut -d'"' -f4 || echo "0")
+                if [[ "$est_bytes" != "0" && -n "$est_bytes" ]]; then
+                    if command -v numfmt &>/dev/null; then
+                        est_size=$(numfmt --to=iec-i --suffix=B "$est_bytes" 2>/dev/null || echo "")
+                    fi
+                fi
             else
                 backup_type="compressed"
             fi
         elif [[ -f "$backup/manifest.json" ]]; then
             backup_type=$(grep -o '"backup_type": "[^"]*"' "$backup/manifest.json" 2>/dev/null | cut -d'"' -f4 || echo "unknown")
             description=$(grep -o '"description": "[^"]*"' "$backup/manifest.json" 2>/dev/null | cut -d'"' -f4 || echo "")
+            local est_bytes
+            est_bytes=$(grep -o '"estimated_size_bytes": "[^"]*"' "$backup/manifest.json" 2>/dev/null | cut -d'"' -f4 || echo "0")
+            if [[ "$est_bytes" != "0" && -n "$est_bytes" ]]; then
+                if command -v numfmt &>/dev/null; then
+                    est_size=$(numfmt --to=iec-i --suffix=B "$est_bytes" 2>/dev/null || echo "")
+                fi
+            fi
         fi
 
-        printf "%-20s %-12s %-10s %s\n" "$id" "$backup_type" "$size" "$description"
+        printf "%-20s %-12s %-10s %-10s %s\n" "$id" "$backup_type" "$size" "${est_size:--}" "$description"
     done
     echo ""
 }
@@ -137,11 +152,99 @@ delete_backup() {
     fi
 }
 
+# Estimate backup size before starting
+estimate_backup_size() {
+    local backup_type="$1"
+    log_info "Estimating backup size..."
+
+    local total_size=0
+    local paths_to_check=()
+
+    # Determine what to check based on backup type
+    case "$backup_type" in
+        full)
+            paths_to_check+=(
+                "data/open-webui" "data/n8n" "data/qdrant" "data/openclaw"
+                "data/litellm" "data/livekit" "data/ollama"
+                ".env" ".version" "docker-compose*.y*ml" "config"
+                "models"
+            )
+            ;;
+        user-data)
+            paths_to_check+=(
+                "data/open-webui" "data/n8n" "data/qdrant" "data/openclaw"
+                "data/litellm" "data/livekit" "data/ollama"
+            )
+            ;;
+        config)
+            paths_to_check+=(
+                ".env" ".version" "docker-compose*.y*ml" "config"
+            )
+            ;;
+    esac
+
+    # Calculate size
+    for path in "${paths_to_check[@]}"; do
+        if [[ "$path" == *"*"* ]]; then
+            # Glob pattern
+            for file in "$DREAM_DIR"/$path; do
+                [[ -e "$file" ]] && total_size=$((total_size + $(du -sb "$file" 2>/dev/null | cut -f1 || echo 0)))
+            done
+        else
+            local full_path="$DREAM_DIR/$path"
+            if [[ -e "$full_path" ]]; then
+                total_size=$((total_size + $(du -sb "$full_path" 2>/dev/null | cut -f1 || echo 0)))
+            fi
+        fi
+    done
+
+    # Convert to human readable
+    local size_human
+    if command -v numfmt &>/dev/null; then
+        size_human=$(numfmt --to=iec-i --suffix=B $total_size 2>/dev/null || echo "${total_size} bytes")
+    else
+        # Fallback for systems without numfmt
+        if [[ $total_size -gt 1073741824 ]]; then
+            size_human="$(( total_size / 1073741824 ))GiB"
+        elif [[ $total_size -gt 1048576 ]]; then
+            size_human="$(( total_size / 1048576 ))MiB"
+        elif [[ $total_size -gt 1024 ]]; then
+            size_human="$(( total_size / 1024 ))KiB"
+        else
+            size_human="${total_size}B"
+        fi
+    fi
+
+    log_info "Estimated backup size: $size_human"
+
+    # Check available space
+    local backup_parent
+    backup_parent=$(dirname "$BACKUP_ROOT")
+    local available_space
+    available_space=$(df -B1 "$backup_parent" 2>/dev/null | tail -1 | awk '{print $4}')
+
+    if [[ -n "$available_space" && $available_space -lt $total_size ]]; then
+        log_error "Insufficient disk space!"
+        log_error "Required: $size_human"
+        local avail_human
+        if command -v numfmt &>/dev/null; then
+            avail_human=$(numfmt --to=iec-i --suffix=B $available_space 2>/dev/null)
+        else
+            avail_human="$(( available_space / 1048576 ))MiB"
+        fi
+        log_error "Available: $avail_human"
+        return 1
+    fi
+
+    echo "$total_size"
+}
+
 # Create backup manifest
 create_manifest() {
     local backup_dir="$1"
     local backup_type="$2"
     local description="${3:-}"
+    local estimated_size="${4:-0}"
     local version
     version=$(cat "$DREAM_DIR/.version" 2>/dev/null || echo "unknown")
 
@@ -159,6 +262,7 @@ create_manifest() {
         --arg dv "$version" \
         --arg hn "$(hostname)" \
         --arg desc "$description" \
+        --arg size "$estimated_size" \
         --argjson ud "$has_user_data" \
         --argjson cfg "$has_config" \
         --argjson ca "$has_cache" \
@@ -170,6 +274,7 @@ create_manifest() {
           dream_version: $dv,
           hostname: $hn,
           description: $desc,
+          estimated_size_bytes: $size,
           contents: { user_data: $ud, config: $cfg, cache: $ca },
           paths: {
             data_open_webui: "data/open-webui",
@@ -476,6 +581,13 @@ do_backup() {
     local compress="${2:-false}"
     local description="${3:-}"
 
+    # Estimate backup size and check disk space
+    local estimated_size
+    if ! estimated_size=$(estimate_backup_size "$backup_type"); then
+        error "Backup cancelled due to insufficient disk space"
+        exit 1
+    fi
+
     # Generate backup ID
     local backup_id
     backup_id=$(date +%Y%m%d-%H%M%S)
@@ -487,8 +599,8 @@ do_backup() {
     # Create backup directory
     mkdir -p "$backup_dir"
 
-    # Create manifest
-    create_manifest "$backup_dir" "$backup_type" "$description"
+    # Create manifest with size estimate
+    create_manifest "$backup_dir" "$backup_type" "$description" "$estimated_size"
 
     # Perform backup based on type
     case "$backup_type" in
