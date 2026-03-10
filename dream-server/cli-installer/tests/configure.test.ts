@@ -97,5 +97,97 @@ describe('configure.ts', () => {
     expect(envContent).toContain('GPU_BACKEND=nvidia');
     expect(envContent).toContain('LLM_MODEL=qwen3-8b');
     expect(envContent).toContain('WEBUI_PORT=3000');
+    expect(envContent).toContain('LLM_BACKEND=llamacpp');
+  });
+
+  test('configure() generates vLLM env vars when backend is vllm', async () => {
+    const ctx = createDefaultContext();
+    ctx.installDir = tmpDir;
+    ctx.tier = '3';
+    ctx.gpu.backend = 'nvidia';
+    ctx.llmBackend = 'vllm';
+
+    await configure(ctx);
+
+    const envContent = fs.readFileSync(join(tmpDir, '.env'), 'utf-8');
+    expect(envContent).toContain('LLM_BACKEND=vllm');
+    expect(envContent).toContain('VLLM_MODEL=Qwen/Qwen3.5-4B');
+    expect(envContent).toContain('VLLM_ARGS=--language-model-only --max-model-len 16384');
+    expect(envContent).toContain('VLLM_IMAGE=vllm/vllm-openai:v0.17.0');
+    expect(envContent).toContain('VLLM_HF_CACHE=./data/hf-cache');
+  });
+
+  test('configure() does not include vLLM env vars for llamacpp backend', async () => {
+    const ctx = createDefaultContext();
+    ctx.installDir = tmpDir;
+    ctx.tier = '1';
+    ctx.gpu.backend = 'nvidia';
+    ctx.llmBackend = 'llamacpp';
+
+    await configure(ctx);
+
+    const envContent = fs.readFileSync(join(tmpDir, '.env'), 'utf-8');
+    expect(envContent).toContain('LLM_BACKEND=llamacpp');
+    expect(envContent).not.toContain('VLLM_MODEL');
+    expect(envContent).not.toContain('VLLM_ARGS');
+  });
+});
+
+describe('resolveComposeFiles()', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'dream-test-compose-'));
+    spyOn(ui, 'phase').mockImplementation(() => {});
+    spyOn(ui, 'step').mockImplementation(() => {});
+    spyOn(ui, 'info').mockImplementation(() => {});
+    spyOn(ui, 'ok').mockImplementation(() => {});
+    spyOn(ui, 'warn').mockImplementation(() => {});
+    spyOn(ui, 'fail').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+    spyOn(ui, 'phase').mockRestore();
+    spyOn(ui, 'step').mockRestore();
+    spyOn(ui, 'info').mockRestore();
+    spyOn(ui, 'ok').mockRestore();
+    spyOn(ui, 'warn').mockRestore();
+    spyOn(ui, 'fail').mockRestore();
+  });
+
+  test('includes vLLM overlay when llmBackend is vllm', () => {
+    const { resolveComposeFiles } = require('../src/phases/configure.ts');
+
+    // Create mock compose files
+    fs.writeFileSync(join(tmpDir, 'docker-compose.base.yml'), 'services: {}');
+    fs.writeFileSync(join(tmpDir, 'docker-compose.nvidia.yml'), 'services: {}');
+    fs.writeFileSync(join(tmpDir, 'docker-compose.vllm.yml'), 'services: {}');
+
+    const ctx = createDefaultContext();
+    ctx.installDir = tmpDir;
+    ctx.gpu.backend = 'nvidia';
+    ctx.llmBackend = 'vllm';
+
+    const files = resolveComposeFiles(ctx);
+    expect(files).toContain(join(tmpDir, 'docker-compose.vllm.yml'));
+    expect(files).toContain(join(tmpDir, 'docker-compose.nvidia.yml'));
+  });
+
+  test('excludes vLLM overlay when llmBackend is llamacpp', () => {
+    const { resolveComposeFiles } = require('../src/phases/configure.ts');
+
+    fs.writeFileSync(join(tmpDir, 'docker-compose.base.yml'), 'services: {}');
+    fs.writeFileSync(join(tmpDir, 'docker-compose.nvidia.yml'), 'services: {}');
+    fs.writeFileSync(join(tmpDir, 'docker-compose.vllm.yml'), 'services: {}');
+
+    const ctx = createDefaultContext();
+    ctx.installDir = tmpDir;
+    ctx.gpu.backend = 'nvidia';
+    ctx.llmBackend = 'llamacpp';
+
+    const files = resolveComposeFiles(ctx);
+    expect(files).not.toContain(join(tmpDir, 'docker-compose.vllm.yml'));
+    expect(files).toContain(join(tmpDir, 'docker-compose.nvidia.yml'));
   });
 });

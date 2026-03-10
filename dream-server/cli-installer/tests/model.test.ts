@@ -127,4 +127,45 @@ describe('model.ts', () => {
     expect(execStreamSpy).toHaveBeenCalledTimes(3);
     expect(ui.fail).toHaveBeenCalled();
   });
+
+  test('downloadModel() skips GGUF download when vLLM backend is selected', async () => {
+    const ctx = createDefaultContext();
+    ctx.tier = '1';
+    ctx.installDir = tmpDir;
+    ctx.llmBackend = 'vllm';
+
+    await downloadModel(ctx);
+
+    expect(execStreamSpy).not.toHaveBeenCalled();
+    expect(ui.info).toHaveBeenCalledWith(expect.stringContaining('vLLM backend'));
+    expect(ui.info).toHaveBeenCalledWith(expect.stringContaining('Qwen/Qwen3.5-4B'));
+  });
+
+  test('downloadModel() creates HF cache directory for vLLM', async () => {
+    const ctx = createDefaultContext();
+    ctx.tier = '3';
+    ctx.installDir = tmpDir;
+    ctx.llmBackend = 'vllm';
+
+    await downloadModel(ctx);
+
+    const hfCacheDir = join(tmpDir, 'data', 'hf-cache');
+    expect(fs.existsSync(hfCacheDir)).toBe(true);
+    expect(ui.ok).toHaveBeenCalledWith('Created HuggingFace cache directory');
+  });
+
+  test('downloadModel() skips HF cache creation if directory already exists', async () => {
+    const ctx = createDefaultContext();
+    ctx.tier = '1';
+    ctx.installDir = tmpDir;
+    ctx.llmBackend = 'vllm';
+
+    // Pre-create the cache dir
+    const hfCacheDir = join(tmpDir, 'data', 'hf-cache');
+    fs.mkdirSync(hfCacheDir, { recursive: true });
+
+    await downloadModel(ctx);
+
+    expect(ui.ok).not.toHaveBeenCalledWith('Created HuggingFace cache directory');
+  });
 });
