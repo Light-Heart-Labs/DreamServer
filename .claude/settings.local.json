@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./tests/test-backup-restore-cli.sh)",
+      "Bash(chmod +x tests/test-preset-import-export.sh)",
+      "Bash(./tests/test-preset-import-export.sh)",
+      "Bash(./tests/test-backup-integrity.sh)",
+      "Bash(chmod +x tests/test-backup-restore-roundtrip.sh)",
+      "Bash(./tests/test-backup-restore-roundtrip.sh)"
+    ]
+  }
+}

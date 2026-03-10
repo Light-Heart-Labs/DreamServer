@@ -589,6 +589,31 @@ META
                 echo ""
             fi
 
+            # Validate preset compatibility
+            if [[ -f "$preset_dir/extensions.list" ]]; then
+                local missing_services=()
+                local incompatible_count=0
+
+                while IFS=: read -r state sid; do
+                    [[ -z "$sid" ]] && continue
+                    local ext_dir="$INSTALL_DIR/extensions/services/$sid"
+                    if [[ ! -d "$ext_dir" ]]; then
+                        missing_services+=("$sid")
+                        ((incompatible_count++))
+                    fi
+                done < "$preset_dir/extensions.list"
+
+                if [[ $incompatible_count -gt 0 ]]; then
+                    warn "⚠️  Preset compatibility issues detected:"
+                    warn "Missing services: ${missing_services[*]}"
+                    warn "These services will be skipped during restore"
+                    echo ""
+                    read -p "Continue loading preset? [y/N] " -n 1 -r
+                    echo ""
+                    [[ $REPLY =~ ^[Yy]$ ]] || { log "Cancelled."; return 0; }
+                fi
+            fi
+
             read -p "Restore this preset? This will overwrite current .env. [y/N] " -n 1 -r
             echo ""
             [[ $REPLY =~ ^[Yy]$ ]] || { log "Cancelled."; return 0; }
@@ -603,10 +628,13 @@ META
 
             # Restore extension states
             if [[ -f "$preset_dir/extensions.list" ]]; then
-                local enabled=0 disabled=0
+                local enabled=0 disabled=0 skipped=0
                 while IFS=: read -r state sid; do
                     local ext_dir="$INSTALL_DIR/extensions/services/$sid"
-                    [[ -d "$ext_dir" ]] || continue
+                    if [[ ! -d "$ext_dir" ]]; then
+                        ((skipped++))
+                        continue
+                    fi
                     local cf="$ext_dir/compose.yaml"
                     local cf_dis="$ext_dir/compose.yaml.disabled"
 
@@ -623,6 +651,7 @@ META
                     fi
                 done < "$preset_dir/extensions.list"
                 success "Extensions: $enabled enabled, $disabled disabled"
+                [[ $skipped -gt 0 ]] && warn "Skipped $skipped missing services"
             fi
 
             echo ""
@@ -933,6 +962,20 @@ ${CYAN}Model Commands:${NC}
   model current       Show current model
   model list          List available tiers
   model swap <tier>   Switch to a different model tier
+
+${CYAN}Backup & Restore:${NC}
+  backup [options]    Create backup of user data and config
+    -t, --type TYPE     Backup type: full, user-data, config (default: user-data)
+    -c, --compress      Compress backup to .tar.gz
+    -l, --list          List all backups
+    -v, --verify ID     Verify backup integrity using checksums
+    -d, --delete ID     Delete specific backup
+  restore [backup_id] Restore from backup
+    -l, --list          List available backups
+    -d, --dry-run       Preview restore without making changes
+    -s, --stop-containers  Stop containers before restore
+    --data-only         Restore only user data
+    --config-only       Restore only config files
 
 ${CYAN}Service aliases:${NC}
 EOF

@@ -191,6 +191,88 @@ validate_backup() {
         log_warn "Restore may not work correctly"
     fi
 
+    # Verify integrity checksums if available
+    if [[ -f "$backup_dir/.checksums" ]]; then
+        log_info "Verifying backup integrity..."
+        local checksum_errors=0
+        local checksum_total=0
+
+        while IFS= read -r line; do
+            ((checksum_total++))
+            local expected_hash
+            expected_hash=$(echo "$line" | awk '{print $1}')
+            local filepath
+            filepath=$(echo "$line" | awk '{$1=""; print $0}' | sed 's/^[[:space:]]*//')
+
+            if [[ "$filepath" == data/*/ ]]; then
+                # Directory tree checksum
+                local datadir="$backup_dir/$filepath"
+                if [[ ! -d "$datadir" ]]; then
+                    log_warn "Missing data directory: $filepath"
+                    ((checksum_errors++))
+                    continue
+                fi
+                local actual_hash
+                if command -v sha256sum &>/dev/null; then
+                    actual_hash=$(find "$datadir" -type f -exec sha256sum {} \; 2>/dev/null | sort | sha256sum | cut -d' ' -f1)
+                elif command -v shasum &>/dev/null; then
+                    actual_hash=$(find "$datadir" -type f -exec shasum -a 256 {} \; 2>/dev/null | sort | shasum -a 256 | cut -d' ' -f1)
+                fi
+            else
+                # File checksum
+                local fullpath="$backup_dir/$filepath"
+                if [[ ! -f "$fullpath" ]]; then
+                    log_warn "Missing file: $filepath"
+                    ((checksum_errors++))
+                    continue
+                fi
+                local actual_hash
+                if command -v sha256sum &>/dev/null; then
+                    actual_hash=$(sha256sum "$fullpath" 2>/dev/null | cut -d' ' -f1)
+                elif command -v shasum &>/dev/null; then
+                    actual_hash=$(shasum -a 256 "$fullpath" 2>/dev/null | cut -d' ' -f1)
+                fi
+            fi
+
+            if [[ "$actual_hash" != "$expected_hash" ]]; then
+                log_warn "Checksum mismatch: $filepath"
+                ((checksum_errors++))
+            fi
+        done < "$backup_dir/.checksums"
+
+        if [[ $checksum_errors -gt 0 ]]; then
+            log_error "Integrity check failed: $checksum_errors/$checksum_total checksums invalid"
+            log_error "Backup may be corrupted. Restore at your own risk."
+            return 1
+        else
+            log_success "Integrity verified: $checksum_total checksums valid"
+        fi
+    else
+        log_info "No checksums found (backup created before integrity feature)"
+    fi
+
+    # Check for partial backup warnings
+    if [[ -f "$backup_dir/.backup_status" ]]; then
+        echo ""
+        log_warn "⚠️  This backup has known issues:"
+        if grep -q "partial_failure=true" "$backup_dir/.backup_status"; then
+            local failed_paths
+            failed_paths=$(grep "failed_paths=" "$backup_dir/.backup_status" | cut -d= -f2)
+            log_warn "Failed data paths: $failed_paths"
+        fi
+        if grep -q "config_partial_failure=true" "$backup_dir/.backup_status"; then
+            local failed_files
+            failed_files=$(grep "config_failed_files=" "$backup_dir/.backup_status" | cut -d= -f2)
+            log_warn "Failed config files: $failed_files"
+        fi
+        echo ""
+        read -rp "Continue with restore despite these issues? [y/N] " confirm
+        if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+            log_info "Restore cancelled"
+            return 1
+        fi
+    fi
+
     # Display backup info
     echo ""
     echo "Backup Information:"

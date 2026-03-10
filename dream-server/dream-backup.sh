@@ -42,6 +42,7 @@ OPTIONS:
     -c, --compress          Compress backup to .tar.gz
     -l, --list              List existing backups
     -d, --delete ID         Delete specific backup by ID
+    -v, --verify ID         Verify backup integrity using checksums
     --description DESC      Add description to backup manifest
 
 BACKUP TYPES:
@@ -53,6 +54,7 @@ EXAMPLES:
     $(basename "$0")                          # Full backup with default settings
     $(basename "$0") -t user-data -c          # Compressed user data backup
     $(basename "$0") -l                       # List all backups
+    $(basename "$0") -v 20260212-071500       # Verify backup integrity
     $(basename "$0") -d 20260212-071500       # Delete specific backup
 
 EOF
@@ -197,17 +199,35 @@ backup_user_data() {
         "data/ollama"
     )
 
+    local failed_paths=()
+    local success_count=0
+
     for path in "${user_data_paths[@]}"; do
         local full_path="$DREAM_DIR/$path"
         if [[ -d "$full_path" ]]; then
             local dest_dir="$backup_dir/$(dirname "$path")"
             mkdir -p "$dest_dir"
-            rsync -a --delete "$full_path" "$dest_dir/"
-            log_success "Backed up: $path"
+            if rsync -a --delete "$full_path" "$dest_dir/" 2>/dev/null; then
+                log_success "Backed up: $path"
+                ((success_count++))
+            else
+                log_error "Failed to backup: $path"
+                failed_paths+=("$path")
+            fi
         else
             log_warn "Skipped (not found): $path"
         fi
     done
+
+    # Record failures in a status file
+    if [[ ${#failed_paths[@]} -gt 0 ]]; then
+        local status_file="$backup_dir/.backup_status"
+        echo "partial_failure=true" > "$status_file"
+        echo "failed_paths=${failed_paths[*]}" >> "$status_file"
+        echo "success_count=$success_count" >> "$status_file"
+        echo "total_paths=${#user_data_paths[@]}" >> "$status_file"
+        log_warn "Backup completed with failures: ${#failed_paths[@]} paths failed"
+    fi
 }
 
 # Backup configuration
@@ -215,18 +235,39 @@ backup_config() {
     local backup_dir="$1"
     log_info "Backing up configuration..."
 
+    local failed_files=()
+    local success_count=0
+
     # Essential config files: discover compose overlays + dotfiles dynamically
     for file in "$DREAM_DIR"/.env "$DREAM_DIR"/.version "$DREAM_DIR"/docker-compose*.y*ml "$DREAM_DIR"/dream-preflight.sh "$DREAM_DIR"/dream-update.sh; do
         if [[ -f "$file" ]]; then
-            cp "$file" "$backup_dir/"
-            log_success "Backed up: $(basename "$file")"
+            if cp "$file" "$backup_dir/" 2>/dev/null; then
+                log_success "Backed up: $(basename "$file")"
+                ((success_count++))
+            else
+                log_error "Failed to backup: $(basename "$file")"
+                failed_files+=("$(basename "$file")")
+            fi
         fi
     done
 
     # Config directory
     if [[ -d "$DREAM_DIR/config" ]]; then
-        rsync -a --delete "$DREAM_DIR/config" "$backup_dir/"
-        log_success "Backed up: config/"
+        if rsync -a --delete "$DREAM_DIR/config" "$backup_dir/" 2>/dev/null; then
+            log_success "Backed up: config/"
+            ((success_count++))
+        else
+            log_error "Failed to backup: config/"
+            failed_files+=("config/")
+        fi
+    fi
+
+    # Record config backup failures
+    if [[ ${#failed_files[@]} -gt 0 ]]; then
+        local status_file="$backup_dir/.backup_status"
+        echo "config_partial_failure=true" >> "$status_file"
+        echo "config_failed_files=${failed_files[*]}" >> "$status_file"
+        log_warn "Config backup completed with failures: ${#failed_files[@]} files failed"
     fi
 }
 
@@ -277,6 +318,135 @@ apply_retention() {
         done
     else
         log_info "Retention policy satisfied ($count/$RETENTION_COUNT backups)"
+    fi
+}
+
+# Generate checksums for backup integrity validation
+generate_checksums() {
+    local backup_dir="$1"
+    log_info "Generating integrity checksums..."
+
+    local checksums_file="$backup_dir/.checksums"
+    : > "$checksums_file"
+
+    # Checksum critical config files
+    for file in "$backup_dir"/.env "$backup_dir"/.version "$backup_dir"/docker-compose*.y*ml; do
+        if [[ -f "$file" ]]; then
+            local relpath
+            relpath=$(basename "$file")
+            if command -v sha256sum &>/dev/null; then
+                (cd "$backup_dir" && sha256sum "$relpath" >> .checksums 2>/dev/null) || true
+            elif command -v shasum &>/dev/null; then
+                (cd "$backup_dir" && shasum -a 256 "$relpath" >> .checksums 2>/dev/null) || true
+            fi
+        fi
+    done
+
+    # Checksum manifest
+    if [[ -f "$backup_dir/manifest.json" ]]; then
+        if command -v sha256sum &>/dev/null; then
+            (cd "$backup_dir" && sha256sum manifest.json >> .checksums 2>/dev/null) || true
+        elif command -v shasum &>/dev/null; then
+            (cd "$backup_dir" && shasum -a 256 manifest.json >> .checksums 2>/dev/null) || true
+        fi
+    fi
+
+    # Generate directory tree checksums for data dirs (faster than per-file)
+    for datadir in "$backup_dir"/data/*; do
+        if [[ -d "$datadir" ]]; then
+            local dirname
+            dirname=$(basename "$datadir")
+            local tree_hash
+            if command -v sha256sum &>/dev/null; then
+                tree_hash=$(find "$datadir" -type f -exec sha256sum {} \; 2>/dev/null | sort | sha256sum | cut -d' ' -f1)
+            elif command -v shasum &>/dev/null; then
+                tree_hash=$(find "$datadir" -type f -exec shasum -a 256 {} \; 2>/dev/null | sort | shasum -a 256 | cut -d' ' -f1)
+            fi
+            if [[ -n "$tree_hash" ]]; then
+                echo "$tree_hash  data/$dirname/" >> "$checksums_file"
+            fi
+        fi
+    done
+
+    local checksum_count
+    checksum_count=$(wc -l < "$checksums_file" 2>/dev/null || echo 0)
+    log_success "Generated $checksum_count integrity checksums"
+}
+
+# Verify backup integrity
+verify_backup_integrity() {
+    local backup_id="$1"
+    local backup_dir="$BACKUP_ROOT/$backup_id"
+
+    # Handle compressed backups
+    if [[ ! -d "$backup_dir" && -f "$BACKUP_ROOT/$backup_id.tar.gz" ]]; then
+        log_error "Cannot verify compressed backup. Extract first with: tar xzf $backup_id.tar.gz"
+        return 1
+    fi
+
+    if [[ ! -d "$backup_dir" ]]; then
+        log_error "Backup not found: $backup_id"
+        return 1
+    fi
+
+    local checksums_file="$backup_dir/.checksums"
+    if [[ ! -f "$checksums_file" ]]; then
+        log_warn "No checksums found in backup (created before integrity feature)"
+        return 0
+    fi
+
+    log_info "Verifying backup integrity: $backup_id"
+    echo ""
+
+    local total=0 passed=0 failed=0
+    while IFS= read -r line; do
+        ((total++))
+        local expected_hash
+        expected_hash=$(echo "$line" | awk '{print $1}')
+        local filepath
+        filepath=$(echo "$line" | awk '{$1=""; print $0}' | sed 's/^[[:space:]]*//')
+
+        if [[ "$filepath" == data/*/ ]]; then
+            # Directory tree checksum
+            local datadir="$backup_dir/$filepath"
+            local actual_hash
+            if command -v sha256sum &>/dev/null; then
+                actual_hash=$(find "$datadir" -type f -exec sha256sum {} \; 2>/dev/null | sort | sha256sum | cut -d' ' -f1)
+            elif command -v shasum &>/dev/null; then
+                actual_hash=$(find "$datadir" -type f -exec shasum -a 256 {} \; 2>/dev/null | sort | shasum -a 256 | cut -d' ' -f1)
+            fi
+        else
+            # File checksum
+            local fullpath="$backup_dir/$filepath"
+            if [[ ! -f "$fullpath" ]]; then
+                log_error "Missing: $filepath"
+                ((failed++))
+                continue
+            fi
+            local actual_hash
+            if command -v sha256sum &>/dev/null; then
+                actual_hash=$(sha256sum "$fullpath" 2>/dev/null | cut -d' ' -f1)
+            elif command -v shasum &>/dev/null; then
+                actual_hash=$(shasum -a 256 "$fullpath" 2>/dev/null | cut -d' ' -f1)
+            fi
+        fi
+
+        if [[ "$actual_hash" == "$expected_hash" ]]; then
+            echo "  ✓ $filepath"
+            ((passed++))
+        else
+            log_error "Corrupted: $filepath"
+            ((failed++))
+        fi
+    done < "$checksums_file"
+
+    echo ""
+    if [[ $failed -eq 0 ]]; then
+        log_success "Integrity check passed: $passed/$total files verified"
+        return 0
+    else
+        log_error "Integrity check failed: $failed/$total files corrupted"
+        return 1
     fi
 }
 
@@ -340,6 +510,25 @@ do_backup() {
             ;;
     esac
 
+    # Generate integrity checksums
+    generate_checksums "$backup_dir"
+
+    # Check for partial failures and warn user
+    if [[ -f "$backup_dir/.backup_status" ]]; then
+        echo ""
+        log_warn "⚠️  Backup completed with some failures"
+        log_warn "Review .backup_status file for details"
+        if grep -q "partial_failure=true" "$backup_dir/.backup_status"; then
+            local failed_count
+            failed_count=$(grep "failed_paths=" "$backup_dir/.backup_status" | cut -d= -f2 | wc -w)
+            log_warn "Failed to backup $failed_count data directories"
+        fi
+        if grep -q "config_partial_failure=true" "$backup_dir/.backup_status"; then
+            log_warn "Some config files failed to backup"
+        fi
+        echo ""
+    fi
+
     # Compress if requested
     if [[ "$compress" == "true" ]]; then
         compress_backup "$backup_dir"
@@ -362,6 +551,7 @@ main() {
     local description=""
     local list_mode="false"
     local delete_id=""
+    local verify_id=""
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -390,6 +580,10 @@ main() {
                 delete_id="$2"
                 shift 2
                 ;;
+            -v|--verify)
+                verify_id="$2"
+                shift 2
+                ;;
             --description)
                 description="$2"
                 shift 2
@@ -412,6 +606,12 @@ main() {
     if [[ -n "$delete_id" ]]; then
         delete_backup "$delete_id"
         exit 0
+    fi
+
+    # Verify mode
+    if [[ -n "$verify_id" ]]; then
+        verify_backup_integrity "$verify_id"
+        exit $?
     fi
 
     # Check if running in Dream Server directory
