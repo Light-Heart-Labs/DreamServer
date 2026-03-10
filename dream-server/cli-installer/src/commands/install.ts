@@ -7,6 +7,9 @@ import { features } from '../phases/features.ts';
 import { configure } from '../phases/configure.ts';
 import { downloadModel } from '../phases/model.ts';
 import { services } from '../phases/services.ts';
+import { checkRequiredPorts } from '../lib/ports.ts';
+import { runHealthChecks, configurePerplexica, preDownloadSttModel } from '../phases/health.ts';
+import { parseEnv } from '../lib/env.ts';
 import * as ui from '../lib/ui.ts';
 import { VERSION } from '../lib/config.ts';
 import { existsSync, readFileSync } from 'node:fs';
@@ -66,6 +69,18 @@ export async function install(opts: InstallOptions): Promise<void> {
     // Phase 2: Hardware detection (always run — fast)
     await detect(ctx);
 
+    // Port availability check (between detection and features)
+    console.log('');
+    const portsOk = await checkRequiredPorts(ctx);
+    if (!portsOk && !ctx.force && !ctx.dryRun) {
+      ui.warn('Some required ports are in use. Services may fail to start.');
+      if (ctx.interactive) {
+        const { confirm } = await import('../lib/prompts.ts');
+        const proceed = await confirm('Continue anyway?', false);
+        if (!proceed) process.exit(1);
+      }
+    }
+
     // Phase 3: Feature selection
     if (isResume) {
       ui.phase(3, 6, 'Feature Selection');
@@ -92,6 +107,18 @@ export async function install(opts: InstallOptions): Promise<void> {
 
     // Phase 6: Start services
     await services(ctx);
+
+    // Post-install: health checks, auto-config, STT pre-download
+    console.log('');
+    const failures = await runHealthChecks(ctx);
+    await configurePerplexica(ctx);
+    await preDownloadSttModel(ctx);
+
+    if (failures > 0) {
+      console.log('');
+      ui.warn(`${failures} service(s) did not pass health checks.`);
+      ui.info('Some services may still be starting. Check with: dream-installer status');
+    }
   } catch (error) {
     console.log('');
     ui.fail(`Installation failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -110,26 +137,16 @@ function loadFeaturesFromEnv(ctx: InstallContext): void {
   try {
     const envPath = join(ctx.installDir, '.env');
     const content = readFileSync(envPath, 'utf-8');
-
-    const get = (key: string): string | undefined => {
-      const match = content.match(new RegExp(`^${key}=(.+)$`, 'm'));
-      return match?.[1]?.trim();
-    };
+    const env = parseEnv(content);
 
     const toBool = (val: string | undefined): boolean => val === 'true';
 
-    const voice = get('ENABLE_VOICE');
-    const workflows = get('ENABLE_WORKFLOWS');
-    const rag = get('ENABLE_RAG');
-    const openclaw = get('ENABLE_OPENCLAW');
+    if (env.ENABLE_VOICE !== undefined) ctx.features.voice = toBool(env.ENABLE_VOICE);
+    if (env.ENABLE_WORKFLOWS !== undefined) ctx.features.workflows = toBool(env.ENABLE_WORKFLOWS);
+    if (env.ENABLE_RAG !== undefined) ctx.features.rag = toBool(env.ENABLE_RAG);
+    if (env.ENABLE_OPENCLAW !== undefined) ctx.features.openclaw = toBool(env.ENABLE_OPENCLAW);
 
-    if (voice !== undefined) ctx.features.voice = toBool(voice);
-    if (workflows !== undefined) ctx.features.workflows = toBool(workflows);
-    if (rag !== undefined) ctx.features.rag = toBool(rag);
-    if (openclaw !== undefined) ctx.features.openclaw = toBool(openclaw);
-
-    const backend = get('GPU_BACKEND');
-    if (backend) ctx.gpu.backend = backend as 'nvidia' | 'amd' | 'cpu';
+    if (env.GPU_BACKEND) ctx.gpu.backend = env.GPU_BACKEND as 'nvidia' | 'amd' | 'cpu';
   } catch {
     // If .env can't be read, defaults will be used
   }

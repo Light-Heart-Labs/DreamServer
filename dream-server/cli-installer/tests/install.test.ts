@@ -6,6 +6,8 @@ import * as featuresPhase from '../src/phases/features.ts';
 import * as configurePhase from '../src/phases/configure.ts';
 import * as modelPhase from '../src/phases/model.ts';
 import * as servicesPhase from '../src/phases/services.ts';
+import * as healthPhase from '../src/phases/health.ts';
+import * as portsLib from '../src/lib/ports.ts';
 import * as ui from '../src/lib/ui.ts';
 import * as fs from 'node:fs';
 
@@ -16,6 +18,10 @@ describe('install.ts', () => {
   let configureSpy: ReturnType<typeof spyOn>;
   let modelSpy: ReturnType<typeof spyOn>;
   let servicesSpy: ReturnType<typeof spyOn>;
+  let healthSpy: ReturnType<typeof spyOn>;
+  let perplexicaSpy: ReturnType<typeof spyOn>;
+  let sttSpy: ReturnType<typeof spyOn>;
+  let portsSpy: ReturnType<typeof spyOn>;
   let existsSyncSpy: ReturnType<typeof spyOn>;
   let readFileSyncSpy: ReturnType<typeof spyOn>;
   let processExitSpy: ReturnType<typeof spyOn>;
@@ -26,6 +32,7 @@ describe('install.ts', () => {
     spyOn(ui, 'phase').mockImplementation(() => {});
     spyOn(ui, 'ok').mockImplementation(() => {});
     spyOn(ui, 'fail').mockImplementation(() => {});
+    spyOn(ui, 'warn').mockImplementation(() => {});
     spyOn(console, 'log').mockImplementation(() => {});
 
     preflightSpy = spyOn(preflightPhase, 'preflight').mockImplementation(async () => ({ tailscaleIp: null } as any));
@@ -34,6 +41,10 @@ describe('install.ts', () => {
     configureSpy = spyOn(configurePhase, 'configure').mockImplementation(async () => {});
     modelSpy = spyOn(modelPhase, 'downloadModel').mockImplementation(async () => {});
     servicesSpy = spyOn(servicesPhase, 'services').mockImplementation(async () => {});
+    healthSpy = spyOn(healthPhase, 'runHealthChecks').mockImplementation(async () => 0);
+    perplexicaSpy = spyOn(healthPhase, 'configurePerplexica').mockImplementation(async () => {});
+    sttSpy = spyOn(healthPhase, 'preDownloadSttModel').mockImplementation(async () => {});
+    portsSpy = spyOn(portsLib, 'checkRequiredPorts').mockImplementation(async () => true);
 
     existsSyncSpy = spyOn(fs, 'existsSync').mockImplementation(() => false);
     readFileSyncSpy = spyOn(fs, 'readFileSync').mockImplementation(() => '');
@@ -49,6 +60,7 @@ describe('install.ts', () => {
     spyOn(ui, 'phase').mockRestore();
     spyOn(ui, 'ok').mockRestore();
     spyOn(ui, 'fail').mockRestore();
+    spyOn(ui, 'warn').mockRestore();
     spyOn(console, 'log').mockRestore();
     preflightSpy.mockRestore();
     detectSpy.mockRestore();
@@ -56,6 +68,10 @@ describe('install.ts', () => {
     configureSpy.mockRestore();
     modelSpy.mockRestore();
     servicesSpy.mockRestore();
+    healthSpy.mockRestore();
+    perplexicaSpy.mockRestore();
+    sttSpy.mockRestore();
+    portsSpy.mockRestore();
     existsSyncSpy.mockRestore();
     readFileSyncSpy.mockRestore();
     processExitSpy.mockRestore();
@@ -70,6 +86,8 @@ describe('install.ts', () => {
     expect(configureSpy).toHaveBeenCalled();
     expect(modelSpy).toHaveBeenCalled();
     expect(servicesSpy).toHaveBeenCalled();
+    expect(healthSpy).toHaveBeenCalled();
+    expect(portsSpy).toHaveBeenCalled();
   });
 
   test('install() respects resume functionality', async () => {
@@ -110,3 +128,4 @@ describe('install.ts', () => {
     expect(configureSpy).toHaveBeenCalled();
   });
 });
+

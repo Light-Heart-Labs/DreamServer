@@ -7,6 +7,7 @@ import { status } from './commands/status.ts';
 import { config } from './commands/config.ts';
 import { update } from './commands/update.ts';
 import { uninstall } from './commands/uninstall.ts';
+import { doctor } from './commands/doctor.ts';
 import { VERSION, DEFAULT_INSTALL_DIR } from './lib/config.ts';
 
 const program = new Command()
@@ -57,6 +58,12 @@ program
   .option('--force', 'Skip confirmation prompts')
   .option('--dir <path>', 'Installation directory', DEFAULT_INSTALL_DIR)
   .action(uninstall);
+
+program
+  .command('doctor')
+  .description('Run diagnostics and health checks')
+  .option('--dir <path>', 'Installation directory', DEFAULT_INSTALL_DIR)
+  .action(doctor);
 
 // Default to install if no command specified
 if (process.argv.length <= 2) {
