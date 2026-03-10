@@ -108,10 +108,12 @@ export async function doctor(opts: DoctorOptions): Promise<void> {
         let containers: Record<string, unknown>[] = [];
         const trimmed = stdout.trim();
         if (trimmed.startsWith('[')) {
-          try { containers = JSON.parse(trimmed); } catch { /* fallback */ }
+          try { containers = JSON.parse(trimmed); } catch {
+            ui.warn('Could not parse container JSON');
+          }
         } else {
           for (const line of trimmed.split('\n')) {
-            try { containers.push(JSON.parse(line)); } catch { /* skip */ }
+            try { containers.push(JSON.parse(line)); } catch { /* non-JSON line */ }
           }
         }
 
@@ -202,7 +204,9 @@ export async function doctor(opts: DoctorOptions): Promise<void> {
         ui.ok(`Available RAM: ${Math.round(availMB / 1024)}GB`);
       }
     }
-  } catch { /* not Linux */ }
+  } catch {
+    // /proc/meminfo not available (not Linux, or restricted)
+  }
 
   // Disk space
   try {
@@ -218,7 +222,9 @@ export async function doctor(opts: DoctorOptions): Promise<void> {
         ui.ok(`Disk space: ${availGB}GB available`);
       }
     }
-  } catch { /* ignore */ }
+  } catch {
+    // df command not available or failed
+  }
 
   // ── Check 7: NVIDIA driver ────────────────────────────────────────────
   const hasNvidiaSmi = await commandExists('nvidia-smi');
@@ -263,7 +269,9 @@ export async function doctor(opts: DoctorOptions): Promise<void> {
           warnings++;
         }
       }
-    } catch { /* can't read logs */ }
+    } catch {
+      // Cannot read compose logs — Docker may be unreachable
+    }
   }
 
   // ── Summary ───────────────────────────────────────────────────────────

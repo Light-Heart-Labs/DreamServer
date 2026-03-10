@@ -65,4 +65,46 @@ describe('features.ts', () => {
       openclaw: false,
     });
   });
+
+  test('features() offers vLLM backend selection on NVIDIA + Custom', async () => {
+    const ctx = createDefaultContext();
+    ctx.interactive = true;
+    ctx.gpu.backend = 'nvidia';
+
+    // First select call => Custom (2), second => vLLM (1)
+    let callCount = 0;
+    selectSpy.mockImplementation(async () => {
+      callCount++;
+      return callCount === 1 ? 2 : 1; // Custom, then vLLM
+    });
+    multiSelectSpy.mockImplementation(async () => [true, true, true, false]);
+
+    await features(ctx);
+    expect(ctx.llmBackend).toBe('vllm');
+    expect(selectSpy).toHaveBeenCalledTimes(2); // Feature profile + backend
+  });
+
+  test('features() defaults to llamacpp on non-NVIDIA GPU', async () => {
+    const ctx = createDefaultContext();
+    ctx.interactive = true;
+    ctx.gpu.backend = 'amd';
+
+    selectSpy.mockImplementation(async () => 2); // Custom
+    multiSelectSpy.mockImplementation(async () => [true, true, true, false]);
+
+    await features(ctx);
+    expect(ctx.llmBackend).toBe('llamacpp');
+    // Only 1 select call (no backend picker)
+    expect(selectSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test('features() defaults to llamacpp on Full Stack preset', async () => {
+    const ctx = createDefaultContext();
+    ctx.interactive = true;
+    ctx.gpu.backend = 'nvidia';
+
+    selectSpy.mockImplementation(async () => 0); // Full Stack
+    await features(ctx);
+    expect(ctx.llmBackend).toBe('llamacpp');
+  });
 });

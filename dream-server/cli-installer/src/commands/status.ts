@@ -84,10 +84,12 @@ export async function status(opts: StatusOptions): Promise<void> {
     let containers: Record<string, unknown>[] = [];
     const trimmed = stdout.trim();
     if (trimmed.startsWith('[')) {
-      try { containers = JSON.parse(trimmed); } catch { /* skip */ }
+      try { containers = JSON.parse(trimmed); } catch (e) {
+        ui.info('Could not parse container JSON — falling back to line-by-line');
+      }
     } else {
       for (const line of trimmed.split('\n')) {
-        try { containers.push(JSON.parse(line)); } catch { /* skip */ }
+        try { containers.push(JSON.parse(line)); } catch { /* non-JSON line, skip */ }
       }
     }
 
@@ -125,12 +127,17 @@ export async function status(opts: StatusOptions): Promise<void> {
         }
       }
     }
-  } catch {
-    const { stdout } = await exec(
-      [...composeCmd, 'ps'],
-      { cwd: installDir, throwOnError: false, timeout: 10000 },
-    );
-    if (stdout.trim()) console.log(stdout);
+  } catch (e) {
+    // JSON parse failed — try plain text fallback
+    try {
+      const { stdout } = await exec(
+        [...composeCmd, 'ps'],
+        { cwd: installDir, throwOnError: false, timeout: 10000 },
+      );
+      if (stdout.trim()) console.log(stdout);
+    } catch {
+      ui.warn('Could not query container status');
+    }
   }
 
   console.log('');
@@ -285,9 +292,13 @@ async function getDockerPidMap(composeCmd?: string[]): Promise<Map<number, strin
           const pid = parseInt(pidLine.trim());
           if (pid > 0) map.set(pid, name);
         }
-      } catch { /* skip */ }
+      } catch {
+        // docker top may fail for stopped containers — expected
+      }
     }
-  } catch { /* skip */ }
+  } catch (e) {
+    // Docker daemon unreachable or no containers — return empty map
+  }
   return map;
 }
 
