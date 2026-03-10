@@ -30,8 +30,7 @@ describe('uninstall.ts', () => {
 
     getComposeCommandSpy = spyOn(docker, 'getComposeCommand').mockImplementation(async () => ['docker', 'compose']);
 
-    const uninstallModule = require('../src/commands/uninstall.ts');
-    confirmSpy = spyOn(uninstallModule, '_confirm').mockImplementation(async () => true);
+    confirmSpy = spyOn(prompts, 'confirm').mockImplementation(async () => true);
 
     execSpy = spyOn(shell, 'exec').mockImplementation(async () => {
       return { exitCode: 0, stdout: 'image1\nimage2', stderr: '' };
