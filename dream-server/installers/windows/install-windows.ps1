@@ -684,7 +684,8 @@ if ($DryRun) {
                 New-Item -ItemType Directory -Path $script:OPENCODE_CONFIG_DIR -Force | Out-Null
                 $ocConfigFile = Join-Path $script:OPENCODE_CONFIG_DIR "opencode.json"
                 if (-not (Test-Path $ocConfigFile)) {
-                    $llamaPort = $(if ($gpuInfo.Backend -eq "amd") { "8080" } else { "11434" })
+                    # OLLAMA_PORT in .env is always 8080; AMD native also uses 8080
+                    $llamaPort = "8080"
                     # NOTE: llama-server exposes models by GGUF filename, not friendly name
                     $ocModelId = $tierConfig.GgufFile
                     $ocConfig = @"
@@ -772,8 +773,8 @@ if ($DryRun) {
 }
 
 # Health check loop
-# NOTE: NVIDIA maps llama-server to host port 11434; AMD runs natively on 8080
-$llamaHealthPort = $(if ($gpuInfo.Backend -eq "amd") { "8080" } else { "11434" })
+# NOTE: OLLAMA_PORT is always 8080 in .env; both NVIDIA Docker and AMD native use 8080
+$llamaHealthPort = "8080"
 $healthChecks = @(
     @{ Name = "LLM (llama-server)"; Url = "http://localhost:${llamaHealthPort}/health" }
     @{ Name = "Chat UI (Open WebUI)"; Url = "http://localhost:3000" }
