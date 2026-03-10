@@ -28,7 +28,7 @@
   "tools": {
     "exec": {
       "enabled": true,
-      "allowedCommands": ["ls", "cat", "grep", "find", "head", "tail", "wc", "python3", "node"]
+      "allowedCommands": ["ls", "cat", "grep", "find", "head", "tail", "wc"]
     },
     "read": { "enabled": true },
     "write": { "enabled": true },

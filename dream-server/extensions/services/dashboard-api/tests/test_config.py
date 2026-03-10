@@ -116,3 +116,83 @@ class TestLoadExtensionManifests:
         feature_ids = [f["id"] for f in features]
         assert "both-feat" in feature_ids
         assert "amd-feat" not in feature_ids
+
+    def test_apple_backend_discovers_services_without_explicit_list(self, tmp_path):
+        """Services with no gpu_backends key default to [amd, nvidia, apple]."""
+        svc_dir = tmp_path / "generic-svc"
+        svc_dir.mkdir()
+        (svc_dir / "manifest.yaml").write_text(
+            "schema_version: dream.services.v1\n"
+            "service:\n  id: generic-svc\n  name: Generic\n  port: 80\n"
+        )
+
+        services, _ = load_extension_manifests(tmp_path, "apple")
+        assert "generic-svc" in services
+
+    def test_apple_backend_filtered_by_explicit_nvidia_amd_list(self, tmp_path):
+        """Docker service explicitly listing [amd, nvidia] is still loaded for apple backend."""
+        svc_dir = tmp_path / "gpu-only-svc"
+        svc_dir.mkdir()
+        (svc_dir / "manifest.yaml").write_text(
+            "schema_version: dream.services.v1\n"
+            "service:\n  id: gpu-only-svc\n  name: GPU Only\n  port: 80\n"
+            "  gpu_backends: [amd, nvidia]\n"
+        )
+
+        services, _ = load_extension_manifests(tmp_path, "apple")
+        assert "gpu-only-svc" in services
+
+    def test_apple_backend_discovers_service_explicitly_listing_apple(self, tmp_path):
+        """Service that lists apple in gpu_backends is discovered for apple backend."""
+        svc_dir = tmp_path / "apple-svc"
+        svc_dir.mkdir()
+        (svc_dir / "manifest.yaml").write_text(
+            "schema_version: dream.services.v1\n"
+            "service:\n  id: apple-svc\n  name: Apple Svc\n  port: 80\n"
+            "  gpu_backends: [amd, nvidia, apple]\n"
+        )
+
+        services, _ = load_extension_manifests(tmp_path, "apple")
+        assert "apple-svc" in services
+
+    def test_apple_backend_feature_default_discovered(self, tmp_path):
+        """Features with no gpu_backends key default to include apple."""
+        svc_dir = tmp_path / "svc-with-feature"
+        svc_dir.mkdir()
+        (svc_dir / "manifest.yaml").write_text(
+            "schema_version: dream.services.v1\n"
+            "service:\n  id: svc\n  name: Svc\n  port: 80\n"
+            "features:\n"
+            "  - id: default-feat\n    name: Default Feature\n"
+        )
+
+        _, features = load_extension_manifests(tmp_path, "apple")
+        assert any(f["id"] == "default-feat" for f in features)
+
+    def test_apple_backend_excludes_host_systemd(self, tmp_path):
+        """Services with type: host-systemd are excluded on apple backend."""
+        svc_dir = tmp_path / "systemd-svc"
+        svc_dir.mkdir()
+        (svc_dir / "manifest.yaml").write_text(
+            "schema_version: dream.services.v1\n"
+            "service:\n  id: systemd-svc\n  name: Systemd Svc\n  port: 80\n"
+            "  type: host-systemd\n"
+            "  gpu_backends: [amd, nvidia]\n"
+        )
+
+        services, _ = load_extension_manifests(tmp_path, "apple")
+        assert "systemd-svc" not in services
+
+    def test_apple_backend_loads_all_features(self, tmp_path):
+        """Features with gpu_backends: [amd, nvidia] are loaded for apple backend."""
+        svc_dir = tmp_path / "svc-with-gpu-feature"
+        svc_dir.mkdir()
+        (svc_dir / "manifest.yaml").write_text(
+            "schema_version: dream.services.v1\n"
+            "service:\n  id: svc\n  name: Svc\n  port: 80\n"
+            "features:\n"
+            "  - id: gpu-feat\n    name: GPU Feature\n    gpu_backends: [amd, nvidia]\n"
+        )
+
+        _, features = load_extension_manifests(tmp_path, "apple")
+        assert any(f["id"] == "gpu-feat" for f in features)

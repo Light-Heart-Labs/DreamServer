@@ -24,7 +24,20 @@ if [[ -f "$DREAM_DIR/lib/service-registry.sh" ]]; then
     export SCRIPT_DIR="$DREAM_DIR"
     . "$DREAM_DIR/lib/service-registry.sh"
     sr_load
-    [[ -f "$DREAM_DIR/.env" ]] && set -a && . "$DREAM_DIR/.env" && set +a
+    if [[ -f "$DREAM_DIR/.env" ]]; then
+        set -a
+        while IFS='=' read -r key value; do
+            [[ "$key" =~ ^[[:space:]]*# ]] && continue
+            [[ -z "$key" ]] && continue
+            [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+            value="${value%\"}"
+            value="${value#\"}"
+            value="${value%\'}"
+            value="${value#\'}"
+            export "$key=$value"
+        done < "$DREAM_DIR/.env"
+        set +a
+    fi
 fi
 
 # URLs — resolved from registry

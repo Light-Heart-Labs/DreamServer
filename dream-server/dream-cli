@@ -32,7 +32,10 @@ error() { echo -e "${RED}✗${NC} $1"; exit 1; }
 _env_set() {
     local key="$1" val="$2" file="$INSTALL_DIR/.env"
     if grep -q "^${key}=" "$file" 2>/dev/null; then
-        sed -i "s|^${key}=.*|${key}=${val}|" "$file"
+        # Use awk to avoid sed delimiter collisions with values containing | / or =
+        awk -v k="$key" -v v="$val" '{
+            if (index($0, k "=") == 1) print k "=" v; else print
+        }' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
     else
         echo "${key}=${val}" >> "$file"
     fi
@@ -348,11 +351,11 @@ cmd_chat() {
 
     # Resolve llama-server port once, regardless of how the model is provided
     local _llm_port="${SERVICE_PORTS[llama-server]:-8080}"
-    _llm_port="${LLAMA_SERVER_PORT:-$_llm_port}"
+    _llm_port="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-$_llm_port}}"
 
     # Get model from llama-server if not specified
     if [[ -z "$model" ]]; then
-        model=$(curl -s "http://localhost:${_llm_port}/v1/models" | grep -oP '"id":\s*"\K[^"]+' | head -1)
+        model=$(curl -s "http://localhost:${_llm_port}/v1/models" | jq -r '.data[0].id // "local"')
     fi
 
     log "Sending to $model..."
@@ -664,8 +667,81 @@ META
             success "Preset '${name}' deleted."
             ;;
 
+        export|e)
+            [[ -z "$name" ]] && { log "Usage: dream preset export <name> <output.tar.gz>"; exit 1; }
+            local output="${3:-}"
+            [[ -z "$output" ]] && { log "Usage: dream preset export <name> <output.tar.gz>"; exit 1; }
+            local preset_dir="${PRESETS_DIR}/${name}"
+            [[ -d "$preset_dir" ]] || error "Preset not found: $name"
+
+            # Validate preset has required files
+            [[ -f "$preset_dir/meta.txt" ]] || error "Invalid preset: missing meta.txt"
+            [[ -f "$preset_dir/extensions.list" ]] || error "Invalid preset: missing extensions.list"
+
+            log "Exporting preset '${name}'..."
+
+            # Create archive (relative to presets dir to avoid absolute paths)
+            cd "$PRESETS_DIR"
+            if tar czf "$output" "$name" 2>/dev/null; then
+                local size
+                size=$(du -h "$output" 2>/dev/null | cut -f1)
+                success "Preset exported to: $output ($size)"
+            else
+                error "Failed to create archive"
+            fi
+            cd "$INSTALL_DIR"
+            ;;
+
+        import|i)
+            local archive="${2:-}"
+            [[ -z "$archive" ]] && { log "Usage: dream preset import <preset.tar.gz>"; exit 1; }
+            [[ -f "$archive" ]] || error "Archive not found: $archive"
+
+            log "Validating archive..."
+
+            # Security: Check for path traversal
+            if tar tzf "$archive" 2>/dev/null | grep -qE '(^/|\.\./|\.\.\\)'; then
+                error "Archive contains unsafe paths (absolute or ../) — refusing to import"
+            fi
+
+            # Validate archive structure
+            local archive_name
+            archive_name=$(tar tzf "$archive" 2>/dev/null | head -1 | cut -d/ -f1)
+            [[ -z "$archive_name" ]] && error "Invalid archive structure"
+
+            # Check if preset already exists
+            if [[ -d "${PRESETS_DIR}/${archive_name}" ]]; then
+                warn "Preset '${archive_name}' already exists"
+                read -p "Overwrite? [y/N] " -n 1 -r
+                echo ""
+                [[ $REPLY =~ ^[Yy]$ ]] || { log "Cancelled."; return 0; }
+                rm -rf "${PRESETS_DIR}/${archive_name}"
+            fi
+
+            # Extract archive
+            mkdir -p "$PRESETS_DIR"
+            cd "$PRESETS_DIR"
+            if tar xzf "$archive" 2>/dev/null; then
+                # Validate extracted preset
+                if [[ ! -f "${archive_name}/meta.txt" ]]; then
+                    rm -rf "${archive_name}"
+                    error "Invalid preset: missing meta.txt"
+                fi
+                if [[ ! -f "${archive_name}/extensions.list" ]]; then
+                    rm -rf "${archive_name}"
+                    error "Invalid preset: missing extensions.list"
+                fi
+
+                success "Preset '${archive_name}' imported successfully"
+                log "Use 'dream preset load ${archive_name}' to apply it"
+            else
+                error "Failed to extract archive"
+            fi
+            cd "$INSTALL_DIR"
+            ;;
+
         *)
-            log "Usage: dream preset <save|load|list|delete> [name]"
+            log "Usage: dream preset <save|load|list|delete|export|import> [name]"
             ;;
     esac
 }
@@ -818,7 +894,7 @@ ${CYAN}Commands:${NC}
   list                List all services and their status
   enable <service>    Enable an extension service
   disable <service>   Disable an extension service
-  preset <action>     Save/load/list/delete configuration presets
+  preset <action>     Save/load/list/delete/export/import presets
   mode [local|cloud|hybrid]
                       Switch between local/cloud/hybrid modes
   model [current|list|swap]
@@ -838,10 +914,14 @@ ${CYAN}Commands:${NC}
   help                Show this help
 
 ${CYAN}Preset Commands:${NC}
-  preset save <name>  Snapshot current config (env, mode, extensions)
-  preset load <name>  Restore a saved preset
-  preset list         Show all saved presets
-  preset delete <name> Delete a saved preset
+  preset save <name>     Snapshot current config (env, mode, extensions)
+  preset load <name>     Restore a saved preset
+  preset list            Show all saved presets
+  preset delete <name>   Delete a saved preset
+  preset export <name> <file.tar.gz>
+                         Export preset to shareable archive
+  preset import <file.tar.gz>
+                         Import preset from archive
 
 ${CYAN}Mode Commands:${NC}
   mode                Show current mode
@@ -881,6 +961,10 @@ ${CYAN}Examples:${NC}
   dream mode local                # Switch to local mode
   dream preset save my-setup      # Snapshot your config
   dream preset load my-setup      # Restore it later
+  dream preset export my-setup my-setup.tar.gz
+                                  # Export preset for sharing
+  dream preset import shared.tar.gz
+                                  # Import preset from file
   dream backup                    # Create a backup
   dream backup -c                 # Create compressed backup
   dream backup -l                 # List all backups

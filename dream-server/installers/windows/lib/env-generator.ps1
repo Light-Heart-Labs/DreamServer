@@ -187,7 +187,7 @@ GPU_BACKEND=$GpuBackend
 $(if ($LlamaServerImage) { "LLAMA_SERVER_IMAGE=$LlamaServerImage" } else { "#LLAMA_SERVER_IMAGE=ghcr.io/ggml-org/llama.cpp:server-cuda" })
 
 #=== Ports ===
-LLAMA_SERVER_PORT=8080
+OLLAMA_PORT=8080
 WEBUI_PORT=3000
 WHISPER_PORT=9000
 TTS_PORT=8880

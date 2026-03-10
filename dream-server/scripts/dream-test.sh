@@ -36,7 +36,20 @@ if [[ -f "$_DT_DIR/lib/service-registry.sh" ]]; then
     export SCRIPT_DIR="$_DT_DIR"
     . "$_DT_DIR/lib/service-registry.sh"
     sr_load
-    [[ -f "$_DT_DIR/.env" ]] && set -a && . "$_DT_DIR/.env" && set +a
+    if [[ -f "$_DT_DIR/.env" ]]; then
+        set -a
+        while IFS='=' read -r key value; do
+            [[ "$key" =~ ^[[:space:]]*# ]] && continue
+            [[ -z "$key" ]] && continue
+            [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+            value="${value%\"}"
+            value="${value#\"}"
+            value="${value%\'}"
+            value="${value#\'}"
+            export "$key=$value"
+        done < "$_DT_DIR/.env"
+        set +a
+    fi
 fi
 
 # Service endpoints — resolved from registry

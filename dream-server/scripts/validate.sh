@@ -43,10 +43,17 @@ load_env_safe() {
 load_env_safe
 
 # Resolve core ports from registry (honoring any env overrides)
-LLM_PORT="${LLAMA_SERVER_PORT:-${SERVICE_PORTS[llama-server]:-8080}}"
+LLM_PORT="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-${SERVICE_PORTS[llama-server]:-8080}}}"
 LLM_HEALTH="${SERVICE_HEALTH[llama-server]:-/health}"
 WEBUI_PORT="${WEBUI_PORT:-${SERVICE_PORTS[open-webui]:-3000}}"
 WEBUI_HEALTH="${WEBUI_HEALTH:-${SERVICE_HEALTH[open-webui]:-/}}"
+
+# Resolve compose flags to match actual stack
+COMPOSE_FLAGS=""
+if [[ -x "$PROJECT_DIR/scripts/resolve-compose-stack.sh" ]]; then
+    COMPOSE_FLAGS=$("$PROJECT_DIR/scripts/resolve-compose-stack.sh" \
+        --script-dir "$PROJECT_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}")
+fi
 
 echo ""
 echo "╔═══════════════════════════════════════════╗"
@@ -73,8 +80,8 @@ check() {
 
 echo "1. Container Status"
 echo "───────────────────"
-check "llama-server running" "docker compose ps llama-server 2>/dev/null | grep -q 'Up\|running'"
-check "Open WebUI running" "docker compose ps open-webui 2>/dev/null | grep -q 'Up\|running'"
+check "llama-server running" "docker compose $COMPOSE_FLAGS ps llama-server 2>/dev/null | grep -q 'Up\|running'"
+check "Open WebUI running" "docker compose $COMPOSE_FLAGS ps open-webui 2>/dev/null | grep -q 'Up\|running'"
 
 echo ""
 echo "2. Health Endpoints"
@@ -130,7 +137,7 @@ for sid in "${SERVICE_IDS[@]}"; do
     [[ -z "$_health" || "$_port" == "0" ]] && continue
 
     # Check if container is running
-    if docker compose ps "$sid" 2>/dev/null | grep -q "Up\|running"; then
+    if docker compose $COMPOSE_FLAGS ps "$sid" 2>/dev/null | grep -q "Up\|running"; then
         check "$_name" "curl -sf http://localhost:${_port}${_health}"
     else
         printf "  %-30s ${YELLOW}○ SKIP (not enabled)${NC}\n" "$_name..."

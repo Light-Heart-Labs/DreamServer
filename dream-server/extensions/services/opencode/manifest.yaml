@@ -22,9 +22,9 @@ features:
     icon: Code
     category: development
     requirements:
-      services_any: [opencode, llama-server]
+      services_all: [opencode]
       vram_gb: 8
-    enabled_services_any: [opencode, llama-server]
+    enabled_services_all: [opencode]
     setup_time: Ready
     priority: 6
     gpu_backends: [amd, nvidia]

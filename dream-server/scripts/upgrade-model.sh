@@ -24,14 +24,14 @@ STATE_FILE="$DREAM_DIR/model-state.json"
 BACKUP_FILE="$DREAM_DIR/model-state.backup.json"
 LOG_FILE="$DREAM_DIR/upgrade-model.log"
 
-LLAMA_SERVER_PORT="${LLAMA_SERVER_PORT:-8080}"
+OLLAMA_PORT="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-8080}}"
 LLAMA_SERVER_CONTAINER="${LLAMA_SERVER_CONTAINER:-dream-llama-server}"
 
 HEALTH_CHECK_TIMEOUT=120  # seconds
 HEALTH_CHECK_INTERVAL=5   # seconds
 
 INFERENCE_SERVICE="llama-server"
-INFERENCE_PORT="$LLAMA_SERVER_PORT"
+INFERENCE_PORT="$OLLAMA_PORT"
 INFERENCE_CONTAINER="$LLAMA_SERVER_CONTAINER"
 MODEL_ENV_KEY="LLM_MODEL"
 
@@ -67,7 +67,7 @@ resolve_inference_runtime() {
         INFERENCE_SERVICE="llama-server"
     fi
 
-    INFERENCE_PORT="$LLAMA_SERVER_PORT"
+    INFERENCE_PORT="$OLLAMA_PORT"
     INFERENCE_CONTAINER="$LLAMA_SERVER_CONTAINER"
     MODEL_ENV_KEY="LLM_MODEL"
 }
@@ -440,7 +440,7 @@ Examples:
 
 Environment Variables:
   MODELS_DIR             Models directory (default: $MODELS_DIR)
-  LLAMA_SERVER_PORT      llama-server port (default: 8080)
+  OLLAMA_PORT            llama-server port (default: 8080)
   LLAMA_SERVER_CONTAINER Docker container name (default: dream-llama-server)
 
 EOF

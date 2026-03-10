@@ -75,8 +75,12 @@ def load_extension_manifests(manifest_dir: Path, gpu_backend: str) -> tuple[dict
                 service_id = service.get("id")
                 if not service_id:
                     raise ValueError("service.id is required")
-                supported = service.get("gpu_backends", ["amd", "nvidia"])
-                if gpu_backend not in supported and "all" not in supported:
+                supported = service.get("gpu_backends", ["amd", "nvidia", "apple"])
+                if gpu_backend == "apple":
+                    if service.get("type") == "host-systemd":
+                        continue  # Linux-only service, not available on macOS
+                    # All docker services run on macOS regardless of gpu_backends declaration
+                elif gpu_backend not in supported and "all" not in supported:
                     continue
 
                 host_env = service.get("host_env")
@@ -101,8 +105,8 @@ def load_extension_manifests(manifest_dir: Path, gpu_backend: str) -> tuple[dict
                 for feature in manifest_features:
                     if not isinstance(feature, dict):
                         continue
-                    supported = feature.get("gpu_backends", ["amd", "nvidia"])
-                    if gpu_backend not in supported and "all" not in supported:
+                    supported = feature.get("gpu_backends", ["amd", "nvidia", "apple"])
+                    if gpu_backend != "apple" and gpu_backend not in supported and "all" not in supported:
                         continue
                     if feature.get("id") and feature.get("name"):
                         features.append(feature)

@@ -11,8 +11,28 @@ cd "$SCRIPT_DIR"
 . "$SCRIPT_DIR/lib/service-registry.sh"
 sr_load
 
-# Source .env for port overrides
-[[ -f "$SCRIPT_DIR/.env" ]] && set -a && . "$SCRIPT_DIR/.env" && set +a
+# Safe .env loading for port overrides
+if [[ -f "$SCRIPT_DIR/.env" ]]; then
+    set -a
+    while IFS='=' read -r key value; do
+        [[ "$key" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "$key" ]] && continue
+        [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+        value="${value%\"}"
+        value="${value#\"}"
+        value="${value%\'}"
+        value="${value#\'}"
+        export "$key=$value"
+    done < "$SCRIPT_DIR/.env"
+    set +a
+fi
+
+# Resolve compose flags for accurate status checks
+COMPOSE_FLAGS=""
+if [[ -x "$SCRIPT_DIR/scripts/resolve-compose-stack.sh" ]]; then
+    COMPOSE_FLAGS=$("$SCRIPT_DIR/scripts/resolve-compose-stack.sh" \
+        --script-dir "$SCRIPT_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}")
+fi
 
 # Colors
 RED='\033[0;31m'
@@ -25,8 +45,8 @@ echo -e "${CYAN}Dream Server Preflight Check${NC}"
 echo "=============================="
 echo ""
 
-# Resolve ports from registry
-LLM_PORT="${SERVICE_PORTS[llama-server]:-8080}"
+# Resolve ports from registry + env overrides
+LLM_PORT="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-${SERVICE_PORTS[llama-server]:-8080}}}"
 LLM_HEALTH="${SERVICE_HEALTH[llama-server]:-/health}"
 LLM_CONTAINER="${SERVICE_CONTAINERS[llama-server]:-dream-llama-server}"
 WEBUI_PORT="${SERVICE_PORTS[open-webui]:-3000}"
@@ -44,7 +64,7 @@ fi
 
 # Check containers are up
 echo -n "Core containers... "
-if docker compose ps | grep -q "$LLM_CONTAINER"; then
+if docker compose $COMPOSE_FLAGS ps | grep -q "$LLM_CONTAINER"; then
     echo -e "${GREEN}✓ running${NC}"
 else
     echo -e "${RED}✗ not running${NC}"
@@ -83,7 +103,7 @@ fi
 for sid in "${SERVICE_IDS[@]}"; do
     [[ "${SERVICE_CATEGORIES[$sid]}" == "core" ]] && continue
     container="${SERVICE_CONTAINERS[$sid]}"
-    docker compose ps 2>/dev/null | grep -q "$container" || continue
+    docker compose $COMPOSE_FLAGS ps 2>/dev/null | grep -q "$container" || continue
 
     port="${SERVICE_PORTS[$sid]:-0}"
     health="${SERVICE_HEALTH[$sid]:-/}"

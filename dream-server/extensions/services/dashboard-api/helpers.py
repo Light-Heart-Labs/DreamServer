@@ -260,11 +260,12 @@ def get_model_info() -> Optional[ModelInfo]:
                     if line.startswith("LLM_MODEL="):
                         model_name = line.split("=", 1)[1].strip().strip('"\'')
                         size_gb, context, quant = 15.0, 32768, None
+                        import re as _re
                         name_lower = model_name.lower()
-                        if "7b" in name_lower: size_gb = 4.0
-                        elif "14b" in name_lower: size_gb = 8.0
-                        elif "32b" in name_lower: size_gb = 16.0
-                        elif "70b" in name_lower: size_gb = 35.0
+                        if _re.search(r'\b7b\b', name_lower): size_gb = 4.0
+                        elif _re.search(r'\b14b\b', name_lower): size_gb = 8.0
+                        elif _re.search(r'\b32b\b', name_lower): size_gb = 16.0
+                        elif _re.search(r'\b70b\b', name_lower): size_gb = 35.0
                         if "awq" in name_lower: quant = "AWQ"
                         elif "gptq" in name_lower: quant = "GPTQ"
                         elif "gguf" in name_lower: quant = "GGUF"

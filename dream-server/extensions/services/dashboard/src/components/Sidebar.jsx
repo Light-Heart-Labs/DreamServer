@@ -46,9 +46,10 @@ export default function Sidebar({ status, collapsed, onToggle }) {
 
   // Service counts with degraded nuance
   const services = status?.services || []
-  const onlineCount = services.filter(s => s.status === 'healthy' || s.status === 'degraded').length
-  const degradedCount = services.filter(s => s.status === 'degraded').length
-  const totalCount = services.length
+  const deployed = services.filter(s => s.status !== 'not_deployed')
+  const onlineCount = deployed.filter(s => s.status === 'healthy' || s.status === 'degraded').length
+  const degradedCount = deployed.filter(s => s.status === 'degraded').length
+  const totalCount = deployed.length
 
   // Memory bar: use unified (RAM) stats on APUs, VRAM on discrete
   const isUnified = status?.gpu?.memoryType === 'unified'

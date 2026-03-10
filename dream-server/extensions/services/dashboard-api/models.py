@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from config import GPU_BACKEND
 
@@ -77,8 +77,8 @@ class PersonaRequest(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    message: str
-    system: Optional[str] = None
+    message: str = Field(..., max_length=100000)
+    system: Optional[str] = Field(None, max_length=10000)
 
 
 class VersionInfo(BaseModel):

@@ -13,7 +13,20 @@ if [[ -f "$ROOT_DIR/lib/service-registry.sh" ]]; then
     export SCRIPT_DIR="$ROOT_DIR"
     . "$ROOT_DIR/lib/service-registry.sh"
     sr_load
-    [[ -f "$ROOT_DIR/.env" ]] && set -a && . "$ROOT_DIR/.env" && set +a
+    if [[ -f "$ROOT_DIR/.env" ]]; then
+        set -a
+        while IFS='=' read -r key value; do
+            [[ "$key" =~ ^[[:space:]]*# ]] && continue
+            [[ -z "$key" ]] && continue
+            [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+            value="${value%\"}"
+            value="${value#\"}"
+            value="${value%\'}"
+            value="${value#\'}"
+            export "$key=$value"
+        done < "$ROOT_DIR/.env"
+        set +a
+    fi
 fi
 _DASHBOARD_PORT="${SERVICE_PORTS[dashboard]:-3001}"
 _WEBUI_PORT="${SERVICE_PORTS[open-webui]:-3000}"

@@ -1,21 +1,27 @@
 model_list:
+  - model_name: local
+    litellm_params:
+      model: openai/default
+      api_base: http://llama-server:8080/v1
+      api_key: not-needed
+
+  - model_name: cloud
+    litellm_params:
+      model: anthropic/claude-sonnet-4-5-20250514
+      api_key: os.environ/ANTHROPIC_API_KEY
+
   - model_name: default
     litellm_params:
       model: openai/default
       api_base: http://llama-server:8080/v1
       api_key: not-needed
 
-  - model_name: default
-    litellm_params:
-      model: anthropic/claude-sonnet-4-5-20250514
-      api_key: os.environ/ANTHROPIC_API_KEY
-
 router_settings:
   routing_strategy: simple-shuffle
   num_retries: 2
   fallbacks:
-    - default:
-        - default
+    - local:
+        - cloud
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
