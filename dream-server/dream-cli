@@ -407,6 +407,88 @@ cmd_doctor() {
     fi
 }
 
+cmd_info() {
+    check_install
+    load_env
+    sr_load
+
+    echo -e "${BLUE}━━━ Dream Server Info ━━━${NC}"
+    echo ""
+    echo -e "${CYAN}Installation:${NC}"
+    echo "  Path:    $INSTALL_DIR"
+    echo "  Version: $VERSION"
+    echo "  Mode:    ${DREAM_MODE:-local}"
+    echo "  Tier:    ${TIER:-auto}"
+    echo ""
+
+    if command -v docker &>/dev/null; then
+        echo -e "${CYAN}Docker:${NC}"
+        docker --version 2>/dev/null | sed 's/^/  /'
+        echo ""
+    fi
+
+    if command -v nvidia-smi &>/dev/null; then
+        echo -e "${CYAN}GPU (NVIDIA):${NC}"
+        nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader 2>/dev/null | head -1 | sed 's/^/  /'
+        echo ""
+    fi
+
+    echo -e "${CYAN}Extensions:${NC}"
+    local enabled=0 disabled=0
+    for sid in "${SERVICE_IDS[@]}"; do
+        local cat="${SERVICE_CATEGORIES[$sid]}"
+        if [[ "$cat" == "core" ]]; then
+            enabled=$((enabled + 1))
+            continue
+        fi
+        local cf="${SERVICE_COMPOSE[$sid]}"
+        if [[ -n "$cf" && -f "$cf" ]]; then
+            enabled=$((enabled + 1))
+        else
+            disabled=$((disabled + 1))
+        fi
+    done
+    echo "  Enabled: $enabled | Disabled: $disabled | Total: ${#SERVICE_IDS[@]}"
+    echo ""
+}
+
+cmd_health() {
+    check_install
+    load_env
+    sr_load
+
+    local flags
+    flags=$(get_compose_flags)
+    cd "$INSTALL_DIR"
+
+    echo -e "${BLUE}━━━ Quick Health Check ━━━${NC}"
+    echo ""
+
+    local healthy=0 total=0
+    for sid in "${SERVICE_IDS[@]}"; do
+        local health="${SERVICE_HEALTH[$sid]}"
+        local port_env="${SERVICE_PORT_ENVS[$sid]}"
+        local default_port="${SERVICE_PORTS[$sid]}"
+        local name="${SERVICE_NAMES[$sid]:-$sid}"
+        [[ -z "$health" || "$default_port" == "0" ]] && continue
+
+        local port="$default_port"
+        [[ -n "$port_env" ]] && port="${!port_env:-$default_port}"
+        total=$((total + 1))
+
+        if curl -sf --max-time 3 "http://localhost:${port}${health}" >/dev/null 2>&1; then
+            echo -e "  ${GREEN}✓${NC} $name"
+            healthy=$((healthy + 1))
+        else
+            echo -e "  ${RED}✗${NC} $name (port $port)"
+        fi
+    done
+
+    echo ""
+    echo -e "  ${healthy}/${total} services healthy"
+    [[ $healthy -eq $total ]] && success "All services OK" || warn "Some services not responding"
+}
+
 #=============================================================================
 # Extension Management Commands
 #=============================================================================
@@ -955,6 +1037,8 @@ EOF
 
 ${CYAN}Examples:${NC}
   dream status                    # Check all services
+  dream health                    # Quick health check
+  dream info                      # System info summary
   dream list                      # See all available services
   dream enable n8n                # Enable the n8n extension
   dream disable whisper           # Disable Whisper STT
@@ -1004,6 +1088,8 @@ case "${1:-help}" in
     chat|c)      shift; cmd_chat "$@" ;;
     benchmark|bench|b) cmd_benchmark ;;
     doctor|diag|d) shift; cmd_doctor "$@" ;;
+    info|i)        cmd_info ;;
+    health|hlth)   cmd_health ;;
     help|h|--help|-h) cmd_help ;;
     version|v|--version|-v) echo "dream-cli v${VERSION}" ;;
     *)           error "Unknown command: $1. Run 'dream help' for usage." ;;

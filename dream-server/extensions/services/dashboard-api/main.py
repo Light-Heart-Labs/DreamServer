@@ -43,7 +43,8 @@ from helpers import (
 from agent_monitor import collect_metrics
 
 # --- Router imports ---
-from routers import workflows, features, setup, updates, agents, privacy
+from routers import workflows, features, setup, updates, agents, privacy, metrics
+from utils.middleware import RequestTimingMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,21 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Dream Server Dashboard API",
     version="2.0.0",
-    description="System status API for Dream Server Dashboard"
+    description="""System status API for Dream Server Dashboard.
+
+Provides real-time GPU metrics, service health, model management, and preflight checks.
+All endpoints (except `/health`) require `Authorization: Bearer <DASHBOARD_API_KEY>`.
+
+**OpenAPI docs:** `/docs` (Swagger UI) | `/redoc` (ReDoc)
+""",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_tags=[
+        {"name": "Health", "description": "Liveness and readiness checks"},
+        {"name": "Preflight", "description": "Install-time validation (Docker, GPU, ports, disk)"},
+        {"name": "Status", "description": "System status, GPU, services, model, bootstrap"},
+        {"name": "Config", "description": "Storage, external links, service tokens"},
+    ],
 )
 
 # --- CORS ---
@@ -81,8 +96,10 @@ app.add_middleware(
     allow_origins=get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With", "X-Request-ID"],
+    expose_headers=["X-Response-Time", "X-Request-ID"],
 )
+app.add_middleware(RequestTimingMiddleware)
 
 # --- Include Routers ---
 
@@ -92,13 +109,14 @@ app.include_router(setup.router)
 app.include_router(updates.router)
 app.include_router(agents.router)
 app.include_router(privacy.router)
+app.include_router(metrics.router)
 
 
 # ================================================================
 # Core Endpoints (health, status, preflight, services)
 # ================================================================
 
-@app.get("/health")
+@app.get("/health", tags=["Health"])
 async def health():
     """API health check."""
     return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
@@ -106,7 +124,7 @@ async def health():
 
 # --- Preflight ---
 
-@app.get("/api/preflight/docker", dependencies=[Depends(verify_api_key)])
+@app.get("/api/preflight/docker", tags=["Preflight"], dependencies=[Depends(verify_api_key)])
 async def preflight_docker():
     """Check if Docker is available."""
     import subprocess
@@ -127,7 +145,7 @@ async def preflight_docker():
         return {"available": False, "error": "Docker check failed"}
 
 
-@app.get("/api/preflight/gpu", dependencies=[Depends(verify_api_key)])
+@app.get("/api/preflight/gpu", tags=["Preflight"], dependencies=[Depends(verify_api_key)])
 async def preflight_gpu():
     """Check GPU availability."""
     gpu_info = get_gpu_info()
@@ -144,7 +162,7 @@ async def preflight_gpu():
     return {"available": False, "error": "No GPU detected. Ensure NVIDIA drivers or AMD amdgpu driver is loaded."}
 
 
-@app.get("/api/preflight/required-ports", dependencies=[Depends(verify_api_key)])
+@app.get("/api/preflight/required-ports", tags=["Preflight"], dependencies=[Depends(verify_api_key)])
 async def preflight_required_ports():
     """Return the list of service ports for preflight checking (no auth required)."""
     ports = []
@@ -155,7 +173,7 @@ async def preflight_required_ports():
     return {"ports": ports}
 
 
-@app.post("/api/preflight/ports", dependencies=[Depends(verify_api_key)])
+@app.post("/api/preflight/ports", tags=["Preflight"], dependencies=[Depends(verify_api_key)])
 async def preflight_ports(request: PortCheckRequest):
     """Check if required ports are available."""
     port_services = {}
@@ -176,7 +194,7 @@ async def preflight_ports(request: PortCheckRequest):
     return {"conflicts": conflicts, "available": len(conflicts) == 0}
 
 
-@app.get("/api/preflight/disk", dependencies=[Depends(verify_api_key)])
+@app.get("/api/preflight/disk", tags=["Preflight"], dependencies=[Depends(verify_api_key)])
 async def preflight_disk():
     """Check available disk space."""
     try:
@@ -190,7 +208,7 @@ async def preflight_disk():
 
 # --- Core Data ---
 
-@app.get("/gpu", response_model=Optional[GPUInfo])
+@app.get("/gpu", response_model=Optional[GPUInfo], tags=["Status"])
 async def gpu(api_key: str = Depends(verify_api_key)):
     """Get GPU metrics."""
     info = get_gpu_info()
@@ -199,28 +217,28 @@ async def gpu(api_key: str = Depends(verify_api_key)):
     return info
 
 
-@app.get("/services", response_model=list[ServiceStatus])
+@app.get("/services", response_model=list[ServiceStatus], tags=["Status"])
 async def services(api_key: str = Depends(verify_api_key)):
     """Get all service health statuses."""
     return await get_all_services()
 
 
-@app.get("/disk", response_model=DiskUsage)
+@app.get("/disk", response_model=DiskUsage, tags=["Status"])
 async def disk(api_key: str = Depends(verify_api_key)):
     return get_disk_usage()
 
 
-@app.get("/model", response_model=Optional[ModelInfo])
+@app.get("/model", response_model=Optional[ModelInfo], tags=["Status"])
 async def model(api_key: str = Depends(verify_api_key)):
     return get_model_info()
 
 
-@app.get("/bootstrap", response_model=BootstrapStatus)
+@app.get("/bootstrap", response_model=BootstrapStatus, tags=["Status"])
 async def bootstrap(api_key: str = Depends(verify_api_key)):
     return get_bootstrap_status()
 
 
-@app.get("/status", response_model=FullStatus)
+@app.get("/status", response_model=FullStatus, tags=["Status"])
 async def status(api_key: str = Depends(verify_api_key)):
     """Get full system status."""
     service_statuses = await get_all_services()
@@ -232,7 +250,7 @@ async def status(api_key: str = Depends(verify_api_key)):
     )
 
 
-@app.get("/api/status")
+@app.get("/api/status", tags=["Status"])
 async def api_status(api_key: str = Depends(verify_api_key)):
     """Dashboard-compatible status endpoint.
 
@@ -332,7 +350,7 @@ async def _build_api_status() -> dict:
 
 # --- Settings ---
 
-@app.get("/api/service-tokens", dependencies=[Depends(verify_api_key)])
+@app.get("/api/service-tokens", tags=["Config"], dependencies=[Depends(verify_api_key)])
 async def service_tokens():
     """Return connection tokens for services that need browser-side auth."""
     tokens = {}
@@ -356,7 +374,7 @@ async def service_tokens():
     return tokens
 
 
-@app.get("/api/external-links")
+@app.get("/api/external-links", tags=["Config"])
 async def get_external_links(api_key: str = Depends(verify_api_key)):
     """Return sidebar-ready external links derived from service manifests."""
     links = []
@@ -372,7 +390,7 @@ async def get_external_links(api_key: str = Depends(verify_api_key)):
     return links
 
 
-@app.get("/api/storage")
+@app.get("/api/storage", tags=["Config"])
 async def api_storage(api_key: str = Depends(verify_api_key)):
     """Get storage breakdown for Settings page."""
     models_dir = Path(DATA_DIR) / "models"

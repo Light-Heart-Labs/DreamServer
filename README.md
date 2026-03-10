@@ -9,6 +9,10 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/Light-Heart-Labs/DreamServer)](https://github.com/Light-Heart-Labs/DreamServer/stargazers)
 [![Release](https://img.shields.io/github/v/release/Light-Heart-Labs/DreamServer)](https://github.com/Light-Heart-Labs/DreamServer/releases)
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-2.0-009688?logo=fastapi)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 
 ![Dream Server Dashboard](docs/images/dashboard.png)
 
@@ -250,6 +254,8 @@ The installer itself is modular — 6 libraries and 13 phases, each in its own f
 
 [Full extension guide](dream-server/docs/EXTENSIONS.md) | [Installer architecture](dream-server/docs/INSTALLER-ARCHITECTURE.md)
 
+> **Engineering:** 60,000+ lines across 400+ source files. Manifest-driven extensions, async health checks, GPU auto-detection (NVIDIA/AMD/Apple), and a modular 13-phase installer. See [TECHNOLOGY.md](TECHNOLOGY.md) for the full stack.
+
 ---
 
 ## dream-cli
@@ -300,6 +306,8 @@ dream preset load gaming    # Restore it
 | | |
 |---|---|
 | [Quickstart](dream-server/QUICKSTART.md) | Step-by-step install guide with troubleshooting |
+| [Technology Stack](TECHNOLOGY.md) | Full tech stack, architecture patterns, codebase metrics |
+| [System Architecture](dream-server/docs/SYSTEM-ARCHITECTURE.md) | Service layout, data flow, port map |
 | [Hardware Guide](dream-server/docs/HARDWARE-GUIDE.md) | What to buy, tier recommendations |
 | [FAQ](dream-server/FAQ.md) | Common questions and configuration |
 | [Extensions](dream-server/docs/EXTENSIONS.md) | How to add custom services |

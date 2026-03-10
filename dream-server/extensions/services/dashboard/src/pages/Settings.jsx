@@ -1,5 +1,6 @@
-import { Settings as SettingsIcon, Server, HardDrive, RefreshCw, Download, Loader2, Network } from 'lucide-react'
+import { Settings as SettingsIcon, Server, HardDrive, RefreshCw, Download, Loader2, Network, Cpu, BookOpen, Activity } from 'lucide-react'
 import { useState, useEffect } from 'react'
+import { PerformanceMetrics } from '../components/PerformanceMetrics'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
@@ -241,6 +242,50 @@ export default function Settings() {
           </div>
         </SettingsSection>
 
+        {/* API Performance */}
+        <SettingsSection title="API Performance" icon={Activity}>
+          <PerformanceMetrics embedded />
+        </SettingsSection>
+
+        {/* Technology Stack */}
+        <SettingsSection title="Technology & Architecture" icon={Cpu}>
+          <div className="space-y-4">
+            <p className="text-sm text-zinc-400">
+              Dream Server is built with production-grade infrastructure: Python/FastAPI, React/Vite, Docker Compose,
+              GPU-accelerated inference (CUDA/ROCm/Metal), and a manifest-driven extension system.
+            </p>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <TechBadge label="Inference" value="llama.cpp" />
+              <TechBadge label="API Gateway" value="LiteLLM" />
+              <TechBadge label="Vector DB" value="Qdrant" />
+              <TechBadge label="Workflows" value="n8n" />
+              <TechBadge label="Dashboard API" value="FastAPI" />
+              <TechBadge label="Frontend" value="React 18" />
+            </div>
+            <div className="flex gap-2 pt-2">
+              <a
+                href="https://github.com/Light-Heart-Labs/DreamServer/blob/main/TECHNOLOGY.md"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm text-indigo-300 hover:text-indigo-200 transition-colors"
+              >
+                <BookOpen size={14} />
+                Technology Stack
+              </a>
+              <span className="text-zinc-600">|</span>
+              <a
+                href="https://github.com/Light-Heart-Labs/DreamServer/blob/main/dream-server/docs/SYSTEM-ARCHITECTURE.md"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm text-indigo-300 hover:text-indigo-200 transition-colors"
+              >
+                <BookOpen size={14} />
+                System Architecture
+              </a>
+            </div>
+          </div>
+        </SettingsSection>
+
         {/* Commands */}
         <SettingsSection title="Commands" icon={SettingsIcon}>
           <div className="space-y-3">
@@ -276,6 +321,15 @@ function InfoRow({ label, value }) {
     <div className="flex items-center justify-between py-2">
       <span className="text-sm text-zinc-400">{label}</span>
       <span className="text-sm text-white font-medium font-mono">{value}</span>
+    </div>
+  )
+}
+
+function TechBadge({ label, value }) {
+  return (
+    <div className="flex items-center justify-between py-1.5 px-3 rounded-lg bg-zinc-800/50">
+      <span className="text-xs text-zinc-500">{label}</span>
+      <span className="text-xs font-mono text-indigo-300">{value}</span>
     </div>
   )
 }

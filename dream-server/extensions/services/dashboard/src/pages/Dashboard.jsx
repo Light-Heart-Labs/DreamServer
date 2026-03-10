@@ -19,6 +19,7 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { FeatureDiscoveryBanner } from '../components/FeatureDiscovery'
+import { PerformanceMetrics } from '../components/PerformanceMetrics'
 
 // Helper to build external service URLs from current host
 const getExternalUrl = (port) =>
@@ -170,6 +171,7 @@ export default function Dashboard({ status, loading }) {
           {status?.tier && <span className="text-indigo-300">{status.tier}</span>}
           {status?.model?.name && <span>{status.model.name}</span>}
           {status?.version && <span>v{status.version}</span>}
+          <PerformanceMetrics compact />
         </div>
       </div>
 

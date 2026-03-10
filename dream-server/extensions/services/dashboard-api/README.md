@@ -8,6 +8,8 @@ The Dashboard API is a Python FastAPI service that powers the Dream Server Dashb
 
 It runs at `http://localhost:3002` and is the single backend used by the React dashboard frontend.
 
+**Interactive API docs:** [Swagger UI](http://localhost:3002/docs) | [ReDoc](http://localhost:3002/redoc)
+
 ## Features
 
 - **GPU monitoring**: Real-time VRAM usage, temperature, utilization, and power draw (NVIDIA + AMD)
