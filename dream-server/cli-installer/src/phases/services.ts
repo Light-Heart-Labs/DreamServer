@@ -1,4 +1,4 @@
-// ── Phase 05: Services ──────────────────────────────────────────────────────
+// ── Phase 06: Services ──────────────────────────────────────────────────────
 
 import { type InstallContext } from '../lib/config.ts';
 import { exec, execStream } from '../lib/shell.ts';
@@ -174,7 +174,7 @@ function showRecoveryHelp(ctx: InstallContext, composeCmd: string[]) {
   console.log(`     ${cmd} logs <service-name>`);
   console.log('');
   ui.info('To retry:');
-  console.log(`     ${process.execPath} install`);
+  console.log(`     dream-installer install`);
 }
 
 async function healthCheck(ctx: InstallContext, ports: Record<string, number>): Promise<void> {
