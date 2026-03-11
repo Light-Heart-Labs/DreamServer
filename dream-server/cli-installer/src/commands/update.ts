@@ -5,6 +5,9 @@ import { exec, execStream } from '../lib/shell.ts';
 import { getComposeCommand } from '../lib/docker.ts';
 import { DEFAULT_INSTALL_DIR } from '../lib/config.ts';
 import { IS_WINDOWS, IS_MACOS, moveFile, removeDir } from '../lib/platform.ts';
+import { killNativeLlama, nativeMetal } from '../phases/native-metal.ts';
+import { parseEnv } from '../lib/env.ts';
+import { createDefaultContext } from '../lib/config.ts';
 import * as ui from '../lib/ui.ts';
 import { VERSION } from '../lib/config.ts';
 import { existsSync, mkdtempSync, rmSync, copyFileSync, readFileSync } from 'node:fs';
@@ -92,6 +95,19 @@ export async function update(opts: UpdateOptions): Promise<void> {
     ui.ok('All services restarted');
   } else {
     ui.warn('Some services may have failed — check: docker compose ps');
+  }
+
+  // Step 4: Restart native llama-server if on macOS Apple Silicon
+  const envContent = readFileSync(join(installDir, '.env'), 'utf-8');
+  const envParsed = parseEnv(envContent);
+  if (envParsed.GPU_BACKEND === 'apple') {
+    ui.step('Restarting native Metal llama-server...');
+    await killNativeLlama(installDir);
+    const ctx = createDefaultContext();
+    ctx.installDir = installDir;
+    ctx.gpu = { backend: 'apple', name: 'Apple Silicon', vramMB: 0, count: 0 };
+    ctx.tier = envParsed.TIER || '1';
+    await nativeMetal(ctx);
   }
 
   console.log('');
@@ -191,22 +207,19 @@ async function selfUpdate(): Promise<void> {
 
     // Keep current binary as backup for rollback
     const bakPath = `${currentBinary}.bak`;
-    try {
-      copyFileSync(currentBinary, bakPath);
-    } catch { /* best effort */ }
+    try { rmSync(bakPath, { force: true }); } catch { /* no old backup */ }
+    if (IS_WINDOWS) {
+      // Windows locks running executables for overwriting but allows renaming.
+      // Rename (not copy) to free the execution path before placing the new binary.
+      try { const { renameSync } = await import('node:fs'); renameSync(currentBinary, bakPath); } catch { /* best effort */ }
+    } else {
+      // Unix: copy so the running process keeps its file descriptor
+      try { copyFileSync(currentBinary, bakPath); } catch { /* best effort */ }
+    }
 
     // Make executable (Linux/macOS only — Windows executables don't need chmod)
     if (!IS_WINDOWS) {
       await exec(['chmod', '+x', tmpPath], { throwOnError: false });
-    }
-
-    // Windows locks running executables for overwriting but allows renaming.
-    // Rename current binary to .bak first, then move the new one in.
-    if (IS_WINDOWS) {
-      try {
-        const bakPath2 = `${currentBinary}.bak`;
-        moveFile(currentBinary, bakPath2);
-      } catch { /* best effort — old .bak from backup step may already cover this */ }
     }
     moveFile(tmpPath, currentBinary);
 

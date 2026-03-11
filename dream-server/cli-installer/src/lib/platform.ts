@@ -301,6 +301,12 @@ export function isDangerousPath(p: string): boolean {
       'c:/users', 'c:/programdata',
     ];
     if (winDangerous.some((d) => normalized === d || normalized === d + '/')) return true;
+    // Explicitly block the Windows user home directory
+    const home = getHome();
+    if (home) {
+      const normalizedHome = resolve(home).toLowerCase().replace(/\\/g, '/');
+      if (normalized === normalizedHome || normalized === normalizedHome + '/') return true;
+    }
     // Refuse if less than 3 path segments (e.g. C:\Users is only 2)
     const segments = target.split(/[\\/]/).filter(Boolean);
     return segments.length < 3;
@@ -317,8 +323,9 @@ export function isDangerousPath(p: string): boolean {
   // Explicitly block the user's home directory
   if (home) DANGEROUS_PATHS.push(resolve(home));
   if (DANGEROUS_PATHS.includes(target)) return true;
-  // Require at least 3 segments (e.g. /home/user/dream-server)
-  return target.split('/').filter(Boolean).length < 3;
+  // Require at least 2 segments (e.g. /opt/dream is valid, /opt is blocked)
+  // User's home dir is already explicitly blocked above
+  return target.split('/').filter(Boolean).length < 2;
 }
 
 // ── Docker error messages ───────────────────────────────────────────────────

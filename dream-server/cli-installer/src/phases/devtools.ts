@@ -202,5 +202,79 @@ export async function devtools(ctx: InstallContext): Promise<void> {
         }
       }
     }
+
+    // macOS: Install OpenCode Web UI as LaunchAgent (auto-start on login)
+    if (process.platform === 'darwin') {
+      const launchAgentsDir = join(home, 'Library', 'LaunchAgents');
+      const plistName = 'com.dreamserver.opencode-web.plist';
+      const plistPath = join(launchAgentsDir, plistName);
+
+      if (!existsSync(plistPath)) {
+        mkdirSync(launchAgentsDir, { recursive: true });
+
+        // Read OPENCODE_SERVER_PASSWORD from .env
+        const envPath = join(ctx.installDir, '.env');
+        let password = '';
+        if (existsSync(envPath)) {
+          const envContent = readFileSync(envPath, 'utf-8');
+          const match = envContent.match(/^OPENCODE_SERVER_PASSWORD=(.*)$/m);
+          if (match) password = match[1];
+        }
+
+        const plistContent = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.dreamserver.opencode-web</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${opencodeBin}</string>
+    <string>web</string>
+    <string>--port</string>
+    <string>3003</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>OPENCODE_SERVER_PASSWORD</key>
+    <string>${password}</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>${home}/Library/Logs/opencode-web.log</string>
+  <key>StandardErrorPath</key>
+  <string>${home}/Library/Logs/opencode-web.log</string>
+</dict>
+</plist>`;
+
+        writeFileSync(plistPath, plistContent);
+
+        // Load the LaunchAgent
+        const load = await exec(
+          ['launchctl', 'bootstrap', `gui/${process.getuid?.() ?? 501}`, plistPath],
+          { throwOnError: false, timeout: 10_000 },
+        );
+        if (load.exitCode === 0) {
+          ui.ok('OpenCode Web UI LaunchAgent installed (auto-start on login, port 3003)');
+        } else {
+          // Fallback: try legacy launchctl load
+          const loadLegacy = await exec(
+            ['launchctl', 'load', plistPath],
+            { throwOnError: false, timeout: 10_000 },
+          );
+          if (loadLegacy.exitCode === 0) {
+            ui.ok('OpenCode Web UI LaunchAgent installed (port 3003)');
+          } else {
+            ui.warn('LaunchAgent created but could not be loaded. Load manually:');
+            ui.info(`  launchctl load ${plistPath}`);
+          }
+        }
+      } else {
+        ui.ok('OpenCode Web UI LaunchAgent already installed');
+      }
+    }
   }
 }

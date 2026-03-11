@@ -4,6 +4,7 @@ import { exec } from '../lib/shell.ts';
 import { getComposeCommand } from '../lib/docker.ts';
 import { DEFAULT_INSTALL_DIR } from '../lib/config.ts';
 import { removeDir, isDangerousPath } from '../lib/platform.ts';
+import { killNativeLlama } from '../phases/native-metal.ts';
 import * as ui from '../lib/ui.ts';
 import * as prompts from '../lib/prompts.ts';
 import { existsSync } from 'node:fs';
@@ -121,6 +122,9 @@ export async function uninstall(opts: UninstallOptions): Promise<void> {
   } else {
     const deleteData = opts.force || await prompts.confirm(`Delete installation directory ${installDir}?`);
     if (deleteData) {
+      // Kill native llama-server daemon if running (macOS Metal)
+      await killNativeLlama(installDir);
+
       const target = resolve(installDir);
       if (isDangerousPath(target)) {
         ui.fail(`Safety check: refusing to delete system directory: ${target}`);

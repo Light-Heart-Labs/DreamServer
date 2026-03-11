@@ -104,8 +104,11 @@ export function resolveComposeFiles(ctx: InstallContext): string[] {
     const amd = join(dir, 'docker-compose.amd.yml');
     if (existsSync(amd)) files.push(amd);
   } else if (ctx.gpu.backend === 'apple') {
-    const apple = join(dir, 'docker-compose.apple.yml');
-    if (existsSync(apple)) files.push(apple);
+    // macOS: try installers/macos/docker-compose.macos.yml (canonical path)
+    const macosOverlay = join(dir, 'installers', 'macos', 'docker-compose.macos.yml');
+    const appleFallback = join(dir, 'docker-compose.apple.yml');
+    if (existsSync(macosOverlay)) files.push(macosOverlay);
+    else if (existsSync(appleFallback)) files.push(appleFallback);
   }
 
   // vLLM overlay — replaces llama-server with vLLM container
@@ -178,7 +181,7 @@ async function generateEnv(ctx: InstallContext, composeFiles: string[]): Promise
     ``,
     `# ── Mode & Backend ───────────────────────────────────────────`,
     `DREAM_MODE=local`,
-    `LLM_API_URL=http://llama-server:8080`,
+    `LLM_API_URL=http://${ctx.gpu.backend === 'apple' ? 'host.docker.internal' : 'llama-server'}:8080`,
     `GPU_BACKEND=${ctx.gpu.backend}`,
     ``,
     `# ── Model Configuration ──────────────────────────────────────`,

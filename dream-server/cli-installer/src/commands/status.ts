@@ -6,6 +6,7 @@ import { getDockerBaseCmd } from '../phases/services.ts';
 import { DEFAULT_INSTALL_DIR } from '../lib/config.ts';
 import { parseEnv } from '../lib/env.ts';
 import { IS_MACOS, getPermissionFixHint, getRamGB } from '../lib/platform.ts';
+import { isNativeLlamaRunning } from '../phases/native-metal.ts';
 import * as ui from '../lib/ui.ts';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -56,7 +57,7 @@ export async function status(opts: StatusOptions): Promise<void> {
   console.log('');
 
   // ── GPU / VRAM Status ──
-  const gpuInfo = await showGpuStatus(gpuBackend);
+  const gpuInfo = await showGpuStatus(gpuBackend, installDir);
   console.log('');
 
   // ── Container status ──
@@ -187,7 +188,7 @@ interface GpuProcess {
   memMB: number;
 }
 
-async function showGpuStatus(backend: string): Promise<GpuInfo | null> {
+async function showGpuStatus(backend: string, installDir: string): Promise<GpuInfo | null> {
   // Apple Silicon — show chip info and unified memory
   if (backend === 'apple') {
     try {
@@ -203,9 +204,17 @@ async function showGpuStatus(backend: string): Promise<GpuInfo | null> {
       const ramGB = getRamGB();
       ui.step(`GPU: ${chipName}`);
       console.log(`     Unified Memory: ${ramGB}GB (shared between CPU and GPU)`);
-      console.log('');
-      ui.info('Docker on macOS runs in a Linux VM — Metal GPU passthrough is not available.');
-      ui.info('llama-server uses ARM NEON (CPU) optimizations inside Docker.');
+
+      // Check native Metal llama-server daemon
+      const nativeStatus = await isNativeLlamaRunning(installDir);
+      if (nativeStatus.running) {
+        console.log('');
+        ui.ok(`Native Metal llama-server running (PID ${nativeStatus.pid})`);
+      } else {
+        console.log('');
+        ui.warn('Native Metal llama-server is NOT running.');
+        ui.info('Docker on macOS runs LLM in CPU mode. Restart install for Metal GPU acceleration.');
+      }
 
       return { available: true, name: chipName, totalMB: ramGB * 1024, usedMB: 0, freeMB: ramGB * 1024, processes: [] };
     } catch {

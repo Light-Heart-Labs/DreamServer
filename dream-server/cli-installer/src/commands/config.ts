@@ -4,6 +4,7 @@
 import { type InstallContext, createDefaultContext, TIER_MAP, type FeatureSet, DEFAULT_INSTALL_DIR } from '../lib/config.ts';
 import { resolveComposeFiles } from '../phases/configure.ts';
 import { downloadModel } from '../phases/model.ts';
+import { killNativeLlama, nativeMetal } from '../phases/native-metal.ts';
 import { exec, execStream } from '../lib/shell.ts';
 import { getComposeCommand } from '../lib/docker.ts';
 import { parseEnv, setEnvValue } from '../lib/env.ts';
@@ -68,14 +69,16 @@ export async function config(opts: ConfigOptions): Promise<void> {
       workflows: results[1],
       rag: results[2],
       openclaw: results[3],
+      devtools: getEnv('ENABLE_DEVTOOLS') === 'true', // devtools managed separately
     };
 
     // Check what changed
-    const oldFeatures = {
+    const oldFeatures: FeatureSet = {
       voice: getEnv('ENABLE_VOICE') === 'true',
       workflows: getEnv('ENABLE_WORKFLOWS') === 'true',
       rag: getEnv('ENABLE_RAG') === 'true',
       openclaw: getEnv('ENABLE_OPENCLAW') === 'true',
+      devtools: getEnv('ENABLE_DEVTOOLS') === 'true',
     };
 
     const featureChanges: string[] = [];
@@ -123,6 +126,14 @@ export async function config(opts: ConfigOptions): Promise<void> {
       setEnv('CTX_SIZE', String(tierConfig.context));
       setEnv('MAX_CONTEXT', String(tierConfig.context));
       setEnv('TIER', tierId);
+
+      // Update vLLM-specific env vars if using vLLM backend
+      if (getEnv('LLM_BACKEND') === 'vllm' && tierConfig.vllmModel) {
+        setEnv('VLLM_MODEL', tierConfig.vllmModel);
+        setEnv('VLLM_ARGS', tierConfig.vllmArgs.join(' '));
+        ui.ok(`vLLM model: ${tierConfig.vllmModel}`);
+      }
+
       changed = true;
 
       if (modelChanged) {
@@ -167,6 +178,7 @@ export async function config(opts: ConfigOptions): Promise<void> {
     workflows: rebuildParsed.ENABLE_WORKFLOWS === 'true',
     rag: rebuildParsed.ENABLE_RAG === 'true',
     openclaw: rebuildParsed.ENABLE_OPENCLAW === 'true',
+    devtools: rebuildParsed.ENABLE_DEVTOOLS === 'true',
   };
   const gpuBackend = getEnv('GPU_BACKEND');
   ctx.gpu.backend = (gpuBackend as 'nvidia' | 'amd' | 'apple' | 'cpu') || 'cpu';
@@ -190,6 +202,14 @@ export async function config(opts: ConfigOptions): Promise<void> {
   } catch {
     ui.fail('Docker not available — restart manually');
     ui.info(`cd ${installDir} && docker compose up -d`);
+  }
+
+  // Restart native Metal llama-server if on macOS
+  if (gpuBackend === 'apple') {
+    ui.step('Restarting native Metal llama-server...');
+    await killNativeLlama(installDir);
+    ctx.tier = rebuildParsed.TIER || '1';
+    await nativeMetal(ctx);
   }
 
   console.log('');
