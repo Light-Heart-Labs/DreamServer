@@ -7,7 +7,7 @@
 #          Docker Compose stack
 #
 # Expects: DRY_RUN, INSTALL_DIR, LOG_FILE, GPU_BACKEND,
-#           GGUF_FILE, GGUF_URL, LLM_MODEL, MAX_CONTEXT,
+#           GGUF_FILE, GGUF_URL, GGUF_SHA256, LLM_MODEL, MAX_CONTEXT,
 #           DOCKER_COMPOSE_CMD, COMPOSE_FLAGS, BGRN, RED, AMB, NC,
 #           show_phase(), bootline(), signal(), ai(), ai_ok(), ai_bad(),
 #           ai_warn(), log(), spin_task()
@@ -42,6 +42,16 @@ else
 
     # Download GGUF model if not already present (with retry)
     GGUF_DIR="$INSTALL_DIR/data/models"
+
+    # Verify existing model integrity before trusting it
+    if [[ "${DREAM_MODE:-local}" != "cloud" && -f "$GGUF_DIR/$GGUF_FILE" && -n "${GGUF_SHA256:-}" ]]; then
+        existing_hash=$(sha256sum "$GGUF_DIR/$GGUF_FILE" | awk '{print $1}')
+        if [[ "$existing_hash" != "$GGUF_SHA256" ]]; then
+            ai_warn "Existing model file hash mismatch — re-downloading"
+            rm -f "$GGUF_DIR/$GGUF_FILE"
+        fi
+    fi
+
     if [[ "${DREAM_MODE:-local}" != "cloud" && ! -f "$GGUF_DIR/$GGUF_FILE" && -n "$GGUF_URL" ]]; then
         ai "Downloading GGUF model: $GGUF_FILE"
         signal "This is the big one. I've got it — sit back."
@@ -57,6 +67,17 @@ else
 
             if spin_task $dl_pid "Downloading $GGUF_FILE"; then
                 mv "$GGUF_DIR/$GGUF_FILE.part" "$GGUF_DIR/$GGUF_FILE"
+                # Verify downloaded model integrity
+                if [[ -n "${GGUF_SHA256:-}" ]]; then
+                    actual_hash=$(sha256sum "$GGUF_DIR/$GGUF_FILE" | awk '{print $1}')
+                    if [[ "$actual_hash" != "$GGUF_SHA256" ]]; then
+                        rm -f "$GGUF_DIR/$GGUF_FILE"
+                        printf "\r  ${RED}✗${NC} %-60s\n" "Integrity check failed (SHA256 mismatch)"
+                        ai "  Expected: $GGUF_SHA256"
+                        ai "  Got:      $actual_hash"
+                        continue
+                    fi
+                fi
                 printf "\r  ${BGRN}✓${NC} %-60s\n" "Model downloaded: $GGUF_FILE"
                 _dl_success=true
                 break
