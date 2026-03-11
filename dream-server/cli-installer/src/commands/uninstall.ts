@@ -46,6 +46,10 @@ export async function uninstall(opts: UninstallOptions): Promise<void> {
     console.log('');
   }
 
+  // ── Step 0: Kill native llama-server daemon (macOS Metal) ──
+  // Must happen regardless of --keep-data to free port 8080 and GPU memory
+  await killNativeLlama(installDir);
+
   // ── Step 1: Stop and remove containers ──
   let composeCmd: string[];
   try {
@@ -122,9 +126,6 @@ export async function uninstall(opts: UninstallOptions): Promise<void> {
   } else {
     const deleteData = opts.force || await prompts.confirm(`Delete installation directory ${installDir}?`);
     if (deleteData) {
-      // Kill native llama-server daemon if running (macOS Metal)
-      await killNativeLlama(installDir);
-
       const target = resolve(installDir);
       if (isDangerousPath(target)) {
         ui.fail(`Safety check: refusing to delete system directory: ${target}`);

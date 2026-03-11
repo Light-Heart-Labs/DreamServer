@@ -209,7 +209,7 @@ export async function devtools(ctx: InstallContext): Promise<void> {
       const plistName = 'com.dreamserver.opencode-web.plist';
       const plistPath = join(launchAgentsDir, plistName);
 
-      if (!existsSync(plistPath)) {
+      {
         mkdirSync(launchAgentsDir, { recursive: true });
 
         // Read OPENCODE_SERVER_PASSWORD from .env
@@ -272,8 +272,6 @@ export async function devtools(ctx: InstallContext): Promise<void> {
             ui.info(`  launchctl load ${plistPath}`);
           }
         }
-      } else {
-        ui.ok('OpenCode Web UI LaunchAgent already installed');
       }
     }
   }

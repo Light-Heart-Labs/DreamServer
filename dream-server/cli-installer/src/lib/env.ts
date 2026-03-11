@@ -104,7 +104,7 @@ export function mergeEnv(existing: string, generated: string): string {
   // (tier/model/backend upgrades would silently fail otherwise)
   const MANAGED_KEYS = new Set([
     'LLM_MODEL', 'GGUF_FILE', 'CTX_SIZE', 'MAX_CONTEXT', 'TIER',
-    'GPU_BACKEND', 'LLM_BACKEND', 'COMPOSE_FILE',
+    'GPU_BACKEND', 'LLM_BACKEND', 'LLM_API_URL', 'COMPOSE_FILE',
     'VLLM_MODEL', 'VLLM_ARGS', 'VLLM_IMAGE',
     'ENABLE_VOICE', 'ENABLE_WORKFLOWS', 'ENABLE_RAG', 'ENABLE_OPENCLAW', 'ENABLE_DEVTOOLS',
   ]);

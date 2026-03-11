@@ -76,7 +76,7 @@ webSearch:
 # Local inference only
 inference:
   provider: local
-  baseUrl: http://llama-server:8080/v1
+  baseUrl: http://host.docker.internal:8080/v1
 `;
 
     writeFileSync(join(openclawDir, 'openclaw-m1.yaml'), m1Config);

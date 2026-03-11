@@ -80,7 +80,7 @@ export async function install(opts: InstallOptions): Promise<void> {
     // Port availability check (between detection and features)
     console.log('');
     const portsOk = await checkRequiredPorts(ctx);
-    if (!portsOk && !ctx.force && !ctx.dryRun) {
+    if (!portsOk && !ctx.force && !ctx.dryRun && !isResume) {
       ui.warn('Some required ports are in use. Services may fail to start.');
       if (ctx.interactive) {
         const { confirm } = await import('../lib/prompts.ts');

@@ -152,10 +152,11 @@ export async function nativeMetal(ctx: InstallContext): Promise<void> {
         return;
       }
 
-      // Cleanup temp extraction dir
+      // Cleanup temp directories
       try {
         const { rmSync } = await import('node:fs');
         rmSync(tmpExtract, { recursive: true, force: true });
+        rmSync(secTmpDir, { recursive: true, force: true });
       } catch { /* ignore */ }
     }
 
@@ -274,6 +275,13 @@ export async function killNativeLlama(installDir: string): Promise<void> {
     if (pid) {
       await exec(['kill', pid], { throwOnError: false });
       await new Promise(r => setTimeout(r, 2000));
+
+      // SIGKILL fallback if SIGTERM was ignored (GPU deadlock)
+      const check = await exec(['kill', '-0', pid], { throwOnError: false });
+      if (check.exitCode === 0) {
+        await exec(['kill', '-9', pid], { throwOnError: false });
+        await new Promise(r => setTimeout(r, 500));
+      }
     }
     unlinkSync(pidFile);
   } catch { /* ignore */ }

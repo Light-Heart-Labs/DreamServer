@@ -131,6 +131,10 @@ export function resolveComposeFiles(ctx: InstallContext): string[] {
     }
   }
 
+  // User compose override support (docker-compose.override.yml)
+  const overrideFile = join(dir, 'docker-compose.override.yml');
+  if (existsSync(overrideFile)) files.push(overrideFile);
+
   return files;
 }
 
@@ -378,7 +382,7 @@ async function generateOpenClawConfig(ctx: InstallContext): Promise<void> {
   const config = {
     model,
     provider: 'openai_compatible',
-    api_base: 'http://llama-server:8080/v1',
+    api_base: `http://${ctx.gpu.backend === 'apple' ? 'host.docker.internal' : 'llama-server'}:8080/v1`,
     max_tokens: tierConfig?.context || 16384,
     temperature: 0.7,
   };
