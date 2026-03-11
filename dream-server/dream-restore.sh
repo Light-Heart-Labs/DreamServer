@@ -381,6 +381,44 @@ restore_config() {
         cp -r "$backup_dir/config" "$DREAM_DIR/"
         log_success "Restored: config/"
     fi
+
+    # Validate service compatibility if extensions.list exists
+    local extensions_list_paths=(
+        "$backup_dir/config/presets/default/extensions.list"
+        "$backup_dir/config/extensions.list"
+    )
+
+    for ext_list in "${extensions_list_paths[@]}"; do
+        if [[ -f "$ext_list" ]]; then
+            log_step "Validating service compatibility..."
+
+            # Source service registry
+            if [[ -f "$DREAM_DIR/lib/service-registry.sh" ]]; then
+                source "$DREAM_DIR/lib/service-registry.sh"
+                local validation_result
+                validation_result=$(sr_validate_extensions_list "$ext_list")
+                local enabled_count disabled_count enabled_list disabled_list
+                IFS='|' read -r enabled_count enabled_list disabled_count disabled_list <<< "$validation_result"
+
+                if [[ "$enabled_count" -gt 0 ]]; then
+                    log_warn "⚠️  Some services from backup are not available in this installation:"
+                    for sid in $enabled_list; do
+                        echo "    - $sid"
+                    done
+                    echo ""
+                    log_warn "These services will not be enabled after restore."
+                fi
+
+                if [[ "$disabled_count" -gt 0 ]]; then
+                    log_info "Note: These disabled services are not available:"
+                    for sid in $disabled_list; do
+                        echo "    - $sid"
+                    done
+                fi
+            fi
+            break
+        fi
+    done
 }
 
 # Verify restore

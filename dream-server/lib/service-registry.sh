@@ -201,3 +201,44 @@ sr_compose_flags() {
     done
     echo "$flags"
 }
+
+# Validate services in extensions.list against available services
+# Args: $1 = path to extensions.list file
+# Returns: 0 if all OK, 1 if missing enabled services found
+# Outputs: enabled_count|enabled_list|disabled_count|disabled_list
+sr_validate_extensions_list() {
+    local extensions_list="$1"
+    [[ -f "$extensions_list" ]] || { echo "0||0|"; return 1; }
+
+    sr_load
+
+    local missing_enabled=()
+    local missing_disabled=()
+
+    while IFS=: read -r state sid; do
+        [[ -z "$sid" ]] && continue
+        # Skip comments and empty lines
+        [[ "$state" =~ ^[[:space:]]*# ]] && continue
+
+        # Check if service exists in current registry
+        local found=false
+        for s in "${SERVICE_IDS[@]}"; do
+            [[ "$s" == "$sid" ]] && found=true && break
+        done
+
+        if [[ "$found" == "false" ]]; then
+            if [[ "$state" == "enabled" ]]; then
+                missing_enabled+=("$sid")
+            elif [[ "$state" == "disabled" ]]; then
+                missing_disabled+=("$sid")
+            fi
+        fi
+    done < "$extensions_list"
+
+    # Output format: enabled_count|enabled_list|disabled_count|disabled_list
+    echo "${#missing_enabled[@]}|${missing_enabled[*]}|${#missing_disabled[@]}|${missing_disabled[*]}"
+
+    # Return 1 if any enabled services are missing (warning condition)
+    [[ ${#missing_enabled[@]} -gt 0 ]] && return 1
+    return 0
+}

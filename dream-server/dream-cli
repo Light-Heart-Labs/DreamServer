@@ -618,6 +618,36 @@ META
             echo ""
             [[ $REPLY =~ ^[Yy]$ ]] || { log "Cancelled."; return 0; }
 
+            # Validate preset compatibility
+            if [[ -f "$preset_dir/extensions.list" ]]; then
+                source "$INSTALL_DIR/lib/service-registry.sh"
+                local validation_result
+                validation_result=$(sr_validate_extensions_list "$preset_dir/extensions.list")
+                local enabled_count disabled_count enabled_list disabled_list
+                IFS='|' read -r enabled_count enabled_list disabled_count disabled_list <<< "$validation_result"
+
+                if [[ "$enabled_count" -gt 0 ]]; then
+                    warn "⚠️  Some enabled services in this preset are not available:"
+                    for sid in $enabled_list; do
+                        echo "    - $sid"
+                    done
+                    echo ""
+                    log "These services will be skipped (not enabled)."
+                    echo ""
+                    read -p "Continue with preset load? [y/N] " -n 1 -r
+                    echo
+                    [[ $REPLY =~ ^[Yy]$ ]] || { log "Cancelled."; return 0; }
+                fi
+
+                if [[ "$disabled_count" -gt 0 ]]; then
+                    log "Note: These disabled services are not available in this installation:"
+                    for sid in $disabled_list; do
+                        echo "    - $sid"
+                    done
+                    echo ""
+                fi
+            fi
+
             # Restore .env (contains mode, model, and all config)
             if [[ -f "$preset_dir/env" ]]; then
                 cp "$preset_dir/env" "$INSTALL_DIR/.env"
@@ -761,7 +791,33 @@ META
                     error "Invalid preset: missing extensions.list"
                 fi
 
+                # Validate imported preset compatibility
+                source "$INSTALL_DIR/lib/service-registry.sh"
+                local imported_preset_dir="$PRESETS_DIR/$archive_name"
+                local validation_result
+                validation_result=$(sr_validate_extensions_list "$imported_preset_dir/extensions.list")
+                local enabled_count disabled_count enabled_list disabled_list
+                IFS='|' read -r enabled_count enabled_list disabled_count disabled_list <<< "$validation_result"
+
                 success "Preset '${archive_name}' imported successfully"
+
+                if [[ "$enabled_count" -gt 0 ]]; then
+                    warn "⚠️  Compatibility notice: Some services in this preset are not available:"
+                    for sid in $enabled_list; do
+                        echo "    - $sid"
+                    done
+                    echo ""
+                    log "These services will be skipped when you load this preset."
+                fi
+
+                if [[ "$disabled_count" -gt 0 ]]; then
+                    log "Note: These disabled services are not available in this installation:"
+                    for sid in $disabled_list; do
+                        echo "    - $sid"
+                    done
+                    echo ""
+                fi
+
                 log "Use 'dream preset load ${archive_name}' to apply it"
             else
                 error "Failed to extract archive"
