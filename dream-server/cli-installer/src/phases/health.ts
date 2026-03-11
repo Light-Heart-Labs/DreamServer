@@ -137,19 +137,28 @@ export async function runHealthChecks(ctx: InstallContext): Promise<number> {
   // Give services a moment to initialize
   if (!ctx.dryRun) await Bun.sleep(5000);
 
-  for (const check of checks) {
-    if (ctx.dryRun) {
-      ui.ok(`${check.name} (dry run)`);
-      continue;
-    }
+  if (ctx.dryRun) {
+    for (const check of checks) ui.ok(`${check.name} (dry run)`);
+    return 0;
+  }
 
-    const url = `http://localhost:${check.port}${check.healthPath}`;
-    const healthy = await checkServiceHealth(check.name, url, check.timeout);
+  const results = await Promise.allSettled(
+    checks.map(async (check) => {
+      const url = `http://localhost:${check.port}${check.healthPath}`;
+      const healthy = await checkServiceHealth(check.name, url, check.timeout);
+      return { check, healthy };
+    }),
+  );
 
-    if (healthy) {
-      ui.ok(check.name);
+  for (const r of results) {
+    if (r.status === 'fulfilled') {
+      if (r.value.healthy) {
+        ui.ok(r.value.check.name);
+      } else {
+        ui.warn(`${r.value.check.name} — not responding (port ${r.value.check.port})`);
+        failures++;
+      }
     } else {
-      ui.warn(`${check.name} — not responding (port ${check.port})`);
       failures++;
     }
   }

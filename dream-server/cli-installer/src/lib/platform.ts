@@ -148,23 +148,27 @@ async function getDiskGBWindows(dir: string): Promise<number> {
 }
 
 async function getDiskGBUnix(dir: string): Promise<number> {
-  try {
-    // macOS df doesn't support -BG (GNU flag); use -g for native GB output
-    const args = IS_MACOS ? ['df', '-g', dir] : ['df', '-BG', dir];
-    const proc = Bun.spawn(args, {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-    const stdout = await new Response(proc.stdout).text();
-    const exitCode = await proc.exited;
-    if (exitCode === 0) {
-      const lines = stdout.split('\n');
-      if (lines.length >= 2) {
-        const parts = lines[1].split(/\s+/);
-        return parseInt(parts[3]?.replace('G', '') || '0', 10);
+  // Try the target dir first, fall back to '/' if it doesn't exist yet
+  for (const target of [dir, '/']) {
+    try {
+      // macOS df doesn't support -BG (GNU flag); use -g for native GB output
+      const args = IS_MACOS ? ['df', '-g', target] : ['df', '-BG', target];
+      const proc = Bun.spawn(args, {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      const stdout = await new Response(proc.stdout).text();
+      const exitCode = await proc.exited;
+      if (exitCode === 0) {
+        const lines = stdout.split('\n');
+        if (lines.length >= 2) {
+          const parts = lines[1].split(/\s+/);
+          const gb = parseInt(parts[3]?.replace('G', '') || '0', 10);
+          if (gb > 0) return gb;
+        }
       }
-    }
-  } catch { /* ignore */ }
+    } catch { /* try next target */ }
+  }
   return 0;
 }
 

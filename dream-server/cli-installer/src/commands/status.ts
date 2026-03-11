@@ -369,7 +369,7 @@ function diagnoseFailure(serviceName: string, logs: string, gpuInfo: GpuInfo | n
   }
 
   // Config missing
-  if (lower.includes('no configuration file') || lower.includes('config') && lower.includes('not found')) {
+  if (lower.includes('no configuration file') || (lower.includes('config') && lower.includes('not found'))) {
     return `Configuration missing. Re-run: dream-installer install`;
   }
 
