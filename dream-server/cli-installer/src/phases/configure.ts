@@ -325,7 +325,7 @@ general:
 
 server:
   secret_key: "${randHex(32)}"
-  bind_address: "0.0.0.0"
+  bind_address: "127.0.0.1"
   port: 8888
 
 search:
