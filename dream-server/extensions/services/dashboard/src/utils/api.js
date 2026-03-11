@@ -17,11 +17,11 @@ const RETRY_DELAY_MS = 500
  */
 export async function fetchWithTimeout(url, options = {}) {
   const { timeout = DEFAULT_TIMEOUT_MS, retries = DEFAULT_RETRIES, ...fetchOptions } = options
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), timeout)
 
   let lastError
   for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), timeout)
     try {
       const response = await fetch(url, {
         ...fetchOptions,
@@ -30,16 +30,15 @@ export async function fetchWithTimeout(url, options = {}) {
       clearTimeout(timeoutId)
       return response
     } catch (err) {
+      clearTimeout(timeoutId)
       lastError = err
       if (attempt < retries && err.name === 'AbortError') {
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
       } else {
-        clearTimeout(timeoutId)
         throw err
       }
     }
   }
-  clearTimeout(timeoutId)
   throw lastError
 }
 

@@ -19,6 +19,7 @@ import logging
 import os
 import socket
 import shutil
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -120,6 +121,12 @@ app.include_router(metrics.router)
 async def health():
     """API health check."""
     return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
+@app.get("/api/ping", tags=["Health"])
+async def ping():
+    """Lightweight unauthenticated ping for latency measurement (e.g. usePerformanceMetrics)."""
+    return {"ok": True}
 
 
 # --- Preflight ---
@@ -426,7 +433,8 @@ async def api_storage(api_key: str = Depends(verify_api_key)):
 
 @app.on_event("startup")
 async def startup_event():
-    """Start background metrics collection."""
+    """Start background metrics collection and record app start time for /api/metrics uptime."""
+    app.state.metrics_start_time = time.monotonic()
     asyncio.create_task(collect_metrics())
 
 

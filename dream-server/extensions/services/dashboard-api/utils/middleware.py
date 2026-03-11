@@ -11,6 +11,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from utils.request_counter import increment
+
 
 class RequestTimingMiddleware(BaseHTTPMiddleware):
     """Add X-Response-Time header, request ID, and increment metrics counter."""
@@ -22,9 +24,5 @@ class RequestTimingMiddleware(BaseHTTPMiddleware):
         elapsed_ms = (time.perf_counter() - start) * 1000
         response.headers["X-Response-Time"] = f"{elapsed_ms:.1f}ms"
         response.headers["X-Request-ID"] = request_id
-        try:
-            from utils.request_counter import increment
-            increment()
-        except ImportError:
-            pass
+        increment()
         return response

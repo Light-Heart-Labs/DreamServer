@@ -9,7 +9,7 @@
 | LLM | llama.cpp, LiteLLM, Qwen 2.5/3 |
 | Voice | Whisper (STT), Kokoro (TTS) |
 | RAG | Qdrant, sentence-transformers |
-| API | FastAPI 2.0, Pydantic |
+| API | FastAPI, Pydantic |
 | Dashboard | React 18, Vite 5, Tailwind |
 | GPU | CUDA, ROCm, Metal |
 

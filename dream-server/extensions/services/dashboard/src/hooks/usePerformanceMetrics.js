@@ -5,7 +5,7 @@ const POLL_INTERVAL = 15000 // 15s for metrics (less frequent than status)
 
 /**
  * Hook to track API performance metrics (latency, success rate).
- * Polls /api/status and records response times.
+ * Polls /api/ping (unauthenticated) to measure API responsiveness.
  */
 export function usePerformanceMetrics(enabled = true) {
   const [metrics, setMetrics] = useState({
@@ -19,14 +19,14 @@ export function usePerformanceMetrics(enabled = true) {
   const maxHistory = 20
 
   const measure = useCallback(async () => {
-    const url = `${API_BASE}/api/status`
+    const url = `${API_BASE}/api/ping`
     const start = performance.now()
     try {
       const res = await fetch(url)
       const latencyMs = Math.round(performance.now() - start)
       const ok = res.ok
       if (ok) {
-        await res.json()
+        await res.json().catch(() => null)
       }
       return { latencyMs, ok }
     } catch {

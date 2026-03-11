@@ -4,20 +4,21 @@ Returns request statistics and health for monitoring.
 """
 
 import time
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from security import verify_api_key
 from utils.request_counter import get_count
 
 router = APIRouter(prefix="", tags=["Metrics"])
 
-_start_time = time.monotonic()
-
 
 @router.get("/api/metrics", dependencies=[Depends(verify_api_key)])
-async def get_metrics():
+async def get_metrics(request: Request):
     """Return API performance metrics for monitoring and dashboards."""
-    uptime_seconds = time.monotonic() - _start_time
+    start_time = getattr(request.app.state, "metrics_start_time", None)
+    if start_time is None:
+        start_time = time.monotonic()
+    uptime_seconds = time.monotonic() - start_time
     return {
         "request_count": get_count(),
         "uptime_seconds": round(uptime_seconds, 1),
