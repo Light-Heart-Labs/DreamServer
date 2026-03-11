@@ -13,9 +13,9 @@ import { type InstallContext, TIER_MAP } from '../lib/config.ts';
 import { exec, execStream, commandExists } from '../lib/shell.ts';
 import { IS_MACOS } from '../lib/platform.ts';
 import * as ui from '../lib/ui.ts';
-import { existsSync, mkdirSync, writeFileSync, readFileSync, chmodSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, chmodSync, unlinkSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 
 const LLAMA_CPP_RELEASE_TAG = 'b8277';
 const LLAMA_CPP_MACOS_ASSET = `llama-${LLAMA_CPP_RELEASE_TAG}-bin-macos-arm64.tar.gz`;
@@ -51,7 +51,8 @@ export async function nativeMetal(ctx: InstallContext): Promise<void> {
   if (!existsSync(llamaBin)) {
     mkdirSync(binDir, { recursive: true });
 
-    const tmpZip = `/tmp/${LLAMA_CPP_MACOS_ASSET}`;
+    const secTmpDir = mkdtempSync(join(tmpdir(), 'llama-dl-'));
+    const tmpZip = join(secTmpDir, LLAMA_CPP_MACOS_ASSET);
     let downloadOk = false;
 
     if (!existsSync(tmpZip)) {
@@ -107,7 +108,7 @@ export async function nativeMetal(ctx: InstallContext): Promise<void> {
     // Extract from tar.gz if we downloaded it
     if (existsSync(tmpZip) && !existsSync(llamaBin)) {
       ui.info('Extracting llama-server...');
-      const tmpExtract = `/tmp/llama-extract-${process.pid}`;
+      const tmpExtract = mkdtempSync(join(tmpdir(), 'llama-extract-'));
       mkdirSync(tmpExtract, { recursive: true });
 
       const ext = await exec(
@@ -214,6 +215,9 @@ export async function nativeMetal(ctx: InstallContext): Promise<void> {
     // Write PID file
     writeFileSync(pidFile, String(proc.pid));
 
+    // Detach daemon so the CLI process can exit cleanly
+    proc.unref();
+
     // Wait for health endpoint
     ui.info('Waiting for llama-server to load model...');
     const maxWait = 180; // seconds
@@ -254,5 +258,42 @@ export async function nativeMetal(ctx: InstallContext): Promise<void> {
   } catch (err) {
     ui.fail(`Failed to start llama-server: ${err instanceof Error ? err.message : String(err)}`);
     ui.info(`Check logs: tail -50 ${logFile}`);
+  }
+}
+
+/**
+ * Kill the native llama-server daemon by reading the PID file.
+ * Used by uninstall, update, and config commands for lifecycle management.
+ */
+export async function killNativeLlama(installDir: string): Promise<void> {
+  const pidFile = join(installDir, 'data', '.llama-server.pid');
+  if (!existsSync(pidFile)) return;
+
+  try {
+    const pid = readFileSync(pidFile, 'utf-8').trim();
+    if (pid) {
+      await exec(['kill', pid], { throwOnError: false });
+      await new Promise(r => setTimeout(r, 2000));
+    }
+    unlinkSync(pidFile);
+  } catch { /* ignore */ }
+}
+
+/**
+ * Check if the native llama-server daemon is running.
+ * Used by the status command.
+ */
+export async function isNativeLlamaRunning(installDir: string): Promise<{ running: boolean; pid: number | null }> {
+  const pidFile = join(installDir, 'data', '.llama-server.pid');
+  if (!existsSync(pidFile)) return { running: false, pid: null };
+
+  try {
+    const pid = parseInt(readFileSync(pidFile, 'utf-8').trim(), 10);
+    if (isNaN(pid)) return { running: false, pid: null };
+
+    const { exitCode } = await exec(['kill', '-0', String(pid)], { throwOnError: false });
+    return { running: exitCode === 0, pid };
+  } catch {
+    return { running: false, pid: null };
   }
 }
