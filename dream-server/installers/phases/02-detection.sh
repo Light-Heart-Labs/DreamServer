@@ -195,6 +195,7 @@ if [[ "$INTERACTIVE" == "true" ]]; then
         2) SPEED_EST=45; USERS_EST="3-5" ;;
         3) SPEED_EST=55; USERS_EST="5-8" ;;
         4) SPEED_EST=40; USERS_EST="10-15" ;;
+        *)          SPEED_EST=30;  USERS_EST="varies" ;;
     esac
     show_tier_recommendation "$TIER" "$LLM_MODEL" "$SPEED_EST" "$USERS_EST"
 else

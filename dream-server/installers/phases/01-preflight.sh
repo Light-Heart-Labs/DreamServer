@@ -39,7 +39,7 @@ if ! command -v curl &> /dev/null; then
         *)      error "curl is required but not installed. Install with: sudo apt install curl" ;;
     esac
 fi
-log "curl: $(curl --version | head -1)"
+log "curl: $(curl --version 2>/dev/null | sed -n '1p')"
 
 # Check optional tools (warn but don't fail)
 OPTIONAL_TOOLS_MISSING=""
