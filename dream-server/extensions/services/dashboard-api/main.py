@@ -166,11 +166,10 @@ async def preflight_ports(request: PortCheckRequest):
 
     conflicts = []
     for port in request.ports:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(1)
         try:
-            sock.bind(("0.0.0.0", port))
-            sock.close()
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.settimeout(1)
+                sock.bind(("0.0.0.0", port))
         except socket.error:
             conflicts.append({"port": port, "service": port_services.get(port, "Unknown"), "in_use": True})
     return {"conflicts": conflicts, "available": len(conflicts) == 0}
