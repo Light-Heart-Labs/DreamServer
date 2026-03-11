@@ -173,6 +173,8 @@ async def preflight_ports(request: PortCheckRequest):
             sock.close()
         except socket.error:
             conflicts.append({"port": port, "service": port_services.get(port, "Unknown"), "in_use": True})
+        finally:
+            sock.close()
     return {"conflicts": conflicts, "available": len(conflicts) == 0}
 
 
