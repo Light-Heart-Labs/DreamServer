@@ -4,9 +4,9 @@
   "type": "module",
   "scripts": {
     "dev": "bun run src/index.ts",
-    "build": "bun build --compile --target=bun-linux-x64 src/index.ts --outfile dist/dream-installer",
-    "build:arm": "bun build --compile --target=bun-linux-arm64 src/index.ts --outfile dist/dream-installer-arm64",
-    "build:win": "bun build --compile --target=bun-windows-x64 src/index.ts --outfile dist/dream-installer.exe",
+    "build": "bun build --compile --target=bun-linux-x64 src/index.ts --outfile dist/dream-installer-linux-x64",
+    "build:arm": "bun build --compile --target=bun-linux-arm64 src/index.ts --outfile dist/dream-installer-linux-arm64",
+    "build:win": "bun build --compile --target=bun-windows-x64 src/index.ts --outfile dist/dream-installer-windows-x64.exe",
     "build:macos": "bun build --compile --target=bun-darwin-arm64 src/index.ts --outfile dist/dream-installer-macos-arm64",
     "build:macos-x64": "bun build --compile --target=bun-darwin-x64 src/index.ts --outfile dist/dream-installer-macos-x64",
     "test": "bun test"

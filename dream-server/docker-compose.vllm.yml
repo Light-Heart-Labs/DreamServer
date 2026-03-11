@@ -5,7 +5,6 @@
 services:
   llama-server:
     image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.17.0}
-    container_name: dream-vllm-server
     volumes:
       - ${VLLM_HF_CACHE:-./data/hf-cache}:/root/.cache/huggingface
     command:

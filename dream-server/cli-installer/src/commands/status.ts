@@ -57,13 +57,17 @@ export async function status(opts: StatusOptions): Promise<void> {
   console.log('');
 
   // ── GPU / VRAM Status ──
-  const gpuInfo = await showGpuStatus(gpuBackend, installDir);
+  let composeCmd: string[] | undefined;
+  try {
+    composeCmd = await getComposeCommand();
+  } catch { /* Docker unavailable, no compose cmd */ }
+
+  const gpuInfo = await showGpuStatus(gpuBackend, installDir, composeCmd);
   console.log('');
 
   // ── Container status ──
-  let composeCmd: string[];
   try {
-    composeCmd = await getComposeCommand();
+    if (!composeCmd) composeCmd = await getComposeCommand();
   } catch (e) {
     ui.fail('Docker not available');
     if (e instanceof Error) ui.info(e.message);
@@ -188,7 +192,7 @@ interface GpuProcess {
   memMB: number;
 }
 
-async function showGpuStatus(backend: string, installDir: string): Promise<GpuInfo | null> {
+async function showGpuStatus(backend: string, installDir: string, composeCmd?: string[]): Promise<GpuInfo | null> {
   // Apple Silicon — show chip info and unified memory
   if (backend === 'apple') {
     try {
@@ -272,7 +276,7 @@ async function showGpuStatus(backend: string, installDir: string): Promise<GpuIn
 
       if (processes.length > 0) {
         // Resolve container names for docker processes
-        const containerMap = await getDockerPidMap();
+        const containerMap = await getDockerPidMap(composeCmd);
         const sortedProcs = processes.sort((a, b) => b.memMB - a.memMB);
 
         console.log('');
