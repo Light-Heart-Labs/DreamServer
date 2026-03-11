@@ -5,6 +5,7 @@ import { getComposeCommand } from '../lib/docker.ts';
 import { getDockerBaseCmd } from '../phases/services.ts';
 import { DEFAULT_INSTALL_DIR } from '../lib/config.ts';
 import { parseEnv } from '../lib/env.ts';
+import { IS_MACOS, getPermissionFixHint, getRamGB } from '../lib/platform.ts';
 import * as ui from '../lib/ui.ts';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -187,6 +188,31 @@ interface GpuProcess {
 }
 
 async function showGpuStatus(backend: string): Promise<GpuInfo | null> {
+  // Apple Silicon — show chip info and unified memory
+  if (backend === 'apple') {
+    try {
+      let chipName = 'Apple Silicon';
+      try {
+        const { stdout, exitCode } = await exec(
+          ['sysctl', '-n', 'machdep.cpu.brand_string'],
+          { throwOnError: false, timeout: 3000 },
+        );
+        if (exitCode === 0 && stdout.trim()) chipName = stdout.trim();
+      } catch { /* use default */ }
+
+      const ramGB = getRamGB();
+      ui.step(`GPU: ${chipName}`);
+      console.log(`     Unified Memory: ${ramGB}GB (shared between CPU and GPU)`);
+      console.log('');
+      ui.info('Docker on macOS runs in a Linux VM — Metal GPU passthrough is not available.');
+      ui.info('llama-server uses ARM NEON (CPU) optimizations inside Docker.');
+
+      return { available: true, name: chipName, totalMB: ramGB * 1024, usedMB: 0, freeMB: ramGB * 1024, processes: [] };
+    } catch {
+      return null;
+    }
+  }
+
   if (backend !== 'nvidia') {
     // AMD ROCm support could be added later
     return null;
@@ -329,7 +355,7 @@ function diagnoseFailure(serviceName: string, logs: string, gpuInfo: GpuInfo | n
 
   // Permission errors
   if (lower.includes('permission denied') || lower.includes('eacces')) {
-    return `Permission denied. Fix: sudo chown -R 1000:1000 ~/dream-server/data/${serviceName}`;
+    return `Permission denied. ${getPermissionFixHint(`~/dream-server/data/${serviceName}`)}`;
   }
 
   // Connection refused (depends on another service)

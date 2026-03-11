@@ -2,7 +2,7 @@
 
 import { type InstallContext, TIER_MAP } from '../lib/config.ts';
 import { exec } from '../lib/shell.ts';
-import { getRamGB as platformGetRamGB, getDiskGB as platformGetDiskGB, getDefaultInstallDir } from '../lib/platform.ts';
+import { getRamGB as platformGetRamGB, getDiskGB as platformGetDiskGB, getDefaultInstallDir, IS_MACOS } from '../lib/platform.ts';
 import * as ui from '../lib/ui.ts';
 
 export interface DetectionResult {
@@ -28,7 +28,9 @@ export async function detect(ctx: InstallContext): Promise<DetectionResult> {
   const gpu = await detectGpu();
   ctx.gpu = gpu;
 
-  if (gpu.count > 0) {
+  if (gpu.backend === 'apple') {
+    ui.ok(`GPU: ${gpu.name} (unified memory — ${ramGB}GB)`);
+  } else if (gpu.count > 0) {
     ui.ok(`GPU: ${gpu.name} (${Math.round(gpu.vramMB / 1024)}GB VRAM)`);
   } else {
     ui.warn('No GPU detected — CPU-only mode');
@@ -65,6 +67,22 @@ export async function detectDisk(): Promise<number> {
 export async function detectGpu(): Promise<InstallContext['gpu']> {
   const noGpu: InstallContext['gpu'] = { backend: 'cpu', name: 'Not detected', vramMB: 0, count: 0 };
 
+  // Apple Silicon detection — Docker on macOS runs in a Linux VM (no Metal passthrough)
+  // but llama-server can use ARM NEON optimizations via docker-compose.apple.yml
+  if (IS_MACOS && process.arch === 'arm64') {
+    let chipName = 'Apple Silicon';
+    try {
+      const { stdout, exitCode } = await exec(
+        ['sysctl', '-n', 'machdep.cpu.brand_string'],
+        { throwOnError: false, timeout: 3000 },
+      );
+      if (exitCode === 0 && stdout.trim()) chipName = stdout.trim();
+    } catch { /* use default */ }
+
+    return { backend: 'apple', name: chipName, vramMB: 0, count: 0 };
+  }
+
+  // NVIDIA GPU detection
   try {
     const { stdout, exitCode } = await exec(
       ['nvidia-smi', '--query-gpu=name,memory.total', '--format=csv,noheader,nounits'],

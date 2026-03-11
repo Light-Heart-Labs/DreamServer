@@ -103,6 +103,9 @@ export function resolveComposeFiles(ctx: InstallContext): string[] {
   } else if (ctx.gpu.backend === 'amd') {
     const amd = join(dir, 'docker-compose.amd.yml');
     if (existsSync(amd)) files.push(amd);
+  } else if (ctx.gpu.backend === 'apple') {
+    const apple = join(dir, 'docker-compose.apple.yml');
+    if (existsSync(apple)) files.push(apple);
   }
 
   // vLLM overlay — replaces llama-server with vLLM container

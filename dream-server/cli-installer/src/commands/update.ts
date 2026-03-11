@@ -4,7 +4,7 @@
 import { exec, execStream } from '../lib/shell.ts';
 import { getComposeCommand } from '../lib/docker.ts';
 import { DEFAULT_INSTALL_DIR } from '../lib/config.ts';
-import { IS_WINDOWS, moveFile, removeDir } from '../lib/platform.ts';
+import { IS_WINDOWS, IS_MACOS, moveFile, removeDir } from '../lib/platform.ts';
 import * as ui from '../lib/ui.ts';
 import { VERSION } from '../lib/config.ts';
 import { existsSync, mkdtempSync, rmSync, copyFileSync, readFileSync } from 'node:fs';
@@ -23,6 +23,9 @@ const RELEASE_BASE = 'https://github.com/Light-Heart-Labs/DreamServer/releases/l
  */
 function getBinaryName(): string {
   if (IS_WINDOWS) return 'dream-installer-windows-x64.exe';
+  if (IS_MACOS) {
+    return process.arch === 'arm64' ? 'dream-installer-macos-arm64' : 'dream-installer-macos-x64';
+  }
   if (process.arch === 'arm64') return 'dream-installer-linux-arm64';
   return 'dream-installer-linux-x64';
 }
@@ -147,15 +150,9 @@ async function selfUpdate(): Promise<void> {
     );
 
     if (checksumExitCode === 0) {
-      // Verify SHA256 — try sha256sum (Linux) or use Bun's crypto (Windows/fallback)
+      // Verify SHA256 — try sha256sum (Linux), shasum (macOS), or Bun crypto (Windows/fallback)
       let verifyCode = 1;
-      if (!IS_WINDOWS) {
-        const result = await exec(
-          ['sha256sum', '--check', `${binaryName}.sha256`],
-          { cwd: tmpDir, throwOnError: false, timeout: 10000 },
-        );
-        verifyCode = result.exitCode;
-      } else {
+      if (IS_WINDOWS) {
         // On Windows, verify using Bun's crypto
         try {
           const expectedLine = readFileSync(tmpChecksum, 'utf-8').trim();
@@ -166,6 +163,20 @@ async function selfUpdate(): Promise<void> {
           const actualHash = hasher.digest('hex');
           verifyCode = actualHash === expectedHash ? 0 : 1;
         } catch { /* verification failed */ }
+      } else if (IS_MACOS) {
+        // macOS: sha256sum not available, use shasum -a 256
+        const result = await exec(
+          ['shasum', '-a', '256', '--check', `${binaryName}.sha256`],
+          { cwd: tmpDir, throwOnError: false, timeout: 10000 },
+        );
+        verifyCode = result.exitCode;
+      } else {
+        // Linux
+        const result = await exec(
+          ['sha256sum', '--check', `${binaryName}.sha256`],
+          { cwd: tmpDir, throwOnError: false, timeout: 10000 },
+        );
+        verifyCode = result.exitCode;
       }
 
       if (verifyCode !== 0) {

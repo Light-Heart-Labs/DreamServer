@@ -122,7 +122,7 @@ export interface InstallContext {
   llmBackend: LlmBackend;
   features: FeatureSet;
   gpu: {
-    backend: 'nvidia' | 'amd' | 'cpu';
+    backend: 'nvidia' | 'amd' | 'apple' | 'cpu';
     name: string;
     vramMB: number;
     count: number;
