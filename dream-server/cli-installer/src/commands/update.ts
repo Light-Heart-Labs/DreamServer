@@ -185,7 +185,8 @@ async function selfUpdate(): Promise<void> {
       }
       ui.ok('SHA256 checksum verified');
     } else {
-      ui.warn('No checksum file available — skipping integrity verification');
+      ui.fail('No checksum file available — update aborted (integrity cannot be verified)');
+      return;
     }
 
     // Keep current binary as backup for rollback

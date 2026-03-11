@@ -7,6 +7,7 @@ import { parseEnv } from '../lib/env.ts';
 import * as ui from '../lib/ui.ts';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { networkInterfaces } from 'node:os';
 
 export async function services(ctx: InstallContext): Promise<void> {
   ui.phase(6, 6, 'Launch Services', '~2min');
@@ -249,7 +250,7 @@ function showSuccess(ctx: InstallContext, ports: Record<string, number>, hadErro
 
 function getLocalIP(): string | null {
   try {
-    const nets = require('node:os').networkInterfaces();
+    const nets = networkInterfaces();
     for (const name of Object.keys(nets)) {
       for (const net of nets[name] || []) {
         if (net.family === 'IPv4' && !net.internal) {
