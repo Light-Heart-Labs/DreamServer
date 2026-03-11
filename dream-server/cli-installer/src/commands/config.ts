@@ -169,7 +169,7 @@ export async function config(opts: ConfigOptions): Promise<void> {
     openclaw: rebuildParsed.ENABLE_OPENCLAW === 'true',
   };
   const gpuBackend = getEnv('GPU_BACKEND');
-  ctx.gpu.backend = (gpuBackend as 'nvidia' | 'amd' | 'cpu') || 'cpu';
+  ctx.gpu.backend = (gpuBackend as 'nvidia' | 'amd' | 'apple' | 'cpu') || 'cpu';
 
   const composeFiles = resolveComposeFiles(ctx);
   const composePaths = composeFiles.map(f => relative(installDir, f)).join(getComposeFileSeparator());

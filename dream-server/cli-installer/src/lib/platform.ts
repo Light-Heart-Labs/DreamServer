@@ -36,6 +36,19 @@ export function getHome(): string {
   // On Linux/macOS under sudo, resolve the original user's home
   const sudoUser = process.env.SUDO_USER;
   if (sudoUser && process.getuid?.() === 0) {
+    if (IS_MACOS) {
+      // macOS: try dscl to resolve home, fallback to /Users/
+      try {
+        const result = execFileSync('dscl', ['.', '-read', `/Users/${sudoUser}`, 'NFSHomeDirectory'], {
+          encoding: 'utf-8',
+          timeout: 2000,
+        });
+        const match = result.match(/NFSHomeDirectory:\s*(.+)/);
+        if (match) return match[1].trim();
+      } catch { /* fallback */ }
+      return `/Users/${sudoUser}`;
+    }
+    // Linux: try getent, fallback to /home/
     try {
       const result = execFileSync('getent', ['passwd', sudoUser], {
         encoding: 'utf-8',
@@ -136,7 +149,9 @@ async function getDiskGBWindows(dir: string): Promise<number> {
 
 async function getDiskGBUnix(dir: string): Promise<number> {
   try {
-    const proc = Bun.spawn(['df', '-BG', dir], {
+    // macOS df doesn't support -BG (GNU flag); use -g for native GB output
+    const args = IS_MACOS ? ['df', '-g', dir] : ['df', '-BG', dir];
+    const proc = Bun.spawn(args, {
       stdout: 'pipe',
       stderr: 'pipe',
     });
@@ -183,7 +198,22 @@ async function isPortFreeWindows(port: number): Promise<boolean> {
 }
 
 async function isPortFreeUnix(port: number): Promise<boolean> {
-  // Try ss first (modern Linux)
+  if (IS_MACOS) {
+    // macOS: use lsof (ss is not available, netstat flags differ)
+    try {
+      const proc = Bun.spawn(['lsof', '-iTCP:' + port, '-sTCP:LISTEN', '-P', '-n'], {
+        stdout: 'pipe', stderr: 'pipe',
+      });
+      const stdout = await new Response(proc.stdout).text();
+      const exitCode = await proc.exited;
+      // lsof exits 0 if found (port in use), 1 if not found (port free)
+      if (exitCode === 1) return true;
+      if (exitCode === 0) return !stdout.trim();
+    } catch { /* fallback */ }
+    return true;
+  }
+
+  // Linux: Try ss first (modern)
   try {
     const proc = Bun.spawn(['ss', '-tln'], { stdout: 'pipe', stderr: 'pipe' });
     const stdout = await new Response(proc.stdout).text();
@@ -275,6 +305,8 @@ export function isDangerousPath(p: string): boolean {
   const DANGEROUS_PATHS = [
     '/', '/home', '/root', '/usr', '/etc', '/var', '/boot',
     '/bin', '/sbin', '/lib', '/opt', '/tmp',
+    // macOS system directories
+    '/Users', '/Applications', '/Library', '/System', '/Volumes', '/private',
   ];
   if (DANGEROUS_PATHS.includes(target)) return true;
   return target.split('/').filter(Boolean).length < 2;
@@ -301,6 +333,13 @@ export function getDockerDaemonFixHint(): string[] {
       'Wait for the whale icon to stabilize in the system tray',
     ];
   }
+  if (IS_MACOS) {
+    return [
+      'Open Docker Desktop from Applications',
+      'Wait for the whale icon to stabilize in the menu bar',
+      'If not installed: https://docker.com/products/docker-desktop',
+    ];
+  }
   return [
     'sudo usermod -aG docker $USER && newgrp docker',
     '# or start the daemon:',
@@ -314,6 +353,10 @@ export function getDockerDaemonFixHint(): string[] {
 export function getPermissionFixHint(dataDir: string): string {
   if (IS_WINDOWS) {
     return 'Check that Docker Desktop has permission to access this directory in Settings → Resources → File sharing';
+  }
+  if (IS_MACOS) {
+    // macOS UIDs start at 501; Docker Desktop handles VM permissions separately
+    return `Fix: sudo chown -R $(id -u):$(id -g) ${dataDir}`;
   }
   return `Fix: sudo chown -R 1000:1000 ${dataDir}`;
 }

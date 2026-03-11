@@ -42,7 +42,17 @@ export async function preflight(ctx: InstallContext): Promise<PreflightResult> {
         distro = result.stdout.trim();
       }
     } catch { /* Windows version detection failed — not critical */ }
-  } else if (!IS_MACOS && existsSync('/etc/os-release')) {
+  } else if (IS_MACOS) {
+    try {
+      const [nameResult, verResult] = await Promise.all([
+        exec(['sw_vers', '-productName'], { throwOnError: false, timeout: 3000 }),
+        exec(['sw_vers', '-productVersion'], { throwOnError: false, timeout: 3000 }),
+      ]);
+      const name = nameResult.exitCode === 0 ? nameResult.stdout.trim() : 'macOS';
+      const ver = verResult.exitCode === 0 ? verResult.stdout.trim() : '';
+      distro = ver ? `${name} ${ver}` : name;
+    } catch { /* macOS version detection failed — not critical */ }
+  } else if (existsSync('/etc/os-release')) {
     const content = await Bun.file('/etc/os-release').text();
     const match = content.match(/^PRETTY_NAME="?(.+?)"?$/m);
     if (match) distro = match[1];

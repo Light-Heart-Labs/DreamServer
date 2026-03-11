@@ -190,4 +190,20 @@ describe('resolveComposeFiles()', () => {
     expect(files).not.toContain(join(tmpDir, 'docker-compose.vllm.yml'));
     expect(files).toContain(join(tmpDir, 'docker-compose.nvidia.yml'));
   });
+
+  test('includes Apple overlay when gpu.backend is apple', () => {
+    const { resolveComposeFiles } = require('../src/phases/configure.ts');
+
+    fs.writeFileSync(join(tmpDir, 'docker-compose.base.yml'), 'services: {}');
+    fs.writeFileSync(join(tmpDir, 'docker-compose.apple.yml'), 'services: {}');
+
+    const ctx = createDefaultContext();
+    ctx.installDir = tmpDir;
+    ctx.gpu.backend = 'apple';
+    ctx.llmBackend = 'llamacpp';
+
+    const files = resolveComposeFiles(ctx);
+    expect(files).toContain(join(tmpDir, 'docker-compose.apple.yml'));
+    expect(files).not.toContain(join(tmpDir, 'docker-compose.nvidia.yml'));
+  });
 });
