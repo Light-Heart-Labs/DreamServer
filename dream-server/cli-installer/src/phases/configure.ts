@@ -3,10 +3,12 @@
 import { type InstallContext, REPO_URL, TIER_MAP } from '../lib/config.ts';
 import { exec } from '../lib/shell.ts';
 import { mergeEnv } from '../lib/env.ts';
+import { IS_WINDOWS, copyDir, removeDir, getComposeFileSeparator, getPermissionFixHint } from '../lib/platform.ts';
 import * as ui from '../lib/ui.ts';
 import { Spinner } from '../lib/ui.ts';
 import { existsSync, mkdirSync, copyFileSync, readdirSync, readFileSync } from 'node:fs';
-import { join, basename } from 'node:path';
+import { join, basename, relative } from 'node:path';
+import { tmpdir } from 'node:os';
 
 export async function configure(ctx: InstallContext): Promise<void> {
   ui.phase(4, 6, 'Configure', '~30s');
@@ -21,7 +23,7 @@ export async function configure(ctx: InstallContext): Promise<void> {
 
   // Resolve compose overlays
   const composeFiles = resolveComposeFiles(ctx);
-  const relPaths = composeFiles.map((f) => f.replace(ctx.installDir + '/', ''));
+  const relPaths = composeFiles.map((f) => relative(ctx.installDir, f));
   ui.ok(`Compose files: ${relPaths.join(', ')}`);
 
   // Generate .env (or merge on re-install)
@@ -45,10 +47,10 @@ async function cloneRepo(ctx: InstallContext): Promise<void> {
   spinner.start();
 
   try {
-    const tmpDir = join('/tmp', `dream-clone-${Date.now()}`);
-    await exec(['git', 'clone', '--depth', '1', REPO_URL, tmpDir], { timeout: 120_000 });
+    const tmpCloneDir = join(tmpdir(), `dream-clone-${Date.now()}`);
+    await exec(['git', 'clone', '--depth', '1', REPO_URL, tmpCloneDir], { timeout: 120_000 });
 
-    const srcDir = join(tmpDir, 'dream-server');
+    const srcDir = join(tmpCloneDir, 'dream-server');
     if (!existsSync(srcDir)) {
       spinner.fail('dream-server directory not found in repository');
       process.exit(1);
@@ -56,8 +58,8 @@ async function cloneRepo(ctx: InstallContext): Promise<void> {
 
     // Copy dream-server contents to install dir
     mkdirSync(ctx.installDir, { recursive: true });
-    await exec(['cp', '-r', `${srcDir}/.`, ctx.installDir]);
-    await exec(['rm', '-rf', tmpDir]);
+    copyDir(srcDir, ctx.installDir);
+    removeDir(tmpCloneDir);
 
     spinner.succeed(`Cloned to ${ctx.installDir}`);
   } catch (e) {
@@ -190,7 +192,7 @@ async function generateEnv(ctx: InstallContext, composeFiles: string[]): Promise
     `OLLAMA_PORT=8080`,
     ``,
     `# ── Compose Stack ────────────────────────────────────────────`,
-    `COMPOSE_FILE=${composeFiles.map((f) => f.replace(ctx.installDir + '/', '')).join(':')}`,
+    `COMPOSE_FILE=${composeFiles.map((f) => relative(ctx.installDir, f)).join(getComposeFileSeparator())}`,
     ``,
     `# ── Features ─────────────────────────────────────────────────`,
     `ENABLE_VOICE=${ctx.features.voice}`,
@@ -271,8 +273,12 @@ async function setupDataDirs(ctx: InstallContext): Promise<void> {
   }
 
   // Fix ownership — containers run as UID 1000 (node user)
-  // Only chown if we're running as root (i.e. via sudo)
-  if (process.getuid?.() === 0) {
+  // Skip on Windows — Docker Desktop handles bind mount permissions
+  if (IS_WINDOWS) {
+    if (created > 0) {
+      ui.ok(`Created ${created} data directories`);
+    }
+  } else if (process.getuid?.() === 0) {
     try {
       await exec(
         ['chown', '-R', '1000:1000', join(ctx.installDir, 'data')],
@@ -283,13 +289,13 @@ async function setupDataDirs(ctx: InstallContext): Promise<void> {
       }
     } catch {
       ui.warn('Could not set data directory ownership — some services may fail');
-      ui.info('Fix manually: sudo chown -R 1000:1000 ' + join(ctx.installDir, 'data'));
+      ui.info(getPermissionFixHint(join(ctx.installDir, 'data')));
     }
   } else {
     if (created > 0) {
       ui.ok(`Created ${created} data directories`);
       ui.warn('Run with sudo to set correct ownership, or fix with:');
-      ui.info('sudo chown -R 1000:1000 ' + join(ctx.installDir, 'data'));
+      ui.info(getPermissionFixHint(join(ctx.installDir, 'data')));
     }
   }
 }

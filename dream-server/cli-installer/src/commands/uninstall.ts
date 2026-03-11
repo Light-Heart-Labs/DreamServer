@@ -3,6 +3,7 @@
 import { exec } from '../lib/shell.ts';
 import { getComposeCommand } from '../lib/docker.ts';
 import { DEFAULT_INSTALL_DIR } from '../lib/config.ts';
+import { removeDir, isDangerousPath } from '../lib/platform.ts';
 import * as ui from '../lib/ui.ts';
 import * as prompts from '../lib/prompts.ts';
 import { existsSync } from 'node:fs';
@@ -120,10 +121,8 @@ export async function uninstall(opts: UninstallOptions): Promise<void> {
   } else {
     const deleteData = opts.force || await prompts.confirm(`Delete installation directory ${installDir}?`);
     if (deleteData) {
-      // Safety guard: refuse to rm -rf critical system directories
       const target = resolve(installDir);
-      const DANGEROUS_PATHS = ['/', '/home', '/root', '/usr', '/etc', '/var', '/boot', '/bin', '/sbin', '/lib', '/opt', '/tmp'];
-      if (DANGEROUS_PATHS.includes(target) || target.split('/').filter(Boolean).length < 2) {
+      if (isDangerousPath(target)) {
         ui.fail(`Safety check: refusing to delete system directory: ${target}`);
         return;
       }
@@ -131,11 +130,11 @@ export async function uninstall(opts: UninstallOptions): Promise<void> {
       const delSpinner = new ui.Spinner(`Removing ${installDir}...`);
       delSpinner.start();
       try {
-        await exec(['rm', '-rf', installDir], { timeout: 30_000 });
+        removeDir(installDir);
         delSpinner.succeed('Installation directory removed');
       } catch {
         delSpinner.fail('Could not remove installation directory');
-        ui.info(`Remove manually: sudo rm -rf ${installDir}`);
+        ui.info(`Remove manually: ${installDir}`);
       }
     } else {
       ui.info('Installation directory preserved');

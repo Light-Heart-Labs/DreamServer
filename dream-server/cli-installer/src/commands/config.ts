@@ -1,16 +1,17 @@
 // ── Config Command ──────────────────────────────────────────────────────────
 // Reconfigure features, tier, or model on an existing installation.
 
-import { type InstallContext, createDefaultContext, TIER_MAP, type FeatureSet } from '../lib/config.ts';
+import { type InstallContext, createDefaultContext, TIER_MAP, type FeatureSet, DEFAULT_INSTALL_DIR } from '../lib/config.ts';
 import { resolveComposeFiles } from '../phases/configure.ts';
 import { downloadModel } from '../phases/model.ts';
 import { exec, execStream } from '../lib/shell.ts';
 import { getComposeCommand } from '../lib/docker.ts';
 import { parseEnv, setEnvValue } from '../lib/env.ts';
+import { getComposeFileSeparator } from '../lib/platform.ts';
 import { select, multiSelect } from '../lib/prompts.ts';
 import * as ui from '../lib/ui.ts';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 
 export interface ConfigOptions {
   dir?: string;
@@ -19,7 +20,7 @@ export interface ConfigOptions {
 }
 
 export async function config(opts: ConfigOptions): Promise<void> {
-  const installDir = opts.dir || `${process.env.HOME}/dream-server`;
+  const installDir = opts.dir || DEFAULT_INSTALL_DIR;
   const envPath = join(installDir, '.env');
 
   if (!existsSync(envPath)) {
@@ -171,7 +172,7 @@ export async function config(opts: ConfigOptions): Promise<void> {
   ctx.gpu.backend = (gpuBackend as 'nvidia' | 'amd' | 'cpu') || 'cpu';
 
   const composeFiles = resolveComposeFiles(ctx);
-  const composePaths = composeFiles.map(f => f.replace(installDir + '/', '')).join(':');
+  const composePaths = composeFiles.map(f => relative(installDir, f)).join(getComposeFileSeparator());
   setEnv('COMPOSE_FILE', composePaths);
 
   // Write updated .env

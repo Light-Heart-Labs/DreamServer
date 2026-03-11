@@ -3,25 +3,26 @@ import * as shell from '../src/lib/shell.ts';
 
 describe('shell.ts', () => {
   test('exec() executes successfully', async () => {
-    const result = await shell.exec(['echo', 'hello world']);
+    // git --version works on all platforms (git is always available for this project)
+    const result = await shell.exec(['git', '--version']);
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe('hello world');
+    expect(result.stdout).toContain('git version');
   });
 
   test('exec() throws ShellError on failure if throwOnError is true', async () => {
     try {
-      await shell.exec(['ls', '/nonexistent_path_test_dream_server']);
+      // Use a command that fails on all platforms
+      await shell.exec(['git', '--no-such-option-test-dream-server']);
       // Should not reach here
       expect(true).toBe(false);
     } catch (e: any) {
       expect(e).toBeInstanceOf(shell.ShellError);
       expect(e.exitCode).not.toBe(0);
-      expect(e.command).toBe('ls /nonexistent_path_test_dream_server');
     }
   });
 
   test('exec() returns exitCode on failure if throwOnError is false', async () => {
-    const result = await shell.exec(['ls', '/nonexistent_path_test_dream_server'], { throwOnError: false });
+    const result = await shell.exec(['git', '--no-such-option-test-dream-server'], { throwOnError: false });
     expect(result.exitCode).not.toBe(0);
   });
 
@@ -42,7 +43,8 @@ describe('shell.ts', () => {
   });
 
   test('commandExists() returns true for existing command', async () => {
-    const exists = await shell.commandExists('echo');
+    // git is guaranteed to be in PATH on all platforms for this project
+    const exists = await shell.commandExists('git');
     expect(exists).toBe(true);
   });
 

@@ -1,6 +1,7 @@
 import { describe, test, expect, spyOn, beforeEach, afterEach } from 'bun:test';
 import { uninstall } from '../src/commands/uninstall.ts';
 import * as shell from '../src/lib/shell.ts';
+import * as platform from '../src/lib/platform.ts';
 import * as ui from '../src/lib/ui.ts';
 import * as prompts from '../src/lib/prompts.ts';
 import * as docker from '../src/lib/docker.ts';
@@ -16,6 +17,7 @@ describe('uninstall.ts', () => {
   let processExitSpy: ReturnType<typeof spyOn>;
   let getComposeCommandSpy: ReturnType<typeof spyOn>;
   let confirmSpy: ReturnType<typeof spyOn>;
+  let removeDirSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'dream-test-uninstall-'));
@@ -40,6 +42,8 @@ describe('uninstall.ts', () => {
     processExitSpy = spyOn(process, 'exit').mockImplementation((code) => {
       throw new Error(`process.exit(${code})`);
     });
+
+    removeDirSpy = spyOn(platform, 'removeDir').mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -56,6 +60,7 @@ describe('uninstall.ts', () => {
     getComposeCommandSpy.mockRestore();
     processExitSpy.mockRestore();
     confirmSpy.mockRestore();
+    removeDirSpy.mockRestore();
   });
 
   test('uninstall() fails if no installation found', async () => {
@@ -86,9 +91,8 @@ describe('uninstall.ts', () => {
     const dockerDownCall = execSpy.mock.calls.find(c => c[0].includes('down'));
     expect(dockerDownCall).toBeDefined();
 
-    // Verify directory removal
-    const rmCall = execSpy.mock.calls.find(c => c[0][0] === 'rm' && c[0][1] === '-rf' && c[0][2] === tmpDir);
-    expect(rmCall).toBeDefined();
+    // Verify directory removal via platform.removeDir
+    expect(removeDirSpy).toHaveBeenCalledWith(tmpDir);
 
     expect(ui.ok).toHaveBeenCalledWith('Dream Server has been uninstalled');
   });
@@ -98,8 +102,7 @@ describe('uninstall.ts', () => {
 
     await uninstall({ dir: tmpDir, force: true, keepData: true });
 
-    const rmCall = execSpy.mock.calls.find(c => c[0][0] === 'rm' && c[0][1] === '-rf' && c[0][2] === tmpDir);
-    expect(rmCall).toBeUndefined(); // Should not have removed directory
+    expect(removeDirSpy).not.toHaveBeenCalled(); // Should not have removed directory
 
     expect(ui.info).toHaveBeenCalledWith('Keeping data directory (--keep-data specified)');
   });

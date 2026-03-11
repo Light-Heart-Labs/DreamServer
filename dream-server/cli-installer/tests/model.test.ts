@@ -2,6 +2,7 @@ import { describe, test, expect, spyOn, beforeEach, afterEach } from 'bun:test';
 import { downloadModel } from '../src/phases/model.ts';
 import { createDefaultContext, TIER_MAP } from '../src/lib/config.ts';
 import * as shell from '../src/lib/shell.ts';
+import * as platform from '../src/lib/platform.ts';
 import * as ui from '../src/lib/ui.ts';
 import * as fs from 'node:fs';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -12,6 +13,8 @@ describe('model.ts', () => {
   let tmpDir: string;
   let execStreamSpy: ReturnType<typeof spyOn>;
   let execSpy: ReturnType<typeof spyOn>;
+  let commandExistsSpy: ReturnType<typeof spyOn>;
+  let moveFileSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'dream-test-model-'));
@@ -24,14 +27,15 @@ describe('model.ts', () => {
     spyOn(console, 'log').mockImplementation(() => {});
 
     execStreamSpy = spyOn(shell, 'execStream').mockImplementation(async () => 0);
-    execSpy = spyOn(shell, 'exec').mockImplementation(async (cmd) => {
-      // Mock 'which wget'
-      if (cmd[0] === 'which' && cmd[1] === 'wget') {
-        return { exitCode: 0, stdout: '/usr/bin/wget', stderr: '' };
-      }
-      if (cmd[0] === 'mv') {
-        fs.writeFileSync(cmd[2], 'mock_data_after_mv');
-      }
+    commandExistsSpy = spyOn(shell, 'commandExists').mockImplementation(async (cmd) => {
+      if (cmd === 'wget') return true;
+      if (cmd === 'curl') return true;
+      return false;
+    });
+    moveFileSpy = spyOn(platform, 'moveFile').mockImplementation((src: string, dest: string) => {
+      fs.writeFileSync(dest, 'mock_data_after_move');
+    });
+    execSpy = spyOn(shell, 'exec').mockImplementation(async () => {
       return { exitCode: 0, stdout: '', stderr: '' };
     });
   });
@@ -45,6 +49,8 @@ describe('model.ts', () => {
     spyOn(ui, 'fail').mockRestore();
     spyOn(console, 'log').mockRestore();
     execStreamSpy.mockRestore();
+    commandExistsSpy.mockRestore();
+    moveFileSpy.mockRestore();
     execSpy.mockRestore();
   });
 
@@ -97,14 +103,10 @@ describe('model.ts', () => {
     ctx.tier = '1';
     ctx.installDir = tmpDir;
 
-    execSpy.mockImplementation(async (cmd) => {
-      if (cmd[0] === 'which' && cmd[1] === 'wget') {
-        return { exitCode: 1, stdout: '', stderr: '' }; // wget not found
-      }
-      if (cmd[0] === 'mv') {
-        fs.writeFileSync(cmd[2], 'mock_data_after_mv');
-      }
-      return { exitCode: 0, stdout: '', stderr: '' };
+    commandExistsSpy.mockImplementation(async (cmd) => {
+      if (cmd === 'wget') return false; // wget not found
+      if (cmd === 'curl') return true;
+      return false;
     });
 
     await downloadModel(ctx);

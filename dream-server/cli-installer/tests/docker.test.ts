@@ -1,6 +1,7 @@
 import { describe, test, expect, spyOn, beforeEach, afterEach } from 'bun:test';
 import * as docker from '../src/lib/docker.ts';
 import * as shell from '../src/lib/shell.ts';
+import { IS_WINDOWS } from '../src/lib/platform.ts';
 
 describe('docker.ts', () => {
   let execSpy: ReturnType<typeof spyOn>;
@@ -31,6 +32,25 @@ describe('docker.ts', () => {
   });
 
   test('getComposeCommand() falls back to sudo docker compose when user lacks permissions', async () => {
+    if (IS_WINDOWS) {
+      // On Windows, sudo is never attempted — Docker Desktop doesn't need it
+      execSpy.mockImplementation(async (cmd) => {
+        if (cmd[0] === 'docker' && cmd[1] === 'compose' && cmd[2] === 'version') {
+          return { exitCode: 0, stdout: 'Docker Compose version v2.20.0', stderr: '' };
+        }
+        if (cmd[0] === 'docker' && cmd[1] === 'info') {
+          return { exitCode: 1, stdout: '', stderr: 'permission denied' };
+        }
+        return { exitCode: 1, stdout: '', stderr: '' };
+      });
+      try {
+        await docker.getComposeCommand();
+        expect(true).toBe(false);
+      } catch (e: any) {
+        expect(e.message).toContain('Cannot connect to Docker daemon');
+      }
+      return;
+    }
     execSpy.mockImplementation(async (cmd) => {
       if (cmd[0] === 'docker' && cmd[1] === 'compose' && cmd[2] === 'version') {
         return { exitCode: 0, stdout: 'Docker Compose version v2.20.0', stderr: '' };

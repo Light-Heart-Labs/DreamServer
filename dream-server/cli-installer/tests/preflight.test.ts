@@ -3,6 +3,7 @@ import { preflight } from '../src/phases/preflight.ts';
 import * as shell from '../src/lib/shell.ts';
 import * as ui from '../src/lib/ui.ts';
 import { createDefaultContext } from '../src/lib/config.ts';
+import { getOsName, IS_WINDOWS } from '../src/lib/platform.ts';
 
 describe('preflight.ts', () => {
   let commandExistsSpy: ReturnType<typeof spyOn>;
@@ -57,7 +58,7 @@ describe('preflight.ts', () => {
     const ctx = createDefaultContext();
     const result = await preflight(ctx);
 
-    expect(result.os).toBe(process.platform === 'darwin' ? 'macos' : 'linux');
+    expect(result.os).toBe(getOsName());
     expect(result.arch).toBe(process.arch);
     expect(result.hasDocker).toBe(true);
     expect(result.hasDockerCompose).toBe(true);
@@ -66,7 +67,13 @@ describe('preflight.ts', () => {
     expect(result.hasNvidiaSmi).toBe(false);
   });
 
+  // Root check only applies on Linux/macOS (Windows has no getuid)
   test('preflight() exits if run as root', async () => {
+    if (IS_WINDOWS) {
+      // On Windows, the root check is skipped entirely, so this test doesn't apply
+      expect(true).toBe(true);
+      return;
+    }
     getuidSpy.mockImplementation(() => 0); // Root
     const ctx = createDefaultContext();
 

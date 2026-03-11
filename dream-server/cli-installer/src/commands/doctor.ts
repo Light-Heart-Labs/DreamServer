@@ -7,6 +7,7 @@ import { DEFAULT_INSTALL_DIR } from '../lib/config.ts';
 import { parseEnv } from '../lib/env.ts';
 import { isPortFree, getRequiredPorts } from '../lib/ports.ts';
 import { createDefaultContext } from '../lib/config.ts';
+import { getAvailableRamMB, getDiskGB, getDockerDaemonFixHint } from '../lib/platform.ts';
 import * as ui from '../lib/ui.ts';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -91,7 +92,9 @@ export async function doctor(opts: DoctorOptions): Promise<void> {
       issues++;
     } else {
       ui.fail('Docker daemon not reachable');
-      ui.info('Try: sudo systemctl start docker');
+      for (const hint of getDockerDaemonFixHint()) {
+        ui.info(hint);
+      }
       issues++;
     }
   }
@@ -193,37 +196,28 @@ export async function doctor(opts: DoctorOptions): Promise<void> {
 
   // ── Check 6: System resources ─────────────────────────────────────────
   try {
-    const content = await Bun.file('/proc/meminfo').text();
-    const match = content.match(/MemAvailable:\s+(\d+)\s+kB/);
-    if (match) {
-      const availMB = parseInt(match[1], 10) / 1024;
-      if (availMB < 2048) {
-        ui.warn(`Low available RAM: ${Math.round(availMB)}MB`);
-        warnings++;
-      } else {
-        ui.ok(`Available RAM: ${Math.round(availMB / 1024)}GB`);
-      }
+    const availMB = getAvailableRamMB();
+    if (availMB < 2048) {
+      ui.warn(`Low available RAM: ${availMB}MB`);
+      warnings++;
+    } else {
+      ui.ok(`Available RAM: ${Math.round(availMB / 1024)}GB`);
     }
   } catch {
-    // /proc/meminfo not available (not Linux, or restricted)
+    // RAM detection failed
   }
 
   // Disk space
   try {
-    const { stdout } = await exec(['df', '-BG', installDir], { timeout: 5000 });
-    const lines = stdout.split('\n');
-    if (lines.length >= 2) {
-      const parts = lines[1].split(/\s+/);
-      const availGB = parseInt(parts[3]?.replace('G', '') || '0', 10);
-      if (availGB < 10) {
-        ui.warn(`Low disk space: ${availGB}GB available`);
-        warnings++;
-      } else {
-        ui.ok(`Disk space: ${availGB}GB available`);
-      }
+    const availGB = await getDiskGB(installDir);
+    if (availGB < 10) {
+      ui.warn(`Low disk space: ${availGB}GB available`);
+      warnings++;
+    } else {
+      ui.ok(`Disk space: ${availGB}GB available`);
     }
   } catch {
-    // df command not available or failed
+    // Disk detection failed
   }
 
   // ── Check 7: NVIDIA driver ────────────────────────────────────────────

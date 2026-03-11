@@ -1,42 +1,17 @@
 // ── Port Availability Checks ────────────────────────────────────────────────
 // Verifies required ports are free before starting services.
 
-import { exec } from './shell.ts';
+import { isPortFree as platformIsPortFree } from './platform.ts';
 import { type InstallContext } from './config.ts';
 import * as ui from './ui.ts';
 
 /**
- * Check if a TCP port is in use using ss or netstat.
+ * Check if a TCP port is in use.
  * Returns true if the port is FREE, false if it's in use.
+ * Delegates to platform.ts for cross-platform support.
  */
 export async function isPortFree(port: number): Promise<boolean> {
-  // Try ss first (iproute2 — modern Linux)
-  try {
-    const { stdout, exitCode } = await exec(
-      ['ss', '-tln'],
-      { throwOnError: false, timeout: 5000 },
-    );
-    if (exitCode === 0) {
-      // Match :PORT at word boundary (handles IPv4 and IPv6)
-      const regex = new RegExp(`:${port}(\\s|$)`, 'm');
-      return !regex.test(stdout);
-    }
-  } catch { /* try netstat */ }
-
-  // Fallback: netstat (net-tools)
-  try {
-    const { stdout, exitCode } = await exec(
-      ['netstat', '-tln'],
-      { throwOnError: false, timeout: 5000 },
-    );
-    if (exitCode === 0) {
-      const regex = new RegExp(`:${port}(\\s|$)`, 'm');
-      return !regex.test(stdout);
-    }
-  } catch { /* neither tool available */ }
-
-  // Can't check — assume free but warn
-  return true;
+  return platformIsPortFree(port);
 }
 
 /**
@@ -93,28 +68,9 @@ export function getRequiredPorts(ctx: InstallContext): { service: string; port: 
 export async function checkRequiredPorts(ctx: InstallContext): Promise<boolean> {
   const required = getRequiredPorts(ctx);
   let allFree = true;
-  let ssAvailable: boolean | null = null;
 
   for (const { service, port } of required) {
     const free = await isPortFree(port);
-
-    // On first check, detect if ss/netstat are available
-    if (ssAvailable === null) {
-      try {
-        await exec(['ss', '-tln'], { throwOnError: false, timeout: 2000 });
-        ssAvailable = true;
-      } catch {
-        try {
-          await exec(['netstat', '-tln'], { throwOnError: false, timeout: 2000 });
-          ssAvailable = true;
-        } catch {
-          ssAvailable = false;
-          ui.warn('Neither ss nor netstat found — cannot verify port availability');
-          ui.info('Install iproute2 (for ss) or net-tools (for netstat) to enable port checks');
-          return true; // Can't verify, assume OK
-        }
-      }
-    }
 
     if (!free) {
       ui.warn(`Port ${port} (${service}) is already in use`);

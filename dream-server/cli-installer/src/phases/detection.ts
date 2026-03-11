@@ -2,6 +2,7 @@
 
 import { type InstallContext, TIER_MAP } from '../lib/config.ts';
 import { exec } from '../lib/shell.ts';
+import { getRamGB as platformGetRamGB, getDiskGB as platformGetDiskGB, getDefaultInstallDir } from '../lib/platform.ts';
 import * as ui from '../lib/ui.ts';
 
 export interface DetectionResult {
@@ -52,24 +53,13 @@ export async function detect(ctx: InstallContext): Promise<DetectionResult> {
 }
 
 export async function detectRam(): Promise<number> {
-  try {
-    const content = await Bun.file('/proc/meminfo').text();
-    const match = content.match(/MemTotal:\s+(\d+)\s+kB/);
-    if (match) return Math.round(parseInt(match[1], 10) / 1024 / 1024);
-  } catch { /* ignore */ }
-  return 0;
+  // os.totalmem() works on all platforms (Windows, Linux, macOS)
+  return platformGetRamGB();
 }
 
 export async function detectDisk(): Promise<number> {
-  try {
-    const { stdout } = await exec(['df', '-BG', process.env.HOME || '/'], { timeout: 5000 });
-    const lines = stdout.split('\n');
-    if (lines.length >= 2) {
-      const parts = lines[1].split(/\s+/);
-      return parseInt(parts[3]?.replace('G', '') || '0', 10);
-    }
-  } catch { /* ignore */ }
-  return 0;
+  // Delegates to platform.ts — PowerShell on Windows, df on Linux
+  return platformGetDiskGB(getDefaultInstallDir());
 }
 
 export async function detectGpu(): Promise<InstallContext['gpu']> {

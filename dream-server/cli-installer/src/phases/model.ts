@@ -1,7 +1,8 @@
 // ── Phase: Model Download ───────────────────────────────────────────────────
 
 import { type InstallContext, TIER_MAP } from '../lib/config.ts';
-import { exec, execStream } from '../lib/shell.ts';
+import { exec, execStream, commandExists } from '../lib/shell.ts';
+import { moveFile } from '../lib/platform.ts';
 import * as ui from '../lib/ui.ts';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -96,7 +97,7 @@ export async function downloadModel(ctx: InstallContext): Promise<void> {
 
       if (exitCode === 0) {
         // Rename .part to final name
-        await exec(['mv', partPath, modelPath]);
+        moveFile(partPath, modelPath);
         success = true;
         break;
       } else {
@@ -123,14 +124,5 @@ export async function downloadModel(ctx: InstallContext): Promise<void> {
     console.log('');
     ui.info('Then re-run the installer to continue');
     throw new Error('Model download failed — cannot proceed without LLM model');
-  }
-}
-
-async function commandExists(cmd: string): Promise<boolean> {
-  try {
-    const result = await exec(['which', cmd], { throwOnError: false, timeout: 2000 });
-    return result.exitCode === 0;
-  } catch {
-    return false;
   }
 }

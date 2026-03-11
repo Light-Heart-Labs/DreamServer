@@ -3,9 +3,11 @@
 
 import { exec, execStream } from '../lib/shell.ts';
 import { getComposeCommand } from '../lib/docker.ts';
+import { DEFAULT_INSTALL_DIR } from '../lib/config.ts';
+import { IS_WINDOWS, moveFile, removeDir } from '../lib/platform.ts';
 import * as ui from '../lib/ui.ts';
 import { VERSION } from '../lib/config.ts';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, copyFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -20,12 +22,13 @@ const RELEASE_BASE = 'https://github.com/Light-Heart-Labs/DreamServer/releases/l
  * Get the correct binary name for the current architecture.
  */
 function getBinaryName(): string {
+  if (IS_WINDOWS) return 'dream-installer-windows-x64.exe';
   if (process.arch === 'arm64') return 'dream-installer-linux-arm64';
   return 'dream-installer-linux-x64';
 }
 
 export async function update(opts: UpdateOptions): Promise<void> {
-  const installDir = opts.dir || `${process.env.HOME}/dream-server`;
+  const installDir = opts.dir || DEFAULT_INSTALL_DIR;
 
   if (!existsSync(join(installDir, '.env'))) {
     ui.fail('No Dream Server installation found');
@@ -144,11 +147,26 @@ async function selfUpdate(): Promise<void> {
     );
 
     if (checksumExitCode === 0) {
-      // Verify SHA256 (cwd = tmpDir so sha256sum finds the artifact by name)
-      const { exitCode: verifyCode } = await exec(
-        ['sha256sum', '--check', `${binaryName}.sha256`],
-        { cwd: tmpDir, throwOnError: false, timeout: 10000 },
-      );
+      // Verify SHA256 — try sha256sum (Linux) or use Bun's crypto (Windows/fallback)
+      let verifyCode = 1;
+      if (!IS_WINDOWS) {
+        const result = await exec(
+          ['sha256sum', '--check', `${binaryName}.sha256`],
+          { cwd: tmpDir, throwOnError: false, timeout: 10000 },
+        );
+        verifyCode = result.exitCode;
+      } else {
+        // On Windows, verify using Bun's crypto
+        try {
+          const expectedLine = readFileSync(tmpChecksum, 'utf-8').trim();
+          const expectedHash = expectedLine.split(/\s+/)[0].toLowerCase();
+          const binaryData = readFileSync(tmpPath);
+          const hasher = new Bun.CryptoHasher('sha256');
+          hasher.update(binaryData);
+          const actualHash = hasher.digest('hex');
+          verifyCode = actualHash === expectedHash ? 0 : 1;
+        } catch { /* verification failed */ }
+      }
 
       if (verifyCode !== 0) {
         ui.fail('SHA256 verification failed — update aborted (binary may be tampered)');
@@ -162,12 +180,14 @@ async function selfUpdate(): Promise<void> {
     // Keep current binary as backup for rollback
     const bakPath = `${currentBinary}.bak`;
     try {
-      await exec(['cp', currentBinary, bakPath], { throwOnError: false });
+      copyFileSync(currentBinary, bakPath);
     } catch { /* best effort */ }
 
-    // Make executable and replace
-    await exec(['chmod', '+x', tmpPath]);
-    await exec(['mv', tmpPath, currentBinary]);
+    // Make executable (Linux/macOS only — Windows executables don't need chmod)
+    if (!IS_WINDOWS) {
+      await exec(['chmod', '+x', tmpPath], { throwOnError: false });
+    }
+    moveFile(tmpPath, currentBinary);
 
     ui.ok('CLI updated to latest version');
     ui.info('New version will take effect on next run');
@@ -181,10 +201,10 @@ async function selfUpdate(): Promise<void> {
     if (verifyExitCode !== 0) {
       // Rollback on failure
       ui.warn('New binary failed to execute — rolling back');
-      await exec(['mv', bakPath, currentBinary], { throwOnError: false });
+      moveFile(bakPath, currentBinary);
     } else {
       // Clean up backup on success
-      await exec(['rm', '-f', bakPath], { throwOnError: false });
+      try { rmSync(bakPath, { force: true }); } catch { /* best effort */ }
     }
   } catch (e) {
     ui.info('Self-update unavailable — continuing with current version');

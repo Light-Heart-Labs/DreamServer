@@ -2,6 +2,7 @@
 
 import { type InstallContext } from '../lib/config.ts';
 import { exec, commandExists } from '../lib/shell.ts';
+import { IS_WINDOWS, IS_MACOS, getOsName, getDockerInstallHint, getDockerDaemonFixHint } from '../lib/platform.ts';
 import * as ui from '../lib/ui.ts';
 import { existsSync } from 'node:fs';
 
@@ -22,16 +23,26 @@ export async function preflight(ctx: InstallContext): Promise<PreflightResult> {
   ui.phase(1, 6, 'Preflight', '~5s');
   ui.step('Scanning system...');
 
-  // Root check — allow sudo (SUDO_USER set) but reject direct root login
-  if (process.getuid?.() === 0 && !process.env.SUDO_USER) {
+  // Root check — Linux/macOS only (Windows has no getuid)
+  if (!IS_WINDOWS && process.getuid?.() === 0 && !process.env.SUDO_USER) {
     ui.fail('Do not run as root. Use sudo instead: sudo dream-installer install');
     process.exit(1);
   }
 
   // OS Detection
-  const os = process.platform === 'darwin' ? 'macos' : 'linux';
+  const os = getOsName();
   let distro = '';
-  if (existsSync('/etc/os-release')) {
+  if (IS_WINDOWS) {
+    try {
+      const result = await exec(
+        ['powershell', '-NoProfile', '-Command', '(Get-CimInstance Win32_OperatingSystem).Caption'],
+        { throwOnError: false, timeout: 5000 },
+      );
+      if (result.exitCode === 0 && result.stdout.trim()) {
+        distro = result.stdout.trim();
+      }
+    } catch { /* Windows version detection failed — not critical */ }
+  } else if (!IS_MACOS && existsSync('/etc/os-release')) {
     const content = await Bun.file('/etc/os-release').text();
     const match = content.match(/^PRETTY_NAME="?(.+?)"?$/m);
     if (match) distro = match[1];
@@ -65,16 +76,16 @@ export async function preflight(ctx: InstallContext): Promise<PreflightResult> {
     const hasBinary = await commandExists('docker');
     if (!hasBinary) {
       ui.fail('Docker not found');
-      ui.info('Install: curl -fsSL https://get.docker.com | sh');
+      ui.info(getDockerInstallHint());
     } else {
       hasDocker = true;
       // Binary exists but daemon access failed
       ui.fail('Cannot connect to Docker daemon');
       console.log('');
       ui.info('Fix with one of:');
-      console.log('     sudo usermod -aG docker $USER && newgrp docker');
-      console.log('     # or start the daemon:');
-      console.log('     sudo systemctl start docker');
+      for (const hint of getDockerDaemonFixHint()) {
+        console.log(`     ${hint}`);
+      }
     }
     if (!ctx.dryRun && !ctx.force) {
       console.log('');

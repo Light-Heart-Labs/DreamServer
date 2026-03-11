@@ -2,12 +2,13 @@ import { describe, test, expect, spyOn, beforeEach, afterEach } from 'bun:test';
 import { detect } from '../src/phases/detection.ts';
 import { createDefaultContext } from '../src/lib/config.ts';
 import * as shell from '../src/lib/shell.ts';
+import * as platform from '../src/lib/platform.ts';
 import * as ui from '../src/lib/ui.ts';
-import * as fs from 'node:fs';
 
 describe('detection.ts', () => {
   let execSpy: ReturnType<typeof spyOn>;
-  let fileSpy: ReturnType<typeof spyOn>;
+  let ramSpy: ReturnType<typeof spyOn>;
+  let diskSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
     spyOn(ui, 'phase').mockImplementation(() => {});
@@ -16,19 +17,14 @@ describe('detection.ts', () => {
     spyOn(ui, 'warn').mockImplementation(() => {});
     spyOn(ui, 'box').mockImplementation(() => {});
 
-    // Mock RAM detection (Bun.file('/proc/meminfo').text())
-    fileSpy = spyOn(Bun, 'file').mockImplementation((path: any) => {
-      if (path === '/proc/meminfo') {
-        return { text: async () => 'MemTotal:       32924152 kB\n' } as any;
-      }
-      return { text: async () => '' } as any;
-    });
+    // Mock RAM detection via platform.getRamGB()
+    ramSpy = spyOn(platform, 'getRamGB').mockReturnValue(31);
 
-    // Mock GPU and Disk detection (exec)
+    // Mock disk detection via platform.getDiskGB()
+    diskSpy = spyOn(platform, 'getDiskGB').mockImplementation(async () => 962);
+
+    // Mock GPU detection (exec)
     execSpy = spyOn(shell, 'exec').mockImplementation(async (cmd) => {
-      if (cmd[0] === 'df') {
-        return { exitCode: 0, stdout: 'Filesystem     1G-blocks  Used Available Use% Mounted on\n/dev/root           983G   22G      962G   3% /', stderr: '' };
-      }
       if (cmd[0] === 'nvidia-smi') {
         return { exitCode: 0, stdout: 'NVIDIA GeForce RTX 4090, 24564, 1', stderr: '' };
       }
@@ -42,7 +38,8 @@ describe('detection.ts', () => {
     spyOn(ui, 'ok').mockRestore();
     spyOn(ui, 'warn').mockRestore();
     spyOn(ui, 'box').mockRestore();
-    fileSpy.mockRestore();
+    ramSpy.mockRestore();
+    diskSpy.mockRestore();
     execSpy.mockRestore();
   });
 
@@ -77,9 +74,6 @@ describe('detection.ts', () => {
 
   test('detect() gracefully handles missing GPU', async () => {
     execSpy.mockImplementation(async (cmd) => {
-      if (cmd[0] === 'df') {
-        return { exitCode: 0, stdout: 'Filesystem     1G-blocks  Used Available Use% Mounted on\n/dev/root           983G   22G      962G   3% /', stderr: '' };
-      }
       if (cmd[0] === 'nvidia-smi') {
         return { exitCode: 1, stdout: '', stderr: 'nvidia-smi: command not found' }; // Mock no GPU
       }

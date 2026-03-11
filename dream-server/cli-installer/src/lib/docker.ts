@@ -1,6 +1,7 @@
 // ── Docker helpers ──────────────────────────────────────────────────────────
 
 import { exec } from './shell.ts';
+import { IS_WINDOWS, getDockerDaemonFixHint } from './platform.ts';
 
 let _cachedCmd: string[] | null = null;
 
@@ -29,16 +30,18 @@ export async function getComposeCommand(): Promise<string[]> {
         return _cachedCmd;
       }
     }
-  } catch { /* try sudo */ }
+  } catch { /* try sudo on Linux */ }
 
-  // Try sudo (non-interactive only — don't hang on password prompt)
-  try {
-    const info = await exec(['sudo', '-n', 'docker', 'info'], { throwOnError: false, timeout: 5000 });
-    if (info.exitCode === 0) {
-      _cachedCmd = ['sudo', 'docker', 'compose'];
-      return _cachedCmd;
-    }
-  } catch { /* skip */ }
+  // Try sudo (Linux/macOS only — sudo doesn't exist on Windows)
+  if (!IS_WINDOWS) {
+    try {
+      const info = await exec(['sudo', '-n', 'docker', 'info'], { throwOnError: false, timeout: 5000 });
+      if (info.exitCode === 0) {
+        _cachedCmd = ['sudo', 'docker', 'compose'];
+        return _cachedCmd;
+      }
+    } catch { /* skip */ }
+  }
 
   // Try standalone docker-compose
   try {
@@ -49,9 +52,9 @@ export async function getComposeCommand(): Promise<string[]> {
     }
   } catch { /* skip */ }
 
+  const hints = getDockerDaemonFixHint();
   throw new Error(
-    'Cannot connect to Docker daemon. Either:\n' +
-    '  • Add your user to the docker group: sudo usermod -aG docker $USER && newgrp docker\n' +
-    '  • Or run with sudo: sudo dream-installer <command>',
+    'Cannot connect to Docker daemon.\n' +
+    hints.map((h) => `  • ${h}`).join('\n'),
   );
 }

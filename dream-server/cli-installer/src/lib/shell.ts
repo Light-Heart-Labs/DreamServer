@@ -1,6 +1,8 @@
 // ── Shell execution helpers ─────────────────────────────────────────────────
 // All subprocess calls via Bun.spawn — async, streaming, no event loop blocking.
 
+import { commandExists as platformCommandExists } from './platform.ts';
+
 export interface ExecResult {
   exitCode: number;
   stdout: string;
@@ -70,14 +72,10 @@ export async function execStream(
 
 /**
  * Check if a command exists on the system.
+ * Uses `where.exe` on Windows, `which` on Linux/macOS.
  */
 export async function commandExists(cmd: string): Promise<boolean> {
-  try {
-    const result = await exec(['which', cmd], { throwOnError: false, timeout: 5000 });
-    return result.exitCode === 0;
-  } catch {
-    return false;
-  }
+  return platformCommandExists(cmd);
 }
 
 export class ShellError extends Error {
