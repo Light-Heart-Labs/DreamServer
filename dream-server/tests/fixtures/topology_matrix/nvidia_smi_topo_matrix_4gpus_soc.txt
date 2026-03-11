@@ -1,0 +1,14 @@
+	GPU0	GPU1	GPU2	GPU3	CPU Affinity
+GPU0	 X 	PHB	SOC	SOC	0-9,20-29
+GPU1	PHB	 X 	SOC	SOC	0-9,20-29
+GPU2	SOC	SOC	 X 	PHB	10-19,30-39
+GPU3	SOC	SOC	PHB	 X 	10-19,30-39
+
+Legend:
+
+  X    = Self
+  SOC  = Connection traversing PCIe as well as the SMP link between CPU sockets(e.g. QPI)
+  PHB  = Connection traversing PCIe as well as a PCIe Host Bridge (typically the CPU)
+  PXB  = Connection traversing multiple PCIe switches (without traversing the PCIe Host Bridge)
+  PIX  = Connection traversing a single PCIe switch
+  NV#  = Connection traversing a bonded set of # NVLinks

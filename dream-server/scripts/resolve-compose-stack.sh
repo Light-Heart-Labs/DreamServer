@@ -7,6 +7,7 @@ GPU_BACKEND="nvidia"
 PROFILE_OVERLAYS=""
 ENV_MODE="false"
 SKIP_BROKEN="false"
+GPU_COUNT="1"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -34,6 +35,10 @@ while [[ $# -gt 0 ]]; do
             ENV_MODE="true"
             shift
             ;;
+        --gpu-count)
+            GPU_COUNT="${2:-$GPU_COUNT}"
+            shift 2
+            ;;
         *)
             echo "Unknown argument: $1" >&2
             exit 1
@@ -50,7 +55,7 @@ elif command -v python >/dev/null 2>&1; then
     PYTHON_CMD="python"
 fi
 
-"$PYTHON_CMD" - "$SCRIPT_DIR" "$TIER" "$GPU_BACKEND" "$PROFILE_OVERLAYS" "$ENV_MODE" "$SKIP_BROKEN" <<'PY'
+"$PYTHON_CMD" - "$SCRIPT_DIR" "$TIER" "$GPU_BACKEND" "$PROFILE_OVERLAYS" "$ENV_MODE" "$SKIP_BROKEN" "$GPU_COUNT" <<'PY'
 import os
 import pathlib
 import sys
@@ -63,6 +68,7 @@ profile_overlays = [x.strip() for x in (sys.argv[4] or "").split(",") if x.strip
 env_mode = (sys.argv[5] or "false").lower() == "true"
 skip_broken = (sys.argv[6] or "false").lower() == "true"
 dream_mode = os.environ.get("DREAM_MODE", "local").lower()
+gpu_count = int(sys.argv[7] or "1")
 
 def existing(overlays):
     return all((script_dir / f).exists() for f in overlays)
@@ -113,6 +119,10 @@ else:
 if not resolved:
     resolved = [primary]
 
+# Multi-GPU overlay if we have more than 1 GPU.
+if gpu_count > 1:
+    resolved.append("docker-compose.multigpu.yml")
+
 # Discover enabled extension compose fragments via manifests
 ext_dir = script_dir / "extensions" / "services"
 if ext_dir.exists():
@@ -161,11 +171,19 @@ if ext_dir.exists():
             gpu_overlay = service_dir / f"compose.{gpu_backend}.yaml"
             if gpu_overlay.exists():
                 resolved.append(str(gpu_overlay.relative_to(script_dir)))
+            
             # Mode-specific overlay — depends_on for local/hybrid mode only
             if dream_mode in ("local", "hybrid", "lemonade"):
                 local_mode_overlay = service_dir / "compose.local.yaml"
                 if local_mode_overlay.exists():
                     resolved.append(str(local_mode_overlay.relative_to(script_dir)))
+            
+            # Multi-GPU overlay if we have more than 1 GPU
+            if gpu_count > 1:
+                multi_gpu_overlay = service_dir / "compose.multigpu.yaml"
+                if multi_gpu_overlay.exists():
+                    resolved.append(str(multi_gpu_overlay.relative_to(script_dir)))
+
         except Exception as e:
             # Narrow exception handling to specific parse/structure errors
             yaml_error = yaml_available and hasattr(yaml, 'YAMLError') and isinstance(e, yaml.YAMLError)

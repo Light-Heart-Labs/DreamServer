@@ -20,6 +20,7 @@ dream_progress 25 "requirements" "Checking system requirements"
 chapter "REQUIREMENTS CHECK"
 
 [[ -f "${SCRIPT_DIR:-}/lib/safe-env.sh" ]] && . "${SCRIPT_DIR}/lib/safe-env.sh"
+[[ -f "$SCRIPT_DIR/lib/service-registry.sh" ]] && . "$SCRIPT_DIR/lib/service-registry.sh"
 
 REQUIREMENTS_MET=true
 TIER_RANK="$(tier_rank "$TIER")"

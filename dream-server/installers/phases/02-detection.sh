@@ -280,6 +280,39 @@ if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "intel" ]]; then
     log "Intel Arc backend: GPU_BACKEND=intel, VRAM=${GPU_VRAM}MB, Level Zero=${_level_zero_ok}"
 fi
 
+# -----------------------------------------------------------------------------
+# NVIDIA Multi-GPU Topology Detection
+# -----------------------------------------------------------------------------
+GPU_TOPOLOGY_JSON="{}"
+GPU_HAS_NVLINK="false"
+GPU_TOTAL_VRAM=0
+if [[ $GPU_COUNT -gt 1 && "$GPU_BACKEND" == "nvidia" ]]; then
+    ai "Detecting multi-GPU topology..."
+    if [[ -f "$SCRIPT_DIR/installers/lib/nvidia-topo.sh" ]]; then
+        # Source the topology detection script
+        source "$SCRIPT_DIR/installers/lib/nvidia-topo.sh"
+        
+        # Run topology detection and capture JSON output
+        GPU_TOPOLOGY_JSON=$(detect_nvidia_topo 2>>"$LOG_FILE") || {
+            warn "Multi-GPU topology detection failed"
+            GPU_TOPOLOGY_JSON="{}"
+        }
+        
+        # Extract key topology information for tier assignment
+        if command -v jq &>/dev/null && [[ -n "$GPU_TOPOLOGY_JSON" && "$GPU_TOPOLOGY_JSON" != "{}" ]]; then
+            GPU_HAS_NVLINK=$(echo "$GPU_TOPOLOGY_JSON" | jq -r '[.links[] | select(.link_type | startswith("NV"))] | length > 0')
+            GPU_TOTAL_VRAM=$(echo "$GPU_TOPOLOGY_JSON" | jq -r '[.gpus[].memory_gb] | add * 1024 | floor')
+            log "Multi-GPU topology: NVLink=$GPU_HAS_NVLINK, Total VRAM=${GPU_TOTAL_VRAM}MB"
+        else
+            log "topology detection returned empty, using basic GPU info"
+            GPU_TOTAL_VRAM=$((GPU_VRAM * GPU_COUNT))
+        fi
+    else
+        log "NVIDIA topology detection script not found, skipping detailed topology analysis"
+        GPU_TOTAL_VRAM=$((GPU_VRAM * GPU_COUNT))
+    fi
+fi
+
 # Auto-detect tier if not specified
 if [[ -z "$TIER" ]]; then
     PROFILE_TIER="$(normalize_profile_tier "${CAP_RECOMMENDED_TIER:-}")"
@@ -306,7 +339,26 @@ if [[ -z "$TIER" ]]; then
         fi
     elif [[ $GPU_VRAM -ge 90000 ]]; then
         TIER="NV_ULTRA"
-    elif [[ $GPU_COUNT -ge 2 ]] || [[ $GPU_VRAM -ge 40000 ]]; then
+    elif [[ $GPU_COUNT -ge 2 ]]; then
+        # Enhanced multi-GPU tier assignment based on topology
+        if [[ "$GPU_HAS_NVLINK" == "true" ]]; then
+            # High-bandwidth interconnect (NVLink)
+            if [[ $GPU_COUNT -ge 4 || $GPU_TOTAL_VRAM -ge 90000 ]]; then
+                TIER="NV_ULTRA"
+            else
+                TIER=4
+            fi
+        else
+            # PCIe or other interconnect
+            if [[ $GPU_COUNT -ge 4 ]]; then
+                TIER=4
+            elif [[ $GPU_TOTAL_VRAM -ge 40000 ]]; then
+                TIER=4
+            else
+                TIER=3
+            fi
+        fi
+    elif [[ $GPU_VRAM -ge 40000 ]]; then
         TIER=4
     elif [[ $GPU_VRAM -ge 20000 ]] || [[ $RAM_GB -ge 96 ]]; then
         TIER=3

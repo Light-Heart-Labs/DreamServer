@@ -84,3 +84,252 @@ if [[ "$ENABLE_OPENCLAW" == "true" ]]; then
 fi
 
 log "All services enabled (core install)"
+
+# Early return if single gpu
+if [[ "$GPU_COUNT" -le 1 ]]; then
+    log "Single GPU detected — skipping multi-GPU configuration."
+    return
+fi
+
+# Multi-GPU Configuration
+
+# write $GPU_TOPOLOGY_JSON into a tmpfile to use by the commands
+TOPOLOGY_FILE="/tmp/ds_gpu_topology.json"
+echo "$GPU_TOPOLOGY_JSON" > "$TOPOLOGY_FILE"
+
+ASSIGN_GPUS_SCRIPT="$SCRIPT_DIR/scripts/assign_gpus.py"
+
+GPU_COUNT=$(jq '.gpu_count' "$TOPOLOGY_FILE")
+VENDOR=$(jq -r '.vendor' "$TOPOLOGY_FILE")
+
+mapfile -t GPU_INDICES  < <(jq -r '.gpus[].index'     "$TOPOLOGY_FILE")
+mapfile -t GPU_NAMES    < <(jq -r '.gpus[].name'      "$TOPOLOGY_FILE")
+mapfile -t GPU_VRAMS_GB < <(jq -r '.gpus[].memory_gb' "$TOPOLOGY_FILE")
+mapfile -t GPU_UUIDS    < <(jq -r '.gpus[].uuid'      "$TOPOLOGY_FILE")
+
+declare -A LINK_RANK
+declare -A LINK_TYPE
+while IFS=$'\t' read -r a b rank ltype; do
+  LINK_RANK["$a,$b"]=$rank
+  LINK_RANK["$b,$a"]=$rank
+  LINK_TYPE["$a,$b"]=$ltype
+  LINK_TYPE["$b,$a"]=$ltype
+done < <(jq -r '.links[] | [.gpu_a, .gpu_b, .rank, .link_type] | @tsv' "$TOPOLOGY_FILE")
+
+# Automatic assignment
+run_automatic() {
+  echo ""
+  chapter "AUTOMATIC GPU ASSIGNMENT"
+  echo -e "  ${GRN}Running topology-aware assignment...${NC}"
+  echo ""
+
+  local result
+  result=$(python3 "$ASSIGN_GPUS_SCRIPT" \
+    --topology "$TOPOLOGY_FILE" --model-size "$LLM_MODEL_SIZE_MB" 2>&1) || {
+    echo -e "  ${RED}Assignment failed:${NC}\n  $result"
+    exit 1
+  }
+
+  local strategy mode tp pp mem_util
+  strategy=$(echo "$result" | jq -r '.gpu_assignment.strategy')
+  mode=$(echo     "$result" | jq -r '.gpu_assignment.services.llama_server.parallelism.mode')
+  tp=$(echo       "$result" | jq -r '.gpu_assignment.services.llama_server.parallelism.tensor_parallel_size')
+  pp=$(echo       "$result" | jq -r '.gpu_assignment.services.llama_server.parallelism.pipeline_parallel_size')
+  mem_util=$(echo "$result" | jq -r '.gpu_assignment.services.llama_server.parallelism.gpu_memory_utilization')
+
+  GPU_ASSIGNMENT_JSON="$result"
+  success "Assignment complete"
+  echo ""
+  echo -e "  ${WHT}Strategy:${NC}    ${BGRN}${strategy}${NC}"
+  echo -e "  ${WHT}Llama mode:${NC}  ${BGRN}${mode}${NC}  ${DIM}(TP=${tp}  PP=${pp}  mem_util=${mem_util})${NC}"
+  echo ""
+  echo -e "  ${WHT}Service assignments:${NC}"
+
+  for svc in llama_server whisper comfyui embeddings; do
+    local labels=""
+    while IFS= read -r uuid; do
+      for i in "${GPU_INDICES[@]}"; do
+        [[ "${GPU_UUIDS[$i]}" == "$uuid" ]] && labels+="GPU${i} "
+      done
+    done < <(echo "$result" | jq -r ".gpu_assignment.services.${svc}.gpus[]" 2>/dev/null)
+    [[ -n "$labels" ]] && printf "  ${AMB}*${NC} %-16s ${BGRN}%s${NC}\n" "$svc" "$labels"
+  done
+
+  _show_json "$result"
+}
+
+# Custom assignment 
+run_custom() {
+  echo ""
+  chapter "CUSTOM GPU ASSIGNMENT"
+  echo -e "  ${GRN}Assign GPUs to each service manually.${NC}"
+  echo -e "  ${DIM}whisper / comfyui / embeddings: 1 GPU each.  llama_server: 1 or more.${NC}"
+  echo ""
+
+  declare -A CUSTOM_ASSIGNMENT
+  for svc in whisper comfyui embeddings; do
+    local valid=false
+    while ! $valid; do
+      read -rp "  GPU for ${WHT}${svc}${NC} (0-$((GPU_COUNT-1))): " chosen
+      if [[ "$chosen" =~ ^[0-9]+$ ]] && [[ $chosen -ge 0 ]] && [[ $chosen -lt $GPU_COUNT ]]; then
+        CUSTOM_ASSIGNMENT[$svc]=$chosen; valid=true
+      else
+        warn "  Invalid -- enter a number between 0 and $((GPU_COUNT-1))."
+      fi
+    done
+  done
+
+  echo ""
+  local used=("${CUSTOM_ASSIGNMENT[whisper]}" "${CUSTOM_ASSIGNMENT[comfyui]}" "${CUSTOM_ASSIGNMENT[embeddings]}")
+  local default_llama=""
+  for idx in "${GPU_INDICES[@]}"; do
+    local found=false
+    for u in "${used[@]}"; do [[ "$u" == "$idx" ]] && found=true; done
+    $found || default_llama+="${idx},"
+  done
+  default_llama="${default_llama%,}"
+
+  read -rp "  GPUs for ${WHT}llama_server${NC} [${default_llama}]: " llama_input
+  llama_input="${llama_input:-$default_llama}"
+  IFS=',' read -ra LLAMA_GPUS_CUSTOM <<< "$llama_input"
+  for g in "${LLAMA_GPUS_CUSTOM[@]}"; do
+    [[ "$g" =~ ^[0-9]+$ ]] && [[ $g -lt $GPU_COUNT ]] || error "Invalid GPU index '$g'"
+  done
+
+  echo ""
+  echo -e "  ${WHT}Assignment:${NC}"
+  printf "  ${AMB}*${NC} %-16s ${BGRN}" "llama_server"
+  for g in "${LLAMA_GPUS_CUSTOM[@]}"; do printf "GPU%s " "$g"; done
+  printf "${NC}\n"
+  for svc in whisper comfyui embeddings; do
+    printf "  ${AMB}*${NC} %-16s ${BGRN}GPU%s${NC}\n" "$svc" "${CUSTOM_ASSIGNMENT[$svc]}"
+  done
+
+  local all_assigned=("${LLAMA_GPUS_CUSTOM[@]}" "${CUSTOM_ASSIGNMENT[whisper]}" \
+                      "${CUSTOM_ASSIGNMENT[comfyui]}" "${CUSTOM_ASSIGNMENT[embeddings]}")
+  local unique; unique=$(printf '%s\n' "${all_assigned[@]}" | sort -u | wc -l)
+  local strategy="dedicated"
+  [[ $unique -lt ${#all_assigned[@]} ]] && strategy="colocated"
+  [[ $GPU_COUNT -eq 1 ]] && strategy="single"
+
+  local n=${#LLAMA_GPUS_CUSTOM[@]}
+  local min_rank=100
+  if [[ $n -gt 1 ]]; then
+    for ((x=0; x<n; x++)); do
+      for ((y=x+1; y<n; y++)); do
+        local r; r=$(get_rank "${LLAMA_GPUS_CUSTOM[$x]}" "${LLAMA_GPUS_CUSTOM[$y]}")
+        [[ $r -lt $min_rank ]] && min_rank=$r
+      done
+    done
+  fi
+
+  local mode tp pp mem_util
+  if   [[ $n -eq 1 ]];         then mode="none";     tp=1;  pp=1;        mem_util=0.95
+  elif [[ $min_rank -ge 80 ]]; then
+    if   [[ $n -le 3 ]];       then mode="tensor";   tp=$n; pp=1;        mem_util=0.92
+    else                            mode="hybrid";   tp=2;  pp=$((n/2)); mem_util=0.93; fi
+  elif [[ $min_rank -le 10 ]]; then mode="pipeline"; tp=1;  pp=$n;       mem_util=0.95
+  elif [[ $n -le 3 ]];         then mode="pipeline"; tp=1;  pp=$n;       mem_util=0.95
+  elif [[ $min_rank -ge 40 ]]; then mode="hybrid";   tp=2;  pp=$((n/2)); mem_util=0.93
+  else                              mode="pipeline"; tp=1;  pp=$n;       mem_util=0.95
+  fi
+
+  echo ""
+  echo -e "  ${WHT}Llama parallelism:${NC}  mode=${BGRN}${mode}${NC}  TP=${tp}  PP=${pp}  mem_util=${mem_util}  ${DIM}(min_rank=${min_rank})${NC}"
+  echo ""
+
+  read -rp "  Apply this configuration? [Y/n]: " confirm
+  confirm="${confirm:-Y}"
+  [[ ! $confirm =~ ^[Yy]$ ]] && warn "Cancelled." && return
+
+  local llama_uuids_json
+  llama_uuids_json=$(for g in "${LLAMA_GPUS_CUSTOM[@]}"; do echo "\"${GPU_UUIDS[$g]}\""; done | jq -sc '.')
+
+  local result
+  result=$(jq -n \
+    --argjson strategy        "\"$strategy\"" \
+    --argjson llama_gpus      "$llama_uuids_json" \
+    --arg     mode             "$mode" \
+    --argjson tp               "$tp" \
+    --argjson pp               "$pp" \
+    --argjson mem              "$mem_util" \
+    --arg     whisper_gpu     "${GPU_UUIDS[${CUSTOM_ASSIGNMENT[whisper]}]}" \
+    --arg     comfyui_gpu     "${GPU_UUIDS[${CUSTOM_ASSIGNMENT[comfyui]}]}" \
+    --arg     embeddings_gpu  "${GPU_UUIDS[${CUSTOM_ASSIGNMENT[embeddings]}]}" \
+    '{
+      gpu_assignment: {
+        version: "1.0", strategy: $strategy,
+        services: {
+          llama_server: {
+            gpus: $llama_gpus,
+            parallelism: { mode: $mode, tensor_parallel_size: $tp,
+                           pipeline_parallel_size: $pp, gpu_memory_utilization: $mem }
+          },
+          whisper:    { gpus: [$whisper_gpu] },
+          comfyui:    { gpus: [$comfyui_gpu] },
+          embeddings: { gpus: [$embeddings_gpu] }
+        }
+      }
+    }')
+
+  GPU_ASSIGNMENT_JSON="$result"
+  success "Custom configuration applied."
+  _show_json "$result"
+}
+
+_show_json() {
+  echo ""; bootline
+  echo -e "${BGRN}GPU ASSIGNMENT JSON${NC}"
+  bootline; echo ""
+  echo "$1" | jq .
+  echo ""; bootline; echo ""
+}
+
+# --- Multi-GPU Config TUI ---
+GPU_ASSIGNMENT_JSON=""
+
+# If it is not an interactive session, run automatic assignment with default values
+if ! $INTERACTIVE || $DRY_RUN; then
+    log "Non-interactive mode: running automatic GPU assignment with default values."
+    run_automatic
+else
+    show_topology
+
+    bootline
+    echo -e "${BGRN}MULTI-GPU CONFIGURATION${NC}"
+    bootline
+    echo ""
+    echo -e "  You have ${BGRN}${GPU_COUNT}${NC} GPUs available. How would you like to use them?"
+    echo ""
+    echo -e "  ${BGRN}[1]${NC} Automatic ${AMB}(Recommended)${NC}"
+    echo -e "      ${DIM}Let DreamServer pick the best topology-aware assignment${NC}"
+    echo ""
+    echo -e "  ${WHT}[2]${NC} Custom Configuration"
+    echo -e "      ${DIM}Assign GPUs to services manually${NC}"
+    echo ""
+
+    read -rp "  Selection [1]: " choice
+    choice="${choice:-1}"
+    case "$choice" in
+    1) run_automatic ;;
+    2) run_custom ;;
+    *) warn "Invalid selection. Defaulting to automatic."; run_automatic ;;
+    esac
+fi
+
+LLAMA_SERVER_GPU_UUIDS=$(echo "$GPU_ASSIGNMENT_JSON" | jq -r '.gpu_assignment.services.llama_server.gpus[]?')
+WHISPER_GPU_UUID=$(echo "$GPU_ASSIGNMENT_JSON" | jq -r '.gpu_assignment.services.whisper.gpus[0]?')
+COMFYUI_GPU_UUID=$(echo "$GPU_ASSIGNMENT_JSON" | jq -r '.gpu_assignment.services.comfyui.gpus[0]?')
+EMBEDDINGS_GPU_UUID=$(echo "$GPU_ASSIGNMENT_JSON" | jq -r '.gpu_assignment.services.embeddings.gpus[0]?')
+
+_mode=$(echo "$GPU_ASSIGNMENT_JSON" | jq -r '.gpu_assignment.services.llama_server.parallelism.mode // "none"')
+case "$_mode" in
+  tensor|hybrid) LLAMA_ARG_SPLIT_MODE="row"   ;;
+  pipeline)      LLAMA_ARG_SPLIT_MODE="layer" ;;
+  *)             LLAMA_ARG_SPLIT_MODE="none"  ;;
+esac
+unset _mode
+
+LLAMA_ARG_TENSOR_SPLIT=$(echo "$GPU_ASSIGNMENT_JSON" | jq -r '
+  .gpu_assignment.services.llama_server.parallelism.tensor_split // [] |
+  if length > 0 then map(tostring) | join(",") else "" end')

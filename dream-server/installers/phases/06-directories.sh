@@ -87,6 +87,8 @@ else
         log "Running in-place (source == install dir), skipping file copy"
     fi
 
+
+
     # Select tier-appropriate OpenClaw config
     if [[ "$ENABLE_OPENCLAW" == "true" && -n "$OPENCLAW_CONFIG" ]]; then
         OPENCLAW_MODEL="$LLM_MODEL"
@@ -287,6 +289,8 @@ MODELS_EOF
     ANTHROPIC_API_KEY=$(_env_get ANTHROPIC_API_KEY "${ANTHROPIC_API_KEY:-}")
     OPENAI_API_KEY=$(_env_get OPENAI_API_KEY "${OPENAI_API_KEY:-}")
     TOGETHER_API_KEY=$(_env_get TOGETHER_API_KEY "${TOGETHER_API_KEY:-}")
+    # Inline and escape the jsons
+    GPU_ASSIGNMENT_JSON_ONELINE=$(echo "$GPU_ASSIGNMENT_JSON" | jq -c '.' | sed 's/"/\\"/g')
 
     # Generate .env file
     cat > "$INSTALL_DIR/.env" << ENV_EOF
@@ -400,6 +404,16 @@ LANGFUSE_INIT_USER_PASSWORD=${LANGFUSE_INIT_USER_PASSWORD}
 
 # ── Image Generation ──
 ENABLE_IMAGE_GENERATION=${ENABLE_COMFYUI:-true}
+
+#=== Multi-GPU Settings ===
+GPU_ASSIGNMENT_JSON=${GPU_ASSIGNMENT_JSON_ONELINE:-{}}
+COMFYUI_GPU_UUID=${COMFYUI_GPU_UUID:-}
+WHISPER_GPU_UUID=${WHISPER_GPU_UUID:-}
+EMBEDDINGS_GPU_UUID=${EMBEDDINGS_GPU_UUID:-}
+LLAMA_SERVER_GPU_UUIDS=${LLAMA_SERVER_GPU_UUIDS:-}
+LLAMA_ARG_SPLIT_MODE=${LLAMA_ARG_SPLIT_MODE:-none}
+LLAMA_ARG_TENSOR_SPLIT=${LLAMA_ARG_TENSOR_SPLIT:-}
+
 ENV_EOF
 
     chmod 600 "$INSTALL_DIR/.env"  # Secure secrets file

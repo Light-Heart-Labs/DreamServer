@@ -1,0 +1,18 @@
+{
+  "vendor": "nvidia",
+  "gpu_count": 1,
+  "driver_version": "535.129.03",
+  "mig_enabled": false,
+  "numa": {},
+  "gpus": [
+    {
+      "index": 0,
+      "name": "NVIDIA RTX 4090",
+      "memory_gb": 24.0,
+      "pcie_gen": "4",
+      "pcie_width": "16",
+      "uuid": "GPU-12345678-1234-1234-1234-123456789012"
+    }
+  ],
+  "links": []
+}

@@ -7,7 +7,7 @@
 #          GPU backend, and capability profile
 #
 # Expects: SCRIPT_DIR, TIER, GPU_BACKEND, CAP_COMPOSE_OVERLAYS, LOG_FILE,
-#           log(), warn()
+#          GPU_COUNT, log(), warn()
 # Provides: resolve_compose_config() → sets COMPOSE_FILE, COMPOSE_FLAGS
 #
 # Modder notes:
@@ -91,6 +91,7 @@ resolve_compose_config() {
             --tier "$TIER" \
             --gpu-backend "$GPU_BACKEND" \
             --profile-overlays "${CAP_COMPOSE_OVERLAYS:-}" \
+            --gpu-count "${GPU_COUNT:-1}" \
             --env 2>>"$LOG_FILE")"
         load_env_from_output <<< "$COMPOSE_ENV"
     fi
@@ -107,6 +108,7 @@ resolve_compose_config() {
         COMPOSE_FLAGS="$COMPOSE_FLAGS -f docker-compose.override.yml"
         log "Including docker-compose.override.yml (user overrides)"
     fi
+
 
     log "Compose selection: $COMPOSE_FLAGS"
 }

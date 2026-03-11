@@ -98,7 +98,7 @@ gpu_type = (gpu.get("type") or "none").lower()
 gpu_name = gpu.get("name") or "None"
 memory_type = (gpu.get("memory_type") or "none").lower()
 vram_mb = int(gpu.get("vram_mb") or 0)
-gpu_count = 1 if gpu_type not in {"none", ""} else 0
+gpu_count = int(gpu.get("count") or (1 if gpu_type not in {"none", ""} else 0))
 
 llm_health_url = f"http://localhost:{llm_port}{llm_health}"
 llm_api_port = llm_port

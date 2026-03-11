@@ -161,6 +161,15 @@ parse_nvidia_vram_mb() {
     as_int "$mb"
 }
 
+# Count NVIDIA GPUs
+count_nvidia_gpus() {
+    if command -v nvidia-smi &>/dev/null; then
+        nvidia-smi --query-gpu=name --format=csv,noheader,nounits 2>/dev/null | wc -l | tr -d ' '
+    else
+        echo "0"
+    fi
+}
+
 # Detect AMD GPU via sysfs (works without ROCm installed)
 # Returns: gpu_name|vram_bytes|gtt_bytes|is_apu|gpu_busy|temp|power|vulkan|rocm|driver|device_id|subsystem_device|revision
 detect_amd_sysfs() {
@@ -253,6 +262,18 @@ detect_amd_sysfs() {
         fi
     done
     return 1
+}
+
+# Count AMD GPUs via sysfs
+count_amd_gpus() {
+    local count=0
+    for card_dir in /sys/class/drm/card*/device; do
+        [[ -d "$card_dir" ]] || continue
+        local vendor
+        vendor=$(cat "$card_dir/vendor" 2>/dev/null) || continue
+        [[ "$vendor" == "0x1002" ]] && (( count++ )) || true
+    done
+    echo "$count"
 }
 
 # Detect AMD GPU (legacy ROCm-only path)
@@ -429,6 +450,7 @@ main() {
 
     local gpu_name=""
     local gpu_vram_mb=0
+    local gpu_count=0
     local gpu_type="none"
     local gpu_architecture=""
     local memory_type="discrete"
@@ -452,6 +474,7 @@ main() {
     if [[ -n "$nvidia_out" ]]; then
         gpu_name=$(echo "$nvidia_out" | awk -F',' '{gsub(/^[ \t]+|[ \t]+$/,"",$1); print $1}' | xargs || true)
         gpu_vram_mb=$(parse_nvidia_vram_mb "$nvidia_out")
+        gpu_count=$(count_nvidia_gpus)
         gpu_type="nvidia"
         gpu_architecture="cuda"
         memory_type="discrete"
@@ -470,6 +493,7 @@ main() {
             gtt_bytes=$(as_int "$gtt_bytes")
 
             gpu_vram_mb=$(( vram_bytes / 1048576 ))
+            gpu_count=$(count_amd_gpus)
             gpu_type="amd"
             gpu_temp=$(as_int "$temp")
             gpu_power=$(as_int "$power")
@@ -503,6 +527,7 @@ main() {
         if [[ -n "$apple_out" ]]; then
             gpu_name="Apple Silicon (Unified Memory)"
             gpu_vram_mb=$((ram * 1024))
+            gpu_count=1
             gpu_type="apple"
             gpu_architecture="apple-unified"
             memory_type="unified"
@@ -546,6 +571,7 @@ main() {
     "name": "$esc_gpu",
     "architecture": "$(json_escape "$gpu_architecture")",
     "memory_type": "$(json_escape "$memory_type")",
+    "count": $gpu_count,
     "vram_mb": $gpu_vram_mb,
     "vram_gb": $gpu_vram_gb,
     "device_id": "$(json_escape "$device_id")",

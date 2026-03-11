@@ -1,0 +1,271 @@
+{
+  "vendor": "nvidia",
+  "gpu_count": 8,
+  "driver_version": "535.129.03",
+  "mig_enabled": false,
+  "numa": {},
+  "gpus": [
+    {
+      "index": 0,
+      "name": "NVIDIA A100-SXM4-80GB",
+      "memory_gb": 80.0,
+      "pcie_gen": "4",
+      "pcie_width": "16",
+      "uuid": "GPU-00000000-0000-0000-0000-000000000000"
+    },
+    {
+      "index": 1,
+      "name": "NVIDIA A100-SXM4-80GB",
+      "memory_gb": 80.0,
+      "pcie_gen": "4",
+      "pcie_width": "16",
+      "uuid": "GPU-11111111-1111-1111-1111-111111111111"
+    },
+    {
+      "index": 2,
+      "name": "NVIDIA A100-SXM4-80GB",
+      "memory_gb": 80.0,
+      "pcie_gen": "4",
+      "pcie_width": "16",
+      "uuid": "GPU-22222222-2222-2222-2222-222222222222"
+    },
+    {
+      "index": 3,
+      "name": "NVIDIA A100-SXM4-80GB",
+      "memory_gb": 80.0,
+      "pcie_gen": "4",
+      "pcie_width": "16",
+      "uuid": "GPU-33333333-3333-3333-3333-333333333333"
+    },
+    {
+      "index": 4,
+      "name": "NVIDIA A100-SXM4-80GB",
+      "memory_gb": 80.0,
+      "pcie_gen": "4",
+      "pcie_width": "16",
+      "uuid": "GPU-44444444-4444-4444-4444-444444444444"
+    },
+    {
+      "index": 5,
+      "name": "NVIDIA A100-SXM4-80GB",
+      "memory_gb": 80.0,
+      "pcie_gen": "4",
+      "pcie_width": "16",
+      "uuid": "GPU-55555555-5555-5555-5555-555555555555"
+    },
+    {
+      "index": 6,
+      "name": "NVIDIA A100-SXM4-80GB",
+      "memory_gb": 80.0,
+      "pcie_gen": "4",
+      "pcie_width": "16",
+      "uuid": "GPU-66666666-6666-6666-6666-666666666666"
+    },
+    {
+      "index": 7,
+      "name": "NVIDIA A100-SXM4-80GB",
+      "memory_gb": 80.0,
+      "pcie_gen": "4",
+      "pcie_width": "16",
+      "uuid": "GPU-77777777-7777-7777-7777-777777777777"
+    }
+  ],
+  "links": [
+    {
+      "gpu_a": 0,
+      "gpu_b": 1,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 0,
+      "gpu_b": 2,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 0,
+      "gpu_b": 3,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 0,
+      "gpu_b": 4,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 0,
+      "gpu_b": 5,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 0,
+      "gpu_b": 6,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 0,
+      "gpu_b": 7,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 1,
+      "gpu_b": 2,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 1,
+      "gpu_b": 3,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 1,
+      "gpu_b": 4,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 1,
+      "gpu_b": 5,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 1,
+      "gpu_b": 6,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 1,
+      "gpu_b": 7,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 2,
+      "gpu_b": 3,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 2,
+      "gpu_b": 4,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 2,
+      "gpu_b": 5,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 2,
+      "gpu_b": 6,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 2,
+      "gpu_b": 7,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 3,
+      "gpu_b": 4,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 3,
+      "gpu_b": 5,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 3,
+      "gpu_b": 6,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 3,
+      "gpu_b": 7,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 4,
+      "gpu_b": 5,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 4,
+      "gpu_b": 6,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 4,
+      "gpu_b": 7,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 5,
+      "gpu_b": 6,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 5,
+      "gpu_b": 7,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    },
+    {
+      "gpu_a": 6,
+      "gpu_b": 7,
+      "link_type": "NV12",
+      "link_label": "NVLink",
+      "rank": 100
+    }
+  ]
+}

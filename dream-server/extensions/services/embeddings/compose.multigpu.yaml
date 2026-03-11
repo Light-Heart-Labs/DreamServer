@@ -1,0 +1,9 @@
+services:
+  embeddings:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${EMBEDDINGS_GPU_UUID}"]
+              capabilities: [gpu]

@@ -1,0 +1,9 @@
+services:
+  comfyui:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${COMFYUI_GPU_UUID}"]
+              capabilities: [gpu]

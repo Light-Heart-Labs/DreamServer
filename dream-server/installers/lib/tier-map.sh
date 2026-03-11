@@ -23,6 +23,7 @@ resolve_tier_config() {
             GGUF_URL=""
             GGUF_SHA256=""
             MAX_CONTEXT=200000
+            LLM_MODEL_SIZE_MB=0
             ;;
         ARC)
             # Intel Arc A770 (16 GB) and future Arc B-series (≥12 GB VRAM)
@@ -55,6 +56,7 @@ resolve_tier_config() {
             GGUF_URL="https://huggingface.co/unsloth/Qwen3-Coder-Next-GGUF/resolve/main/Qwen3-Coder-Next-Q4_K_M.gguf"
             GGUF_SHA256="9e6032d2f3b50a60f17ce8bf5a1d85c71af9b53b89c7978020ae7c660f29b090"
             MAX_CONTEXT=131072
+            LLM_MODEL_SIZE_MB=48500   # 48.5 GB per HF file listing
             ;;
         SH_LARGE)
             TIER_NAME="Strix Halo 90+"
@@ -63,6 +65,7 @@ resolve_tier_config() {
             GGUF_URL="https://huggingface.co/unsloth/Qwen3-Coder-Next-GGUF/resolve/main/Qwen3-Coder-Next-Q4_K_M.gguf"
             GGUF_SHA256="9e6032d2f3b50a60f17ce8bf5a1d85c71af9b53b89c7978020ae7c660f29b090"
             MAX_CONTEXT=131072
+            LLM_MODEL_SIZE_MB=48500   # 48.5 GB per HF file listing
             ;;
         SH_COMPACT)
             TIER_NAME="Strix Halo Compact"
@@ -71,6 +74,7 @@ resolve_tier_config() {
             GGUF_URL="https://huggingface.co/unsloth/Qwen3-30B-A3B-GGUF/resolve/main/Qwen3-30B-A3B-Q4_K_M.gguf"
             GGUF_SHA256="9f1a24700a339b09c06009b729b5c809e0b64c213b8af5b711b3dbdfd0c5ba48"
             MAX_CONTEXT=131072
+            LLM_MODEL_SIZE_MB=18600   # 18.6 GB per HF file listing
             ;;
         0)
             TIER_NAME="Lightweight"
@@ -87,6 +91,7 @@ resolve_tier_config() {
             GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf"
             GGUF_SHA256="03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8"
             MAX_CONTEXT=16384
+            LLM_MODEL_SIZE_MB=5030    # 5.03 GB per HF file listing
             ;;
         2)
             TIER_NAME="Prosumer"
@@ -95,6 +100,7 @@ resolve_tier_config() {
             GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf"
             GGUF_SHA256="03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8"
             MAX_CONTEXT=32768
+            LLM_MODEL_SIZE_MB=5030    # 5.03 GB per HF file listing
             ;;
         3)
             TIER_NAME="Pro"
@@ -103,6 +109,7 @@ resolve_tier_config() {
             GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-27B-GGUF/resolve/main/Qwen3.5-27B-Q4_K_M.gguf"
             GGUF_SHA256="84b5f7f112156d63836a01a69dc3f11a6ba63b10a23b8ca7a7efaf52d5a2d806"
             MAX_CONTEXT=32768
+            LLM_MODEL_SIZE_MB=9000    # 9.0 GB per HF file listing
             ;;
         4)
             TIER_NAME="Enterprise"
@@ -111,6 +118,7 @@ resolve_tier_config() {
             GGUF_URL="https://huggingface.co/unsloth/Qwen3-30B-A3B-GGUF/resolve/main/Qwen3-30B-A3B-Q4_K_M.gguf"
             GGUF_SHA256="9f1a24700a339b09c06009b729b5c809e0b64c213b8af5b711b3dbdfd0c5ba48"
             MAX_CONTEXT=131072
+            LLM_MODEL_SIZE_MB=18600   # 18.6 GB per HF file listing
             ;;
         *)
             error "Invalid tier: $TIER. Valid tiers: 0, 1, 2, 3, 4, CLOUD, NV_ULTRA, SH_LARGE, SH_COMPACT, ARC, ARC_LITE"
