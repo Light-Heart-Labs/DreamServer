@@ -740,8 +740,144 @@ META
             cd "$INSTALL_DIR"
             ;;
 
+        diff|d)
+            local preset1="$2"
+            local preset2="$3"
+
+            # Validate arguments
+            if [[ -z "$preset1" ]] || [[ -z "$preset2" ]]; then
+                error "Usage: dream preset diff <preset1> <preset2>"
+            fi
+
+            local dir1="$PRESETS_DIR/$preset1"
+            local dir2="$PRESETS_DIR/$preset2"
+
+            # Check both presets exist
+            [[ -d "$dir1" ]] || error "Preset '$preset1' not found"
+            [[ -d "$dir2" ]] || error "Preset '$preset2' not found"
+
+            log "Comparing presets: ${CYAN}$preset1${NC} vs ${CYAN}$preset2${NC}"
+            echo ""
+
+            # Compare metadata
+            echo -e "${CYAN}━━━ Metadata ━━━${NC}"
+            if [[ -f "$dir1/meta.txt" ]] && [[ -f "$dir2/meta.txt" ]]; then
+                diff -u "$dir1/meta.txt" "$dir2/meta.txt" | tail -n +4 | sed "s/^-/$(printf "${RED}-${NC}")/" | sed "s/^+/$(printf "${GREEN}+${NC}")/" || true
+            fi
+            echo ""
+
+            # Compare extensions
+            echo -e "${CYAN}━━━ Service State ━━━${NC}"
+            if [[ -f "$dir1/extensions.list" ]] && [[ -f "$dir2/extensions.list" ]]; then
+                # Parse both files into associative arrays
+                declare -A ext1 ext2
+                while IFS=: read -r state sid; do
+                    [[ -n "$sid" ]] && ext1["$sid"]="$state"
+                done < "$dir1/extensions.list"
+                while IFS=: read -r state sid; do
+                    [[ -n "$sid" ]] && ext2["$sid"]="$state"
+                done < "$dir2/extensions.list"
+
+                # Find all unique service IDs
+                local all_sids=()
+                for sid in "${!ext1[@]}"; do all_sids+=("$sid"); done
+                for sid in "${!ext2[@]}"; do
+                    [[ -z "${ext1[$sid]}" ]] && all_sids+=("$sid")
+                done
+
+                # Sort and compare
+                local has_diff=false
+                for sid in $(printf '%s\n' "${all_sids[@]}" | sort); do
+                    local state1="${ext1[$sid]:-missing}"
+                    local state2="${ext2[$sid]:-missing}"
+
+                    if [[ "$state1" != "$state2" ]]; then
+                        has_diff=true
+                        if [[ "$state1" == "missing" ]]; then
+                            echo -e "  ${GREEN}+${NC} $sid: $state2"
+                        elif [[ "$state2" == "missing" ]]; then
+                            echo -e "  ${RED}-${NC} $sid: $state1"
+                        else
+                            echo -e "  ${YELLOW}~${NC} $sid: $state1 → $state2"
+                        fi
+                    fi
+                done
+
+                [[ "$has_diff" == "false" ]] && echo "  (no differences)"
+            fi
+            echo ""
+
+            # Compare environment variables
+            echo -e "${CYAN}━━━ Environment Variables ━━━${NC}"
+            if [[ -f "$dir1/env" ]] && [[ -f "$dir2/env" ]]; then
+                # Parse both env files
+                declare -A env1 env2
+                while IFS='=' read -r key value; do
+                    [[ "$key" =~ ^[[:space:]]*# ]] && continue
+                    [[ -z "$key" ]] && continue
+                    env1["$key"]="$value"
+                done < "$dir1/env"
+                while IFS='=' read -r key value; do
+                    [[ "$key" =~ ^[[:space:]]*# ]] && continue
+                    [[ -z "$key" ]] && continue
+                    env2["$key"]="$value"
+                done < "$dir2/env"
+
+                # Find all unique keys
+                local all_keys=()
+                for key in "${!env1[@]}"; do all_keys+=("$key"); done
+                for key in "${!env2[@]}"; do
+                    [[ -z "${env1[$key]}" ]] && all_keys+=("$key")
+                done
+
+                # Sort and compare (mask secrets)
+                local has_diff=false
+                for key in $(printf '%s\n' "${all_keys[@]}" | sort); do
+                    local val1="${env1[$key]}"
+                    local val2="${env2[$key]}"
+
+                    # Mask sensitive values
+                    if [[ "$key" =~ (PASSWORD|SECRET|KEY|TOKEN|API) ]]; then
+                        [[ -n "$val1" ]] && val1="***"
+                        [[ -n "$val2" ]] && val2="***"
+                    fi
+
+                    if [[ "$val1" != "$val2" ]]; then
+                        has_diff=true
+                        if [[ -z "$val1" ]]; then
+                            echo -e "  ${GREEN}+${NC} $key=$val2"
+                        elif [[ -z "$val2" ]]; then
+                            echo -e "  ${RED}-${NC} $key=$val1"
+                        else
+                            echo -e "  ${YELLOW}~${NC} $key: $val1 → $val2"
+                        fi
+                    fi
+                done
+
+                [[ "$has_diff" == "false" ]] && echo "  (no differences)"
+            fi
+            echo ""
+            ;;
+
         *)
-            log "Usage: dream preset <save|load|list|delete|export|import> [name]"
+            cat <<EOF
+Usage: dream preset <command> [args]
+
+Commands:
+  save <name>              Save current configuration as a preset
+  load <name>              Load a preset (restores .env and service state)
+  list                     List all saved presets
+  delete <name>            Delete a preset
+  export <name> <file>     Export preset to .tar.gz archive
+  import <file>            Import preset from .tar.gz archive
+  diff <preset1> <preset2> Compare two presets and show differences
+
+Examples:
+  dream preset save gaming
+  dream preset load gaming
+  dream preset diff gaming production
+  dream preset export gaming ~/gaming-preset.tar.gz
+EOF
             ;;
     esac
 }
