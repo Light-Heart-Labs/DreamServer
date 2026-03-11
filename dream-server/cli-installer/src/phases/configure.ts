@@ -3,7 +3,7 @@
 import { type InstallContext, REPO_URL, TIER_MAP } from '../lib/config.ts';
 import { exec } from '../lib/shell.ts';
 import { mergeEnv } from '../lib/env.ts';
-import { IS_WINDOWS, copyDir, removeDir, getComposeFileSeparator, getPermissionFixHint } from '../lib/platform.ts';
+import { IS_WINDOWS, IS_MACOS, copyDir, removeDir, getComposeFileSeparator, getPermissionFixHint } from '../lib/platform.ts';
 import * as ui from '../lib/ui.ts';
 import { Spinner } from '../lib/ui.ts';
 import { existsSync, mkdirSync, copyFileSync, readdirSync, readFileSync } from 'node:fs';
@@ -213,6 +213,14 @@ async function generateEnv(ctx: InstallContext, composeFiles: string[]): Promise
     ``,
     `# ── LLM Backend ──────────────────────────────────────────────`,
     `LLM_BACKEND=${ctx.llmBackend}`,
+    ``,
+    `# ── LiveKit (WebRTC voice) ────────────────────────────────────`,
+    `LIVEKIT_API_KEY=devkey-${randHex(8)}`,
+    `LIVEKIT_API_SECRET=${randHex(32)}`,
+    ``,
+    `# ── System ───────────────────────────────────────────────────`,
+    `TIMEZONE=${Intl.DateTimeFormat().resolvedOptions().timeZone}`,
+    `ENABLE_DEVTOOLS=${ctx.features.devtools}`,
   ];
 
   // Add vLLM-specific env vars
@@ -277,7 +285,9 @@ async function setupDataDirs(ctx: InstallContext): Promise<void> {
 
   // Fix ownership — containers run as UID 1000 (node user)
   // Skip on Windows — Docker Desktop handles bind mount permissions
-  if (IS_WINDOWS) {
+  if (IS_WINDOWS || IS_MACOS) {
+    // Windows: Docker Desktop handles bind mount permissions
+    // macOS: standard UID is 501, not 1000. Docker Desktop VirtioFS handles permissions.
     if (created > 0) {
       ui.ok(`Created ${created} data directories`);
     }

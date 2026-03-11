@@ -127,6 +127,14 @@ export async function uninstall(opts: UninstallOptions): Promise<void> {
         return;
       }
 
+      // Secondary safety: verify this is actually a Dream Server installation
+      const envPath = join(target, '.env');
+      const composePath = join(target, 'docker-compose.yml');
+      if (!existsSync(envPath) && !existsSync(composePath)) {
+        ui.fail(`Safety check: ${target} does not look like a Dream Server installation (no .env or docker-compose.yml)`);
+        return;
+      }
+
       const delSpinner = new ui.Spinner(`Removing ${installDir}...`);
       delSpinner.start();
       try {

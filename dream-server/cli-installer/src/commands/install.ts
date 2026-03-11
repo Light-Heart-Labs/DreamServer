@@ -7,6 +7,10 @@ import { features } from '../phases/features.ts';
 import { configure } from '../phases/configure.ts';
 import { downloadModel } from '../phases/model.ts';
 import { services } from '../phases/services.ts';
+import { devtools } from '../phases/devtools.ts';
+import { offline } from '../phases/offline.ts';
+import { amdTuning } from '../phases/amd-tuning.ts';
+import { nativeMetal } from '../phases/native-metal.ts';
 import { checkRequiredPorts } from '../lib/ports.ts';
 import { runHealthChecks, configurePerplexica, preDownloadSttModel } from '../phases/health.ts';
 import { parseEnv } from '../lib/env.ts';
@@ -25,6 +29,8 @@ export interface InstallOptions {
   workflows?: boolean;
   rag?: boolean;
   openclaw?: boolean;
+  devtools?: boolean;
+  offline?: boolean;
   dir?: string;
 }
 
@@ -39,13 +45,15 @@ export async function install(opts: InstallOptions): Promise<void> {
   ctx.interactive = !(opts.nonInteractive ?? false);
   if (opts.tier) ctx.tier = opts.tier;
   if (opts.dir) ctx.installDir = opts.dir;
+  ctx.offlineMode = opts.offline ?? false;
   if (opts.all) {
-    ctx.features = { voice: true, workflows: true, rag: true, openclaw: true };
+    ctx.features = { voice: true, workflows: true, rag: true, openclaw: true, devtools: true };
   } else {
     if (opts.voice !== undefined) ctx.features.voice = opts.voice;
     if (opts.workflows !== undefined) ctx.features.workflows = opts.workflows;
     if (opts.rag !== undefined) ctx.features.rag = opts.rag;
     if (opts.openclaw !== undefined) ctx.features.openclaw = opts.openclaw;
+    if (opts.devtools !== undefined) ctx.features.devtools = opts.devtools;
   }
 
   if (ctx.dryRun) {
@@ -88,7 +96,7 @@ export async function install(opts: InstallOptions): Promise<void> {
         .filter(([, v]) => v)
         .map(([k]) => k);
       ui.ok(`Using existing config: ${enabled.join(', ') || 'core only'}`);
-    } else if (!opts.all && !(opts.voice || opts.workflows || opts.rag || opts.openclaw)) {
+    } else if (!opts.all && !(opts.voice || opts.workflows || opts.rag || opts.openclaw || opts.devtools)) {
       await features(ctx);
     } else {
       ui.phase(3, 6, 'Feature Selection');
@@ -105,6 +113,9 @@ export async function install(opts: InstallOptions): Promise<void> {
     ui.phase(5, 6, 'Model Download', '~5-15min');
     await downloadModel(ctx);
 
+    // Phase 5b: Native Metal llama-server (macOS Apple Silicon only)
+    await nativeMetal(ctx);
+
     // Phase 6: Start services
     await services(ctx);
 
@@ -119,6 +130,15 @@ export async function install(opts: InstallOptions): Promise<void> {
       ui.warn(`${failures} service(s) did not pass health checks.`);
       ui.info('Some services may still be starting. Check with: dream-installer status');
     }
+
+    // Post-install: developer tools (opt-in)
+    await devtools(ctx);
+
+    // Post-install: offline mode (M1)
+    await offline(ctx);
+
+    // Post-install: AMD APU tuning (auto-detected)
+    await amdTuning(ctx);
   } catch (error) {
     console.log('');
     ui.fail(`Installation failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -145,6 +165,8 @@ function loadFeaturesFromEnv(ctx: InstallContext): void {
     if (env.ENABLE_WORKFLOWS !== undefined) ctx.features.workflows = toBool(env.ENABLE_WORKFLOWS);
     if (env.ENABLE_RAG !== undefined) ctx.features.rag = toBool(env.ENABLE_RAG);
     if (env.ENABLE_OPENCLAW !== undefined) ctx.features.openclaw = toBool(env.ENABLE_OPENCLAW);
+    if (env.ENABLE_DEVTOOLS !== undefined) ctx.features.devtools = toBool(env.ENABLE_DEVTOOLS);
+    if (env.OFFLINE_MODE !== undefined) ctx.offlineMode = toBool(env.OFFLINE_MODE);
 
     if (env.GPU_BACKEND) ctx.gpu.backend = env.GPU_BACKEND as 'nvidia' | 'amd' | 'cpu';
   } catch {

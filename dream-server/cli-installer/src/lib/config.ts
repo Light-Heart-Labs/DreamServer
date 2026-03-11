@@ -104,11 +104,12 @@ export type FeatureSet = {
   workflows: boolean;
   rag: boolean;
   openclaw: boolean;
+  devtools: boolean;
 };
 
 export const FEATURE_PRESETS: Record<string, FeatureSet> = {
-  full: { voice: true, workflows: true, rag: true, openclaw: true },
-  core: { voice: false, workflows: false, rag: false, openclaw: false },
+  full: { voice: true, workflows: true, rag: true, openclaw: true, devtools: true },
+  core: { voice: false, workflows: false, rag: false, openclaw: false, devtools: false },
 };
 
 export type LlmBackend = 'llamacpp' | 'vllm';
@@ -135,6 +136,7 @@ export interface InstallContext {
     arch: string;
   };
   tailscaleIp: string | null;
+  offlineMode: boolean;
 }
 
 export function createDefaultContext(): InstallContext {
@@ -149,5 +151,6 @@ export function createDefaultContext(): InstallContext {
     gpu: { backend: 'cpu', name: 'Not detected', vramMB: 0, count: 0 },
     system: { os: getOsName(), distro: '', ramGB: 0, diskGB: 0, arch: process.arch },
     tailscaleIp: null,
+    offlineMode: false,
   };
 }

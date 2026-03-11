@@ -27,7 +27,9 @@ program
   .option('--workflows', 'Enable n8n workflows')
   .option('--rag', 'Enable RAG with Qdrant')
   .option('--openclaw', 'Enable OpenClaw agents')
+  .option('--devtools', 'Install AI developer tools (Claude Code, Codex, OpenCode)')
   .option('--dir <path>', 'Installation directory', DEFAULT_INSTALL_DIR)
+  .option('--offline', 'Configure for fully offline/air-gapped operation (M1 mode)')
   .action(install);
 
 program

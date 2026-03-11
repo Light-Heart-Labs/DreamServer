@@ -307,14 +307,18 @@ export function isDangerousPath(p: string): boolean {
   }
 
   // Unix
+  const home = getHome();
   const DANGEROUS_PATHS = [
     '/', '/home', '/root', '/usr', '/etc', '/var', '/boot',
     '/bin', '/sbin', '/lib', '/opt', '/tmp',
     // macOS system directories
     '/Users', '/Applications', '/Library', '/System', '/Volumes', '/private',
   ];
+  // Explicitly block the user's home directory
+  if (home) DANGEROUS_PATHS.push(resolve(home));
   if (DANGEROUS_PATHS.includes(target)) return true;
-  return target.split('/').filter(Boolean).length < 2;
+  // Require at least 3 segments (e.g. /home/user/dream-server)
+  return target.split('/').filter(Boolean).length < 3;
 }
 
 // ── Docker error messages ───────────────────────────────────────────────────

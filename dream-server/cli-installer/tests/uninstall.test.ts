@@ -20,7 +20,10 @@ describe('uninstall.ts', () => {
   let removeDirSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'dream-test-uninstall-'));
+    // Use 3+ segment path to pass isDangerousPath (now requires depth >= 3)
+    const baseDir = mkdtempSync(join(tmpdir(), 'dream-test-uninstall-'));
+    tmpDir = join(baseDir, 'dream-server');
+    fs.mkdirSync(tmpDir, { recursive: true });
 
     spyOn(ui, 'header').mockImplementation(() => {});
     spyOn(ui, 'step').mockImplementation(() => {});
@@ -47,7 +50,9 @@ describe('uninstall.ts', () => {
   });
 
   afterEach(() => {
-    rmSync(tmpDir, { recursive: true, force: true });
+    // Clean up the parent temp dir (tmpDir is nested inside it)
+    const parentDir = join(tmpDir, '..');
+    rmSync(parentDir, { recursive: true, force: true });
     spyOn(ui, 'header').mockRestore();
     spyOn(ui, 'step').mockRestore();
     spyOn(ui, 'ok').mockRestore();

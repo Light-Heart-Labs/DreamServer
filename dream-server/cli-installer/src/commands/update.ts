@@ -199,6 +199,15 @@ async function selfUpdate(): Promise<void> {
     if (!IS_WINDOWS) {
       await exec(['chmod', '+x', tmpPath], { throwOnError: false });
     }
+
+    // Windows locks running executables for overwriting but allows renaming.
+    // Rename current binary to .bak first, then move the new one in.
+    if (IS_WINDOWS) {
+      try {
+        const bakPath2 = `${currentBinary}.bak`;
+        moveFile(currentBinary, bakPath2);
+      } catch { /* best effort — old .bak from backup step may already cover this */ }
+    }
     moveFile(tmpPath, currentBinary);
 
     ui.ok('CLI updated to latest version');

@@ -42,6 +42,7 @@ export async function features(ctx: InstallContext): Promise<FeatureSet> {
       { label: 'Workflows', description: 'n8n automation', checked: true },
       { label: 'RAG', description: 'Qdrant vector database', checked: true },
       { label: 'OpenClaw', description: 'AI agent framework', checked: false },
+      { label: 'Dev Tools', description: 'Claude Code, Codex CLI, OpenCode', checked: false },
     ]);
 
     ctx.features = {
@@ -49,6 +50,7 @@ export async function features(ctx: InstallContext): Promise<FeatureSet> {
       workflows: results[1],
       rag: results[2],
       openclaw: results[3],
+      devtools: results[4],
     };
     ui.ok('Selected: Custom');
 

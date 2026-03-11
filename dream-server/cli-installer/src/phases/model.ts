@@ -56,8 +56,8 @@ export async function downloadModel(ctx: InstallContext): Promise<void> {
   // Use wget with resume support, or curl as fallback
   const hasWget = await commandExists('wget');
 
-  // Max download time: 30 minutes (kills process if stuck at OS level)
-  const MAX_DOWNLOAD_MS = 30 * 60 * 1000;
+  // No hard timeout — rely on stall detection (wget: --read-timeout=60, curl: --speed-time 60)
+  // Large models (30GB+) can take well over 30 minutes on average connections.
 
   let success = false;
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -77,12 +77,11 @@ export async function downloadModel(ctx: InstallContext): Promise<void> {
             '--read-timeout=60', '--timeout=30',
             '-O', partPath, tierConfig.ggufUrl,
           ],
-          { cwd: modelsDir, timeout: MAX_DOWNLOAD_MS },
+          { cwd: modelsDir },
         );
       } else {
         // --speed-limit 1000 --speed-time 60: abort if <1KB/s for 60s (stall detection)
         // --connect-timeout 30: abort if connection takes >30s
-        // --max-time 1800: absolute 30m cap
         // -C -: resume partial downloads
         exitCode = await execStream(
           [
@@ -91,7 +90,7 @@ export async function downloadModel(ctx: InstallContext): Promise<void> {
             '--connect-timeout', '30',
             '-o', partPath, tierConfig.ggufUrl,
           ],
-          { cwd: modelsDir, timeout: MAX_DOWNLOAD_MS },
+          { cwd: modelsDir },
         );
       }
 

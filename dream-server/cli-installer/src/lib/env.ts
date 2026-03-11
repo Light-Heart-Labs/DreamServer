@@ -100,6 +100,22 @@ export function mergeEnv(existing: string, generated: string): string {
   const generatedParsed = parseEnv(generated);
   let result = existing;
 
+  // System-managed keys that MUST be overwritten on re-install
+  // (tier/model/backend upgrades would silently fail otherwise)
+  const MANAGED_KEYS = new Set([
+    'LLM_MODEL', 'GGUF_FILE', 'CTX_SIZE', 'MAX_CONTEXT', 'TIER',
+    'GPU_BACKEND', 'LLM_BACKEND', 'COMPOSE_FILE',
+    'VLLM_MODEL', 'VLLM_ARGS', 'VLLM_IMAGE',
+    'ENABLE_VOICE', 'ENABLE_WORKFLOWS', 'ENABLE_RAG', 'ENABLE_OPENCLAW', 'ENABLE_DEVTOOLS',
+  ]);
+
+  // Force-overwrite managed keys in the existing content
+  for (const key of Object.keys(generatedParsed)) {
+    if (MANAGED_KEYS.has(key) && key in existingParsed) {
+      result = setEnvValue(result, key, generatedParsed[key]);
+    }
+  }
+
   // Append any keys from generated that don't exist in existing
   const newKeys: string[] = [];
   for (const key of Object.keys(generatedParsed)) {

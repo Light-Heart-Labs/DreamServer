@@ -2,8 +2,10 @@
 
 import { type InstallContext, TIER_MAP } from '../lib/config.ts';
 import { exec } from '../lib/shell.ts';
-import { getRamGB as platformGetRamGB, getDiskGB as platformGetDiskGB, getDefaultInstallDir, IS_MACOS } from '../lib/platform.ts';
+import { getRamGB as platformGetRamGB, getDiskGB as platformGetDiskGB, getDefaultInstallDir, IS_MACOS, IS_LINUX } from '../lib/platform.ts';
 import * as ui from '../lib/ui.ts';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 export interface DetectionResult {
   gpu: InstallContext['gpu'];
@@ -89,22 +91,97 @@ export async function detectGpu(): Promise<InstallContext['gpu']> {
       { throwOnError: false, timeout: 10000 },
     );
 
-    if (exitCode !== 0 || !stdout.trim()) return noGpu;
+    if (exitCode === 0 && stdout.trim()) {
+      const lines = stdout.trim().split('\n');
+      // Sum VRAM across all GPUs (multi-GPU support)
+      let totalVramMB = 0;
+      let gpuName = 'NVIDIA GPU';
+      for (const line of lines) {
+        const parts = line.split(',').map((s) => s.trim());
+        if (parts[0]) gpuName = parts[0];
+        totalVramMB += parseInt(parts[1] || '0', 10);
+      }
 
-    const lines = stdout.trim().split('\n');
-    const firstLine = lines[0].split(',').map((s) => s.trim());
-    const name = firstLine[0] || 'NVIDIA GPU';
-    const vramMB = parseInt(firstLine[1] || '0', 10);
-
-    return {
-      backend: 'nvidia',
-      name,
-      vramMB,
-      count: lines.length,
-    };
+      return {
+        backend: 'nvidia',
+        name: gpuName + (lines.length > 1 ? ` (x${lines.length})` : ''),
+        vramMB: totalVramMB,
+        count: lines.length,
+      };
+    }
   } catch {
-    return noGpu;
+    // nvidia-smi not found — not NVIDIA
   }
+
+  // AMD GPU detection via sysfs (Linux only)
+  if (IS_LINUX) {
+    try {
+      const { readdirSync, readFileSync: readFs } = await import('node:fs');
+      const drmPath = '/sys/class/drm';
+      if (existsSync(drmPath)) {
+        const cards = readdirSync(drmPath).filter((d) => /^card\d+$/.test(d));
+        let amdCount = 0;
+        let totalVramMB = 0;
+        let gpuName = 'AMD GPU';
+
+        for (const card of cards) {
+          const vendorPath = join(drmPath, card, 'device', 'vendor');
+          if (!existsSync(vendorPath)) continue;
+          const vendor = readFs(vendorPath, 'utf-8').trim();
+          if (vendor !== '0x1002') continue; // AMD vendor ID
+
+          amdCount++;
+
+          // Try to read VRAM
+          const vramPath = join(drmPath, card, 'device', 'mem_info_vram_total');
+          if (existsSync(vramPath)) {
+            const bytes = parseInt(readFs(vramPath, 'utf-8').trim(), 10);
+            if (!isNaN(bytes)) totalVramMB += Math.round(bytes / 1024 / 1024);
+          }
+
+          // Try to read GPU name
+          const namePaths = [
+            join(drmPath, card, 'device', 'product_name'),
+            join(drmPath, card, 'device', 'pci_id'),
+          ];
+          for (const np of namePaths) {
+            if (existsSync(np)) {
+              const n = readFs(np, 'utf-8').trim();
+              if (n) { gpuName = n; break; }
+            }
+          }
+        }
+
+        if (amdCount > 0) {
+          // For AMD APUs with unified memory, VRAM may show as 0
+          // Use system RAM as effective VRAM estimate
+          if (totalVramMB === 0) {
+            totalVramMB = platformGetRamGB() * 1024; // unified memory
+          }
+
+          return {
+            backend: 'amd' as const,
+            name: gpuName + (amdCount > 1 ? ` (x${amdCount})` : ''),
+            vramMB: totalVramMB,
+            count: amdCount,
+          };
+        }
+      }
+    } catch { /* sysfs not available */ }
+
+    // Fallback: try rocm-smi
+    try {
+      const { stdout, exitCode } = await exec(
+        ['rocm-smi', '--showmeminfo', 'vram'],
+        { throwOnError: false, timeout: 10000 },
+      );
+      if (exitCode === 0 && stdout.includes('GPU')) {
+        return { backend: 'amd' as const, name: 'AMD GPU (ROCm)', vramMB: 0, count: 1 };
+      }
+    } catch { /* rocm-smi not found */ }
+  }
+
+  return noGpu;
 }
 
 export function classifyTier(gpu: InstallContext['gpu'], ramGB: number): string {
