@@ -1,6 +1,7 @@
 // ── Phase 07: Developer Tools ────────────────────────────────────────────────
 // Port of installers/phases/07-devtools.sh
-// Installs Claude Code, Codex CLI, and OpenCode. All installs are best-effort.
+// Installs Claude Code, Codex CLI, Gemini CLI, OpenCode, Droid (Factory.ai), and Junie (JetBrains).
+// All installs are best-effort.
 
 import { type InstallContext, TIER_MAP } from '../lib/config.ts';
 import { exec, commandExists } from '../lib/shell.ts';
@@ -15,22 +16,29 @@ export async function devtools(ctx: InstallContext): Promise<void> {
   ui.phase(0, 0, 'Developer Tools');
 
   if (ctx.dryRun) {
-    ui.info('[DRY RUN] Would prompt for AI developer tools (Claude Code, Codex CLI, OpenCode)');
+    ui.info('[DRY RUN] Would prompt for AI developer tools (Claude Code, Codex CLI, Gemini CLI, OpenCode, Droid, Junie)');
     return;
   }
 
   // ── Detect what's already installed ──
-  const [hasClaude, hasCodex, hasOpenCode] = await Promise.all([
+  const [hasClaude, hasCodex, hasGemini, hasOpenCode, hasDroid, hasJunie] = await Promise.all([
     commandExists('claude'),
     commandExists('codex'),
+    commandExists('gemini'),
     commandExists('opencode').then(found =>
       found || existsSync(join(homedir(), '.opencode', 'bin', 'opencode'))),
+    commandExists('droid'),
+    commandExists('junie').then(found =>
+      found || existsSync(join(homedir(), '.local', 'bin', 'junie'))),
   ]);
 
   const alreadyInstalled: string[] = [];
   if (hasClaude) alreadyInstalled.push('Claude Code');
   if (hasCodex) alreadyInstalled.push('Codex CLI');
+  if (hasGemini) alreadyInstalled.push('Gemini CLI');
   if (hasOpenCode) alreadyInstalled.push('OpenCode');
+  if (hasDroid) alreadyInstalled.push('Droid');
+  if (hasJunie) alreadyInstalled.push('Junie');
 
   if (alreadyInstalled.length > 0) {
     ui.ok(`Already installed: ${alreadyInstalled.join(', ')}`);
@@ -41,7 +49,10 @@ export async function devtools(ctx: InstallContext): Promise<void> {
   const available: DevTool[] = [];
   if (!hasClaude) available.push({ name: 'claude', label: 'Claude Code', desc: 'Anthropic AI coding assistant' });
   if (!hasCodex) available.push({ name: 'codex', label: 'Codex CLI', desc: 'OpenAI coding assistant' });
+  if (!hasGemini) available.push({ name: 'gemini', label: 'Gemini CLI', desc: 'Google AI coding assistant' });
   if (!hasOpenCode) available.push({ name: 'opencode', label: 'OpenCode', desc: 'Open-source AI coding (local LLM)' });
+  if (!hasDroid) available.push({ name: 'droid', label: 'Droid CLI', desc: 'Factory.ai AI coding assistant' });
+  if (!hasJunie) available.push({ name: 'junie', label: 'Junie CLI', desc: 'JetBrains AI coding assistant' });
 
   if (available.length === 0) {
     ui.ok('All developer tools already installed');
@@ -73,10 +84,16 @@ export async function devtools(ctx: InstallContext): Promise<void> {
     && selected[available.findIndex(t => t.name === 'claude')];
   const installCodex = available.findIndex(t => t.name === 'codex') >= 0
     && selected[available.findIndex(t => t.name === 'codex')];
+  const installGemini = available.findIndex(t => t.name === 'gemini') >= 0
+    && selected[available.findIndex(t => t.name === 'gemini')];
   const installOpenCode = available.findIndex(t => t.name === 'opencode') >= 0
     && selected[available.findIndex(t => t.name === 'opencode')];
+  const installDroid = available.findIndex(t => t.name === 'droid') >= 0
+    && selected[available.findIndex(t => t.name === 'droid')];
+  const installJunie = available.findIndex(t => t.name === 'junie') >= 0
+    && selected[available.findIndex(t => t.name === 'junie')];
 
-  if (!installClaude && !installCodex && !installOpenCode) {
+  if (!installClaude && !installCodex && !installGemini && !installOpenCode && !installDroid && !installJunie) {
     ui.info('No developer tools selected — skipping');
     return;
   }
@@ -84,13 +101,14 @@ export async function devtools(ctx: InstallContext): Promise<void> {
   const home = homedir();
   const npmGlobalDir = join(home, '.npm-global');
 
-  // ── npm-based tools (Claude Code, Codex CLI) ──
-  if (installClaude || installCodex) {
+  // ── npm-based tools (Claude Code, Codex CLI, Gemini CLI) ──
+  if (installClaude || installCodex || installGemini) {
     const hasNpm = await commandExists('npm');
     if (!hasNpm) {
       ui.warn('npm not available — skipping CLI tool installs');
       if (installClaude) ui.info('  Install later: npm i -g @anthropic-ai/claude-code');
       if (installCodex) ui.info('  Install later: npm i -g @openai/codex');
+      if (installGemini) ui.info('  Install later: npm i -g @google/gemini-cli');
     } else {
       // Set up user-level npm global prefix (no sudo needed)
       if (!existsSync(npmGlobalDir)) {
@@ -118,6 +136,15 @@ export async function devtools(ctx: InstallContext): Promise<void> {
           ui.ok("Codex CLI installed (run 'codex' to start)");
         } catch {
           ui.warn('Codex CLI install failed — install later with: npm i -g @openai/codex');
+        }
+      }
+
+      if (installGemini) {
+        try {
+          await exec(['npm', 'install', '-g', '@google/gemini-cli'], { timeout: 120_000, throwOnError: false });
+          ui.ok("Gemini CLI installed (run 'gemini' to start)");
+        } catch {
+          ui.warn('Gemini CLI install failed — install later with: npm i -g @google/gemini-cli');
         }
       }
 
@@ -160,6 +187,48 @@ export async function devtools(ctx: InstallContext): Promise<void> {
       try { await exec(['rm', '-f', tmpFile], { throwOnError: false }); } catch { /* ignore */ }
     } catch {
       ui.warn('OpenCode install failed — install later with: curl -fsSL https://opencode.ai/install | bash');
+    }
+  }
+
+  // ── Droid CLI (Factory.ai) ──
+  if (installDroid) {
+    ui.info('Installing Droid CLI...');
+    try {
+      const result = await exec(
+        ['sh', '-c', 'curl -fsSL https://app.factory.ai/cli | sh'],
+        { throwOnError: false, timeout: 120_000 },
+      );
+      if (result.exitCode === 0) {
+        ui.ok("Droid CLI installed (run 'droid' to start)");
+      } else {
+        ui.warn('Droid CLI install failed — install later with: curl -fsSL https://app.factory.ai/cli | sh');
+      }
+    } catch {
+      ui.warn('Droid CLI install failed — install later with: curl -fsSL https://app.factory.ai/cli | sh');
+    }
+  }
+
+  // ── Junie CLI (JetBrains) ──
+  if (installJunie) {
+    ui.info('Installing Junie CLI...');
+    try {
+      const result = await exec(
+        ['bash', '-c', 'curl -fsSL https://junie.jetbrains.com/install.sh | bash'],
+        { throwOnError: false, timeout: 120_000 },
+      );
+      if (result.exitCode === 0) {
+        ui.ok("Junie CLI installed (run 'junie' to start)");
+        // Ensure ~/.local/bin is on PATH
+        const home = homedir();
+        const localBin = join(home, '.local', 'bin');
+        if (existsSync(localBin) && !process.env.PATH?.includes(localBin)) {
+          process.env.PATH = `${localBin}:${process.env.PATH}`;
+        }
+      } else {
+        ui.warn('Junie CLI install failed — install later with: curl -fsSL https://junie.jetbrains.com/install.sh | bash');
+      }
+    } catch {
+      ui.warn('Junie CLI install failed — install later with: curl -fsSL https://junie.jetbrains.com/install.sh | bash');
     }
   }
 
