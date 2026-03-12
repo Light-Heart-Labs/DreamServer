@@ -128,6 +128,26 @@ export async function preflight(ctx: InstallContext): Promise<PreflightResult> {
     }
   }
 
+  // NVIDIA Container Toolkit — required for Docker GPU passthrough
+  if (hasNvidiaSmi && hasDocker && !IS_MACOS && !IS_WINDOWS) {
+    const hasNvidiaCTK = await commandExists('nvidia-ctk');
+    if (!hasNvidiaCTK) {
+      ui.warn('NVIDIA GPU detected but nvidia-container-toolkit is not installed');
+      ui.info('Docker requires nvidia-container-toolkit to pass GPUs to containers');
+      if (!ctx.dryRun) {
+        const installed = await autoInstallNvidiaCTK();
+        if (installed) {
+          ui.ok('NVIDIA Container Toolkit installed');
+        } else {
+          ui.warn('Auto-install failed — GPU containers may not start');
+          ui.info('Install manually: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html');
+        }
+      }
+    } else {
+      ui.ok('NVIDIA Container Toolkit ready');
+    }
+  }
+
   if (hasGit) ui.ok('git installed');
   else ui.warn('git not found — will attempt install');
 
@@ -207,3 +227,59 @@ async function autoInstallDocker(): Promise<boolean> {
   }
 }
 
+/**
+ * Attempt to install NVIDIA Container Toolkit on Linux.
+ * Uses the official NVIDIA repository method.
+ * See: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+ */
+async function autoInstallNvidiaCTK(): Promise<boolean> {
+  const { exec } = await import('../lib/shell.ts');
+
+  try {
+    ui.step('Installing NVIDIA Container Toolkit...');
+
+    // Add NVIDIA Container Toolkit repository
+    const addRepo = await exec(
+      ['sudo', 'sh', '-c',
+        'curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg ' +
+        '&& curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | ' +
+        'sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" | ' +
+        'tee /etc/apt/sources.list.d/nvidia-container-toolkit.list > /dev/null'],
+      { throwOnError: false, timeout: 30_000 },
+    );
+
+    if (addRepo.exitCode !== 0) {
+      ui.warn('Could not add NVIDIA Container Toolkit repository');
+      return false;
+    }
+
+    // Install the toolkit
+    const install = await exec(
+      ['sudo', 'apt-get', 'update', '-qq'],
+      { throwOnError: false, timeout: 60_000 },
+    );
+    if (install.exitCode !== 0) return false;
+
+    const installPkg = await exec(
+      ['sudo', 'apt-get', 'install', '-y', '-qq', 'nvidia-container-toolkit'],
+      { throwOnError: false, timeout: 120_000 },
+    );
+    if (installPkg.exitCode !== 0) return false;
+
+    // Configure Docker runtime
+    await exec(
+      ['sudo', 'nvidia-ctk', 'runtime', 'configure', '--runtime=docker'],
+      { throwOnError: false, timeout: 10_000 },
+    );
+
+    // Restart Docker to pick up the new runtime
+    await exec(
+      ['sudo', 'systemctl', 'restart', 'docker'],
+      { throwOnError: false, timeout: 15_000 },
+    );
+
+    return true;
+  } catch {
+    return false;
+  }
+}
