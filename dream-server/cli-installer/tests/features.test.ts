@@ -78,8 +78,10 @@ describe('features.ts', () => {
       selectCall++;
       return selectCall === 1 ? 2 : 0; // Custom, then llamacpp
     });
-    multiSelectSpy.mockImplementation(async () => [true, false, true, false, false]); // Voice, RAG, no devtools
+    multiSelectSpy.mockImplementation(async () => [true, false, true, false, true, false, false, false]); // webSearch, no imageGen, voice, no workflows, rag, no litellm, no openclaw, no devtools
     const feats = await features(ctx);
+    expect(feats.webSearch).toBe(true);
+    expect(feats.imageGen).toBe(false);
     expect(feats.voice).toBe(true);
     expect(feats.workflows).toBe(false);
     expect(feats.rag).toBe(true);
@@ -97,7 +99,7 @@ describe('features.ts', () => {
       callCount++;
       return callCount === 1 ? 2 : 1; // Custom, then vLLM
     });
-    multiSelectSpy.mockImplementation(async () => [true, true, true, false, false]);
+    multiSelectSpy.mockImplementation(async () => [true, true, true, true, true, false, false, false]);
 
     await features(ctx);
     expect(ctx.llmBackend).toBe('vllm');
@@ -115,7 +117,7 @@ describe('features.ts', () => {
       callCount++;
       return callCount === 1 ? 2 : 0; // Custom, then llamacpp
     });
-    multiSelectSpy.mockImplementation(async () => [true, true, true, false, false]);
+    multiSelectSpy.mockImplementation(async () => [true, true, true, true, true, false, false, false]);
 
     await features(ctx);
     expect(ctx.llmBackend).toBe('llamacpp');

@@ -57,22 +57,23 @@ function buildChecks(ctx: InstallContext, env: Record<string, string>): ServiceC
     });
   }
 
-  checks.push(
-    {
-      name: 'Open WebUI',
-      port: parseInt(env.WEBUI_PORT || '3000', 10),
-      healthPath: '/',
-      timeout: 60,
-    },
-    {
+  checks.push({
+    name: 'Open WebUI',
+    port: parseInt(env.WEBUI_PORT || '3000', 10),
+    healthPath: '/',
+    timeout: 60,
+  });
+
+  if (ctx.features.webSearch) {
+    checks.push({
       name: 'Perplexica',
       port: parseInt(env.PERPLEXICA_PORT || '3004', 10),
       healthPath: '/',
       timeout: 30,
-    },
-  );
+    });
+  }
 
-  if (env.ENABLE_COMFYUI === 'true') {
+  if (ctx.features.imageGen) {
     checks.push({
       name: 'ComfyUI',
       port: parseInt(env.COMFYUI_PORT || '8188', 10),

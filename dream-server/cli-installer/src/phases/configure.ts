@@ -191,12 +191,17 @@ function shouldEnableExtension(name: string, ctx: InstallContext): boolean {
     'tts': 'voice',
     'qdrant': 'rag',
     'embeddings': 'rag',
+    'comfyui': 'imageGen',
+    'perplexica': 'webSearch',
+    'searxng': 'webSearch',
+    'litellm': 'litellm',
   };
 
   const feature = featureMap[name];
   if (feature) return ctx.features[feature];
 
   // Extensions without a feature flag are always enabled
+  // (privacy-shield, token-spy — lightweight security/monitoring)
   return true;
 }
 
@@ -337,6 +342,9 @@ async function generateEnv(ctx: InstallContext, composeFiles: string[]): Promise
     `ENABLE_WORKFLOWS=${ctx.features.workflows}`,
     `ENABLE_RAG=${ctx.features.rag}`,
     `ENABLE_OPENCLAW=${ctx.features.openclaw}`,
+    `ENABLE_IMAGE_GEN=${ctx.features.imageGen}`,
+    `ENABLE_WEB_SEARCH_STACK=${ctx.features.webSearch}`,
+    `ENABLE_LITELLM=${ctx.features.litellm}`,
     ``,
     `# ── LLM Backend ──────────────────────────────────────────────`,
     `LLM_BACKEND=${ctx.llmBackend}`,
