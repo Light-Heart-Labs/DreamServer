@@ -1,105 +1,40 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 
-// Mock data for development/demo - gated behind VITE_USE_MOCK_DATA env var
-const USE_MOCK_DATA = import.meta.env.VITE_USE_MOCK_DATA === 'true'
-
-function getMockModels() {
-  return [
-    {
-      id: 'Qwen/Qwen2.5-32B-Instruct-AWQ',
-      name: 'Qwen2.5 32B AWQ',
-      size: '15.7 GB',
-      sizeGb: 15.7,
-      vramRequired: 14,
-      contextLength: 32768,
-      specialty: 'General',
-      description: 'High-quality general purpose, recommended for most users',
-      tokensPerSec: 54,
-      quantization: 'AWQ',
-      status: 'loaded',
-      fitsVram: true,
-      fitsCurrentVram: false
-    },
-    {
-      id: 'Qwen/Qwen2.5-7B-Instruct',
-      name: 'Qwen2.5 7B',
-      size: '4.2 GB',
-      sizeGb: 4.2,
-      vramRequired: 6,
-      contextLength: 32768,
-      specialty: 'Fast',
-      description: 'Fast general-purpose model, good for simple tasks',
-      tokensPerSec: 120,
-      quantization: null,
-      status: 'available',
-      fitsVram: true,
-      fitsCurrentVram: true
-    },
-    {
-      id: 'Qwen/Qwen2.5-32B-Instruct-AWQ',
-      name: 'Qwen2.5 Coder 32B AWQ',
-      size: '15.7 GB',
-      sizeGb: 15.7,
-      vramRequired: 14,
-      contextLength: 32768,
-      specialty: 'Code',
-      description: 'Optimized for coding tasks and technical work',
-      tokensPerSec: 54,
-      quantization: 'AWQ',
-      status: 'downloaded',
-      fitsVram: true,
-      fitsCurrentVram: false
-    },
-    {
-      id: 'Qwen/Qwen2.5-72B-Instruct-AWQ',
-      name: 'Qwen2.5 72B AWQ',
-      size: '35.0 GB',
-      sizeGb: 35.0,
-      vramRequired: 42,
-      contextLength: 32768,
-      specialty: 'Quality',
-      description: 'Maximum quality, requires high-end GPU',
-      tokensPerSec: 28,
-      quantization: 'AWQ',
-      status: 'available',
-      fitsVram: false,
-      fitsCurrentVram: false
-    }
-  ]
-}
-
-const MOCK_GPU = { vramTotal: 16, vramUsed: 13.2, vramFree: 2.8 }
-const MOCK_CURRENT_MODEL = 'Qwen/Qwen2.5-32B-Instruct-AWQ'
-
-// Named export for dev-only mocking (explicit opt-in via VITE_USE_MOCK_DATA)
-export { getMockModels }
-
+/**
+ * Hook for the Model Hub — fetches unified model list from the API,
+ * supports backend filtering, and provides model actions (download/load/delete).
+ */
 export function useModels() {
-  const [models, setModels] = useState(USE_MOCK_DATA ? getMockModels() : [])
-  const [gpu, setGpu] = useState(USE_MOCK_DATA ? MOCK_GPU : null)
-  const [currentModel, setCurrentModel] = useState(USE_MOCK_DATA ? MOCK_CURRENT_MODEL : null)
-  const [loading, setLoading] = useState(USE_MOCK_DATA ? false : true)
+  const [allModels, setAllModels] = useState([])
+  const [gpu, setGpu] = useState(null)
+  const [currentModel, setCurrentModel] = useState(null)
+  const [activeModel, setActiveModel] = useState(null)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [actionLoading, setActionLoading] = useState(null)
+  const [filter, setFilter] = useState('all')
 
   const fetchModels = useCallback(async () => {
-    // If using mock data, don't attempt API call
-    if (USE_MOCK_DATA) {
-      setLoading(false)
-      return
-    }
-
     try {
-      const response = await fetch('/api/models')
-      if (!response.ok) throw new Error('Failed to fetch models')
-      const data = await response.json()
-      setModels(data.models)
-      setGpu(data.gpu)
-      setCurrentModel(data.currentModel)
+      const [modelsRes, activeRes] = await Promise.all([
+        fetch('/api/models'),
+        fetch('/api/models/active'),
+      ])
+
+      if (!modelsRes.ok) throw new Error('Failed to fetch models')
+      const modelsData = await modelsRes.json()
+      setAllModels(modelsData.models || [])
+      setGpu(modelsData.gpu)
+      setCurrentModel(modelsData.currentModel)
+
+      if (activeRes.ok) {
+        const activeData = await activeRes.json()
+        setActiveModel(activeData.id ? activeData : null)
+      }
+
       setError(null)
     } catch (err) {
       setError(err.message)
-      // No silent fallback - let error propagate to UI
     } finally {
       setLoading(false)
     }
@@ -107,10 +42,18 @@ export function useModels() {
 
   useEffect(() => {
     fetchModels()
-    // Refresh every 30 seconds
     const interval = setInterval(fetchModels, 30000)
     return () => clearInterval(interval)
   }, [fetchModels])
+
+  // Filter models by backend type
+  const models = useMemo(() => {
+    if (filter === 'all') return allModels
+    if (filter === 'local') return allModels.filter(m => m.backend === 'llama-server')
+    if (filter === 'ollama') return allModels.filter(m => m.backend === 'ollama')
+    if (filter === 'cloud') return allModels.filter(m => m.backend !== 'llama-server' && m.backend !== 'ollama')
+    return allModels
+  }, [allModels, filter])
 
   const downloadModel = async (modelId) => {
     setActionLoading(modelId)
@@ -118,8 +61,11 @@ export function useModels() {
       const response = await fetch(`/api/models/${encodeURIComponent(modelId)}/download`, {
         method: 'POST'
       })
-      if (!response.ok) throw new Error('Failed to start download')
-      await fetchModels() // Refresh
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.detail || 'Failed to start download')
+      }
+      await fetchModels()
     } catch (err) {
       setError(err.message)
     } finally {
@@ -133,8 +79,11 @@ export function useModels() {
       const response = await fetch(`/api/models/${encodeURIComponent(modelId)}/load`, {
         method: 'POST'
       })
-      if (!response.ok) throw new Error('Failed to load model')
-      await fetchModels() // Refresh
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.detail || 'Failed to load model')
+      }
+      await fetchModels()
     } catch (err) {
       setError(err.message)
     } finally {
@@ -144,14 +93,17 @@ export function useModels() {
 
   const deleteModel = async (modelId) => {
     if (!confirm(`Delete ${modelId}? This cannot be undone.`)) return
-    
+
     setActionLoading(modelId)
     try {
       const response = await fetch(`/api/models/${encodeURIComponent(modelId)}`, {
         method: 'DELETE'
       })
-      if (!response.ok) throw new Error('Failed to delete model')
-      await fetchModels() // Refresh
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.detail || 'Failed to delete model')
+      }
+      await fetchModels()
     } catch (err) {
       setError(err.message)
     } finally {
@@ -161,14 +113,79 @@ export function useModels() {
 
   return {
     models,
+    allModels,
     gpu,
     currentModel,
+    activeModel,
     loading,
     error,
     actionLoading,
+    filter,
+    setFilter,
     downloadModel,
     loadModel,
     deleteModel,
     refresh: fetchModels
   }
+}
+
+
+/**
+ * Hook for cloud provider management.
+ */
+export function useProviders() {
+  const [providers, setProviders] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(null)
+
+  const fetchProviders = useCallback(async () => {
+    try {
+      const res = await fetch('/api/models/providers')
+      if (!res.ok) return
+      const data = await res.json()
+      setProviders(data.providers || [])
+    } catch {
+      // Degrade gracefully
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchProviders()
+  }, [fetchProviders])
+
+  const saveProvider = async (providerId, apiKey, defaultModel) => {
+    setSaving(providerId)
+    try {
+      const res = await fetch(`/api/models/providers/${providerId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: apiKey, default_model: defaultModel }),
+      })
+      if (!res.ok) throw new Error('Failed to save provider')
+      await fetchProviders()
+      return true
+    } catch {
+      return false
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  const deleteProvider = async (providerId) => {
+    setSaving(providerId)
+    try {
+      const res = await fetch(`/api/models/providers/${providerId}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Failed to remove provider')
+      await fetchProviders()
+      return true
+    } catch {
+      return false
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  return { providers, loading, saving, saveProvider, deleteProvider, refresh: fetchProviders }
 }

@@ -1,6 +1,18 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+/* Dream Server custom theme */
+@theme {
+  --color-dream-bg: #0f0f13;
+  --color-dream-card: #18181b;
+  --color-dream-border: #27272a;
+
+  --animate-shimmer: shimmer 2s linear infinite;
+
+  @keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+}
 
 /* Custom scrollbar */
 ::-webkit-scrollbar {

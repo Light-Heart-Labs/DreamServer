@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "id": "qwen3-30b-a3b",
+      "name": "Qwen3 30B-A3B",
+      "family": "Qwen",
+      "description": "MoE model with 30B total / 3B active params. Excellent efficiency-to-quality ratio.",
+      "size_gb": 16.5,
+      "vram_required_gb": 18,
+      "context_length": 32768,
+      "tokens_per_sec_estimate": 65,
+      "quantization": "Q4_K_M",
+      "specialty": "General",
+      "backends": ["llama-server"],
+      "gguf": {
+        "filename": "Qwen3-30B-A3B-Q4_K_M.gguf",
+        "huggingface_repo": "bartowski/Qwen3-30B-A3B-GGUF",
+        "huggingface_file": "Qwen3-30B-A3B-Q4_K_M.gguf"
+      }
+    },
+    {
+      "id": "qwen3-14b",
+      "name": "Qwen3 14B",
+      "family": "Qwen",
+      "description": "High-quality dense model, great for coding and reasoning tasks.",
+      "size_gb": 8.7,
+      "vram_required_gb": 10,
+      "context_length": 32768,
+      "tokens_per_sec_estimate": 55,
+      "quantization": "Q4_K_M",
+      "specialty": "Balanced",
+      "backends": ["llama-server"],
+      "gguf": {
+        "filename": "Qwen3-14B-Q4_K_M.gguf",
+        "huggingface_repo": "bartowski/Qwen3-14B-GGUF",
+        "huggingface_file": "Qwen3-14B-Q4_K_M.gguf"
+      }
+    },
+    {
+      "id": "qwen3-8b",
+      "name": "Qwen3 8B",
+      "family": "Qwen",
+      "description": "Fast lightweight model, good for simple tasks and instant startup.",
+      "size_gb": 4.9,
+      "vram_required_gb": 6,
+      "context_length": 32768,
+      "tokens_per_sec_estimate": 120,
+      "quantization": "Q4_K_M",
+      "specialty": "Fast",
+      "backends": ["llama-server"],
+      "gguf": {
+        "filename": "Qwen3-8B-Q4_K_M.gguf",
+        "huggingface_repo": "bartowski/Qwen3-8B-GGUF",
+        "huggingface_file": "Qwen3-8B-Q4_K_M.gguf"
+      }
+    },
+    {
+      "id": "qwen3-32b",
+      "name": "Qwen3 32B",
+      "family": "Qwen",
+      "description": "Full-size dense model for maximum quality. Best for complex reasoning.",
+      "size_gb": 19.6,
+      "vram_required_gb": 22,
+      "context_length": 32768,
+      "tokens_per_sec_estimate": 35,
+      "quantization": "Q4_K_M",
+      "specialty": "Quality",
+      "backends": ["llama-server"],
+      "gguf": {
+        "filename": "Qwen3-32B-Q4_K_M.gguf",
+        "huggingface_repo": "bartowski/Qwen3-32B-GGUF",
+        "huggingface_file": "Qwen3-32B-Q4_K_M.gguf"
+      }
+    },
+    {
+      "id": "devstral-small",
+      "name": "Devstral Small 24B",
+      "family": "Mistral",
+      "description": "Coding-focused model from Mistral. Optimized for code generation and technical work.",
+      "size_gb": 14.2,
+      "vram_required_gb": 16,
+      "context_length": 131072,
+      "tokens_per_sec_estimate": 42,
+      "quantization": "Q4_K_M",
+      "specialty": "Code",
+      "backends": ["llama-server"],
+      "gguf": {
+        "filename": "Devstral-Small-2507-Q4_K_M.gguf",
+        "huggingface_repo": "bartowski/Devstral-Small-2507-GGUF",
+        "huggingface_file": "Devstral-Small-2507-Q4_K_M.gguf"
+      }
+    },
+    {
+      "id": "qwq-32b",
+      "name": "QwQ 32B",
+      "family": "Qwen",
+      "description": "Reasoning-optimized model with chain-of-thought. Excels at math and logic puzzles.",
+      "size_gb": 19.8,
+      "vram_required_gb": 22,
+      "context_length": 32768,
+      "tokens_per_sec_estimate": 32,
+      "quantization": "Q4_K_M",
+      "specialty": "Reasoning",
+      "backends": ["llama-server"],
+      "gguf": {
+        "filename": "QwQ-32B-Q4_K_M.gguf",
+        "huggingface_repo": "bartowski/QwQ-32B-GGUF",
+        "huggingface_file": "QwQ-32B-Q4_K_M.gguf"
+      }
+    }
+  ],
+  "providers": [
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "description": "GPT-5.4, GPT-5.3, o4-mini",
+      "api_base_url": "https://api.openai.com/v1",
+      "models": ["gpt-5.4", "gpt-5.3", "gpt-5.3-codex", "gpt-5-mini", "o4-mini"],
+      "docs_url": "https://platform.openai.com/api-keys"
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic",
+      "description": "Claude Opus 4.6, Claude Sonnet 4.6, Claude Haiku 4.5",
+      "api_base_url": "https://api.anthropic.com/v1",
+      "models": ["claude-opus-4.6-20260205", "claude-sonnet-4.6-20260217", "claude-haiku-4.5-20251022"],
+      "docs_url": "https://console.anthropic.com/settings/keys"
+    },
+    {
+      "id": "google",
+      "name": "Google AI",
+      "description": "Gemini 3.1 Pro, Gemini 3.1 Flash-Lite",
+      "api_base_url": "https://generativelanguage.googleapis.com/v1beta",
+      "models": ["gemini-3.1-pro-preview", "gemini-3.1-flash-lite-preview", "gemini-2.5-pro", "gemini-2.5-flash"],
+      "docs_url": "https://aistudio.google.com/apikey"
+    }
+  ]
+}
