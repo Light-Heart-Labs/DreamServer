@@ -193,6 +193,12 @@ validate_backup() {
 
     # Verify integrity checksums if available
     if [[ -f "$backup_dir/.checksums" ]]; then
+        # Verify checksum tool availability
+        if ! command -v sha256sum &>/dev/null && ! command -v shasum &>/dev/null; then
+            log_error "No checksum tool available (sha256sum or shasum required)"
+            return 1
+        fi
+
         log_info "Verifying backup integrity..."
         local checksum_errors=0
         local checksum_total=0
@@ -242,8 +248,14 @@ validate_backup() {
 
         if [[ $checksum_errors -gt 0 ]]; then
             log_error "Integrity check failed: $checksum_errors/$checksum_total checksums invalid"
-            log_error "Backup may be corrupted. Restore at your own risk."
-            return 1
+            echo ""
+            log_warn "⚠️  Backup may be corrupted!"
+            echo ""
+            read -rp "Continue with restore despite checksum failures? [y/N] " confirm
+            if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+                log_info "Restore cancelled"
+                return 1
+            fi
         else
             log_success "Integrity verified: $checksum_total checksums valid"
         fi

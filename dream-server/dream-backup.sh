@@ -152,6 +152,22 @@ delete_backup() {
     fi
 }
 
+# Get size of file or directory in bytes (cross-platform)
+get_size_bytes() {
+    local path="$1"
+    if [[ -f "$path" ]]; then
+        # File: use stat (cross-platform)
+        stat -c %s "$path" 2>/dev/null || stat -f %z "$path" 2>/dev/null || echo 0
+    elif [[ -d "$path" ]]; then
+        # Directory: use du -k (portable) and convert to bytes
+        local size_kb
+        size_kb=$(du -sk "$path" 2>/dev/null | cut -f1 || echo 0)
+        echo $((size_kb * 1024))
+    else
+        echo 0
+    fi
+}
+
 # Estimate backup size before starting
 estimate_backup_size() {
     local backup_type="$1"
@@ -188,12 +204,12 @@ estimate_backup_size() {
         if [[ "$path" == *"*"* ]]; then
             # Glob pattern
             for file in "$DREAM_DIR"/$path; do
-                [[ -e "$file" ]] && total_size=$((total_size + $(du -sb "$file" 2>/dev/null | cut -f1 || echo 0)))
+                [[ -e "$file" ]] && total_size=$((total_size + $(get_size_bytes "$file")))
             done
         else
             local full_path="$DREAM_DIR/$path"
             if [[ -e "$full_path" ]]; then
-                total_size=$((total_size + $(du -sb "$full_path" 2>/dev/null | cut -f1 || echo 0)))
+                total_size=$((total_size + $(get_size_bytes "$full_path")))
             fi
         fi
     done
@@ -498,6 +514,12 @@ verify_backup_integrity() {
     if [[ ! -f "$checksums_file" ]]; then
         log_warn "No checksums found in backup (created before integrity feature)"
         return 0
+    fi
+
+    # Verify checksum tool availability
+    if ! command -v sha256sum &>/dev/null && ! command -v shasum &>/dev/null; then
+        log_error "No checksum tool available (sha256sum or shasum required)"
+        return 1
     fi
 
     log_info "Verifying backup integrity: $backup_id"
