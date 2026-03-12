@@ -7,7 +7,7 @@ Detects and replaces PII with tokens, restores on reverse.
 import re
 import hashlib
 import secrets
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, Tuple
 from dataclasses import dataclass, field
 
 
@@ -140,7 +140,6 @@ class PrivacyShield:
 
 # Simple CLI for testing
 if __name__ == "__main__":
-    import sys
 
     shield = PrivacyShield()
 

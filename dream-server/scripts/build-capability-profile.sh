@@ -32,6 +32,8 @@ if [[ ! -x "${SCRIPT_DIR}/detect-hardware.sh" ]]; then
     exit 1
 fi
 
+[[ -f "$ROOT_DIR/lib/safe-env.sh" ]] && . "$ROOT_DIR/lib/safe-env.sh"
+
 HARDWARE_JSON="$("${SCRIPT_DIR}/detect-hardware.sh" --json)"
 CLASS_ENV="$("${SCRIPT_DIR}/classify-hardware.sh" \
     --platform-id "$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('os','unknown'))" "$HARDWARE_JSON")" \
@@ -43,7 +45,7 @@ CLASS_ENV="$("${SCRIPT_DIR}/classify-hardware.sh" \
     --cpu-name "$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('cpu',''))" "$HARDWARE_JSON")" \
     --ram-mb "$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('ram_gb',0) * 1024)" "$HARDWARE_JSON")" \
     --env)"
-eval "$CLASS_ENV"
+load_env_from_output <<< "$CLASS_ENV"
 
 # Source service registry for LLM port
 if [[ -f "$ROOT_DIR/lib/service-registry.sh" ]]; then

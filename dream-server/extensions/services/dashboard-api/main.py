@@ -27,7 +27,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 # --- Local modules ---
-from config import SERVICES, INSTALL_DIR, DATA_DIR, SIDEBAR_ICONS
+from config import SERVICES, DATA_DIR, SIDEBAR_ICONS
 from models import (
     GPUInfo,
     ServiceStatus,
@@ -40,7 +40,6 @@ from models import (
 from security import verify_api_key
 from gpu import get_gpu_info
 from helpers import (
-    check_service_health,
     get_all_services,
     get_disk_usage,
     get_model_info,
@@ -145,7 +144,7 @@ async def preflight_docker():
         return {"available": False, "error": "Docker not installed"}
     except subprocess.TimeoutExpired:
         return {"available": False, "error": "Docker check timed out"}
-    except Exception as e:
+    except Exception:
         logger.exception("Docker preflight check failed")
         return {"available": False, "error": "Docker check failed"}
 
@@ -179,7 +178,7 @@ async def preflight_gpu():
     }
 
 
-@app.get("/api/preflight/required-ports", dependencies=[Depends(verify_api_key)])
+@app.get("/api/preflight/required-ports")
 async def preflight_required_ports():
     """Return the list of service ports for preflight checking (no auth required)."""
     ports = []
@@ -201,11 +200,10 @@ async def preflight_ports(request: PortCheckRequest):
 
     conflicts = []
     for port in request.ports:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(1)
         try:
-            sock.bind(("0.0.0.0", port))
-            sock.close()
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.settimeout(1)
+                sock.bind(("0.0.0.0", port))
         except socket.error:
             conflicts.append(
                 {"port": port, "service": port_services.get(port, "Unknown"), "in_use": True}
@@ -225,7 +223,7 @@ async def preflight_disk():
             "used": usage.used,
             "path": str(check_path),
         }
-    except Exception as e:
+    except Exception:
         logger.exception("Disk preflight check failed")
         return {"error": "Disk check failed", "free": 0, "total": 0, "used": 0, "path": ""}
 

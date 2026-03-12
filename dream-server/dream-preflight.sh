@@ -10,21 +10,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DREAM_DIR="$SCRIPT_DIR"
 LOG_FILE="$DREAM_DIR/preflight-$(date +%Y%m%d-%H%M%S).log"
 
-# Load config from .env safely (line-by-line, no eval/source)
-if [ -f "$DREAM_DIR/.env" ]; then
-    while IFS='=' read -r key value; do
-        # Skip comments and empty lines
-        [[ "$key" =~ ^[[:space:]]*# ]] && continue
-        [[ -z "$key" ]] && continue
-        # Only allow safe variable names
-        key=$(echo "$key" | xargs)  # trim whitespace
-        [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-        # Strip surrounding quotes from value
-        value="${value%\"}" && value="${value#\"}"
-        value="${value%\'}" && value="${value#\'}"
-        export "$key=$value"
-    done < "$DREAM_DIR/.env"
-fi
+# Safe .env loading (no eval; use lib/safe-env.sh)
+[[ -f "$DREAM_DIR/lib/safe-env.sh" ]] && . "$DREAM_DIR/lib/safe-env.sh"
+load_env_file "$DREAM_DIR/.env"
+
 SERVICE_HOST="${SERVICE_HOST:-localhost}"
 
 # Auto-detect backend from .env or hardware probing.

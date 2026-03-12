@@ -159,6 +159,41 @@ tar -cz data/ | gpg -c > dream-backup-$(date +%Y%m%d).tar.gz.gpg
 gpg -d dream-backup-YYYYMMDD.tar.gz.gpg | tar -xz
 ```
 
+### Model Download Integrity
+
+The installer verifies GGUF model downloads using SHA256 checksums to prevent:
+- Corrupted downloads from network issues
+- Truncated files from interrupted transfers
+- Potential supply chain attacks
+
+**How it works:**
+1. Before installation: checks existing model files against known checksums
+2. After download: verifies freshly downloaded models
+3. On mismatch: removes corrupt file and prompts for re-download
+
+**Verification happens automatically** during installation. If a model fails verification:
+```bash
+# The installer will show:
+# ✗ Downloaded file is corrupt (SHA256 mismatch)
+#   Expected: 9f1a24700a339b09c06009b729b5c809e0b64c213b8af5b711b3dbdfd0c5ba48
+#   Got:      [actual hash]
+# Corrupt file removed. Re-run installer to download again.
+
+# Simply re-run the installer:
+./install.sh
+```
+
+**Manual verification:**
+```bash
+# Check a model file manually
+sha256sum data/models/Qwen3-8B-Q4_K_M.gguf
+
+# Compare against expected hash in installers/lib/tier-map.sh
+grep -A 2 "Qwen3-8B" installers/lib/tier-map.sh | grep GGUF_SHA256
+```
+
+**Note:** Some models (like Qwen3-14B and qwen3-coder-next) don't have checksums yet. The installer will skip verification for these but still download them successfully.
+
 ---
 
 ## API Security

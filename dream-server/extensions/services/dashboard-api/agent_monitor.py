@@ -5,9 +5,8 @@ Collects real-time metrics on agent swarms, sessions, and throughput.
 
 import asyncio
 import json
-import subprocess
 from datetime import datetime, timedelta
-from typing import Optional, Dict, List
+from typing import List
 import os
 
 

@@ -2,7 +2,6 @@
 
 import json
 
-import pytest
 
 from helpers import (
     get_model_info, get_bootstrap_status, _update_lifetime_tokens,

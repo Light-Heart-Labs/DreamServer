@@ -43,8 +43,8 @@ else:
         query_recent_events,
     )
 
-from filters import apply_filters, FilterResult
-from providers import ProviderRegistry, AnthropicProvider, OpenAICompatibleProvider
+from filters import apply_filters
+from providers import ProviderRegistry
 
 # ── Configuration ────────────────────────────────────────────────────────────
 

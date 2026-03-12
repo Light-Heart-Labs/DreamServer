@@ -18,29 +18,9 @@ export SCRIPT_DIR="$PROJECT_DIR"
 . "$PROJECT_DIR/lib/service-registry.sh"
 sr_load
 
-# Safe .env loading (aligns with dream-cli pattern)
-load_env_safe() {
-    local env_file="$PROJECT_DIR/.env"
-    [[ -f "$env_file" ]] || return 0
-    set -a
-    while IFS='=' read -r key value; do
-        # Skip comments and empty lines
-        [[ "$key" =~ ^[[:space:]]*# ]] && continue
-        [[ -z "$key" ]] && continue
-        # Only allow alphanumeric + underscore in key names
-        [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-        # Strip surrounding quotes from value
-        value="${value%\"}"
-        value="${value#\"}"
-        value="${value%\'}"
-        value="${value#\'}"
-        export "$key=$value"
-    done < "$env_file"
-    set +a
-}
-
-# Load .env for port overrides (if present)
-load_env_safe
+# Safe .env loading (no eval; use lib/safe-env.sh)
+[[ -f "$PROJECT_DIR/lib/safe-env.sh" ]] && . "$PROJECT_DIR/lib/safe-env.sh"
+load_env_file "$PROJECT_DIR/.env"
 
 # Resolve core ports from registry (honoring any env overrides)
 LLM_PORT="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-${SERVICE_PORTS[llama-server]:-8080}}}"
@@ -80,8 +60,8 @@ check() {
 
 echo "1. Container Status"
 echo "───────────────────"
-check "llama-server running" "docker compose $COMPOSE_FLAGS ps llama-server 2>/dev/null | grep -q 'Up\|running'"
-check "Open WebUI running" "docker compose $COMPOSE_FLAGS ps open-webui 2>/dev/null | grep -q 'Up\|running'"
+check "llama-server running" "docker compose $COMPOSE_FLAGS ps llama-server 2>/dev/null | grep -qE 'Up|running'"
+check "Open WebUI running" "docker compose $COMPOSE_FLAGS ps open-webui 2>/dev/null | grep -qE 'Up|running'"
 
 echo ""
 echo "2. Health Endpoints"
@@ -137,7 +117,7 @@ for sid in "${SERVICE_IDS[@]}"; do
     [[ -z "$_health" || "$_port" == "0" ]] && continue
 
     # Check if container is running
-    if docker compose $COMPOSE_FLAGS ps "$sid" 2>/dev/null | grep -q "Up\|running"; then
+    if docker compose $COMPOSE_FLAGS ps "$sid" 2>/dev/null | grep -qE "Up|running"; then
         check "$_name" "curl -sf http://localhost:${_port}${_health}"
     else
         printf "  %-30s ${YELLOW}○ SKIP (not enabled)${NC}\n" "$_name..."

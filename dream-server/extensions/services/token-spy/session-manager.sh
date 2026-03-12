@@ -198,7 +198,7 @@ REMOTESCRIPT
 
   local active_ids=""
   if echo "$remote_info" | grep -q "ACTIVE_IDS_START"; then
-    active_ids=$(echo "$remote_info" | sed -n '/ACTIVE_IDS_START/,/ACTIVE_IDS_END/p' | grep -v '_START\|_END')
+    active_ids=$(echo "$remote_info" | sed -n '/ACTIVE_IDS_START/,/ACTIVE_IDS_END/p' | grep -vE '_START|_END')
   fi
 
   local now
@@ -230,7 +230,7 @@ REMOTESCRIPT
         log "  [WARN] Oversized session $sid ($(( size / 1024 ))KB) but hot (${age_mins}m) — skipping"
       fi
     fi
-  done < <(echo "$remote_info" | sed -n '/SESSION_LIST_START/,/SESSION_LIST_END/p' | grep -v '_START\|_END' | grep '|')
+  done < <(echo "$remote_info" | sed -n '/SESSION_LIST_START/,/SESSION_LIST_END/p' | grep -vE '_START|_END' | grep '|')
 
   log "  Sessions: $session_count total, ${#to_remove[@]} to remove"
 

@@ -81,7 +81,7 @@ async def toggle_privacy_shield(request: PrivacyShieldToggle, api_key: str = Dep
         return {"success": False, "message": "Docker not available", "note": "Running in development mode without Docker"}
     except asyncio.TimeoutError:
         return {"success": False, "message": "Operation timed out"}
-    except Exception as e:
+    except Exception:
         logger.exception("Privacy Shield toggle failed")
         return {"success": False, "message": "Privacy Shield operation failed"}
 
@@ -100,6 +100,6 @@ async def get_privacy_shield_stats(api_key: str = Depends(verify_api_key)):
                     return await resp.json()
                 else:
                     return {"error": "Privacy Shield not responding", "status": resp.status}
-    except Exception as e:
+    except Exception:
         logger.exception("Cannot reach Privacy Shield")
         return {"error": "Cannot reach Privacy Shield", "enabled": False}

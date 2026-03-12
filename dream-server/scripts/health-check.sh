@@ -28,20 +28,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$SCRIPT_DIR/lib/service-registry.sh"
 sr_load
 
-# Load env for port overrides
-ENV_FILE="${INSTALL_DIR}/.env"
-if [[ -f "$ENV_FILE" ]]; then
-    set -a
-    while IFS='=' read -r key value; do
-        [[ "$key" =~ ^[[:space:]]*# ]] && continue
-        [[ -z "$key" ]] && continue
-        [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-        value="${value%\"}"
-        value="${value#\"}"
-        export "$key=$value"
-    done < "$ENV_FILE"
-    set +a
-fi
+# Safe .env loading for port overrides (no eval; use lib/safe-env.sh)
+[[ -f "$SCRIPT_DIR/lib/safe-env.sh" ]] && . "$SCRIPT_DIR/lib/safe-env.sh"
+load_env_file "${INSTALL_DIR}/.env"
 
 # Colors (disabled for JSON/quiet)
 if $JSON_OUTPUT || $QUIET; then
@@ -225,7 +214,7 @@ log ""
 # JSON output
 if $JSON_OUTPUT; then
     echo "{"
-    echo "  \"timestamp\": \"$(date -Iseconds)\","
+    echo "  \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\","
     echo "  \"status\": \"$([ $EXIT_CODE -eq 0 ] && echo "healthy" || ([ $EXIT_CODE -eq 1 ] && echo "degraded" || echo "critical"))\","
     echo "  \"services\": {"
     first=true

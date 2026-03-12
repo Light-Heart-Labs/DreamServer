@@ -9,9 +9,7 @@ import logging
 from decimal import Decimal
 from typing import Optional
 from uuid import UUID, uuid4
-from datetime import datetime, timezone
 
-import psycopg2
 from psycopg2.extras import RealDictCursor, register_uuid
 from psycopg2 import pool
 
@@ -243,7 +241,7 @@ def query_usage(agent: str | None = None, hours: int = 24, limit: int = 200) -> 
             cur.execute("SET LOCAL app.current_tenant = %s", (str(_tenant_id),))
 
             sql = """
-                SELECT 
+                SELECT
                     r.id, r.timestamp, a.name as agent, r.model,
                     r.request_body_bytes, r.message_count, r.user_message_count,
                     r.assistant_message_count, r.tool_count,
@@ -352,11 +350,11 @@ def query_session_status(agent: str, char_limit: int = 200_000) -> dict:
             # Get all recent turns for this agent, ordered chronologically
             cur.execute(
                 """
-                SELECT 
-                    r.conversation_history_chars, 
-                    r.cache_read_tokens, 
+                SELECT
+                    r.conversation_history_chars,
+                    r.cache_read_tokens,
                     r.cache_write_tokens,
-                    r.estimated_cost_usd, 
+                    r.estimated_cost_usd,
                     r.timestamp
                 FROM requests r
                 LEFT JOIN agents a ON r.agent_id = a.id
@@ -443,7 +441,7 @@ def query_recent_events(limit: int = 100, after_id: Optional[UUID] = None):
             if after_id:
                 cur.execute(
                     """
-                    SELECT 
+                    SELECT
                         r.id,
                         r.request_id as session_id,
                         r.model,
@@ -466,7 +464,7 @@ def query_recent_events(limit: int = 100, after_id: Optional[UUID] = None):
             else:
                 cur.execute(
                     """
-                    SELECT 
+                    SELECT
                         r.id,
                         r.request_id as session_id,
                         r.model,

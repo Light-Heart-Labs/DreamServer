@@ -34,7 +34,7 @@ LATENCY=$(( (END - START) / 1000000 ))
 rm -f "$TEST_AUDIO"
 
 # Check response
-if echo "$RESPONSE" | grep -q "text\|transcript"; then
+if echo "$RESPONSE" | grep -qE "text|transcript"; then
   echo "✅ PASS: STT transcription received (${LATENCY}ms)"
   echo "   Transcript: $(echo "$RESPONSE" | grep -o '"text":"[^"]*"' | cut -d'"' -f4)"
   exit 0

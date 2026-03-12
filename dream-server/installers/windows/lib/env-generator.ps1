@@ -106,7 +106,8 @@ function New-DreamEnv {
     $dashboardApiKey = Get-EnvOrNew "DASHBOARD_API_KEY"  (New-SecureHex -Bytes 32)
     $openclawToken   = Get-EnvOrNew "OPENCLAW_TOKEN"     (New-SecureHex -Bytes 24)
     $searxngSecret   = Get-EnvOrNew "SEARXNG_SECRET"     (New-SecureHex -Bytes 32)
-    $difySecretKey   = Get-EnvOrNew "DIFY_SECRET_KEY"    (New-SecureHex -Bytes 32)
+    $difySecretKey    = Get-EnvOrNew "DIFY_SECRET_KEY"           (New-SecureHex -Bytes 32)
+    $opencodePassword = Get-EnvOrNew "OPENCODE_SERVER_PASSWORD" (New-SecureBase64 -Bytes 16)
 
     # Determine LLM API URL based on backend
     # AMD on Windows: llama-server runs natively, containers reach it via host.docker.internal
@@ -207,7 +208,7 @@ LITELLM_KEY=$litellmKey
 LIVEKIT_API_KEY=$livekitApiKey
 LIVEKIT_API_SECRET=$livekitSecret
 OPENCLAW_TOKEN=$openclawToken
-OPENCODE_SERVER_PASSWORD=
+OPENCODE_SERVER_PASSWORD=$opencodePassword
 OPENCODE_PORT=3003
 DIFY_SECRET_KEY=$difySecretKey
 

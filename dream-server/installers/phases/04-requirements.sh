@@ -18,6 +18,8 @@
 
 chapter "REQUIREMENTS CHECK"
 
+[[ -f "${SCRIPT_DIR:-}/lib/safe-env.sh" ]] && . "${SCRIPT_DIR}/lib/safe-env.sh"
+
 REQUIREMENTS_MET=true
 TIER_RANK="$(tier_rank "$TIER")"
 
@@ -35,7 +37,7 @@ if [[ -x "$SCRIPT_DIR/scripts/preflight-engine.sh" ]]; then
         --compose-overlays "${CAP_COMPOSE_OVERLAYS:-}" \
         --script-dir "$SCRIPT_DIR" \
         --env 2>>"$LOG_FILE")"
-    eval "$PREFLIGHT_ENV"
+    load_env_from_output <<< "$PREFLIGHT_ENV"
 
     log "Preflight report: $PREFLIGHT_REPORT_FILE"
     if [[ "${PREFLIGHT_BLOCKERS:-0}" -gt 0 ]]; then

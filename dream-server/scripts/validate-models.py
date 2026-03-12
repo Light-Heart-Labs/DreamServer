@@ -4,9 +4,7 @@ Pre-flight model validation for Dream Server offline mode.
 Ensures required models are downloaded before starting services.
 """
 
-import os
 import sys
-import json
 from pathlib import Path
 
 # Model requirements for offline mode

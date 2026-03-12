@@ -205,7 +205,7 @@ else
     pass "install.sh exists and is executable"
 
     # Check --help flag
-    if "$PROJECT_DIR/install.sh" --help 2>&1 | grep -qi "usage\|option\|dream"; then
+    if "$PROJECT_DIR/install.sh" --help 2>&1 | grep -qiE "usage|option|dream"; then
         pass "install.sh --help produces usage info"
     else
         fail "install.sh --help does not produce usage info"
@@ -311,7 +311,7 @@ if [[ -f "$PROJECT_DIR/scripts/showcase.sh" ]]; then
     fi
 
     # Check it has menu function
-    if grep -q "print_menu\|menu\|select.*option" "$PROJECT_DIR/scripts/showcase.sh" 2>/dev/null; then
+    if grep -qE "print_menu|menu|select.*option" "$PROJECT_DIR/scripts/showcase.sh" 2>/dev/null; then
         pass "showcase.sh contains menu logic"
     else
         fail "showcase.sh missing menu logic"

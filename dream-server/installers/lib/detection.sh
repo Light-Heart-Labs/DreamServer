@@ -19,6 +19,9 @@
 #   The fix_nvidia_secure_boot() function handles Secure Boot key enrollment.
 # ============================================================================
 
+# Safe env loading (no eval) for script output KEY="value" lines
+[[ -f "${SCRIPT_DIR:-}/lib/safe-env.sh" ]] && . "${SCRIPT_DIR}/lib/safe-env.sh"
+
 load_capability_profile() {
     CAP_PROFILE_LOADED="false"
     local builder="$SCRIPT_DIR/scripts/build-capability-profile.sh"
@@ -29,7 +32,7 @@ load_capability_profile() {
 
     local env_out
     if env_out="$("$builder" --output "$CAPABILITY_PROFILE_FILE" --env 2>>"$LOG_FILE")"; then
-        eval "$env_out"
+        load_env_from_output <<< "$env_out"
         CAP_PROFILE_LOADED="true"
         log "Capability profile loaded: ${CAP_PROFILE_FILE:-$CAPABILITY_PROFILE_FILE}"
         log "Capability profile: platform=${CAP_PLATFORM_ID:-unknown}, gpu=${CAP_GPU_VENDOR:-unknown}, tier=${CAP_RECOMMENDED_TIER:-unknown}"
@@ -72,7 +75,7 @@ load_backend_contract() {
     fi
     local env_out
     if env_out="$("$loader" --backend "$backend" --env 2>>"$LOG_FILE")"; then
-        eval "$env_out"
+        load_env_from_output <<< "$env_out"
         BACKEND_CONTRACT_LOADED="true"
         log "Backend contract loaded: ${BACKEND_CONTRACT_FILE:-unknown}"
         log "Backend runtime: ${BACKEND_CONTRACT_ID:-$backend} (${BACKEND_LLM_ENGINE:-unknown})"

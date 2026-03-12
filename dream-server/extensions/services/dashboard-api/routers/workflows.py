@@ -256,6 +256,6 @@ async def workflow_executions(workflow_id: str, limit: int = 20, api_key: str = 
                     return {"workflowId": workflow_id, "n8nId": n8n_wf["id"], "executions": data.get("data", [])}
                 else:
                     return {"executions": [], "error": "Failed to fetch executions"}
-    except Exception as e:
+    except Exception:
         logger.exception("Failed to fetch workflow executions")
         return {"executions": [], "error": "Failed to fetch executions"}

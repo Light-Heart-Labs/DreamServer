@@ -8,26 +8,32 @@ REPORT_FILE="${1:-/tmp/dream-doctor-report.json}"
 CAP_FILE="/tmp/dream-doctor-capabilities.json"
 PREFLIGHT_FILE="/tmp/dream-doctor-preflight.json"
 
-# Source service registry for port resolution
+# Source service registry and safe env helpers
 if [[ -f "$ROOT_DIR/lib/service-registry.sh" ]]; then
     export SCRIPT_DIR="$ROOT_DIR"
     . "$ROOT_DIR/lib/service-registry.sh"
     sr_load
-    if [[ -f "$ROOT_DIR/.env" ]]; then
-        set -a
-        while IFS='=' read -r key value; do
-            [[ "$key" =~ ^[[:space:]]*# ]] && continue
-            [[ -z "$key" ]] && continue
-            [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-            value="${value%\"}"
-            value="${value#\"}"
-            value="${value%\'}"
-            value="${value#\'}"
-            export "$key=$value"
-        done < "$ROOT_DIR/.env"
-        set +a
-    fi
 fi
+if [[ -f "$ROOT_DIR/lib/safe-env.sh" ]]; then
+    . "$ROOT_DIR/lib/safe-env.sh"
+fi
+
+# Safe .env loading (no direct source to avoid injection)
+load_env_safe() {
+    local env_file="${1:-$ROOT_DIR/.env}"
+    [[ -f "$env_file" ]] || return 0
+    while IFS='=' read -r key value; do
+        [[ "$key" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "$key" ]] && continue
+        [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+        value="${value%\"}"
+        value="${value#\"}"
+        value="${value%\'}"
+        value="${value#\'}"
+        export "$key=$value"
+    done < "$env_file"
+}
+load_env_safe "$ROOT_DIR/.env"
 _DASHBOARD_PORT="${SERVICE_PORTS[dashboard]:-3001}"
 _WEBUI_PORT="${SERVICE_PORTS[open-webui]:-3000}"
 
@@ -36,7 +42,7 @@ DISK_GB="$(df -BG "$HOME" 2>/dev/null | tail -1 | awk '{gsub(/G/,"",$4); print i
 
 if [[ -x "$SCRIPT_DIR/build-capability-profile.sh" ]]; then
     CAP_ENV="$("$SCRIPT_DIR/build-capability-profile.sh" --output "$CAP_FILE" --env)"
-    eval "$CAP_ENV"
+    load_env_from_output <<< "$CAP_ENV"
 else
     echo "build-capability-profile.sh not found/executable" >&2
     exit 1
@@ -55,7 +61,7 @@ if [[ -x "$SCRIPT_DIR/preflight-engine.sh" ]]; then
         --compose-overlays "${CAP_COMPOSE_OVERLAYS:-}" \
         --script-dir "$ROOT_DIR" \
         --env)"
-    eval "$PREFLIGHT_ENV"
+    load_env_from_output <<< "$PREFLIGHT_ENV"
 else
     echo "preflight-engine.sh not found/executable" >&2
     exit 1

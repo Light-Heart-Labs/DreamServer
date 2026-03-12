@@ -610,11 +610,14 @@ else
     # ── Start Docker services ──
     chapter "STARTING SERVICES"
     ai "Running: docker compose ${COMPOSE_FLAGS[*]} up -d"
+    set +o pipefail  # pipefail would abort on compose exit before PIPESTATUS is read; capture it first
     docker compose "${COMPOSE_FLAGS[@]}" up -d 2>&1 | while IFS= read -r line; do
         echo "  $line"
     done
+    compose_exit="${PIPESTATUS[0]}"
+    set -o pipefail
 
-    if [[ "${PIPESTATUS[0]}" -ne 0 ]]; then
+    if [[ "$compose_exit" -ne 0 ]]; then
         ai_err "docker compose up failed"
         exit 1
     fi

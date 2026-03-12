@@ -95,7 +95,7 @@ async def trigger_update(action: UpdateAction, background_tasks: BackgroundTasks
             return {"success": True, "update_available": result.returncode == 2, "output": result.stdout + result.stderr}
         except subprocess.TimeoutExpired:
             raise HTTPException(status_code=504, detail="Update check timed out")
-        except Exception as e:
+        except Exception:
             logger.exception("Update check failed")
             raise HTTPException(status_code=500, detail="Check failed")
     elif action.action == "backup":
@@ -104,7 +104,7 @@ async def trigger_update(action: UpdateAction, background_tasks: BackgroundTasks
             return {"success": result.returncode == 0, "output": result.stdout + result.stderr}
         except subprocess.TimeoutExpired:
             raise HTTPException(status_code=504, detail="Backup timed out")
-        except Exception as e:
+        except Exception:
             logger.exception("Backup failed")
             raise HTTPException(status_code=500, detail="Backup failed")
     elif action.action == "update":

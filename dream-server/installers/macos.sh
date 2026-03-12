@@ -38,6 +38,8 @@ done
 echo "Dream Server macOS installer (MVP)"
 echo ""
 
+[[ -f "$SCRIPT_DIR/lib/safe-env.sh" ]] && . "$SCRIPT_DIR/lib/safe-env.sh"
+
 ARCH="$(uname -m 2>/dev/null || echo unknown)"
 if [[ "$ARCH" == "arm64" ]]; then
     echo "[OK] Apple Silicon detected: $ARCH"
@@ -78,7 +80,7 @@ if [[ -x "$SCRIPT_DIR/scripts/preflight-engine.sh" ]]; then
         --compose-overlays "docker-compose.base.yml,docker-compose.amd.yml" \
         --script-dir "$SCRIPT_DIR" \
         --env)"
-    eval "$PREFLIGHT_ENV"
+    load_env_from_output <<< "$PREFLIGHT_ENV"
     echo "[INFO] Preflight report: $REPORT_FILE"
     echo "[INFO] Blockers: ${PREFLIGHT_BLOCKERS:-0}  Warnings: ${PREFLIGHT_WARNINGS:-0}"
     python3 - "$REPORT_FILE" << 'PY'

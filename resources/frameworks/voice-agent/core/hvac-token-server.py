@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 HVAC LiveKit Token Server
-Runs on port 8096 (separate from healthcare on 8095)
+Runs on port 8096 (token server on 8095)
 
-Deploy to: /home/michael/hvac-token-server.py
+Deploy alongside hvac_agent.py
 """
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -97,7 +97,7 @@ class TokenHandler(BaseHTTPRequestHandler):
         body = self.rfile.read(content_length)
         data = json.loads(body) if body else {}
 
-        # HVAC-specific room naming (different from healthcare)
+        # HVAC-specific room naming
         timestamp = int(time.time())
         identity = data.get('identity', f'caller-{timestamp}')
         room = data.get('room', f'hvac-ticket-{timestamp}')
@@ -136,7 +136,7 @@ class TokenHandler(BaseHTTPRequestHandler):
         print(f"[HVAC Token] {args[0]}")
 
 if __name__ == '__main__':
-    PORT = 8096  # Different from healthcare (8095)
+    PORT = 8096  # Token server port
     server = HTTPServer(('0.0.0.0', PORT), TokenHandler)
     print(f"HVAC LiveKit Token Server running on port {PORT}")
     print(f"LiveKit URL: {LIVEKIT_URL}")

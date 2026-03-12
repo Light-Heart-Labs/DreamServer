@@ -40,37 +40,96 @@ else
     # Ensure model directory exists
     mkdir -p "$INSTALL_DIR/data/models"
 
-    # Download GGUF model if not already present (with retry)
+    # Download GGUF model if not already present (with retry and integrity verification)
     GGUF_DIR="$INSTALL_DIR/data/models"
-    if [[ "${DREAM_MODE:-local}" != "cloud" && ! -f "$GGUF_DIR/$GGUF_FILE" && -n "$GGUF_URL" ]]; then
-        ai "Downloading GGUF model: $GGUF_FILE"
-        signal "This is the big one. I've got it — sit back."
-        echo ""
-
-        # Retry loop: up to 3 attempts with resume support (-c flag)
-        _dl_success=false
-        for _attempt in 1 2 3; do
-            [[ $_attempt -gt 1 ]] && ai "Retry attempt $_attempt of 3..."
-            wget -c -q -O "$GGUF_DIR/$GGUF_FILE.part" "$GGUF_URL" \
-                >> "$INSTALL_DIR/logs/model-download.log" 2>&1 &
-            dl_pid=$!
-
-            if spin_task $dl_pid "Downloading $GGUF_FILE"; then
-                mv "$GGUF_DIR/$GGUF_FILE.part" "$GGUF_DIR/$GGUF_FILE"
-                printf "\r  ${BGRN}✓${NC} %-60s\n" "Model downloaded: $GGUF_FILE"
-                _dl_success=true
-                break
+    if [[ "${DREAM_MODE:-local}" != "cloud" && -n "$GGUF_URL" ]]; then
+        # Check if model exists and verify integrity
+        if [[ -f "$GGUF_DIR/$GGUF_FILE" ]]; then
+            if [[ -n "$GGUF_SHA256" ]]; then
+                if command -v sha256sum &>/dev/null; then
+                    ai "Verifying model integrity (SHA256)..."
+                    ACTUAL_HASH=$(sha256sum "$GGUF_DIR/$GGUF_FILE" 2>/dev/null | awk '{print $1}')
+                    if [[ -n "$ACTUAL_HASH" && "$ACTUAL_HASH" == "$GGUF_SHA256" ]]; then
+                        ai_ok "Model verified: $GGUF_FILE"
+                    elif [[ -z "$ACTUAL_HASH" ]]; then
+                        ai_warn "Could not compute checksum for existing model file"
+                        ai_ok "GGUF model already present: $GGUF_FILE (verification skipped)"
+                    else
+                        ai_warn "Model file is corrupt (SHA256 mismatch)."
+                        ai "  Expected: $GGUF_SHA256"
+                        ai "  Got:      $ACTUAL_HASH"
+                        ai "Removing corrupt file and re-downloading..."
+                        rm -f "$GGUF_DIR/$GGUF_FILE"
+                    fi
+                else
+                    ai_warn "sha256sum not available, skipping integrity check"
+                    ai_ok "GGUF model already present: $GGUF_FILE (verification skipped)"
+                fi
+            else
+                ai_ok "GGUF model already present: $GGUF_FILE"
             fi
-            printf "\r  ${AMB}⚠${NC} %-60s\n" "Download attempt $_attempt failed"
-            sleep 3
-        done
-
-        if [[ "$_dl_success" != "true" ]]; then
-            printf "\r  ${RED}✗${NC} %-60s\n" "Download failed after 3 attempts: $GGUF_FILE"
-            ai "Manual retry: wget -c -O '$GGUF_DIR/$GGUF_FILE.part' '$GGUF_URL' && mv '$GGUF_DIR/$GGUF_FILE.part' '$GGUF_DIR/$GGUF_FILE'"
         fi
-    elif [[ -f "$GGUF_DIR/$GGUF_FILE" ]]; then
-        ai_ok "GGUF model already present: $GGUF_FILE"
+
+        # Download if not present or was removed due to corruption
+        if [[ ! -f "$GGUF_DIR/$GGUF_FILE" ]]; then
+            ai "Downloading GGUF model: $GGUF_FILE"
+            signal "This is the big one. I've got it — sit back."
+            echo ""
+
+            # Retry loop: up to 3 attempts with resume support (-c flag)
+            _dl_success=false
+            for _attempt in 1 2 3; do
+                [[ $_attempt -gt 1 ]] && ai "Retry attempt $_attempt of 3..."
+                wget -c -q -O "$GGUF_DIR/$GGUF_FILE.part" "$GGUF_URL" \
+                    >> "$INSTALL_DIR/logs/model-download.log" 2>&1 &
+                dl_pid=$!
+
+                if spin_task $dl_pid "Downloading $GGUF_FILE"; then
+                    mv "$GGUF_DIR/$GGUF_FILE.part" "$GGUF_DIR/$GGUF_FILE"
+                    printf "\r  ${BGRN}✓${NC} %-60s\n" "Model downloaded: $GGUF_FILE"
+                    _dl_success=true
+                    break
+                fi
+                printf "\r  ${AMB}⚠${NC} %-60s\n" "Download attempt $_attempt failed"
+                sleep 3
+            done
+
+            if [[ "$_dl_success" != "true" ]]; then
+                printf "\r  ${RED}✗${NC} %-60s\n" "Download failed after 3 attempts: $GGUF_FILE"
+                ai "Manual retry: wget -c -O '$GGUF_DIR/$GGUF_FILE.part' '$GGUF_URL' && mv '$GGUF_DIR/$GGUF_FILE.part' '$GGUF_DIR/$GGUF_FILE'"
+            else
+                # Verify freshly downloaded file
+                if [[ -n "$GGUF_SHA256" ]]; then
+                    if command -v sha256sum &>/dev/null; then
+                        ai "Verifying download integrity (SHA256)..."
+                        ACTUAL_HASH=$(sha256sum "$GGUF_DIR/$GGUF_FILE" 2>/dev/null | awk '{print $1}')
+                        if [[ -n "$ACTUAL_HASH" && "$ACTUAL_HASH" == "$GGUF_SHA256" ]]; then
+                            ai_ok "Download verified OK"
+                        elif [[ -z "$ACTUAL_HASH" ]]; then
+                            ai_warn "Could not compute checksum for downloaded file"
+                            ai_warn "Proceeding without verification (file may be corrupt)"
+                        else
+                            printf "\r  ${RED}✗${NC} %-60s\n" "Downloaded file is corrupt (SHA256 mismatch)"
+                            ai "  Expected: $GGUF_SHA256"
+                            ai "  Got:      $ACTUAL_HASH"
+                            rm -f "$GGUF_DIR/$GGUF_FILE"
+                            ai_warn "Corrupt file removed. Re-run installer to download again."
+                            _dl_success=false
+                        fi
+                    else
+                        ai_warn "sha256sum not available, skipping integrity check"
+                        ai_warn "Proceeding without verification (file may be corrupt)"
+                    fi
+                fi
+            fi
+        fi
+
+        # Abort if model download/verification failed
+        if [[ "${DREAM_MODE:-local}" != "cloud" && -n "$GGUF_URL" && ! -f "$GGUF_DIR/$GGUF_FILE" ]]; then
+            ai_bad "Model file missing or verification failed. Cannot proceed without a valid model."
+            ai "Re-run the installer to retry the download."
+            exit 1
+        fi
     fi
 
     # ── FLUX.1-schnell model download (ComfyUI image generation) ──

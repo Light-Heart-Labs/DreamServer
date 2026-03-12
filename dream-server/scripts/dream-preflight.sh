@@ -11,21 +11,9 @@ cd "$SCRIPT_DIR"
 . "$SCRIPT_DIR/lib/service-registry.sh"
 sr_load
 
-# Safe .env loading for port overrides
-if [[ -f "$SCRIPT_DIR/.env" ]]; then
-    set -a
-    while IFS='=' read -r key value; do
-        [[ "$key" =~ ^[[:space:]]*# ]] && continue
-        [[ -z "$key" ]] && continue
-        [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-        value="${value%\"}"
-        value="${value#\"}"
-        value="${value%\'}"
-        value="${value#\'}"
-        export "$key=$value"
-    done < "$SCRIPT_DIR/.env"
-    set +a
-fi
+# Safe .env loading for port overrides (no eval; use lib/safe-env.sh)
+[[ -f "$SCRIPT_DIR/lib/safe-env.sh" ]] && . "$SCRIPT_DIR/lib/safe-env.sh"
+load_env_file "$SCRIPT_DIR/.env"
 
 # Resolve compose flags for accurate status checks
 COMPOSE_FLAGS=""

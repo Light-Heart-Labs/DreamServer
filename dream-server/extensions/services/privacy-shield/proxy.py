@@ -15,7 +15,6 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from functools import lru_cache
 import uvicorn
-import json
 from cachetools import TTLCache
 
 from pii_scrubber import PrivacyShield

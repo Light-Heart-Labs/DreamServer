@@ -14,6 +14,8 @@
 #   Add new compose overlay mappings or backends here.
 # ============================================================================
 
+[[ -f "${SCRIPT_DIR:-}/lib/safe-env.sh" ]] && . "${SCRIPT_DIR}/lib/safe-env.sh"
+
 resolve_compose_config() {
     COMPOSE_FILE="docker-compose.yml"
     COMPOSE_FLAGS=""
@@ -75,7 +77,7 @@ resolve_compose_config() {
             --gpu-backend "$GPU_BACKEND" \
             --profile-overlays "${CAP_COMPOSE_OVERLAYS:-}" \
             --env 2>>"$LOG_FILE")"
-        eval "$COMPOSE_ENV"
+        load_env_from_output <<< "$COMPOSE_ENV"
     fi
 
     # Auto-include docker-compose.override.yml if present (standard Docker convention).

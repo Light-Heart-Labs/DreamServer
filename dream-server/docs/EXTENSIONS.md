@@ -316,3 +316,4 @@ npm run build
 - Unknown/malformed manifests are skipped with warnings, not fatal crashes.
 - Keep extension files ASCII and small; one service per directory is preferred.
 - The service registry (`lib/service-registry.sh`) provides bash functions for resolving aliases and discovering enabled services.
+- **Scripts that load `.env`:** Source `lib/safe-env.sh` and use `load_env_file "<path>"`; do not use `eval` or `export $(grep ... .env | xargs)` (injection risk).

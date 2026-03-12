@@ -133,8 +133,28 @@ if ext_dir.exists():
             gpu_overlay = service_dir / f"compose.{gpu_backend}.yaml"
             if gpu_overlay.exists():
                 resolved.append(str(gpu_overlay.relative_to(script_dir)))
-        except Exception:
+        except Exception as e:
+            print(f"WARNING: skipping {service_dir.name}: {e}", file=sys.stderr)
             continue
+
+# Include docker-compose.local.yml for local/hybrid mode (Linux GPU backends only)
+# This gates open-webui on llama-server health — not appropriate for cloud mode
+# (llama-server has no model in cloud mode, so its healthcheck never passes)
+local_mode_overlay = script_dir / "docker-compose.local.yml"
+if local_mode_overlay.exists() and gpu_backend not in ("apple",):
+    # DREAM_MODE is read from .env rather than passed as a CLI arg because this script
+    # is called from multiple contexts (dream-cli, installer, CI) that do not all pass
+    # it as an argument. Reading .env keeps a single source of truth.
+    # Future: pass DREAM_MODE as a CLI arg (like gpu_backend) to eliminate this read.
+    dream_mode = ""
+    env_file = script_dir / ".env"
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            if line.startswith("DREAM_MODE="):
+                dream_mode = line.split("=", 1)[1].split("#")[0].strip().strip("\"'")
+                break
+    if dream_mode != "cloud":
+        resolved.append("docker-compose.local.yml")
 
 # Include docker-compose.override.yml if it exists (user customizations)
 override = script_dir / "docker-compose.override.yml"

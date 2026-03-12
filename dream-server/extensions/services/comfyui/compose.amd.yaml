@@ -9,10 +9,8 @@ services:
     group_add:
       - "${VIDEO_GID:-44}"
       - "${RENDER_GID:-992}"
-    cap_add:
-      - SYS_PTRACE
     security_opt:
-      - seccomp:unconfined
+      - no-new-privileges:true
     shm_size: 8g
     environment:
       - HSA_OVERRIDE_GFX_VERSION=11.5.1
@@ -21,7 +19,7 @@ services:
     volumes:
       - ./data/comfyui/ComfyUI:/opt/ComfyUI
     ports:
-      - "${COMFYUI_PORT:-8188}:8188"
+      - "127.0.0.1:${COMFYUI_PORT:-8188}:8188"
     command: >-
       /bin/sh -c "/opt/comfyui-gfx1151-utils/check-comfyui.sh &&
       python3 /opt/ComfyUI/main.py --listen 0.0.0.0 --use-flash-attention"

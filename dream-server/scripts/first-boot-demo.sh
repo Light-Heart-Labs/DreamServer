@@ -27,20 +27,8 @@ if [[ -f "$_DEMO_DIR/lib/service-registry.sh" ]]; then
     export SCRIPT_DIR="$_DEMO_DIR"
     . "$_DEMO_DIR/lib/service-registry.sh"
     sr_load
-    if [[ -f "$_DEMO_DIR/.env" ]]; then
-        set -a
-        while IFS='=' read -r key value; do
-            [[ "$key" =~ ^[[:space:]]*# ]] && continue
-            [[ -z "$key" ]] && continue
-            [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-            value="${value%\"}"
-            value="${value#\"}"
-            value="${value%\'}"
-            value="${value#\'}"
-            export "$key=$value"
-        done < "$_DEMO_DIR/.env"
-        set +a
-    fi
+    [[ -f "$_DEMO_DIR/lib/safe-env.sh" ]] && . "$_DEMO_DIR/lib/safe-env.sh"
+    load_env_file "$_DEMO_DIR/.env"
 fi
 
 LLM_URL="${LLM_URL:-http://localhost:${SERVICE_PORTS[llama-server]:-8080}}"

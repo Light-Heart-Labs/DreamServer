@@ -41,26 +41,6 @@ _env_set() {
     fi
 }
 
-# B6 fix: Safe .env loading (prevents shell injection)
-load_env() {
-    [[ -f "$INSTALL_DIR/.env" ]] || return 0
-    set -a
-    while IFS='=' read -r key value; do
-        # Skip comments and empty lines
-        [[ "$key" =~ ^[[:space:]]*# ]] && continue
-        [[ -z "$key" ]] && continue
-        # Only allow alphanumeric + underscore in key names
-        [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-        # Strip quotes from value
-        value="${value%\"}"
-        value="${value#\"}"
-        value="${value%\'}"
-        value="${value#\'}"
-        export "$key=$value"
-    done < "$INSTALL_DIR/.env"
-    set +a
-}
-
 check_install() {
     if [[ ! -d "$INSTALL_DIR" ]]; then
         error "Dream Server not found at $INSTALL_DIR. Set DREAM_HOME or run installer first."
@@ -72,6 +52,12 @@ check_install() {
         fi
     fi
 }
+
+#=============================================================================
+# Safe .env loading (no eval; use lib/safe-env.sh)
+#=============================================================================
+[[ -f "$SCRIPT_DIR/lib/safe-env.sh" ]] && . "$SCRIPT_DIR/lib/safe-env.sh"
+load_env() { load_env_file "${INSTALL_DIR}/.env"; }
 
 #=============================================================================
 # Service Registry
@@ -153,7 +139,7 @@ cmd_status() {
 
         # For non-core services, only check if container is running
         if [[ "$cat" != "core" ]]; then
-            if ! docker compose $flags ps --format "{{.Name}}" 2>/dev/null | grep -q "dream-${sid}\|${sid}"; then
+            if ! docker compose $flags ps --format "{{.Name}}" 2>/dev/null | grep -qE "dream-${sid}|${sid}"; then
                 continue  # Not running, skip silently
             fi
         fi
@@ -199,6 +185,102 @@ cmd_status() {
         nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader,nounits | \
             awk -F', ' '{printf "  %s: %s%% GPU | %sMB/%sMB VRAM | %s°C\n", $1, $2, $3, $4, $5}'
     fi
+}
+
+cmd_status_json() {
+    check_install
+    cd "$INSTALL_DIR"
+    sr_load
+    load_env
+
+    local flags
+    flags=$(get_compose_flags)
+
+    # Capture running services for optional-service checks (best-effort)
+    local running_services=""
+    if docker compose $flags ps --format "{{.Service}}" >/dev/null 2>&1; then
+        running_services=$(docker compose $flags ps --format "{{.Service}}")
+    elif command -v docker-compose >/dev/null 2>&1; then
+        running_services=$(docker-compose ps --services --filter "status=running" 2>/dev/null || true)
+    fi
+
+    # Temp file to accumulate per-service JSON objects
+    local tmp
+    tmp=$(mktemp)
+    trap 'rm -f "$tmp"' RETURN
+
+    for sid in "${SERVICE_IDS[@]}"; do
+        local cat="${SERVICE_CATEGORIES[$sid]}"
+        local health="${SERVICE_HEALTH[$sid]}"
+        local port_env="${SERVICE_PORT_ENVS[$sid]}"
+        local default_port="${SERVICE_PORTS[$sid]}"
+        local name="${SERVICE_NAMES[$sid]:-$sid}"
+
+        # Skip services with no health endpoint or port configured
+        [[ -z "$health" || "$default_port" == "0" ]] && continue
+
+        # Resolve port from env var or default
+        local port="$default_port"
+        if [[ -n "$port_env" ]]; then
+            port="${!port_env:-$default_port}"
+        fi
+        local container_status="unknown"
+        local status="unknown"
+
+        # Determine container status (running/stopped) when we have ps output
+        if [[ -n "$running_services" ]]; then
+            if grep -qE "(^|[[:space:]])${sid}([[:space:]]|$)" <<<"$running_services"; then
+                container_status="running"
+            else
+                container_status="stopped"
+            fi
+        fi
+
+        # For non-core services that are clearly stopped, avoid HTTP probe
+        if [[ "$cat" != "core" && "$container_status" == "stopped" ]]; then
+            status="stopped"
+        else
+            local url="http://localhost:${port}${health}"
+            if curl -sf --max-time 5 "$url" > /dev/null 2>&1; then
+                status="healthy"
+            else
+                status="unhealthy"
+            fi
+        fi
+
+        jq -n \
+            --arg id "$sid" \
+            --arg name "$name" \
+            --arg category "$cat" \
+            --arg port "$port" \
+            --arg status "$status" \
+            --arg containerStatus "$container_status" \
+            '{id: $id, name: $name, category: $category, port: $port, status: $status, containerStatus: $containerStatus}' >> "$tmp"
+    done
+
+    # GPU summary (optional)
+    local gpu_summary_json="null"
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        # Represent each GPU line as raw strings in an array
+        gpu_summary_json=$(nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu \
+            --format=csv,noheader,nounits 2>/dev/null | jq -R -s 'split("\n") | map(select(length > 0))')
+    fi
+
+    # Aggregate into a single document
+    jq -s \
+        --arg installDir "$INSTALL_DIR" \
+        --arg composeFlags "$flags" \
+        --arg mode "${DREAM_MODE:-local}" \
+        --arg tier "${TIER:-}" \
+        --arg currentModel "${LLM_MODEL:-}" \
+        --argjson gpu "$gpu_summary_json" \
+        '{installDir: $installDir,
+          composeFlags: $composeFlags,
+          mode: $mode,
+          tier: $tier,
+          currentModel: $currentModel,
+          gpu: $gpu,
+          services: .}' "$tmp"
 }
 
 cmd_logs() {
@@ -336,8 +418,17 @@ cmd_config() {
             ${EDITOR:-nano} "$INSTALL_DIR/.env"
             warn "Restart services for changes to take effect: dream restart"
             ;;
+        validate)
+            cd "$INSTALL_DIR"
+            if [[ -x "$INSTALL_DIR/scripts/validate-env.sh" ]]; then
+                "$INSTALL_DIR/scripts/validate-env.sh" "$INSTALL_DIR/.env" "$INSTALL_DIR/.env.schema.json"
+            else
+                warn "validate-env.sh not found at $INSTALL_DIR/scripts/validate-env.sh"
+                warn "Make sure you're on a recent Dream Server release."
+            fi
+            ;;
         *)
-            log "Usage: dream config [show|edit]"
+            log "Usage: dream config [show|edit|validate]"
             ;;
     esac
 }
@@ -563,7 +654,7 @@ cmd_preset() {
             # Save metadata
             cat > "$preset_dir/meta.txt" <<META
 name=$name
-created=$(date -Iseconds)
+created=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 gpu_backend=${GPU_BACKEND:-unknown}
 tier=${TIER:-unknown}
 META
@@ -740,8 +831,146 @@ META
             cd "$INSTALL_DIR"
             ;;
 
+        diff|d)
+            local preset1="$2"
+            local preset2="$3"
+
+            # Validate arguments
+            if [[ -z "$preset1" ]] || [[ -z "$preset2" ]]; then
+                error "Usage: dream preset diff <preset1> <preset2>"
+            fi
+
+            local dir1="$PRESETS_DIR/$preset1"
+            local dir2="$PRESETS_DIR/$preset2"
+
+            # Check both presets exist
+            [[ -d "$dir1" ]] || error "Preset '$preset1' not found"
+            [[ -d "$dir2" ]] || error "Preset '$preset2' not found"
+
+            log "Comparing presets: ${CYAN}$preset1${NC} vs ${CYAN}$preset2${NC}"
+            echo ""
+
+            # Compare metadata
+            echo -e "${CYAN}━━━ Metadata ━━━${NC}"
+            if [[ -f "$dir1/meta.txt" ]] && [[ -f "$dir2/meta.txt" ]]; then
+                diff -u "$dir1/meta.txt" "$dir2/meta.txt" | tail -n +4 | sed "s/^-/$(printf "${RED}-${NC}")/" | sed "s/^+/$(printf "${GREEN}+${NC}")/" || true
+            fi
+            echo ""
+
+            # Compare extensions
+            echo -e "${CYAN}━━━ Service State ━━━${NC}"
+            if [[ -f "$dir1/extensions.list" ]] && [[ -f "$dir2/extensions.list" ]]; then
+                # Parse both files into associative arrays
+                declare -A ext1 ext2
+                while IFS=: read -r state sid; do
+                    [[ -n "$sid" ]] && ext1["$sid"]="$state"
+                done < "$dir1/extensions.list"
+                while IFS=: read -r state sid; do
+                    [[ -n "$sid" ]] && ext2["$sid"]="$state"
+                done < "$dir2/extensions.list"
+
+                # Find all unique service IDs
+                local all_sids=()
+                for sid in "${!ext1[@]}"; do all_sids+=("$sid"); done
+                for sid in "${!ext2[@]}"; do
+                    [[ -z "${ext1[$sid]}" ]] && all_sids+=("$sid")
+                done
+
+                # Sort and compare
+                local has_diff=false
+                for sid in $(printf '%s\n' "${all_sids[@]}" | sort); do
+                    local state1="${ext1[$sid]:-missing}"
+                    local state2="${ext2[$sid]:-missing}"
+
+                    if [[ "$state1" != "$state2" ]]; then
+                        has_diff=true
+                        if [[ "$state1" == "missing" ]]; then
+                            echo -e "  ${GREEN}+${NC} $sid: $state2"
+                        elif [[ "$state2" == "missing" ]]; then
+                            echo -e "  ${RED}-${NC} $sid: $state1"
+                        else
+                            echo -e "  ${YELLOW}~${NC} $sid: $state1 → $state2"
+                        fi
+                    fi
+                done
+
+                [[ "$has_diff" == "false" ]] && echo "  (no differences)"
+            fi
+            echo ""
+
+            # Compare environment variables
+            echo -e "${CYAN}━━━ Environment Variables ━━━${NC}"
+            if [[ -f "$dir1/env" ]] && [[ -f "$dir2/env" ]]; then
+                # Parse both env files
+                declare -A env1 env2
+                while IFS='=' read -r key value; do
+                    [[ "$key" =~ ^[[:space:]]*# ]] && continue
+                    [[ -z "$key" ]] && continue
+                    env1["$key"]="$value"
+                done < "$dir1/env"
+                while IFS='=' read -r key value; do
+                    [[ "$key" =~ ^[[:space:]]*# ]] && continue
+                    [[ -z "$key" ]] && continue
+                    env2["$key"]="$value"
+                done < "$dir2/env"
+
+                # Find all unique keys
+                local all_keys=()
+                for key in "${!env1[@]}"; do all_keys+=("$key"); done
+                for key in "${!env2[@]}"; do
+                    [[ -z "${env1[$key]}" ]] && all_keys+=("$key")
+                done
+
+                # Sort and compare (mask secrets)
+                local has_diff=false
+                for key in $(printf '%s\n' "${all_keys[@]}" | sort); do
+                    local val1="${env1[$key]}"
+                    local val2="${env2[$key]}"
+
+                    # Check if values differ BEFORE masking
+                    if [[ "$val1" != "$val2" ]]; then
+                        has_diff=true
+
+                        # Mask sensitive values for display
+                        if [[ "$key" =~ (PASSWORD|SECRET|KEY|TOKEN|API) ]]; then
+                            [[ -n "$val1" ]] && val1="***"
+                            [[ -n "$val2" ]] && val2="***"
+                        fi
+
+                        if [[ -z "$val1" ]]; then
+                            echo -e "  ${GREEN}+${NC} $key=$val2"
+                        elif [[ -z "$val2" ]]; then
+                            echo -e "  ${RED}-${NC} $key=$val1"
+                        else
+                            echo -e "  ${YELLOW}~${NC} $key: $val1 → $val2"
+                        fi
+                    fi
+                done
+
+                [[ "$has_diff" == "false" ]] && echo "  (no differences)"
+            fi
+            echo ""
+            ;;
+
         *)
-            log "Usage: dream preset <save|load|list|delete|export|import> [name]"
+            cat <<EOF
+Usage: dream preset <command> [args]
+
+Commands:
+  save <name>              Save current configuration as a preset
+  load <name>              Load a preset (restores .env and service state)
+  list                     List all saved presets
+  delete <name>            Delete a preset
+  export <name> <file>     Export preset to .tar.gz archive
+  import <file>            Import preset from .tar.gz archive
+  diff <preset1> <preset2> Compare two presets and show differences
+
+Examples:
+  dream preset save gaming
+  dream preset load gaming
+  dream preset diff gaming production
+  dream preset export gaming ~/gaming-preset.tar.gz
+EOF
             ;;
     esac
 }
@@ -757,9 +986,15 @@ cmd_mode() {
         # Show current mode
         local current=$(grep "^DREAM_MODE=" .env 2>/dev/null | cut -d= -f2)
         current="${current:-local}"
+        local api_url=$(grep "^LLM_API_URL=" .env 2>/dev/null | cut -d= -f2)
+        local model=$(grep "^LLM_MODEL=" .env 2>/dev/null | cut -d= -f2)
+        local tier=$(grep "^TIER=" .env 2>/dev/null | cut -d= -f2)
         echo -e "${BLUE}━━━ Dream Server Mode ━━━${NC}"
         echo ""
         echo -e "Current mode: ${GREEN}${current}${NC}"
+        [[ -n "$api_url" ]] && echo "LLM_API_URL: $api_url"
+        [[ -n "$model" ]] && echo "Model: $model"
+        [[ -n "$tier" ]] && echo "Tier: $tier"
         echo ""
 
         case "$current" in
@@ -795,10 +1030,13 @@ cmd_mode() {
     # Update .env
     _env_set "DREAM_MODE" "$mode"
 
+    local api_url
     if [[ "$mode" == "local" ]]; then
-        _env_set "LLM_API_URL" "http://llama-server:8080"
+        api_url="http://llama-server:8080"
+        _env_set "LLM_API_URL" "$api_url"
     else
-        _env_set "LLM_API_URL" "http://litellm:4000"
+        api_url="http://litellm:4000"
+        _env_set "LLM_API_URL" "$api_url"
         # Auto-enable litellm
         local litellm_cf="$INSTALL_DIR/extensions/services/litellm/compose.yaml"
         local litellm_disabled="${litellm_cf}.disabled"
@@ -815,6 +1053,9 @@ cmd_mode() {
         fi
     fi
 
+    echo -e "${BLUE}━━━ Mode updated ━━━${NC}"
+    echo "  DREAM_MODE  = $mode"
+    echo "  LLM_API_URL = $api_url"
     success "Switched to $mode mode. Run 'dream restart' to apply."
 }
 
@@ -825,7 +1066,9 @@ cmd_model() {
     case "$subcmd" in
         current)
             local model=$(grep "^LLM_MODEL=" .env 2>/dev/null | cut -d= -f2)
+            local tier=$(grep "^TIER=" .env 2>/dev/null | cut -d= -f2)
             echo "Current model: ${model:-<not set>}"
+            [[ -n "$tier" ]] && echo "Current tier: $tier"
             ;;
         list)
             echo -e "${BLUE}━━━ Available Tiers ━━━${NC}"
@@ -891,6 +1134,7 @@ Usage: dream <command> [options]
 
 ${CYAN}Commands:${NC}
   status              Show service health and GPU status
+  status-json         Machine-readable status (JSON) with mode/tier/model
   list                List all services and their status
   enable <service>    Enable an extension service
   disable <service>   Disable an extension service
@@ -907,7 +1151,8 @@ ${CYAN}Commands:${NC}
   stop [service]      Stop services
   update              Pull latest images and restart
   shell <service>     Open shell in container
-  config [show|edit]  View or edit configuration
+  config [show|edit|validate]
+                      View, edit, or validate configuration
   chat "<message>"    Quick chat with the LLM
   benchmark           Run a quick performance test
   doctor [report]     Run diagnostics and write JSON report
@@ -955,6 +1200,7 @@ EOF
 
 ${CYAN}Examples:${NC}
   dream status                    # Check all services
+  dream status-json               # JSON summary (mode/tier/model + services)
   dream list                      # See all available services
   dream enable n8n                # Enable the n8n extension
   dream disable whisper           # Disable Whisper STT
@@ -974,6 +1220,7 @@ ${CYAN}Examples:${NC}
   dream restart stt               # Restart Whisper (via alias)
   dream chat "What is 2+2?"      # Quick LLM test
   dream config edit               # Edit .env file
+  dream config validate           # Validate .env against schema
 
 ${CYAN}Environment:${NC}
   DREAM_HOME          Installation directory (default: ~/dream-server)
@@ -986,6 +1233,7 @@ EOF
 #=============================================================================
 case "${1:-help}" in
     status|s)    cmd_status ;;
+    status-json) cmd_status_json ;;
     list|ls)     cmd_list ;;
     enable)      shift; cmd_enable "$@" ;;
     disable)     shift; cmd_disable "$@" ;;

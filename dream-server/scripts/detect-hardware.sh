@@ -103,7 +103,7 @@ detect_amd_sysfs() {
             # Check for Vulkan support
             local vulkan_available="false"
             if command -v vulkaninfo &>/dev/null; then
-                if vulkaninfo --summary 2>/dev/null | grep -qi "radeon\|amd\|gfx11"; then
+                if vulkaninfo --summary 2>/dev/null | grep -qiE "radeon|amd|gfx11"; then
                     vulkan_available="true"
                 fi
             fi

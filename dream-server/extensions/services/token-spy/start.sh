@@ -16,10 +16,10 @@ set -e
 cd "$(dirname "$0")"
 mkdir -p data
 
-# Load env file if exists
-if [ -f .env ]; then
-    export $(grep -v '^#' .env | xargs)
-fi
+# Safe .env loading (no eval; use Dream Server lib/safe-env.sh)
+DREAM_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+[[ -f "$DREAM_ROOT/lib/safe-env.sh" ]] && . "$DREAM_ROOT/lib/safe-env.sh"
+load_env_file "$(pwd)/.env"
 
 # Database backend (sqlite or postgres)
 export DB_BACKEND="${DB_BACKEND:-sqlite}"

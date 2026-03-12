@@ -26,19 +26,7 @@ except ImportError as e:
     print(f"Warning: Could not import prompt modules: {e}")
     PROMPTS_AVAILABLE = False
 
-# Map department names to prompt instructions
-DEPARTMENT_PROMPTS = {
-    "portal": "PORTAL_INSTRUCTION",
-    "service": "SERVICE_INSTRUCTION",
-    "billing": "BILLING_INSTRUCTION",
-    "parts": "PARTS_INSTRUCTION",
-    "projects": "PROJECTS_INSTRUCTION",
-    "maintenance": "MAINTENANCE_INSTRUCTION",
-    "controls": "CONTROLS_INSTRUCTION",
-    "office": "OFFICE_INSTRUCTION",
-    "general": "OFFICE_INSTRUCTION",  # general maps to office
-    "closing": "CLOSING_INSTRUCTION",
-}
+
 
 
 def get_department_prompt(department: str) -> str:
@@ -46,20 +34,6 @@ def get_department_prompt(department: str) -> str:
     if not PROMPTS_AVAILABLE:
         return f"[Prompt for {department} not available - prompts module not loaded]"
 
-    prompt_map = {
-        "portal": PORTAL_INSTRUCTION if 'PORTAL_INSTRUCTION' in dir() else "",
-        "service": SERVICE_INSTRUCTION if 'SERVICE_INSTRUCTION' in dir() else "",
-        "billing": BILLING_INSTRUCTION if 'BILLING_INSTRUCTION' in dir() else "",
-        "parts": PARTS_INSTRUCTION if 'PARTS_INSTRUCTION' in dir() else "",
-        "projects": PROJECTS_INSTRUCTION if 'PROJECTS_INSTRUCTION' in dir() else "",
-        "maintenance": MAINTENANCE_INSTRUCTION if 'MAINTENANCE_INSTRUCTION' in dir() else "",
-        "controls": CONTROLS_INSTRUCTION if 'CONTROLS_INSTRUCTION' in dir() else "",
-        "office": OFFICE_INSTRUCTION if 'OFFICE_INSTRUCTION' in dir() else "",
-        "general": OFFICE_INSTRUCTION if 'OFFICE_INSTRUCTION' in dir() else "",
-        "closing": CLOSING_INSTRUCTION if 'CLOSING_INSTRUCTION' in dir() else "",
-    }
-
-    # Use globals() to access the imported variables
     if department == "portal":
         return PORTAL_INSTRUCTION
     elif department == "service":
