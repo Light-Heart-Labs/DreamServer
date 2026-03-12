@@ -172,6 +172,22 @@ export function resolveComposeFiles(ctx: InstallContext): string[] {
         // Check if the service is enabled
         if (shouldEnableExtension(svc, ctx)) {
           files.push(composeFile);
+
+          // Some extensions (e.g. ComfyUI) use GPU-specific overlays that
+          // contain the actual service definition.  The base compose.yaml may
+          // be an empty stub — without the overlay no container is created.
+          const gpuOverlayMap: Record<string, string> = {
+            nvidia: `compose.nvidia.yaml`,
+            amd:    `compose.amd.yaml`,
+            apple:  `compose.apple.yaml`,
+          };
+          const overlayName = gpuOverlayMap[ctx.gpu.backend];
+          if (overlayName) {
+            const gpuOverlay = join(extDir, svc, overlayName);
+            if (existsSync(gpuOverlay)) {
+              files.push(gpuOverlay);
+            }
+          }
         }
       }
     }
@@ -414,6 +430,14 @@ async function setupDataDirs(ctx: InstallContext): Promise<void> {
     'data/searxng',
     'data/token-spy',
     ...(ctx.llmBackend === 'vllm' ? ['data/hf-cache'] : []),
+    // ComfyUI bind-mount dirs — Docker creates them as root if missing,
+    // causing permission denied for the container (runs as UID 1000)
+    ...(ctx.features.imageGen ? [
+      'data/comfyui/models',
+      'data/comfyui/output',
+      'data/comfyui/input',
+      'data/comfyui/workflows',
+    ] : []),
   ];
 
   let created = 0;

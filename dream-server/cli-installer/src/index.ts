@@ -13,14 +13,14 @@ import { VERSION, DEFAULT_INSTALL_DIR } from './lib/config.ts';
 const program = new Command()
   .name('dream-installer')
   .description('Dream Server — Local AI Management CLI')
-  .version(VERSION)
-  .option('-v, --verbose', 'Show detailed debug output during installation');
+  .version(VERSION);
 
 program
   .command('install')
   .description('Install or resume Dream Server setup')
   .option('--dry-run', 'Show what would be done without making changes')
   .option('--force', 'Overwrite existing installation')
+  .option('--verbose', 'Show detailed debug output during installation')
   .option('--tier <tier>', 'Force specific tier (1-4, NV_ULTRA)')
   .option('--non-interactive', 'Run without prompts (use defaults)')
   .option('--all', 'Enable all optional services')
