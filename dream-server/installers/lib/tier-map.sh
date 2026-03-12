@@ -29,7 +29,7 @@ resolve_tier_config() {
             LLM_MODEL="qwen3-coder-next"
             GGUF_FILE="qwen3-coder-next-Q4_K_M.gguf"
             GGUF_URL="https://huggingface.co/unsloth/Qwen3-Coder-Next-GGUF/resolve/main/Qwen3-Coder-Next-Q4_K_M.gguf"
-            GGUF_SHA256=""
+            GGUF_SHA256="9e6032d2f3b50a60f17ce8bf5a1d85c71af9b53b89c7978020ae7c660f29b090"
             MAX_CONTEXT=131072
             ;;
         SH_LARGE)
@@ -37,7 +37,7 @@ resolve_tier_config() {
             LLM_MODEL="qwen3-coder-next"
             GGUF_FILE="qwen3-coder-next-Q4_K_M.gguf"
             GGUF_URL="https://huggingface.co/unsloth/Qwen3-Coder-Next-GGUF/resolve/main/Qwen3-Coder-Next-Q4_K_M.gguf"
-            GGUF_SHA256=""
+            GGUF_SHA256="9e6032d2f3b50a60f17ce8bf5a1d85c71af9b53b89c7978020ae7c660f29b090"
             MAX_CONTEXT=131072
             ;;
         SH_COMPACT)
@@ -69,7 +69,7 @@ resolve_tier_config() {
             LLM_MODEL="qwen3-14b"
             GGUF_FILE="Qwen3-14B-Q4_K_M.gguf"
             GGUF_URL="https://huggingface.co/unsloth/Qwen3-14B-GGUF/resolve/main/Qwen3-14B-Q4_K_M.gguf"
-            GGUF_SHA256=""
+            GGUF_SHA256="5eaa0870bd81ed3b58a630a271234cfa604e43ffb3a19cd68e54a80dd9d52a66"
             MAX_CONTEXT=32768
             ;;
         4)
