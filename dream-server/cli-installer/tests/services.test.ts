@@ -9,7 +9,6 @@ describe('services.ts', () => {
   let execSpy: ReturnType<typeof spyOn>;
   let execStreamSpy: ReturnType<typeof spyOn>;
   let getComposeCommandSpy: ReturnType<typeof spyOn>;
-  let fetchSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
     spyOn(ui, 'phase').mockImplementation(() => {});
@@ -40,10 +39,7 @@ describe('services.ts', () => {
 
     execStreamSpy = spyOn(shell, 'execStream').mockImplementation(async () => 0); // docker compose up -d
 
-    // Mock global fetch
-    fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async () => {
-      return { ok: true, status: 200 } as any;
-    });
+
   });
 
   afterEach(() => {
@@ -60,19 +56,16 @@ describe('services.ts', () => {
     getComposeCommandSpy.mockRestore();
     execSpy.mockRestore();
     execStreamSpy.mockRestore();
-    fetchSpy.mockRestore();
   });
 
   test('services() performs docker compose up', async () => {
     const ctx = createDefaultContext();
-    await services(ctx);
+    const exitCode = await services(ctx);
 
     expect(execStreamSpy).toHaveBeenCalled();
     const args = execStreamSpy.mock.calls[0][0];
     expect(args).toEqual(['docker', 'compose', 'up', '-d', '--remove-orphans']);
-
-    // Verify healthCheck happened
-    expect(fetchSpy).toHaveBeenCalled();
+    expect(exitCode).toBe(0);
   });
 
   test('services() handles non-zero exit code gracefully', async () => {
@@ -90,8 +83,9 @@ describe('services.ts', () => {
       return { exitCode: 0, stdout: '', stderr: '' };
     });
 
-    await services(ctx);
+    const exitCode = await services(ctx);
 
+    expect(exitCode).toBe(1);
     expect(ui.warn).toHaveBeenCalledWith('docker compose up exited with errors');
     expect(ui.fail).toHaveBeenCalledWith('webui (Exited (1))'); // dream- prefix gets stripped
   });
@@ -132,9 +126,9 @@ describe('services.ts', () => {
     const ctx = createDefaultContext();
     ctx.dryRun = true;
 
-    await services(ctx);
+    const exitCode = await services(ctx);
 
+    expect(exitCode).toBe(0);
     expect(execStreamSpy).not.toHaveBeenCalled();
-    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

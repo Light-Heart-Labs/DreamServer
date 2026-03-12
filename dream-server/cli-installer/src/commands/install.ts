@@ -117,19 +117,13 @@ export async function install(opts: InstallOptions): Promise<void> {
     await nativeMetal(ctx);
 
     // Phase 6: Start services
-    await services(ctx);
+    const servicesExitCode = await services(ctx);
 
     // Post-install: health checks, auto-config, STT pre-download
     console.log('');
     const failures = await runHealthChecks(ctx);
     await configurePerplexica(ctx);
     await preDownloadSttModel(ctx);
-
-    if (failures > 0) {
-      console.log('');
-      ui.warn(`${failures} service(s) did not pass health checks.`);
-      ui.info('Some services may still be starting. Check with: dream-installer status');
-    }
 
     // Post-install: developer tools (opt-in)
     await devtools(ctx);
@@ -139,6 +133,17 @@ export async function install(opts: InstallOptions): Promise<void> {
 
     // Post-install: AMD APU tuning (auto-detected)
     await amdTuning(ctx);
+
+    // ── Final Summary (always last) ──────────────────────────────
+    const { showSuccess, readPorts } = await import('../phases/services.ts');
+    const ports = readPorts(ctx);
+    const hadErrors = servicesExitCode !== 0 || failures > 0;
+    showSuccess(ctx, ports, hadErrors);
+
+    if (failures > 0) {
+      ui.warn(`${failures} service(s) did not pass health checks.`);
+      ui.info('Some services may still be starting. Check with: dream-installer status');
+    }
   } catch (error) {
     console.log('');
     ui.fail(`Installation failed: ${error instanceof Error ? error.message : String(error)}`);
