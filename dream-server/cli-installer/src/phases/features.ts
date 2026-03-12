@@ -183,19 +183,25 @@ export async function features(ctx: InstallContext): Promise<FeatureSet> {
   } else {
     // TUI multi-select picker
     const results = await multiSelect('Toggle features to install', [
+      { label: 'Web Search', description: 'Perplexica + SearXNG search engine', checked: true },
+      { label: 'Image Generation', description: 'ComfyUI (FLUX.1-schnell)', checked: false },
       { label: 'Voice', description: 'Whisper STT + Kokoro TTS', checked: true },
       { label: 'Workflows', description: 'n8n automation', checked: true },
-      { label: 'RAG', description: 'Qdrant vector database', checked: true },
+      { label: 'RAG', description: 'Qdrant vector database + embeddings', checked: true },
+      { label: 'LiteLLM', description: 'Multi-provider LLM proxy (routing, usage tracking)', checked: false },
       { label: 'OpenClaw', description: 'AI agent framework', checked: false },
       { label: 'Dev Tools', description: 'Claude Code, Codex CLI, OpenCode', checked: false },
     ]);
 
     ctx.features = {
-      voice: results[0],
-      workflows: results[1],
-      rag: results[2],
-      openclaw: results[3],
-      devtools: results[4],
+      webSearch: results[0],
+      imageGen: results[1],
+      voice: results[2],
+      workflows: results[3],
+      rag: results[4],
+      litellm: results[5],
+      openclaw: results[6],
+      devtools: results[7],
     };
     ui.ok('Selected: Custom');
 

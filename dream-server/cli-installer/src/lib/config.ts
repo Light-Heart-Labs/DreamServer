@@ -105,11 +105,14 @@ export type FeatureSet = {
   rag: boolean;
   openclaw: boolean;
   devtools: boolean;
+  imageGen: boolean;
+  webSearch: boolean;
+  litellm: boolean;
 };
 
 export const FEATURE_PRESETS: Record<string, FeatureSet> = {
-  full: { voice: true, workflows: true, rag: true, openclaw: true, devtools: true },
-  core: { voice: false, workflows: false, rag: false, openclaw: false, devtools: false },
+  full: { voice: true, workflows: true, rag: true, openclaw: true, devtools: true, imageGen: true, webSearch: true, litellm: true },
+  core: { voice: false, workflows: false, rag: false, openclaw: false, devtools: false, imageGen: false, webSearch: true, litellm: false },
 };
 
 export type LlmBackend = 'llamacpp' | 'vllm' | 'ollama' | 'external';

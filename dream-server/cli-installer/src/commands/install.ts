@@ -1,6 +1,6 @@
 // ── Install Command ─────────────────────────────────────────────────────────
 
-import { type InstallContext, createDefaultContext } from '../lib/config.ts';
+import { type InstallContext, createDefaultContext, FEATURE_PRESETS } from '../lib/config.ts';
 import { preflight } from '../phases/preflight.ts';
 import { detect } from '../phases/detection.ts';
 import { features } from '../phases/features.ts';
@@ -51,7 +51,7 @@ export async function install(opts: InstallOptions): Promise<void> {
   if (opts.dir) ctx.installDir = opts.dir;
   ctx.offlineMode = opts.offline ?? false;
   if (opts.all) {
-    ctx.features = { voice: true, workflows: true, rag: true, openclaw: true, devtools: true };
+    ctx.features = { ...FEATURE_PRESETS.full };
   } else {
     if (opts.voice !== undefined) ctx.features.voice = opts.voice;
     if (opts.workflows !== undefined) ctx.features.workflows = opts.workflows;
@@ -175,6 +175,9 @@ function loadFeaturesFromEnv(ctx: InstallContext): void {
     if (env.ENABLE_RAG !== undefined) ctx.features.rag = toBool(env.ENABLE_RAG);
     if (env.ENABLE_OPENCLAW !== undefined) ctx.features.openclaw = toBool(env.ENABLE_OPENCLAW);
     if (env.ENABLE_DEVTOOLS !== undefined) ctx.features.devtools = toBool(env.ENABLE_DEVTOOLS);
+    if (env.ENABLE_IMAGE_GEN !== undefined) ctx.features.imageGen = toBool(env.ENABLE_IMAGE_GEN);
+    if (env.ENABLE_WEB_SEARCH_STACK !== undefined) ctx.features.webSearch = toBool(env.ENABLE_WEB_SEARCH_STACK);
+    if (env.ENABLE_LITELLM !== undefined) ctx.features.litellm = toBool(env.ENABLE_LITELLM);
     if (env.OFFLINE_MODE !== undefined) ctx.offlineMode = toBool(env.OFFLINE_MODE);
 
     if (env.GPU_BACKEND) ctx.gpu.backend = env.GPU_BACKEND as 'nvidia' | 'amd' | 'apple' | 'cpu';
