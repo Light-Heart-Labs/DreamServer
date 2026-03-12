@@ -70,13 +70,16 @@ function buildChecks(ctx: InstallContext, env: Record<string, string>): ServiceC
       healthPath: '/',
       timeout: 30,
     },
-    {
+  );
+
+  if (env.ENABLE_COMFYUI === 'true') {
+    checks.push({
       name: 'ComfyUI',
       port: parseInt(env.COMFYUI_PORT || '8188', 10),
       healthPath: '/',
       timeout: 120,
-    },
-  );
+    });
+  }
 
   if (ctx.features.voice) {
     checks.push(
