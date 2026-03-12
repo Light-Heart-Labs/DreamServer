@@ -62,8 +62,6 @@ To bypass hooks (not recommended):
 git commit --no-verify
 ```
 
-**Note:** All Python files have been formatted with `black --line-length=100`. The pre-commit hooks will enforce this formatting going forward.
-
 ## Pull Request Process
 
 1. **Describe your changes** in the PR description. A sentence or two is fine for small changes; more detail helps for larger ones.
