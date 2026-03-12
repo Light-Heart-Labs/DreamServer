@@ -156,7 +156,13 @@ export default function Models() {
               model={model}
               isLoading={actionLoading === model.id}
               onDownload={() => { downloadModel(model.id); downloadProgress.startPolling() }}
-              onLoad={() => loadModel(model.id)}
+              onLoad={() => {
+                if (model.backend === 'ollama') {
+                  ollama.loadOllamaModel(model.id.replace('ollama:', ''))
+                } else {
+                  loadModel(model.id)
+                }
+              }}
               onDelete={
                 model.backend === 'ollama'
                   ? () => showConfirm(
@@ -732,7 +738,7 @@ function OllamaPullProgress({ pulls, onClear }) {
 /* ------------------------------------------------------------------ */
 
 function CloudProvidersSection() {
-  const { providers, loading, saving, saveProvider, deleteProvider } = useProviders()
+  const { providers, loading, saving, saveProvider, deleteProvider, testConnection } = useProviders()
 
   if (loading) {
     return (
@@ -756,6 +762,7 @@ function CloudProvidersSection() {
           isSaving={saving === provider.id}
           onSave={(key, model) => saveProvider(provider.id, key, model)}
           onDelete={() => deleteProvider(provider.id)}
+          onTestConnection={() => testConnection(provider.id)}
         />
       ))}
       {providers.length === 0 && (
@@ -769,11 +776,13 @@ function CloudProvidersSection() {
 }
 
 
-function ProviderCard({ provider, isSaving, onSave, onDelete }) {
+function ProviderCard({ provider, isSaving, onSave, onDelete, onTestConnection }) {
   const [editing, setEditing] = useState(!provider.configured)
   const [apiKey, setApiKey] = useState('')
   const [showKey, setShowKey] = useState(false)
   const [selectedModel, setSelectedModel] = useState(provider.default_model || '')
+  const [testResult, setTestResult] = useState(null)
+  const [testing, setTesting] = useState(false)
 
   const handleSave = async () => {
     if (!apiKey.trim()) return
@@ -784,8 +793,17 @@ function ProviderCard({ provider, isSaving, onSave, onDelete }) {
     }
   }
 
+  const handleTest = async () => {
+    setTesting(true)
+    setTestResult(null)
+    const result = await onTestConnection()
+    setTestResult(result)
+    setTesting(false)
+    // Clear result after 5 seconds
+    setTimeout(() => setTestResult(null), 5000)
+  }
+
   const handleDelete = async () => {
-    if (!confirm(`Remove ${provider.name} API key? This cannot be undone.`)) return
     await onDelete()
     setEditing(true)
   }
@@ -825,6 +843,14 @@ function ProviderCard({ provider, isSaving, onSave, onDelete }) {
         {provider.configured && !editing && (
           <div className="flex items-center gap-2">
             <button
+              onClick={handleTest}
+              disabled={testing}
+              className="px-3 py-1.5 text-xs text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 rounded-lg transition-colors flex items-center gap-1.5"
+            >
+              {testing ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />}
+              Test
+            </button>
+            <button
               onClick={() => setEditing(true)}
               className="px-3 py-1.5 text-xs text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
             >
@@ -840,6 +866,18 @@ function ProviderCard({ provider, isSaving, onSave, onDelete }) {
           </div>
         )}
       </div>
+
+      {/* Test Result */}
+      {testResult && (
+        <div className={`mt-3 px-3 py-2 rounded-lg text-sm flex items-center gap-2 ${
+          testResult.status === 'ok'
+            ? 'bg-green-500/10 text-green-400 border border-green-500/20'
+            : 'bg-red-500/10 text-red-400 border border-red-500/20'
+        }`}>
+          {testResult.status === 'ok' ? <Check size={14} /> : <AlertCircle size={14} />}
+          {testResult.message}
+        </div>
+      )}
 
       {/* Edit Form */}
       {editing && (

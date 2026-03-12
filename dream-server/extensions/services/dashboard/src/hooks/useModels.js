@@ -238,6 +238,24 @@ export function useOllama() {
     deleteOllamaModel,
     clearPull,
     refreshInfo: fetchInfo,
+    loadOllamaModel: async (modelName) => {
+      setError(null)
+      try {
+        const res = await fetch('/api/models/ollama/load', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: modelName }),
+        })
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}))
+          throw new Error(data.detail || 'Failed to load model')
+        }
+        return await res.json()
+      } catch (err) {
+        setError(err.message)
+        return null
+      }
+    },
   }
 }
 
@@ -299,5 +317,20 @@ export function useProviders() {
     }
   }
 
-  return { providers, loading, saving, saveProvider, deleteProvider, refresh: fetchProviders }
+  const testConnection = async (providerId) => {
+    setSaving(providerId)
+    try {
+      const res = await fetch(`/api/models/providers/${providerId}/test-connection`, {
+        method: 'POST',
+      })
+      if (!res.ok) throw new Error('Test failed')
+      return await res.json()
+    } catch {
+      return { status: 'error', message: 'Connection failed' }
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  return { providers, loading, saving, saveProvider, deleteProvider, testConnection, refresh: fetchProviders }
 }

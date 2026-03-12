@@ -748,6 +748,109 @@ def validate_ollama_model(name: str) -> str:
 _ollama_pull_status: dict[str, dict] = {}
 
 
+@router.post("/providers/{provider_id}/test-connection")
+async def test_provider_connection(provider_id: str, api_key: str = Depends(verify_api_key)):
+    """Test a cloud provider API key by making a minimal API call."""
+    validate_provider_id(provider_id)
+
+    configs = load_provider_configs()
+    provider_config = configs.get(provider_id)
+    if not provider_config:
+        raise HTTPException(status_code=404, detail=f"Provider '{provider_id}' not configured")
+
+    key = provider_config.get("api_key", "")
+    catalog = load_catalog()
+    provider_info = next((p for p in catalog.get("providers", []) if p["id"] == provider_id), None)
+
+    if not provider_info:
+        raise HTTPException(status_code=404, detail=f"Provider '{provider_id}' not in catalog")
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            if provider_id == "openai":
+                resp = await client.get(
+                    "https://api.openai.com/v1/models",
+                    headers={"Authorization": f"Bearer {key}"},
+                )
+                if resp.status_code == 401:
+                    return {"status": "error", "message": "Invalid API key"}
+                resp.raise_for_status()
+                models = resp.json().get("data", [])
+                return {"status": "ok", "message": f"Connected — {len(models)} models available"}
+
+            elif provider_id == "anthropic":
+                resp = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": key,
+                        "anthropic-version": "2023-06-01",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": "claude-haiku-4.5-20251022",
+                        "max_tokens": 1,
+                        "messages": [{"role": "user", "content": "ping"}],
+                    },
+                )
+                if resp.status_code == 401:
+                    return {"status": "error", "message": "Invalid API key"}
+                # 200 or 400 (valid key, maybe wrong model) = success
+                if resp.status_code in (200, 400):
+                    return {"status": "ok", "message": "API key valid — connected to Anthropic"}
+                resp.raise_for_status()
+                return {"status": "ok", "message": "Connected to Anthropic"}
+
+            elif provider_id == "google":
+                resp = await client.get(
+                    f"https://generativelanguage.googleapis.com/v1beta/models?key={key}",
+                )
+                if resp.status_code == 400 or resp.status_code == 403:
+                    return {"status": "error", "message": "Invalid API key"}
+                resp.raise_for_status()
+                models = resp.json().get("models", [])
+                return {"status": "ok", "message": f"Connected — {len(models)} models available"}
+
+            else:
+                return {"status": "error", "message": f"Test not supported for '{provider_id}'"}
+
+    except httpx.TimeoutException:
+        return {"status": "error", "message": "Connection timed out"}
+    except Exception as e:
+        return {"status": "error", "message": f"Connection failed: {str(e)[:200]}"}
+
+
+@router.post("/ollama/load")
+async def ollama_load_model(req: OllamaPullRequest, api_key: str = Depends(verify_api_key)):
+    """Warm an Ollama model into VRAM by triggering a generate with empty prompt."""
+    model_name = validate_ollama_model(req.model)
+    url = _get_ollama_url()
+
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            # Use the generate API with keep_alive to warm the model
+            resp = await client.post(
+                f"{url}/api/generate",
+                json={
+                    "model": model_name,
+                    "prompt": "",
+                    "stream": False,
+                    "options": {"num_predict": 0},
+                },
+            )
+            if resp.status_code == 404:
+                raise HTTPException(status_code=404, detail=f"Model '{model_name}' not found in Ollama")
+            resp.raise_for_status()
+
+        return {"status": "loaded", "model": model_name, "message": f"{model_name} loaded into VRAM"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to load model: {e}")
+
+
+
+
+
 # --- Ollama Management Endpoints ---
 
 
