@@ -1,16 +1,48 @@
-# Pre-commit hooks for secret scanning
+# Pre-commit hooks for DreamServer
 # Install: pip install pre-commit && pre-commit install
 # Run manually: pre-commit run --all-files
 
 repos:
+  # Secret scanning
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.21.2
     hooks:
       - id: gitleaks
 
+  # Shell script linting
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        args: ["--exclude=SC1091,SC2034,SC2086", "--severity=error"]
+        files: \.sh$
+
+  # Python linting with Ruff
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.3.4
+    hooks:
+      - id: ruff
+        args: ["--select", "E,F,W", "--ignore", "E501"]
+        files: ^dream-server/.*\.py$
+
+  # Python formatting with Black
+  - repo: https://github.com/psf/black
+    rev: 24.3.0
+    hooks:
+      - id: black
+        args: ["--line-length=100"]
+        files: ^dream-server/.*\.py$
+
+  # General file checks
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
       - id: detect-private-key
       - id: check-added-large-files
         args: ['--maxkb=500']
+      - id: trailing-whitespace
+        exclude: \.md$
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: ["--unsafe"]
+      - id: check-json

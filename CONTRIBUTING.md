@@ -34,6 +34,36 @@ Nothing exotic:
 - **Python** uses standard formatting (we're not picky -- just be consistent with the file you're editing).
 - Keep things readable. Comments are welcome where intent isn't obvious.
 
+## Pre-commit Hooks
+
+This project uses pre-commit hooks to ensure code quality. To set up:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+The hooks will run automatically on `git commit` and check for:
+- Secret leaks (gitleaks)
+- Shell script issues (shellcheck)
+- Python linting (ruff)
+- Python formatting (black)
+- Large files, trailing whitespace, YAML/JSON syntax
+
+To run hooks manually on all files:
+
+```bash
+pre-commit run --all-files
+```
+
+To bypass hooks (not recommended):
+
+```bash
+git commit --no-verify
+```
+
+**Note:** All Python files have been formatted with `black --line-length=100`. The pre-commit hooks will enforce this formatting going forward.
+
 ## Pull Request Process
 
 1. **Describe your changes** in the PR description. A sentence or two is fine for small changes; more detail helps for larger ones.
