@@ -436,18 +436,137 @@ async def download_model(model_id: str, api_key: str = Depends(verify_api_key)):
     if current and current.get("status") == "downloading":
         raise HTTPException(status_code=409, detail="Another download is in progress")
 
+    repo = gguf.get("huggingface_repo", "")
+    hf_file = gguf.get("huggingface_file", filename)
+    total_bytes_est = int(entry.get("size_gb", 0) * 1024**3)
+
     # Write initial status
     write_download_status({
         "status": "downloading",
         "model_id": model_id,
         "model": entry["name"],
         "filename": filename,
-        "repo": gguf.get("huggingface_repo", ""),
+        "repo": repo,
         "percent": 0,
         "bytesDownloaded": 0,
-        "bytesTotal": int(entry.get("size_gb", 0) * 1024**3),
+        "bytesTotal": total_bytes_est,
         "speedBytesPerSec": 0,
     })
+
+    # Launch background download task
+    async def _do_download():
+        try:
+            MODELS_DIR.mkdir(parents=True, exist_ok=True)
+            dest = MODELS_DIR / filename
+
+            # Use huggingface-cli to download
+            cmd = [
+                "huggingface-cli", "download",
+                repo, hf_file,
+                "--local-dir", str(MODELS_DIR),
+                "--local-dir-use-symlinks", "False",
+            ]
+
+            logger.info("Starting download: %s", " ".join(cmd))
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            # Monitor output for progress (huggingface_hub prints to stderr)
+            last_percent = 0
+            while True:
+                line = await proc.stderr.readline()
+                if not line:
+                    break
+                text = line.decode("utf-8", errors="replace").strip()
+                if not text:
+                    continue
+
+                # Parse progress from huggingface_hub output
+                # Typical format: "Downloading model.gguf:  45%|████      | 2.1G/4.7G [01:23<01:42, 25.3MB/s]"
+                pct_match = re.search(r"(\d+)%\|", text)
+                speed_match = re.search(r"([\d.]+)(MB|GB|KB)/s", text)
+                downloaded_match = re.search(r"\|\s*([\d.]+)(G|M|K)", text)
+
+                if pct_match:
+                    pct = int(pct_match.group(1))
+                    if pct > last_percent:
+                        last_percent = pct
+                        speed = 0
+                        if speed_match:
+                            val = float(speed_match.group(1))
+                            unit = speed_match.group(2)
+                            if unit == "GB":
+                                speed = int(val * 1024**3)
+                            elif unit == "MB":
+                                speed = int(val * 1024**2)
+                            elif unit == "KB":
+                                speed = int(val * 1024)
+
+                        bytes_done = int(total_bytes_est * pct / 100)
+
+                        write_download_status({
+                            "status": "downloading",
+                            "model_id": model_id,
+                            "model": entry["name"],
+                            "filename": filename,
+                            "repo": repo,
+                            "percent": pct,
+                            "bytesDownloaded": bytes_done,
+                            "bytesTotal": total_bytes_est,
+                            "speedBytesPerSec": speed,
+                        })
+
+            await proc.wait()
+
+            if proc.returncode == 0:
+                # Verify the file exists
+                # huggingface-cli may download to a subfolder, try to find it
+                actual_file = MODELS_DIR / hf_file
+                if not actual_file.exists():
+                    # Search for the file recursively
+                    found = list(MODELS_DIR.rglob(hf_file))
+                    if found:
+                        # Move to MODELS_DIR root
+                        import shutil
+                        shutil.move(str(found[0]), str(MODELS_DIR / filename))
+
+                write_download_status({
+                    "status": "complete",
+                    "model_id": model_id,
+                    "model": entry["name"],
+                    "filename": filename,
+                    "percent": 100,
+                    "bytesDownloaded": total_bytes_est,
+                    "bytesTotal": total_bytes_est,
+                })
+                logger.info("Download complete: %s", filename)
+            else:
+                stderr_output = ""
+                remaining = await proc.stderr.read()
+                if remaining:
+                    stderr_output = remaining.decode("utf-8", errors="replace")
+                write_download_status({
+                    "status": "error",
+                    "model_id": model_id,
+                    "model": entry["name"],
+                    "filename": filename,
+                    "message": f"Download failed (exit code {proc.returncode}): {stderr_output[:500]}",
+                })
+                logger.error("Download failed for %s: exit %d", filename, proc.returncode)
+        except Exception as e:
+            write_download_status({
+                "status": "error",
+                "model_id": model_id,
+                "model": entry["name"],
+                "filename": filename,
+                "message": str(e),
+            })
+            logger.exception("Download error for %s", filename)
+
+    asyncio.create_task(_do_download())
 
     return {
         "status": "downloading",

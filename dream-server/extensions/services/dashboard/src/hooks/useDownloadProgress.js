@@ -1,20 +1,21 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 /**
  * Hook to poll download progress during model downloads.
- * Returns progress data when a download is active.
+ * Only polls when a download is active — no idle polling.
  */
-export function useDownloadProgress(pollIntervalMs = 1000) {
+export function useDownloadProgress(pollIntervalMs = 1500) {
   const [progress, setProgress] = useState(null)
   const [isDownloading, setIsDownloading] = useState(false)
+  const pollRef = useRef(null)
 
   const fetchProgress = useCallback(async () => {
     try {
       const response = await fetch('/api/models/download-status')
       if (!response.ok) return
-      
+
       const data = await response.json()
-      
+
       if (data.status === 'downloading') {
         setIsDownloading(true)
         setProgress({
@@ -29,26 +30,42 @@ export function useDownloadProgress(pollIntervalMs = 1000) {
       } else if (data.status === 'complete' || data.status === 'idle') {
         setIsDownloading(false)
         setProgress(null)
+        // Stop polling when idle/complete
+        if (pollRef.current) {
+          clearInterval(pollRef.current)
+          pollRef.current = null
+        }
       } else if (data.status === 'error') {
         setIsDownloading(false)
         setProgress({
           error: data.message || 'Download failed',
           model: data.model
         })
+        // Stop polling on error too
+        if (pollRef.current) {
+          clearInterval(pollRef.current)
+          pollRef.current = null
+        }
       }
     } catch (err) {
       // Silently fail - API might not be available
     }
   }, [])
 
-  useEffect(() => {
-    // Initial fetch
-    fetchProgress()
-    
-    // Poll while downloading
-    const interval = setInterval(fetchProgress, pollIntervalMs)
-    return () => clearInterval(interval)
+  // Start polling — call this when a download begins
+  const startPolling = useCallback(() => {
+    if (pollRef.current) return // Already polling
+    fetchProgress() // Immediate first check
+    pollRef.current = setInterval(fetchProgress, pollIntervalMs)
   }, [fetchProgress, pollIntervalMs])
+
+  // Do a single check on mount to catch in-progress downloads
+  useEffect(() => {
+    fetchProgress()
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
+  }, [fetchProgress])
 
   // Format helpers
   const formatBytes = (bytes) => {
@@ -76,6 +93,7 @@ export function useDownloadProgress(pollIntervalMs = 1000) {
     progress,
     formatBytes,
     formatEta,
+    startPolling,
     refresh: fetchProgress
   }
 }

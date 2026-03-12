@@ -155,7 +155,7 @@ export default function Models() {
               key={model.id}
               model={model}
               isLoading={actionLoading === model.id}
-              onDownload={() => downloadModel(model.id)}
+              onDownload={() => { downloadModel(model.id); downloadProgress.startPolling() }}
               onLoad={() => loadModel(model.id)}
               onDelete={
                 model.backend === 'ollama'
