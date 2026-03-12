@@ -61,7 +61,9 @@ export async function configure(ctx: InstallContext): Promise<void> {
   // Resolve compose overlays
   const composeFiles = resolveComposeFiles(ctx);
   const relPaths = composeFiles.map((f) => relative(ctx.installDir, f));
-  ui.ok(`Compose files: ${relPaths.join(', ')}`);
+  const extCount = relPaths.filter((p) => p.startsWith('extensions/')).length;
+  ui.ok(`Configured ${composeFiles.length} compose files (${extCount} extensions)`);
+  for (const p of relPaths) ui.debug(`  compose: ${p}`);
 
   // Generate .env (or merge on re-install)
   await generateEnv(ctx, composeFiles);
