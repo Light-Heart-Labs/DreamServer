@@ -194,23 +194,34 @@ spin_task() {
   return $rc
 }
 
-# Pull wrapper that prints consistent success/fail lines
+# Pull wrapper that prints consistent success/fail lines with retry logic
 pull_with_progress() {
   local img=$1
   local label=$2
   local count=$3
   local total=$4
+  local max_attempts=3
 
-  $DOCKER_CMD pull "$img" >> "$LOG_FILE" 2>&1 &
-  local pull_pid=$!
+  for attempt in $(seq 1 $max_attempts); do
+    if [[ $attempt -gt 1 ]]; then
+      printf "  ${AMB}⟳${NC} [$count/$total] Retry attempt $attempt of $max_attempts for $label\n"
+      sleep 3
+    fi
 
-  if spin_task $pull_pid "[$count/$total] $label"; then
-    printf "\r  ${BGRN}✓${NC} [$count/$total] %-60s\n" "$label"
-    return 0
-  else
-    printf "\r  ${RED}✗${NC} [$count/$total] %-60s\n" "$label"
-    return 1
-  fi
+    $DOCKER_CMD pull "$img" >> "$LOG_FILE" 2>&1 &
+    local pull_pid=$!
+
+    if spin_task $pull_pid "[$count/$total] $label"; then
+      printf "\r  ${BGRN}✓${NC} [$count/$total] %-60s\n" "$label"
+      return 0
+    else
+      printf "\r  ${RED}✗${NC} [$count/$total] %-60s (attempt $attempt failed)\n" "$label"
+    fi
+  done
+
+  # All attempts failed
+  printf "  ${RED}✗${NC} [$count/$total] Failed after $max_attempts attempts: $label\n"
+  return 1
 }
 
 # Health check with "systems online" vibe + lore every 8s
