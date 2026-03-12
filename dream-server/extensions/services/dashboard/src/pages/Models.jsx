@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import {
   Box, Download, Trash2, Check, AlertCircle, Loader2, Play,
   RefreshCw, HardDrive, Zap, Cloud, Server, ChevronDown,
@@ -48,6 +48,16 @@ export default function Models() {
   } = useModels()
   const ollama = useOllama()
 
+  // Search state
+  const [search, setSearch] = useState('')
+
+  // Toast notifications
+  const [toast, setToast] = useState(null)
+  const showToast = useCallback((message, type = 'success') => {
+    setToast({ message, type })
+    setTimeout(() => setToast(null), 4000)
+  }, [])
+
   // Confirmation dialog state
   const [confirmDialog, setConfirmDialog] = useState(null)
 
@@ -58,7 +68,20 @@ export default function Models() {
   const handleConfirmDelete = useCallback(async () => {
     if (confirmDialog?.onConfirm) await confirmDialog.onConfirm()
     setConfirmDialog(null)
-  }, [confirmDialog])
+    showToast('Model deleted successfully')
+  }, [confirmDialog, showToast])
+
+  // Filter models by search
+  const filteredModels = useMemo(() => {
+    if (!search.trim()) return models
+    const q = search.toLowerCase()
+    return models.filter(m =>
+      m.name.toLowerCase().includes(q) ||
+      m.family?.toLowerCase().includes(q) ||
+      m.description?.toLowerCase().includes(q) ||
+      m.specialty?.toLowerCase().includes(q)
+    )
+  }, [models, search])
 
   if (loading) {
     return (
@@ -129,6 +152,28 @@ export default function Models() {
         ))}
       </div>
 
+      {/* Search Bar (hidden in cloud tab) */}
+      {filter !== 'cloud' && (
+        <div className="mb-5 relative">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search models by name, family, or specialty..."
+            className="w-full pl-10 pr-4 py-2.5 bg-zinc-900/50 border border-zinc-800 rounded-lg text-sm text-white placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none transition-colors"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Download Progress */}
       {downloadProgress.isDownloading && downloadProgress.progress && (
         <DownloadProgressBar progress={downloadProgress.progress} helpers={downloadProgress} />
@@ -150,7 +195,7 @@ export default function Models() {
       {/* Model Grid */}
       {filter !== 'cloud' && (
         <div className="grid gap-4">
-          {models.map(model => (
+          {filteredModels.map(model => (
             <ModelCard
               key={model.id}
               model={model}
@@ -181,12 +226,15 @@ export default function Models() {
               }
             />
           ))}
-          {models.length === 0 && (
+          {filteredModels.length === 0 && (
             <div className="text-center py-16 text-zinc-500">
               <Box size={40} className="mx-auto mb-3 opacity-40" />
-              <p className="text-lg">No models found</p>
+              <p className="text-lg">{search ? 'No matching models' : 'No models found'}</p>
               <p className="text-sm mt-1">
-                {filter === 'all' ? 'Check your API connection.' : `No ${FILTER_TABS.find(t => t.id === filter)?.label || ''} models available.`}
+                {search
+                  ? `No models match "${search}". Try a different search.`
+                  : filter === 'all' ? 'Check your API connection.' : `No ${FILTER_TABS.find(t => t.id === filter)?.label || ''} models available.`
+                }
               </p>
             </div>
           )}
@@ -201,6 +249,21 @@ export default function Models() {
           onConfirm={handleConfirmDelete}
           onCancel={() => setConfirmDialog(null)}
         />
+      )}
+
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl shadow-2xl shadow-black/40 flex items-center gap-3 text-sm font-medium ${
+          toast.type === 'error'
+            ? 'bg-red-950/90 border border-red-500/30 text-red-300'
+            : 'bg-green-950/90 border border-green-500/30 text-green-300'
+        }`}>
+          {toast.type === 'error' ? <AlertCircle size={16} /> : <Check size={16} />}
+          {toast.message}
+          <button onClick={() => setToast(null)} className="ml-2 opacity-50 hover:opacity-100">
+            <X size={14} />
+          </button>
+        </div>
       )}
     </div>
   )
