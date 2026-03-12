@@ -127,7 +127,10 @@ export default function Models() {
       {error && (
         <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-start gap-3">
           <AlertCircle size={18} className="text-red-400 mt-0.5 flex-shrink-0" />
-          <p className="text-red-400 text-sm">{error}</p>
+          <p className="text-red-400 text-sm flex-1">{error}</p>
+          <button onClick={() => refresh()} className="text-red-400 hover:text-red-300 flex-shrink-0">
+            <X size={14} />
+          </button>
         </div>
       )}
 

@@ -14,7 +14,8 @@ export function useDownloadProgress(pollIntervalMs = DEFAULT_POLL_INTERVAL_MS) {
 
   const fetchProgress = useCallback(async (signal) => {
     try {
-      const response = await fetch('/api/models/download-status', { signal })
+      const opts = signal ? { signal } : {}
+      const response = await fetch('/api/models/download-status', opts)
       if (!response.ok) return
 
       const data = await response.json()
