@@ -152,11 +152,25 @@ export async function status(opts: StatusOptions): Promise<void> {
   ui.step('Health checks:');
   const webuiPort = getEnv('WEBUI_PORT') || '3000';
   const dashPort = getEnv('DASHBOARD_PORT') || '3001';
-  const llmPort = getEnv('OLLAMA_PORT') || '8080';
+  const llmBackend = getEnv('LLM_BACKEND') || 'llamacpp';
+
+  // Build LLM health check based on backend type
+  let llmCheck: { name: string; url: string };
+  if (llmBackend === 'ollama') {
+    const port = getEnv('OLLAMA_PORT') || '11434';
+    llmCheck = { name: 'LLM (Ollama)', url: `http://localhost:${port}/api/tags` };
+  } else if (llmBackend === 'external') {
+    const url = getEnv('LLM_API_URL') || 'http://localhost:8080';
+    llmCheck = { name: 'LLM (External)', url: `${url}/health` };
+  } else {
+    const port = getEnv('OLLAMA_PORT') || '8080';
+    llmCheck = { name: 'LLM (llama-server)', url: `http://localhost:${port}/health` };
+  }
+
   const checks = [
     { name: 'Chat (WebUI)', url: `http://localhost:${webuiPort}` },
     { name: 'Dashboard', url: `http://localhost:${dashPort}` },
-    { name: 'LLM (llama-server)', url: `http://localhost:${llmPort}/health` },
+    llmCheck,
   ];
 
   for (const check of checks) {

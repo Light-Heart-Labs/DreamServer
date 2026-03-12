@@ -7,6 +7,9 @@ import * as configurePhase from '../src/phases/configure.ts';
 import * as modelPhase from '../src/phases/model.ts';
 import * as servicesPhase from '../src/phases/services.ts';
 import * as healthPhase from '../src/phases/health.ts';
+import * as devtoolsPhase from '../src/phases/devtools.ts';
+import * as offlinePhase from '../src/phases/offline.ts';
+import * as amdPhase from '../src/phases/amd-tuning.ts';
 import * as portsLib from '../src/lib/ports.ts';
 import * as ui from '../src/lib/ui.ts';
 import * as fs from 'node:fs';
@@ -21,6 +24,9 @@ describe('install.ts', () => {
   let healthSpy: ReturnType<typeof spyOn>;
   let perplexicaSpy: ReturnType<typeof spyOn>;
   let sttSpy: ReturnType<typeof spyOn>;
+  let devtoolsSpy: ReturnType<typeof spyOn>;
+  let offlineSpy: ReturnType<typeof spyOn>;
+  let amdSpy: ReturnType<typeof spyOn>;
   let portsSpy: ReturnType<typeof spyOn>;
   let existsSyncSpy: ReturnType<typeof spyOn>;
   let readFileSyncSpy: ReturnType<typeof spyOn>;
@@ -40,10 +46,13 @@ describe('install.ts', () => {
     featuresSpy = spyOn(featuresPhase, 'features').mockImplementation(async () => ({}));
     configureSpy = spyOn(configurePhase, 'configure').mockImplementation(async () => {});
     modelSpy = spyOn(modelPhase, 'downloadModel').mockImplementation(async () => {});
-    servicesSpy = spyOn(servicesPhase, 'services').mockImplementation(async () => {});
+    servicesSpy = spyOn(servicesPhase, 'services').mockImplementation(async () => 0);
     healthSpy = spyOn(healthPhase, 'runHealthChecks').mockImplementation(async () => 0);
     perplexicaSpy = spyOn(healthPhase, 'configurePerplexica').mockImplementation(async () => {});
     sttSpy = spyOn(healthPhase, 'preDownloadSttModel').mockImplementation(async () => {});
+    devtoolsSpy = spyOn(devtoolsPhase, 'devtools').mockImplementation(async () => {});
+    offlineSpy = spyOn(offlinePhase, 'offline').mockImplementation(async () => {});
+    amdSpy = spyOn(amdPhase, 'amdTuning').mockImplementation(async () => {});
     portsSpy = spyOn(portsLib, 'checkRequiredPorts').mockImplementation(async () => true);
 
     existsSyncSpy = spyOn(fs, 'existsSync').mockImplementation(() => false);
@@ -71,6 +80,9 @@ describe('install.ts', () => {
     healthSpy.mockRestore();
     perplexicaSpy.mockRestore();
     sttSpy.mockRestore();
+    devtoolsSpy.mockRestore();
+    offlineSpy.mockRestore();
+    amdSpy.mockRestore();
     portsSpy.mockRestore();
     existsSyncSpy.mockRestore();
     readFileSyncSpy.mockRestore();

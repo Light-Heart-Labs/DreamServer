@@ -13,7 +13,8 @@ import { VERSION, DEFAULT_INSTALL_DIR } from './lib/config.ts';
 const program = new Command()
   .name('dream-installer')
   .description('Dream Server — Local AI Management CLI')
-  .version(VERSION);
+  .version(VERSION)
+  .option('-v, --verbose', 'Show detailed debug output during installation');
 
 program
   .command('install')

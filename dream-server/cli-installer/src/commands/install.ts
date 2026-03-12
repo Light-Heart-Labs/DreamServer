@@ -15,6 +15,7 @@ import { checkRequiredPorts } from '../lib/ports.ts';
 import { runHealthChecks, configurePerplexica, preDownloadSttModel } from '../phases/health.ts';
 import { parseEnv } from '../lib/env.ts';
 import * as ui from '../lib/ui.ts';
+import { setVerbose } from '../lib/ui.ts';
 import { VERSION } from '../lib/config.ts';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -22,6 +23,7 @@ import { join } from 'node:path';
 export interface InstallOptions {
   dryRun?: boolean;
   force?: boolean;
+  verbose?: boolean;
   tier?: string;
   nonInteractive?: boolean;
   all?: boolean;
@@ -42,6 +44,8 @@ export async function install(opts: InstallOptions): Promise<void> {
   // Apply CLI options
   ctx.dryRun = opts.dryRun ?? false;
   ctx.force = opts.force ?? false;
+  ctx.verbose = opts.verbose ?? false;
+  setVerbose(ctx.verbose);
   ctx.interactive = !(opts.nonInteractive ?? false);
   if (opts.tier) ctx.tier = opts.tier;
   if (opts.dir) ctx.installDir = opts.dir;

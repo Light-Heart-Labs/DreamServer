@@ -1,6 +1,20 @@
 // ── Terminal UI ─────────────────────────────────────────────────────────────
 // Clean, professional terminal output. No CRT gimmicks.
 
+let _verbose = false;
+
+/** Enable verbose/debug output globally. */
+export function setVerbose(on: boolean) { _verbose = on; }
+
+/** Check if verbose mode is enabled. */
+export function isVerbose(): boolean { return _verbose; }
+
+/** Print debug info — only shown with --verbose. */
+export function debug(msg: string) {
+  if (!_verbose) return;
+  console.log(`  ${c.gray}⦿${c.reset} ${c.dim}${msg}${c.reset}`);
+}
+
 const ESC = '\x1b[';
 
 export const c = {

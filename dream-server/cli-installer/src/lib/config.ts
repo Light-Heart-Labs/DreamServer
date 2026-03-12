@@ -119,6 +119,7 @@ export interface InstallContext {
   interactive: boolean;
   dryRun: boolean;
   force: boolean;
+  verbose: boolean;
   tier: string;
   llmBackend: LlmBackend;
   features: FeatureSet;
@@ -147,6 +148,7 @@ export function createDefaultContext(): InstallContext {
     interactive: true,
     dryRun: false,
     force: false,
+    verbose: false,
     tier: '',
     llmBackend: 'llamacpp',
     features: { ...FEATURE_PRESETS.full },

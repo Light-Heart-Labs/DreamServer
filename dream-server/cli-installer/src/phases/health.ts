@@ -5,6 +5,7 @@ import { exec } from '../lib/shell.ts';
 import { type InstallContext, TIER_MAP } from '../lib/config.ts';
 import { parseEnv } from '../lib/env.ts';
 import * as ui from '../lib/ui.ts';
+import { Spinner } from '../lib/ui.ts';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -133,13 +134,21 @@ export async function checkServiceHealth(
   timeoutSec: number,
 ): Promise<boolean> {
   const maxAttempts = Math.ceil(timeoutSec / 2);
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const resp = await fetch(url, { signal: AbortSignal.timeout(3000) });
       if (resp.ok || resp.status === 401 || resp.status === 200) {
+        ui.debug(`${name}: attempt ${attempt}/${maxAttempts} → HTTP ${resp.status} ✓`);
         return true;
       }
-    } catch { /* retry */ }
+      ui.debug(`${name}: attempt ${attempt}/${maxAttempts} → HTTP ${resp.status}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Only show error details on first attempt, every 5th, and last
+      if (attempt === 1 || attempt % 5 === 0 || attempt === maxAttempts) {
+        ui.debug(`${name}: attempt ${attempt}/${maxAttempts} → ${msg}`);
+      }
+    }
     await Bun.sleep(2000);
   }
   return false;
@@ -169,25 +178,27 @@ export async function runHealthChecks(ctx: InstallContext): Promise<number> {
     return 0;
   }
 
-  const results = await Promise.allSettled(
-    checks.map(async (check) => {
-      const url = `http://localhost:${check.port}${check.healthPath}`;
-      const healthy = await checkServiceHealth(check.name, url, check.timeout);
-      return { check, healthy };
-    }),
-  );
+  const results: { check: ServiceCheck; healthy: boolean }[] = [];
 
-  for (const r of results) {
-    if (r.status === 'fulfilled') {
-      if (r.value.healthy) {
-        ui.ok(r.value.check.name);
-      } else {
-        ui.warn(`${r.value.check.name} — not responding (port ${r.value.check.port})`);
-        failures++;
-      }
+  for (const check of checks) {
+    if (check.condition && !check.condition()) {
+      ui.debug(`${check.name}: skipped (condition not met)`);
+      continue;
+    }
+
+    const url = `http://localhost:${check.port}${check.healthPath}`;
+    ui.debug(`${check.name}: checking ${url} (timeout: ${check.timeout}s)`);
+
+    const spinner = new Spinner(`${check.name} ...`).start();
+    const healthy = await checkServiceHealth(check.name, url, check.timeout);
+
+    if (healthy) {
+      spinner.succeed(check.name);
     } else {
+      spinner.fail(`${check.name} — not responding (port ${check.port})`);
       failures++;
     }
+    results.push({ check, healthy });
   }
 
   return failures;
