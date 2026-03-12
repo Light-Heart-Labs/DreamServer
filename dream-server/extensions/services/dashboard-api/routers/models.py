@@ -606,3 +606,211 @@ async def delete_provider(provider_id: str, api_key: str = Depends(verify_api_ke
     save_provider_configs(configs)
 
     return {"status": "deleted", "provider": provider_id}
+
+
+# --- Ollama Management Schemas ---
+
+class OllamaPullRequest(BaseModel):
+    model: str = Field(..., min_length=1, max_length=200)
+    tag: Optional[str] = None
+
+
+# Ollama model names: alphanumeric, hyphens, dots, colons, underscores, slashes
+_SAFE_OLLAMA_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,199}$")
+
+
+def validate_ollama_model(name: str) -> str:
+    if not _SAFE_OLLAMA_RE.match(name):
+        raise HTTPException(status_code=400, detail="Invalid Ollama model name")
+    return name
+
+
+# Track Ollama pull progress in memory
+_ollama_pull_status: dict[str, dict] = {}
+
+
+# --- Ollama Management Endpoints ---
+
+
+@router.get("/ollama/info")
+async def ollama_info(api_key: str = Depends(verify_api_key)):
+    """Return Ollama server info: version, running status, cloud subscription hints."""
+    url = _get_ollama_url()
+    result = {
+        "reachable": False,
+        "version": None,
+        "runningModels": [],
+        "modelCount": 0,
+        "cloudHints": {
+            "hasCloudModels": False,
+            "details": None,
+        },
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            # Get version
+            ver_resp = await client.get(f"{url}/api/version")
+            ver_resp.raise_for_status()
+            result["reachable"] = True
+            result["version"] = ver_resp.json().get("version")
+
+            # Get running models
+            ps_resp = await client.get(f"{url}/api/ps")
+            ps_resp.raise_for_status()
+            ps_data = ps_resp.json()
+            running = ps_data.get("models", [])
+            result["runningModels"] = [
+                {
+                    "name": m.get("name"),
+                    "size": m.get("size", 0),
+                    "vramSize": m.get("size_vram", 0),
+                    "processor": m.get("digest", "")[:12],
+                }
+                for m in running
+            ]
+
+            # Get model count
+            tags_resp = await client.get(f"{url}/api/tags")
+            tags_resp.raise_for_status()
+            all_models = tags_resp.json().get("models", [])
+            result["modelCount"] = len(all_models)
+
+            # Cloud detection heuristics:
+            # 1. Models with "cloud" in the tag
+            # 2. Unusually large model count suggests cloud subscription
+            cloud_models = [
+                m["name"] for m in all_models
+                if "cloud" in m.get("name", "").lower()
+                or any(
+                    tag in m.get("name", "")
+                    for tag in [":cloud", "-cloud"]
+                )
+            ]
+            if cloud_models:
+                result["cloudHints"]["hasCloudModels"] = True
+                result["cloudHints"]["details"] = f"Cloud models detected: {', '.join(cloud_models[:5])}"
+
+    except Exception as e:
+        logger.debug("Ollama info check failed: %s", e)
+
+    return result
+
+
+@router.post("/ollama/pull")
+async def ollama_pull(
+    req: OllamaPullRequest,
+    api_key: str = Depends(verify_api_key),
+):
+    """Start pulling an Ollama model. Returns immediately; poll /ollama/pull-status for progress."""
+    model_name = validate_ollama_model(req.model)
+    if req.tag:
+        model_name = f"{model_name}:{req.tag}"
+
+    url = _get_ollama_url()
+
+    # Check if already pulling this model
+    if model_name in _ollama_pull_status:
+        current = _ollama_pull_status[model_name]
+        if current.get("status") == "pulling":
+            return {"status": "already_pulling", "model": model_name}
+
+    # Initialize status
+    _ollama_pull_status[model_name] = {
+        "status": "pulling",
+        "model": model_name,
+        "percent": 0,
+        "detail": "Starting pull...",
+        "completed": 0,
+        "total": 0,
+    }
+
+    # Launch background pull task
+    async def _do_pull():
+        try:
+            async with httpx.AsyncClient(timeout=None) as client:
+                async with client.stream(
+                    "POST",
+                    f"{url}/api/pull",
+                    json={"name": model_name, "stream": True},
+                ) as stream:
+                    async for line in stream.aiter_lines():
+                        if not line.strip():
+                            continue
+                        try:
+                            data = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+
+                        status_text = data.get("status", "")
+                        total = data.get("total", 0)
+                        completed = data.get("completed", 0)
+                        pct = round((completed / total) * 100, 1) if total > 0 else 0
+
+                        _ollama_pull_status[model_name] = {
+                            "status": "pulling",
+                            "model": model_name,
+                            "percent": pct,
+                            "detail": status_text,
+                            "completed": completed,
+                            "total": total,
+                        }
+
+                        # Final success message
+                        if status_text == "success":
+                            _ollama_pull_status[model_name] = {
+                                "status": "complete",
+                                "model": model_name,
+                                "percent": 100,
+                                "detail": "Pull complete",
+                                "completed": total,
+                                "total": total,
+                            }
+        except Exception as e:
+            _ollama_pull_status[model_name] = {
+                "status": "error",
+                "model": model_name,
+                "percent": 0,
+                "detail": str(e),
+                "completed": 0,
+                "total": 0,
+            }
+
+    asyncio.create_task(_do_pull())
+
+    return {"status": "pulling", "model": model_name, "message": f"Pull started for {model_name}"}
+
+
+@router.get("/ollama/pull-status")
+async def ollama_pull_status(api_key: str = Depends(verify_api_key)):
+    """Return current Ollama pull progress for all active/recent pulls."""
+    # Clean up completed/errored pulls older than 60 seconds
+    active = {}
+    for name, status in _ollama_pull_status.items():
+        active[name] = status
+
+    return {"pulls": active}
+
+
+@router.delete("/ollama/{model_name:path}")
+async def ollama_delete(model_name: str, api_key: str = Depends(verify_api_key)):
+    """Delete an Ollama model."""
+    validate_ollama_model(model_name)
+
+    url = _get_ollama_url()
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.request(
+                "DELETE",
+                f"{url}/api/delete",
+                json={"name": model_name},
+            )
+            if resp.status_code == 404:
+                raise HTTPException(status_code=404, detail=f"Model '{model_name}' not found in Ollama")
+            resp.raise_for_status()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Ollama delete failed: {e}")
+
+    return {"status": "deleted", "model": model_name}

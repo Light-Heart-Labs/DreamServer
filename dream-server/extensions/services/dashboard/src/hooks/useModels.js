@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 
 /**
  * Hook for the Model Hub — fetches unified model list from the API,
@@ -126,6 +126,121 @@ export function useModels() {
     loadModel,
     deleteModel,
     refresh: fetchModels
+  }
+}
+
+
+/**
+ * Hook for Ollama model management: pull, delete, progress, info.
+ */
+export function useOllama() {
+  const [info, setInfo] = useState(null)
+  const [pulls, setPulls] = useState({})
+  const [pulling, setPulling] = useState(false)
+  const [error, setError] = useState(null)
+  const pollRef = useRef(null)
+
+  // Fetch Ollama server info
+  const fetchInfo = useCallback(async () => {
+    try {
+      const res = await fetch('/api/models/ollama/info')
+      if (!res.ok) return
+      setInfo(await res.json())
+    } catch {
+      // Ollama might not be running
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchInfo()
+  }, [fetchInfo])
+
+  // Poll pull status
+  const pollPullStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/models/ollama/pull-status')
+      if (!res.ok) return
+      const data = await res.json()
+      setPulls(data.pulls || {})
+
+      const hasActive = Object.values(data.pulls || {}).some(p => p.status === 'pulling')
+      if (!hasActive && pollRef.current) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
+        setPulling(false)
+      }
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  const startPolling = useCallback(() => {
+    if (pollRef.current) return
+    setPulling(true)
+    pollRef.current = setInterval(pollPullStatus, 1000)
+  }, [pollPullStatus])
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
+  }, [])
+
+  const pullModel = async (modelName) => {
+    if (!modelName?.trim()) return
+    setError(null)
+    try {
+      const res = await fetch('/api/models/ollama/pull', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: modelName.trim() }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.detail || 'Failed to start pull')
+      }
+      startPolling()
+      await pollPullStatus()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const deleteOllamaModel = async (modelName) => {
+    if (!confirm(`Delete Ollama model "${modelName}"? This cannot be undone.`)) return false
+    setError(null)
+    try {
+      const res = await fetch(`/api/models/ollama/${encodeURIComponent(modelName)}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.detail || 'Failed to delete model')
+      }
+      return true
+    } catch (err) {
+      setError(err.message)
+      return false
+    }
+  }
+
+  const clearPull = (modelName) => {
+    setPulls(prev => {
+      const next = { ...prev }
+      delete next[modelName]
+      return next
+    })
+  }
+
+  return {
+    info,
+    pulls,
+    pulling,
+    error,
+    pullModel,
+    deleteOllamaModel,
+    clearPull,
+    refreshInfo: fetchInfo,
   }
 }
 

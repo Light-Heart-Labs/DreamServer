@@ -2,9 +2,9 @@ import { useState } from 'react'
 import {
   Box, Download, Trash2, Check, AlertCircle, Loader2, Play,
   RefreshCw, HardDrive, Zap, Cloud, Server, ChevronDown,
-  Eye, EyeOff, ExternalLink, X, Sparkles
+  Eye, EyeOff, ExternalLink, X, Sparkles, Search, Info
 } from 'lucide-react'
-import { useModels, useProviders } from '../hooks/useModels'
+import { useModels, useProviders, useOllama } from '../hooks/useModels'
 import { useDownloadProgress } from '../hooks/useDownloadProgress'
 
 const BACKEND_LABELS = {
@@ -45,6 +45,7 @@ export default function Models() {
     models, gpu, activeModel, loading, error, actionLoading,
     filter, setFilter, downloadModel, loadModel, deleteModel, refresh
   } = useModels()
+  const ollama = useOllama()
 
   if (loading) {
     return (
@@ -120,6 +121,16 @@ export default function Models() {
         <DownloadProgressBar progress={downloadProgress.progress} helpers={downloadProgress} />
       )}
 
+      {/* Ollama Pull Progress */}
+      {Object.keys(ollama.pulls).length > 0 && (
+        <OllamaPullProgress pulls={ollama.pulls} onClear={ollama.clearPull} />
+      )}
+
+      {/* Ollama Section (shown in ollama tab) */}
+      {filter === 'ollama' && (
+        <OllamaSection ollama={ollama} onRefresh={refresh} />
+      )}
+
       {/* Cloud Providers (shown in cloud tab) */}
       {filter === 'cloud' && <CloudProvidersSection />}
 
@@ -133,7 +144,14 @@ export default function Models() {
               isLoading={actionLoading === model.id}
               onDownload={() => downloadModel(model.id)}
               onLoad={() => loadModel(model.id)}
-              onDelete={() => deleteModel(model.id)}
+              onDelete={
+                model.backend === 'ollama'
+                  ? async () => {
+                      const ok = await ollama.deleteOllamaModel(model.id.replace('ollama:', ''))
+                      if (ok) refresh()
+                    }
+                  : () => deleteModel(model.id)
+              }
             />
           ))}
           {models.length === 0 && (
@@ -344,10 +362,19 @@ function ModelCard({ model, isLoading, onDownload, onLoad, onDelete }) {
               Active
             </span>
           ) : model.backend === 'ollama' ? (
-            /* Ollama models are managed by Ollama — show as ready */
-            <span className="px-4 py-2 bg-indigo-600/15 text-indigo-400 rounded-lg text-sm font-medium border border-indigo-500/20">
-              Ready
-            </span>
+            /* Ollama models are managed by Ollama — show Ready + Delete */
+            <>
+              <span className="px-4 py-2 bg-indigo-600/15 text-indigo-400 rounded-lg text-sm font-medium border border-indigo-500/20">
+                Ready
+              </span>
+              <button
+                onClick={onDelete}
+                className="p-2 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                title="Delete model from Ollama"
+              >
+                <Trash2 size={16} />
+              </button>
+            </>
           ) : isDownloaded ? (
             <>
               <button
@@ -438,6 +465,169 @@ function DownloadProgressBar({ progress, helpers }) {
           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer" />
         </div>
       </div>
+    </div>
+  )
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Ollama Section — Server info + Pull input                           */
+/* ------------------------------------------------------------------ */
+
+function OllamaSection({ ollama, onRefresh }) {
+  const [pullInput, setPullInput] = useState('')
+  const { info, error: ollamaError } = ollama
+
+  const handlePull = async (e) => {
+    e.preventDefault()
+    if (!pullInput.trim()) return
+    await ollama.pullModel(pullInput)
+    setPullInput('')
+    // Refresh model list after 2s to give pull time to start
+    setTimeout(onRefresh, 2000)
+  }
+
+  return (
+    <div className="mb-6 space-y-4">
+      {/* Server Info */}
+      {info && info.reachable && (
+        <div className="flex items-center gap-3 text-sm">
+          <span className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/10 border border-green-500/20 rounded-lg text-green-400">
+            <Check size={14} />
+            Ollama v{info.version}
+          </span>
+          <span className="px-3 py-1.5 bg-zinc-800 rounded-lg text-zinc-400">
+            {info.modelCount} models installed
+          </span>
+          {info.runningModels.length > 0 && (
+            <span className="px-3 py-1.5 bg-indigo-500/10 border border-indigo-500/20 rounded-lg text-indigo-400">
+              {info.runningModels.map(m => m.name).join(', ')} running
+            </span>
+          )}
+          {info.cloudHints?.hasCloudModels && (
+            <span className="px-3 py-1.5 bg-purple-500/10 border border-purple-500/20 rounded-lg text-purple-400 flex items-center gap-1.5">
+              <Cloud size={14} />
+              Cloud subscription detected
+            </span>
+          )}
+        </div>
+      )}
+
+      {info && !info.reachable && (
+        <div className="flex items-center gap-2 text-sm text-amber-400">
+          <AlertCircle size={14} />
+          Ollama server not reachable
+        </div>
+      )}
+
+      {/* Pull Model Input */}
+      <form onSubmit={handlePull} className="flex gap-2">
+        <div className="flex-1 relative">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+          <input
+            type="text"
+            value={pullInput}
+            onChange={(e) => setPullInput(e.target.value)}
+            placeholder="Pull a model... e.g. llama3.3, qwen3:14b, deepseek-r1"
+            className="w-full pl-10 pr-4 py-2.5 bg-zinc-900/50 border border-zinc-700 rounded-lg text-white text-sm placeholder-zinc-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition-colors"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={!pullInput.trim() || ollama.pulling}
+          className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white rounded-lg text-sm font-medium flex items-center gap-2 transition-all shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/30 disabled:shadow-none"
+        >
+          {ollama.pulling ? (
+            <Loader2 size={14} className="animate-spin" />
+          ) : (
+            <Download size={14} />
+          )}
+          Pull
+        </button>
+      </form>
+
+      {/* Ollama Error */}
+      {ollamaError && (
+        <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-2">
+          <AlertCircle size={14} className="text-red-400" />
+          <p className="text-red-400 text-sm">{ollamaError}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Ollama Pull Progress                                                */
+/* ------------------------------------------------------------------ */
+
+function OllamaPullProgress({ pulls, onClear }) {
+  const entries = Object.entries(pulls)
+  if (entries.length === 0) return null
+
+  return (
+    <div className="mb-6 space-y-3">
+      {entries.map(([name, pull]) => (
+        <div
+          key={name}
+          className={`p-4 border rounded-xl ${
+            pull.status === 'error'
+              ? 'bg-red-500/10 border-red-500/30'
+              : pull.status === 'complete'
+                ? 'bg-green-500/10 border-green-500/30'
+                : 'bg-indigo-500/10 border-indigo-500/30'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              {pull.status === 'pulling' && (
+                <Loader2 size={14} className="text-indigo-400 animate-spin" />
+              )}
+              {pull.status === 'complete' && (
+                <Check size={14} className="text-green-400" />
+              )}
+              {pull.status === 'error' && (
+                <AlertCircle size={14} className="text-red-400" />
+              )}
+              <span className="text-sm font-medium text-white">{pull.model}</span>
+              <span className={`text-xs ${
+                pull.status === 'error' ? 'text-red-400'
+                : pull.status === 'complete' ? 'text-green-400'
+                : 'text-zinc-400'
+              }`}>
+                {pull.detail}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {pull.status === 'pulling' && (
+                <span className="text-sm font-bold text-indigo-400 font-mono">
+                  {pull.percent?.toFixed(0)}%
+                </span>
+              )}
+              {(pull.status === 'complete' || pull.status === 'error') && (
+                <button
+                  onClick={() => onClear(name)}
+                  className="p-1 text-zinc-500 hover:text-white rounded transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {pull.status === 'pulling' && (
+            <div className="h-2 bg-zinc-700 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-300 relative"
+                style={{ width: `${pull.percent || 0}%` }}
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer" />
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   )
 }
