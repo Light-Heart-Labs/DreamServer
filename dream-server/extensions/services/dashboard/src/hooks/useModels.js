@@ -181,7 +181,7 @@ export function useModels() {
     deleteModel,
     addCustomModel,
     removeCustomModel,
-    refresh: fetchModels
+    refresh: () => fetchModels()
   }
 }
 
