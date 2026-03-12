@@ -1,0 +1,7 @@
+# External LLM Backend Overlay
+# Applied when using Ollama or any external OpenAI-compatible inference server.
+# Disables the built-in llama-server container since inference is handled externally.
+
+services:
+  llama-server:
+    profiles: [disabled]

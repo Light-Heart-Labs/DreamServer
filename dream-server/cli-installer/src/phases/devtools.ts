@@ -129,6 +129,15 @@ export async function devtools(ctx: InstallContext): Promise<void> {
       const model = tierCfg.model;
       const context = tierCfg.context;
 
+      // Read OLLAMA_PORT from .env — defaults to 8080 (llama-server port, NOT Ollama's 11434)
+      const envPath = join(ctx.installDir, '.env');
+      let llamaPort = '8080';
+      if (existsSync(envPath)) {
+        const envContent = readFileSync(envPath, 'utf-8');
+        const portMatch = envContent.match(/^OLLAMA_PORT=(.*)$/m);
+        if (portMatch && portMatch[1].trim()) llamaPort = portMatch[1].trim();
+      }
+
       const config = {
         $schema: 'https://opencode.ai/config.json',
         model: `llama-server/${model}`,
@@ -137,7 +146,7 @@ export async function devtools(ctx: InstallContext): Promise<void> {
             npm: '@ai-sdk/openai-compatible',
             name: 'llama-server (local)',
             options: {
-              baseURL: 'http://127.0.0.1:11434/v1',
+              baseURL: `http://127.0.0.1:${llamaPort}/v1`,
               apiKey: 'no-key',
             },
             models: {
@@ -151,7 +160,7 @@ export async function devtools(ctx: InstallContext): Promise<void> {
       };
 
       writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
-      ui.ok(`OpenCode configured for local llama-server (model: ${model})`);
+      ui.ok(`OpenCode configured for local llama-server (model: ${model}, port: ${llamaPort})`);
     } else {
       ui.ok('OpenCode config already exists — skipping');
     }

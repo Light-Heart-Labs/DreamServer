@@ -168,7 +168,16 @@ function loadFeaturesFromEnv(ctx: InstallContext): void {
     if (env.ENABLE_DEVTOOLS !== undefined) ctx.features.devtools = toBool(env.ENABLE_DEVTOOLS);
     if (env.OFFLINE_MODE !== undefined) ctx.offlineMode = toBool(env.OFFLINE_MODE);
 
-    if (env.GPU_BACKEND) ctx.gpu.backend = env.GPU_BACKEND as 'nvidia' | 'amd' | 'cpu';
+    if (env.GPU_BACKEND) ctx.gpu.backend = env.GPU_BACKEND as 'nvidia' | 'amd' | 'apple' | 'cpu';
+
+    // Restore LLM backend choice
+    if (env.LLM_BACKEND) {
+      ctx.llmBackend = env.LLM_BACKEND as 'llamacpp' | 'vllm' | 'ollama' | 'external';
+    }
+    // Restore external LLM URL for Ollama/external backends
+    if (env.LLM_API_URL && (ctx.llmBackend === 'ollama' || ctx.llmBackend === 'external')) {
+      ctx.externalLlmUrl = env.LLM_API_URL;
+    }
   } catch {
     // If .env can't be read, defaults will be used
   }

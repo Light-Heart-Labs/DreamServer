@@ -8,6 +8,20 @@ import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 export async function downloadModel(ctx: InstallContext): Promise<void> {
+  // External backends (Ollama, user-provided API) manage their own models — skip download
+  if (ctx.llmBackend === 'ollama') {
+    ui.info('Ollama backend — models are managed via: ollama pull <model>');
+    if (ctx.externalLlmUrl) {
+      ui.info(`Using Ollama at: ${ctx.externalLlmUrl}`);
+    }
+    return;
+  }
+
+  if (ctx.llmBackend === 'external') {
+    ui.info(`External LLM backend — using server at: ${ctx.externalLlmUrl || 'configured URL'}`);
+    return;
+  }
+
   // vLLM downloads models from HuggingFace at container startup — skip GGUF download
   if (ctx.llmBackend === 'vllm') {
     const tierConfig = TIER_MAP[ctx.tier];

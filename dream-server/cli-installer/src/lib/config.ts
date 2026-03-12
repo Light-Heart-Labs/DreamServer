@@ -112,7 +112,7 @@ export const FEATURE_PRESETS: Record<string, FeatureSet> = {
   core: { voice: false, workflows: false, rag: false, openclaw: false, devtools: false },
 };
 
-export type LlmBackend = 'llamacpp' | 'vllm';
+export type LlmBackend = 'llamacpp' | 'vllm' | 'ollama' | 'external';
 
 export interface InstallContext {
   installDir: string;
@@ -137,6 +137,8 @@ export interface InstallContext {
   };
   tailscaleIp: string | null;
   offlineMode: boolean;
+  /** URL of an externally-managed LLM inference server (Ollama, vLLM, etc.) */
+  externalLlmUrl: string | null;
 }
 
 export function createDefaultContext(): InstallContext {
@@ -152,5 +154,6 @@ export function createDefaultContext(): InstallContext {
     system: { os: getOsName(), distro: '', ramGB: 0, diskGB: 0, arch: process.arch },
     tailscaleIp: null,
     offlineMode: false,
+    externalLlmUrl: null,
   };
 }

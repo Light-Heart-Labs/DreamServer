@@ -85,8 +85,32 @@ export async function preflight(ctx: InstallContext): Promise<PreflightResult> {
     // Check if Docker binary exists at all
     const hasBinary = await commandExists('docker');
     if (!hasBinary) {
-      ui.fail('Docker not found');
-      ui.info(getDockerInstallHint());
+      // Attempt auto-installation on Linux (mirrors 05-docker.sh)
+      if (!IS_WINDOWS && !IS_MACOS && !ctx.dryRun) {
+        ui.info('Docker not found — attempting automatic installation...');
+        const installed = await autoInstallDocker();
+        if (installed) {
+          // Re-check after install
+          try {
+            const { getComposeCommand } = await import('../lib/docker.ts');
+            const composeCmd = await getComposeCommand();
+            hasDocker = true;
+            hasDockerCompose = true;
+            dockerRunning = true;
+            ui.ok(`Docker installed and ready (${composeCmd.join(' ')})`);
+          } catch {
+            hasDocker = true;
+            ui.warn('Docker installed but daemon not responding — may need a re-login for group permissions');
+            ui.info('Fix: sudo usermod -aG docker $USER && newgrp docker');
+          }
+        } else {
+          ui.fail('Docker auto-installation failed');
+          ui.info(getDockerInstallHint());
+        }
+      } else {
+        ui.fail('Docker not found');
+        ui.info(getDockerInstallHint());
+      }
     } else {
       hasDocker = true;
       // Binary exists but daemon access failed
@@ -97,7 +121,7 @@ export async function preflight(ctx: InstallContext): Promise<PreflightResult> {
         console.log(`     ${hint}`);
       }
     }
-    if (!ctx.dryRun && !ctx.force) {
+    if (!hasDocker && !ctx.dryRun && !ctx.force) {
       console.log('');
       ui.fail('Docker access is required. Fix the issue above and re-run.');
       process.exit(1);
@@ -127,5 +151,59 @@ export async function preflight(ctx: InstallContext): Promise<PreflightResult> {
   }
 
   return { os, distro, arch: process.arch, hasDocker, hasDockerCompose, hasGit, hasCurl, hasNvidiaSmi, dockerRunning, tailscaleIp };
+}
+
+/**
+ * Attempt to install Docker Engine automatically on Linux.
+ * Mirrors the bash installer's 05-docker.sh behavior.
+ */
+async function autoInstallDocker(): Promise<boolean> {
+  const { exec } = await import('../lib/shell.ts');
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+
+  const tmpDir = mkdtempSync(join(tmpdir(), 'dream-docker-'));
+  const tmpFile = join(tmpDir, 'install-docker.sh');
+
+  try {
+    // Download Docker's official install script
+    const dl = await exec(
+      ['curl', '-fsSL', 'https://get.docker.com', '-o', tmpFile],
+      { throwOnError: false, timeout: 30_000 },
+    );
+    if (dl.exitCode !== 0) {
+      ui.warn('Could not download Docker install script');
+      return false;
+    }
+
+    // Run the install script with sudo
+    ui.step('Installing Docker Engine (this may take a minute)...');
+    const install = await exec(
+      ['sudo', 'sh', tmpFile],
+      { throwOnError: false, timeout: 300_000 },
+    );
+
+    if (install.exitCode !== 0) {
+      return false;
+    }
+
+    // Add current user to docker group
+    const user = process.env.SUDO_USER || process.env.USER || '';
+    if (user) {
+      await exec(['sudo', 'usermod', '-aG', 'docker', user], { throwOnError: false });
+    }
+
+    // Start Docker daemon
+    await exec(['sudo', 'systemctl', 'start', 'docker'], { throwOnError: false, timeout: 15_000 });
+    await exec(['sudo', 'systemctl', 'enable', 'docker'], { throwOnError: false, timeout: 5_000 });
+
+    ui.ok('Docker Engine installed');
+    return true;
+  } catch {
+    return false;
+  } finally {
+    try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
 }
 

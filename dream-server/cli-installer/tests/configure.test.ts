@@ -131,6 +131,102 @@ describe('configure.ts', () => {
     expect(envContent).not.toContain('VLLM_MODEL');
     expect(envContent).not.toContain('VLLM_ARGS');
   });
+
+  test('configure() generates LIVEKIT_API_SECRET as base64 (not hex)', async () => {
+    const ctx = createDefaultContext();
+    ctx.installDir = tmpDir;
+    ctx.tier = '1';
+
+    await configure(ctx);
+
+    const envContent = fs.readFileSync(join(tmpDir, '.env'), 'utf-8');
+    const match = envContent.match(/^LIVEKIT_API_SECRET=(.+)$/m);
+    expect(match).not.toBeNull();
+    const secret = match![1];
+    // base64 contains +, /, = and is typically 44 chars for 32 bytes
+    // hex is strictly [0-9a-f] and would be 64 chars for 32 bytes
+    expect(secret.length).toBe(44); // 32 bytes → 44 base64 chars
+    // Verify it's valid base64 (roundtrips correctly)
+    const decoded = Buffer.from(secret, 'base64');
+    expect(decoded.length).toBe(32);
+    expect(Buffer.from(decoded).toString('base64')).toBe(secret);
+  });
+
+  test('configure() generates OPENCODE_SERVER_PASSWORD', async () => {
+    const ctx = createDefaultContext();
+    ctx.installDir = tmpDir;
+    ctx.tier = '1';
+
+    await configure(ctx);
+
+    const envContent = fs.readFileSync(join(tmpDir, '.env'), 'utf-8');
+    expect(envContent).toContain('OPENCODE_SERVER_PASSWORD=');
+    // Should not be empty — the value should be a non-empty base64 string
+    const match = envContent.match(/^OPENCODE_SERVER_PASSWORD=(.+)$/m);
+    expect(match).not.toBeNull();
+    expect(match![1].length).toBeGreaterThan(0);
+  });
+
+  test('configure() generates all required .env keys matching bash installer', async () => {
+    const ctx = createDefaultContext();
+    ctx.installDir = tmpDir;
+    ctx.tier = '1';
+    ctx.gpu.backend = 'nvidia';
+
+    await configure(ctx);
+
+    const envContent = fs.readFileSync(join(tmpDir, '.env'), 'utf-8');
+    // All keys that the bash installer's 06-directories.sh generates
+    const requiredKeys = [
+      'DREAM_MODE', 'LLM_API_URL', 'GPU_BACKEND',
+      'LLM_MODEL', 'GGUF_FILE', 'MAX_CONTEXT', 'CTX_SIZE',
+      'LLAMA_SERVER_PORT', 'WEBUI_PORT', 'WHISPER_PORT', 'TTS_PORT',
+      'N8N_PORT', 'QDRANT_PORT', 'QDRANT_GRPC_PORT', 'LITELLM_PORT',
+      'OPENCLAW_PORT', 'SEARXNG_PORT', 'OPENCODE_PORT',
+      'WEBUI_SECRET', 'DASHBOARD_API_KEY', 'N8N_USER', 'N8N_PASS',
+      'LITELLM_KEY', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET',
+      'OPENCLAW_TOKEN', 'OPENCODE_SERVER_PASSWORD', 'DIFY_SECRET_KEY',
+      'WHISPER_MODEL', 'TTS_VOICE',
+      'WEBUI_AUTH', 'ENABLE_WEB_SEARCH', 'WEB_SEARCH_ENGINE',
+      'N8N_AUTH', 'N8N_HOST', 'N8N_WEBHOOK_URL',
+      'TIMEZONE', 'LLM_BACKEND',
+      'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'TOGETHER_API_KEY',
+    ];
+
+    for (const key of requiredKeys) {
+      expect(envContent).toContain(`${key}=`);
+    }
+  });
+
+  test('configure() generates AMD-specific vars for amd backend', async () => {
+    const ctx = createDefaultContext();
+    ctx.installDir = tmpDir;
+    ctx.tier = '1';
+    ctx.gpu.backend = 'amd';
+
+    await configure(ctx);
+
+    const envContent = fs.readFileSync(join(tmpDir, '.env'), 'utf-8');
+    expect(envContent).toContain('VIDEO_GID=');
+    expect(envContent).toContain('RENDER_GID=');
+    expect(envContent).toContain('HSA_OVERRIDE_GFX_VERSION=');
+    expect(envContent).toContain('ROCBLAS_USE_HIPBLASLT=');
+  });
+
+  test('configure() does NOT include AMD vars for nvidia/cpu backends', async () => {
+    const ctx = createDefaultContext();
+    ctx.installDir = tmpDir;
+    ctx.tier = '1';
+    ctx.gpu.backend = 'nvidia';
+
+    await configure(ctx);
+
+    const envContent = fs.readFileSync(join(tmpDir, '.env'), 'utf-8');
+    expect(envContent).not.toContain('VIDEO_GID=');
+    expect(envContent).not.toContain('RENDER_GID=');
+    expect(envContent).not.toContain('HSA_OVERRIDE_GFX_VERSION');
+    expect(envContent).not.toContain('ROCBLAS_USE_HIPBLASLT');
+  });
 });
 
 describe('resolveComposeFiles()', () => {
