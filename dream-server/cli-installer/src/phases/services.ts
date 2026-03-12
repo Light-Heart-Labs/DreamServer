@@ -9,12 +9,12 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { networkInterfaces } from 'node:os';
 
-export async function services(ctx: InstallContext): Promise<void> {
+export async function services(ctx: InstallContext): Promise<number> {
   ui.phase(6, 6, 'Launch Services', '~2min');
 
   if (ctx.dryRun) {
     ui.info('[DRY RUN] Would run: docker compose up -d');
-    return;
+    return 0;
   }
 
   // Use shared compose command resolver
@@ -24,7 +24,7 @@ export async function services(ctx: InstallContext): Promise<void> {
   } catch {
     ui.fail('Neither "docker compose" nor "docker-compose" found');
     process.exit(1);
-    return; // unreachable, but satisfies TS
+    return 1; // unreachable, but satisfies TS
   }
 
   ui.step('Starting containers...');
@@ -39,25 +39,18 @@ export async function services(ctx: InstallContext): Promise<void> {
     console.log('');
     await showContainerStatus(ctx, composeCmd);
     showRecoveryHelp(ctx, composeCmd);
-    // Continue to show success with caveats
+    // Continue to health checks and summary (handled by install.ts)
   } else {
     ui.ok('All containers started');
   }
 
-  console.log('');
-
-  // Health check
-  const ports = readPorts(ctx);
-  await healthCheck(ctx, ports);
-
-  // Success summary
-  showSuccess(ctx, ports, exitCode !== 0);
+  return exitCode;
 }
 
 /**
  * Read configured ports from .env, with sensible defaults.
  */
-function readPorts(ctx: InstallContext): Record<string, number> {
+export function readPorts(ctx: InstallContext): Record<string, number> {
   const defaults: Record<string, number> = {
     WEBUI_PORT: 3000,
     DASHBOARD_PORT: 3001,
@@ -202,7 +195,7 @@ async function healthCheck(ctx: InstallContext, ports: Record<string, number>): 
   }
 }
 
-function showSuccess(ctx: InstallContext, ports: Record<string, number>, hadErrors: boolean) {
+export function showSuccess(ctx: InstallContext, ports: Record<string, number>, hadErrors: boolean) {
   const localIP = getLocalIP();
 
   if (hadErrors) {
