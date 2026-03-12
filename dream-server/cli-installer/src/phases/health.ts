@@ -23,13 +23,40 @@ interface ServiceCheck {
  * Build the list of health checks based on .env and enabled features.
  */
 function buildChecks(ctx: InstallContext, env: Record<string, string>): ServiceCheck[] {
-  const checks: ServiceCheck[] = [
-    {
+  const checks: ServiceCheck[] = [];
+
+  // LLM inference health check — depends on backend type
+  if (ctx.llmBackend === 'ollama') {
+    // Ollama runs on the host — check its native endpoint
+    const url = ctx.externalLlmUrl || 'http://localhost:11434';
+    const port = parseInt(new URL(url).port || '11434', 10);
+    checks.push({
+      name: 'Ollama',
+      port,
+      healthPath: '/api/tags',
+      timeout: 15,  // external service, should respond fast
+    });
+  } else if (ctx.llmBackend === 'external') {
+    // External API — quick check, don't block long
+    const url = ctx.externalLlmUrl || 'http://localhost:8080';
+    const port = parseInt(new URL(url).port || '8080', 10);
+    checks.push({
+      name: 'External LLM',
+      port,
+      healthPath: '/health',
+      timeout: 15,
+    });
+  } else {
+    // Built-in llama-server container
+    checks.push({
       name: 'llama-server',
-      port: parseInt(env.OLLAMA_PORT || '8080', 10),
+      port: parseInt(env.OLLAMA_PORT || '11434', 10),
       healthPath: '/health',
       timeout: 120,
-    },
+    });
+  }
+
+  checks.push(
     {
       name: 'Open WebUI',
       port: parseInt(env.WEBUI_PORT || '3000', 10),
@@ -48,7 +75,7 @@ function buildChecks(ctx: InstallContext, env: Record<string, string>): ServiceC
       healthPath: '/',
       timeout: 120,
     },
-  ];
+  );
 
   if (ctx.features.voice) {
     checks.push(
