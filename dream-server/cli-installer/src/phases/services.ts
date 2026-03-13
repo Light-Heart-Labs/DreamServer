@@ -170,30 +170,6 @@ function showRecoveryHelp(ctx: InstallContext, composeCmd: string[]) {
   console.log(`     dream-installer install`);
 }
 
-async function healthCheck(ctx: InstallContext, ports: Record<string, number>): Promise<void> {
-  ui.step('Checking service health...');
-
-  const checks = [
-    { name: 'Open WebUI', url: `http://localhost:${ports.WEBUI_PORT}` },
-  ];
-
-  for (const check of checks) {
-    let healthy = false;
-    for (let attempt = 0; attempt < 15; attempt++) {
-      try {
-        const resp = await fetch(check.url, { signal: AbortSignal.timeout(3000) });
-        if (resp.ok || resp.status === 401) {
-          healthy = true;
-          break;
-        }
-      } catch { /* retry */ }
-      await Bun.sleep(2000);
-    }
-
-    if (healthy) ui.ok(`${check.name} online`);
-    else ui.warn(`${check.name} still starting (may take a few minutes)`);
-  }
-}
 
 export function showSuccess(ctx: InstallContext, ports: Record<string, number>, hadErrors: boolean) {
   const localIP = getLocalIP();

@@ -95,7 +95,7 @@ inference:
     const hasCurl = await commandExists('curl');
     if (hasCurl) {
       const dl = await exec(
-        ['curl', '-L', '-o', embedFile, embedUrl],
+        ['curl', '-fSL', '-o', embedFile, embedUrl],
         { throwOnError: false, timeout: 300_000 },
       );
       if (dl.exitCode !== 0) {

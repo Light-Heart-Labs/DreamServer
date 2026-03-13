@@ -121,7 +121,7 @@ export async function preflight(ctx: InstallContext): Promise<PreflightResult> {
         console.log(`     ${hint}`);
       }
     }
-    if (!hasDocker && !ctx.dryRun && !ctx.force) {
+    if (!dockerRunning && !ctx.dryRun && !ctx.force) {
       console.log('');
       ui.fail('Docker access is required. Fix the issue above and re-run.');
       process.exit(1);

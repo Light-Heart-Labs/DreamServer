@@ -51,7 +51,7 @@ function buildChecks(ctx: InstallContext, env: Record<string, string>): ServiceC
     // Built-in llama-server container
     checks.push({
       name: 'llama-server',
-      port: parseInt(env.OLLAMA_PORT || '11434', 10),
+      port: parseInt(env.LLAMA_SERVER_PORT || '8080', 10),
       healthPath: '/health',
       timeout: 120,
     });

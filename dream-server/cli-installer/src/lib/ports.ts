@@ -39,11 +39,15 @@ export function getRequiredPorts(ctx: InstallContext): { service: string; port: 
     { service: 'llama-server', port: SERVICE_PORTS['llama-server'] },
     { service: 'open-webui', port: SERVICE_PORTS['open-webui'] },
     { service: 'dashboard', port: SERVICE_PORTS.dashboard },
-    { service: 'searxng', port: SERVICE_PORTS.searxng },
-    { service: 'perplexica', port: SERVICE_PORTS.perplexica },
-    { service: 'comfyui', port: SERVICE_PORTS.comfyui },
   ];
 
+  if (ctx.features.webSearch) {
+    ports.push({ service: 'searxng', port: SERVICE_PORTS.searxng });
+    ports.push({ service: 'perplexica', port: SERVICE_PORTS.perplexica });
+  }
+  if (ctx.features.imageGen) {
+    ports.push({ service: 'comfyui', port: SERVICE_PORTS.comfyui });
+  }
   if (ctx.features.voice) {
     ports.push({ service: 'whisper', port: SERVICE_PORTS.whisper });
     ports.push({ service: 'tts', port: SERVICE_PORTS.tts });

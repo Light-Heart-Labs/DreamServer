@@ -69,7 +69,10 @@ export async function config(opts: ConfigOptions): Promise<void> {
       workflows: results[1],
       rag: results[2],
       openclaw: results[3],
-      devtools: getEnv('ENABLE_DEVTOOLS') === 'true', // devtools managed separately
+      devtools: getEnv('ENABLE_DEVTOOLS') === 'true',
+      imageGen: getEnv('ENABLE_IMAGE_GEN') === 'true',
+      webSearch: getEnv('ENABLE_WEB_SEARCH_STACK') === 'true',
+      litellm: getEnv('ENABLE_LITELLM') === 'true',
     };
 
     // Check what changed
@@ -79,6 +82,9 @@ export async function config(opts: ConfigOptions): Promise<void> {
       rag: getEnv('ENABLE_RAG') === 'true',
       openclaw: getEnv('ENABLE_OPENCLAW') === 'true',
       devtools: getEnv('ENABLE_DEVTOOLS') === 'true',
+      imageGen: getEnv('ENABLE_IMAGE_GEN') === 'true',
+      webSearch: getEnv('ENABLE_WEB_SEARCH_STACK') === 'true',
+      litellm: getEnv('ENABLE_LITELLM') === 'true',
     };
 
     const featureChanges: string[] = [];
@@ -179,6 +185,9 @@ export async function config(opts: ConfigOptions): Promise<void> {
     rag: rebuildParsed.ENABLE_RAG === 'true',
     openclaw: rebuildParsed.ENABLE_OPENCLAW === 'true',
     devtools: rebuildParsed.ENABLE_DEVTOOLS === 'true',
+    imageGen: rebuildParsed.ENABLE_IMAGE_GEN === 'true',
+    webSearch: rebuildParsed.ENABLE_WEB_SEARCH_STACK === 'true',
+    litellm: rebuildParsed.ENABLE_LITELLM === 'true',
   };
   const gpuBackend = getEnv('GPU_BACKEND');
   ctx.gpu.backend = (gpuBackend as 'nvidia' | 'amd' | 'apple' | 'cpu') || 'cpu';
