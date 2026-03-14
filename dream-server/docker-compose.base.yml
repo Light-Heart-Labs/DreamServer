@@ -122,6 +122,7 @@ services:
       dockerfile: Dockerfile
     container_name: dream-dashboard-api
     restart: unless-stopped
+    pid: host  # Required for GPU process name resolution via /proc/{pid}/comm
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -206,16 +207,22 @@ services:
       dockerfile: Dockerfile
     container_name: dream-model-controller
     restart: unless-stopped
+    group_add:
+      - "${DOCKER_GID:-984}"  # Docker socket GID — override if different on host
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - ./.env:/dream-server/.env
       - ./data/models:/models:ro
       - ${VLLM_HF_CACHE:-./data/hf-cache}:/hf-cache:ro
+      - ./:/dream-server            # install dir for compose discovery + overlay writes
+      - /usr/bin/docker:/usr/bin/docker:ro  # docker CLI for compose commands
+      - /usr/libexec/docker:/usr/libexec/docker:ro  # docker compose plugin
     environment:
       - MODEL_CONTROLLER_SECRET=${MODEL_CONTROLLER_SECRET:-}
       - ENV_FILE_PATH=/dream-server/.env
       - MODELS_DIR=/models
       - HF_CACHE_DIR=/hf-cache
+      - INSTALL_DIR=/dream-server
     security_opt:
       - no-new-privileges:true
     deploy:

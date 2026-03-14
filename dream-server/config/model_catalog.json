@@ -110,6 +110,78 @@
       }
     },
     {
+      "id": "qwen3.5-9b",
+      "name": "Qwen3.5 9B",
+      "family": "Qwen",
+      "description": "Latest-gen 9B model with DeltaNet hybrid attention. Strong reasoning in a compact size.",
+      "size_gb": 5.5,
+      "vram_required_gb": 7,
+      "context_length": 65536,
+      "tokens_per_sec_estimate": 105,
+      "quantization": "Q4_K_M",
+      "specialty": "Balanced",
+      "backends": ["llama-server"],
+      "gguf": {
+        "filename": "Qwen_Qwen3.5-9B-Q4_K_M.gguf",
+        "huggingface_repo": "bartowski/Qwen_Qwen3.5-9B-GGUF",
+        "huggingface_file": "Qwen_Qwen3.5-9B-Q4_K_M.gguf"
+      }
+    },
+    {
+      "id": "qwen3.5-4b",
+      "name": "Qwen3.5 4B",
+      "family": "Qwen",
+      "description": "Ultra-efficient 4B model. Excellent for quick tasks and low-VRAM setups.",
+      "size_gb": 2.5,
+      "vram_required_gb": 4,
+      "context_length": 65536,
+      "tokens_per_sec_estimate": 180,
+      "quantization": "Q4_K_M",
+      "specialty": "Fast",
+      "backends": ["llama-server"],
+      "gguf": {
+        "filename": "Qwen_Qwen3.5-4B-Q4_K_M.gguf",
+        "huggingface_repo": "bartowski/Qwen_Qwen3.5-4B-GGUF",
+        "huggingface_file": "Qwen_Qwen3.5-4B-Q4_K_M.gguf"
+      }
+    },
+    {
+      "id": "qwen3.5-2b",
+      "name": "Qwen3.5 2B",
+      "family": "Qwen",
+      "description": "Tiny 2B model for edge devices and rapid prototyping. Surprisingly capable for its size.",
+      "size_gb": 1.3,
+      "vram_required_gb": 2.5,
+      "context_length": 65536,
+      "tokens_per_sec_estimate": 250,
+      "quantization": "Q4_K_M",
+      "specialty": "Fast",
+      "backends": ["llama-server"],
+      "gguf": {
+        "filename": "Qwen_Qwen3.5-2B-Q4_K_M.gguf",
+        "huggingface_repo": "bartowski/Qwen_Qwen3.5-2B-GGUF",
+        "huggingface_file": "Qwen_Qwen3.5-2B-Q4_K_M.gguf"
+      }
+    },
+    {
+      "id": "qwen3.5-0.8b",
+      "name": "Qwen3.5 0.8B",
+      "family": "Qwen",
+      "description": "Smallest Qwen3.5 model. Ideal for testing, embedded use, or CPU-only machines.",
+      "size_gb": 0.5,
+      "vram_required_gb": 1.5,
+      "context_length": 32768,
+      "tokens_per_sec_estimate": 350,
+      "quantization": "Q4_K_M",
+      "specialty": "Fast",
+      "backends": ["llama-server"],
+      "gguf": {
+        "filename": "Qwen_Qwen3.5-0.8B-Q4_K_M.gguf",
+        "huggingface_repo": "bartowski/Qwen_Qwen3.5-0.8B-GGUF",
+        "huggingface_file": "Qwen_Qwen3.5-0.8B-Q4_K_M.gguf"
+      }
+    },
+    {
       "id": "vllm-qwen3-8b",
       "name": "Qwen3 8B (FP16)",
       "family": "Qwen",
@@ -125,18 +197,48 @@
       }
     },
     {
+      "id": "vllm-qwen3.5-9b",
+      "name": "Qwen3.5 9B (FP16)",
+      "family": "Qwen",
+      "description": "Full-precision Qwen3.5 9B for vLLM. DeltaNet hybrid attention with excellent throughput.",
+      "size_gb": 18.0,
+      "vram_required_gb": 20,
+      "context_length": 65536,
+      "tokens_per_sec_estimate": 95,
+      "specialty": "Balanced",
+      "backends": ["vllm"],
+      "vllm": {
+        "huggingface_repo": "Qwen/Qwen3.5-9B"
+      }
+    },
+    {
       "id": "vllm-qwen3.5-4b",
       "name": "Qwen3.5 4B (FP16)",
       "family": "Qwen",
       "description": "Ultra-fast lightweight model for vLLM. Default vLLM model, great for testing.",
       "size_gb": 8.0,
       "vram_required_gb": 10,
-      "context_length": 32768,
+      "context_length": 65536,
       "tokens_per_sec_estimate": 160,
       "specialty": "Fast",
       "backends": ["vllm"],
       "vllm": {
         "huggingface_repo": "Qwen/Qwen3.5-4B"
+      }
+    },
+    {
+      "id": "vllm-qwen3.5-2b",
+      "name": "Qwen3.5 2B (FP16)",
+      "family": "Qwen",
+      "description": "Tiny full-precision model for vLLM. Minimal VRAM footprint for testing and edge deployment.",
+      "size_gb": 4.0,
+      "vram_required_gb": 6,
+      "context_length": 65536,
+      "tokens_per_sec_estimate": 220,
+      "specialty": "Fast",
+      "backends": ["vllm"],
+      "vllm": {
+        "huggingface_repo": "Qwen/Qwen3.5-2B"
       }
     },
     {

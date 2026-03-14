@@ -17,9 +17,28 @@ export function useModels() {
   const [backendCapabilities, setBackendCapabilities] = useState(null)
   const [isRestarting, setIsRestarting] = useState(false)
   const [backendStatus, setBackendStatus] = useState(null)
+  const [backends, setBackends] = useState([])
+  const [isSwitchingBackend, setIsSwitchingBackend] = useState(false)
+  const [isTesting, setIsTesting] = useState(false)
+  const [testResult, setTestResult] = useState(null)
 
   // Abort controller for cancelling pending fetches on unmount
   const abortControllerRef = useRef(null)
+
+  const fetchBackends = useCallback(async (signal) => {
+    try {
+      const opts = signal ? { signal } : {}
+      const res = await fetch('/api/models/backends', opts)
+      if (signal?.aborted) return
+      if (res.ok) {
+        const data = await res.json()
+        setBackends(data.backends || [])
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') return
+      // Degrade gracefully — backends might not be available yet
+    }
+  }, [])
 
   const fetchModels = useCallback(async (signal) => {
     try {
@@ -27,6 +46,7 @@ export function useModels() {
       const [modelsRes, activeRes] = await Promise.all([
         fetch('/api/models', opts),
         fetch('/api/models/active', opts),
+        fetchBackends(signal),
       ])
 
       // Check if request was aborted
@@ -55,7 +75,7 @@ export function useModels() {
         setLoading(false)
       }
     }
-  }, [])
+  }, [fetchBackends])
 
   useEffect(() => {
     // Create new abort controller for this effect
@@ -77,8 +97,9 @@ export function useModels() {
   const models = useMemo(() => {
     if (filter === 'all') return allModels
     if (filter === 'local') return allModels.filter(m => m.backend === 'llama-server')
+    if (filter === 'vllm') return allModels.filter(m => m.backend === 'vllm')
     if (filter === 'ollama') return allModels.filter(m => m.backend === 'ollama')
-    if (filter === 'cloud') return allModels.filter(m => m.backend !== 'llama-server' && m.backend !== 'ollama')
+    if (filter === 'cloud') return allModels.filter(m => !['llama-server', 'vllm', 'ollama'].includes(m.backend))
     return allModels
   }, [allModels, filter])
 
@@ -134,44 +155,7 @@ export function useModels() {
       const result = await response.json()
       setBackendStatus({ status: 'restarting', message: result.message || 'Container restarting...' })
 
-      // Poll backend health until healthy or timeout
-      const maxWait = 120000 // 2 minutes
-      const pollInterval = 2000
-      const startTime = Date.now()
-
-      const pollHealth = () => {
-        return new Promise((resolve, reject) => {
-          const check = async () => {
-            if (Date.now() - startTime > maxWait) {
-              reject(new Error('Restart timed out. Check the llama-server container status.'))
-              return
-            }
-            try {
-              const statusRes = await fetch('/api/models/backend/status')
-              if (statusRes.ok) {
-                const status = await statusRes.json()
-                setBackendStatus({
-                  status: status.healthy ? 'healthy' : 'starting',
-                  message: status.healthy ? 'Model loaded successfully!' : 'Loading model...',
-                  model: status.model,
-                  container: status.container,
-                })
-                if (status.healthy) {
-                  resolve(status)
-                  return
-                }
-              }
-            } catch {
-              // Controller may be temporarily unreachable during restart
-              setBackendStatus({ status: 'restarting', message: 'Waiting for container...' })
-            }
-            setTimeout(check, pollInterval)
-          }
-          setTimeout(check, pollInterval)
-        })
-      }
-
-      await pollHealth()
+      await _pollHealth(120000)
       await fetchModels()
     } catch (err) {
       setError(err.message)
@@ -179,6 +163,76 @@ export function useModels() {
     } finally {
       setIsRestarting(false)
     }
+  }
+
+  const switchBackend = async (backendId, model = null) => {
+    setIsSwitchingBackend(true)
+    setIsRestarting(true)
+    setBackendStatus({ status: 'switching', message: `Switching to ${backendId}...` })
+    try {
+      const payload = { backend: backendId }
+      if (model) payload.model = model
+
+      const response = await fetch('/api/models/backends/switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.detail || 'Failed to switch backend')
+      }
+      const result = await response.json()
+      setBackendStatus({
+        status: 'restarting',
+        message: result.message || 'Services updating...',
+      })
+
+      // vLLM cold starts can take 5+ minutes
+      const timeout = backendId === 'vllm' ? 300000 : 120000
+      await _pollHealth(timeout)
+      await fetchModels()
+    } catch (err) {
+      setError(err.message)
+      setBackendStatus({ status: 'error', message: err.message })
+    } finally {
+      setIsSwitchingBackend(false)
+      setIsRestarting(false)
+    }
+  }
+
+  // Shared health polling helper
+  const _pollHealth = (maxWait = 120000) => {
+    const pollInterval = 2000
+    const startTime = Date.now()
+    return new Promise((resolve, reject) => {
+      const check = async () => {
+        if (Date.now() - startTime > maxWait) {
+          reject(new Error('Operation timed out. Check the container status.'))
+          return
+        }
+        try {
+          const statusRes = await fetch('/api/models/backend/status')
+          if (statusRes.ok) {
+            const status = await statusRes.json()
+            setBackendStatus({
+              status: status.healthy ? 'healthy' : 'starting',
+              message: status.healthy ? 'Backend ready!' : 'Loading model...',
+              model: status.model,
+              container: status.container,
+            })
+            if (status.healthy) {
+              resolve(status)
+              return
+            }
+          }
+        } catch {
+          setBackendStatus({ status: 'restarting', message: 'Waiting for services...' })
+        }
+        setTimeout(check, pollInterval)
+      }
+      setTimeout(check, pollInterval)
+    })
   }
 
   const deleteModel = async (modelId) => {
@@ -234,6 +288,51 @@ export function useModels() {
     }
   }
 
+  const unloadModel = useCallback(async () => {
+    setActionLoading('unload')
+    try {
+      const res = await fetch('/api/models/unload', { method: 'POST' })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Unload failed' }))
+        setError(err.detail || 'Unload failed')
+        return false
+      }
+      setActiveModel(null)  // Clear active model — container is stopped
+      await fetchModels()
+      return true
+    } catch (err) {
+      setError(err.message)
+      return false
+    } finally {
+      setActionLoading(null)
+    }
+  }, [fetchModels])
+
+  const testModel = useCallback(async (prompt) => {
+    setIsTesting(true)
+    setTestResult(null)
+    try {
+      const res = await fetch('/api/models/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(prompt ? { prompt } : {}),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Test failed' }))
+        setTestResult({ success: false, error: err.detail || 'Test failed' })
+        return null
+      }
+      const data = await res.json()
+      setTestResult(data)
+      return data
+    } catch (err) {
+      setTestResult({ success: false, error: err.message })
+      return null
+    } finally {
+      setIsTesting(false)
+    }
+  }, [])
+
   return {
     models,
     allModels,
@@ -248,13 +347,20 @@ export function useModels() {
     llmBackend,
     backendCapabilities,
     isRestarting,
+    isSwitchingBackend,
+    isTesting,
+    testResult,
     backendStatus,
+    backends,
     downloadModel,
     loadModel,
     switchModel,
+    switchBackend,
     deleteModel,
     addCustomModel,
     removeCustomModel,
+    unloadModel,
+    testModel,
     refresh: () => fetchModels()
   }
 }

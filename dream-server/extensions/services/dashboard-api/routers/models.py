@@ -48,6 +48,31 @@ HF_CACHE_DIR = Path(DATA_DIR) / "hf-cache"
 MODEL_CONTROLLER_URL = os.environ.get("MODEL_CONTROLLER_URL", "http://model-controller:3003")
 MODEL_CONTROLLER_SECRET = os.environ.get("MODEL_CONTROLLER_SECRET", "")
 
+
+def _read_env_var(key: str) -> Optional[str]:
+    """Read a variable from the .env file on disk (NOT os.environ).
+
+    This is needed because model-controller updates the .env file after switching
+    models, but the dashboard-api Docker process env is only set at container start.
+    """
+    if not ENV_FILE.exists():
+        return None
+    try:
+        for line in ENV_FILE.read_text().splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            eq = stripped.find("=")
+            if eq == -1:
+                continue
+            k = stripped[:eq].strip()
+            if k == key:
+                v = stripped[eq + 1:].strip().strip("\"'")
+                return v or None
+    except Exception:
+        pass
+    return None
+
 # --- Pydantic Schemas ---
 
 
@@ -83,6 +108,7 @@ class ModelEntry(BaseModel):
     backend: str = "llama-server"
     status: str = "available"  # available | downloaded | loaded | downloading
     fits_vram: bool = True
+    gguf: Optional[dict] = None  # {filename, huggingface_repo, huggingface_file}
 
 
 class ActiveModel(BaseModel):
@@ -91,6 +117,7 @@ class ActiveModel(BaseModel):
     backend: Optional[str] = None
     tokens_per_sec: Optional[float] = None
     context_length: Optional[int] = None
+    status: Optional[str] = None  # 'running', 'stopped', or None
 
 
 class ProviderInfo(BaseModel):
@@ -106,7 +133,7 @@ class ProviderInfo(BaseModel):
 class SwitchModelRequest(BaseModel):
     """Request body for switching the active model via the controller."""
     model_file: str = Field(..., min_length=1, max_length=500)
-    backend: str = Field(default="llama-server", pattern="^(llama-server|vllm)$")
+    backend: str = Field(default="llama-server", pattern="^(llama-server|llamacpp|vllm)$")
 
 
 # --- Catalog Loading ---
@@ -199,7 +226,8 @@ def get_download_status() -> Optional[dict]:
         return None
     try:
         data = json.loads(DOWNLOAD_STATUS_FILE.read_text())
-        if data.get("status") == "complete":
+        # Treat completed and errored downloads as inactive
+        if data.get("status") in ("complete", "error"):
             return None
         return data
     except Exception:
@@ -240,17 +268,21 @@ def _get_llm_backend() -> str:
 
 
 def _get_ollama_url() -> str:
-    """Read the Ollama URL from the .env file or use default."""
-    port = "11434"
+    """Read the Ollama API URL from .env.
+
+    Since Ollama now runs as the llama-server Docker service,
+    use LLM_API_URL (set by model-controller during backend switch).
+    Falls back to localhost:11434 for backward compatibility.
+    """
     if ENV_FILE.exists():
         try:
             for line in ENV_FILE.read_text().splitlines():
                 line = line.strip()
-                if line.startswith("OLLAMA_PORT="):
-                    port = line.split("=", 1)[1].strip().strip('"').strip("'")
+                if line.startswith("LLM_API_URL="):
+                    return line.split("=", 1)[1].strip().strip('"').strip("'")
         except Exception:
             pass
-    return f"http://localhost:{port}"
+    return "http://llama-server:8080"
 
 
 async def fetch_ollama_models() -> list[ModelEntry]:
@@ -351,7 +383,9 @@ async def list_models(api_key: str = Depends(verify_api_key)):
     catalog = load_catalog()
     downloaded = get_downloaded_gguf_files()
     vllm_cached = get_vllm_cached_models()
-    active_file = get_active_model_from_config()
+    # Read active model from .env (source of truth, updated by model-controller)
+    # with fallback to models.ini (legacy)
+    active_file = _read_env_var("GGUF_FILE") or get_active_model_from_config()
     vram_total = get_vram_total_gb()
     llm_backend = _get_llm_backend()
 
@@ -393,6 +427,7 @@ async def list_models(api_key: str = Depends(verify_api_key)):
             backend=backends[0],
             status=status,
             fits_vram=fits,
+            gguf=entry.get("gguf"),
         ))
 
     # Check for downloaded files not in catalog (user-added models)
@@ -430,6 +465,7 @@ async def list_models(api_key: str = Depends(verify_api_key)):
             backend="llama-server",
             status=status,
             fits_vram=fits,
+            gguf=cm.get("gguf"),
         ))
 
     # Detect orphan downloads (not in catalog or custom models)
@@ -473,7 +509,7 @@ async def list_models(api_key: str = Depends(verify_api_key)):
     capabilities = {
         "canHotSwap": can_hot_swap,
         "requiresRestart": not can_hot_swap,
-        "canUnload": llm_backend == "ollama",
+        "canUnload": True,  # Universal unload — all backends support it
     }
 
     return {
@@ -508,10 +544,11 @@ async def get_active(api_key: str = Depends(verify_api_key)):
                         id=f"ollama:{name}",
                         name=f"{display} ({param_size})" if param_size else display,
                         backend="ollama",
+                        status="running",
                     )
         except Exception as e:
             logger.debug("Ollama /api/ps failed: %s", e)
-        return ActiveModel()
+        return ActiveModel(backend="ollama", status="stopped")
 
     # For vllm backend, query the OpenAI-compatible /v1/models
     if llm_backend == "vllm":
@@ -528,17 +565,30 @@ async def get_active(api_key: str = Depends(verify_api_key)):
                         id=model_id,
                         name=model_id,
                         backend="vllm",
+                        status="running",
                     )
         except Exception as e:
             logger.debug("vLLM /v1/models query failed: %s", e)
-        return ActiveModel(backend="vllm")
+        return ActiveModel(backend="vllm", status="stopped")
 
-    # For llama-server backend, read from models.ini
+    # For llama-server backend, read GGUF_FILE from .env file on disk (updated by model-controller)
+    # with fallback to models.ini (legacy). NOTE: We read the file, NOT os.environ,
+    # because Docker process env is stale — model-controller updates the file, not our process.
     catalog = load_catalog()
-    active_file = get_active_model_from_config()
+    active_file = _read_env_var("GGUF_FILE") or get_active_model_from_config()
 
     if not active_file:
-        return ActiveModel()
+        return ActiveModel(backend="llama-server", status="stopped")
+
+    # Probe llama-server health to determine if container is running
+    llm_url = _get_llm_api_url()
+    is_running = False
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            health = await client.get(f"{llm_url}/health")
+            is_running = health.status_code == 200
+    except Exception:
+        pass
 
     # Find in catalog for rich metadata
     for entry in catalog.get("models", []):
@@ -549,11 +599,13 @@ async def get_active(api_key: str = Depends(verify_api_key)):
                 name=entry["name"],
                 backend="llama-server",
                 context_length=entry.get("context_length"),
+                status="running" if is_running else "stopped",
             )
 
     return ActiveModel(
         id=active_file, name=active_file,
         backend="llama-server",
+        status="running" if is_running else "stopped",
     )
 
 
@@ -577,13 +629,18 @@ async def switch_backend_model(req: SwitchModelRequest, api_key: str = Depends(v
     Model must be pre-downloaded before calling this endpoint.
     """
     try:
+        # Normalize backend name for model-controller (expects 'llamacpp', not 'llama-server')
+        mc_backend = "llamacpp" if req.backend in ("llama-server", "llamacpp") else req.backend
         async with httpx.AsyncClient(timeout=45.0) as client:
             resp = await client.post(
                 f"{MODEL_CONTROLLER_URL}/switch",
-                json={"model_file": req.model_file, "backend": req.backend},
+                json={"model_file": req.model_file, "backend": mc_backend},
                 headers=_controller_headers(),
             )
-            data = resp.json()
+            try:
+                data = resp.json()
+            except Exception:
+                data = {"error": resp.text or "Empty response from controller"}
             if resp.status_code != 200:
                 raise HTTPException(
                     status_code=resp.status_code,
@@ -635,7 +692,252 @@ async def backend_status(api_key: str = Depends(verify_api_key)):
         }
 
 
-# --- Ollama Management Schemas ---
+# --- Backend Detection & Switching ---
+
+
+BACKEND_METADATA = {
+    "llamacpp": {
+        "name": "llama.cpp",
+        "description": "GGUF quantized models — lower VRAM usage, fast inference",
+        "overlay": None,  # base compose, always available
+    },
+    "vllm": {
+        "name": "vLLM",
+        "description": "Full-precision HuggingFace models — higher quality, tensor parallelism",
+        "overlay": "docker-compose.vllm.yml",
+    },
+    "ollama": {
+        "name": "Ollama",
+        "description": "Easy model management with auto-downloads and a large model library",
+        "overlay": "docker-compose.external-llm.yml",
+    },
+}
+
+
+class SwitchBackendRequest(BaseModel):
+    """Request body for switching the LLM backend."""
+    backend: str = Field(..., pattern="^(llamacpp|vllm|ollama)$")
+    model: Optional[str] = None
+
+
+@router.get("/backends")
+async def list_backends(api_key: str = Depends(verify_api_key)):
+    """Return available LLM backends with active status.
+
+    All backends are always available — overlay files ship with the repo.
+    Reads LLM_BACKEND from .env for the active one.
+    """
+    active_backend = _get_llm_backend()
+    # Map common variants to canonical IDs
+    if active_backend in ("llama-server", "llamacpp"):
+        active_backend = "llamacpp"
+
+    backends = []
+    for backend_id, meta in BACKEND_METADATA.items():
+        backends.append({
+            "id": backend_id,
+            "name": meta["name"],
+            "description": meta["description"],
+            "installed": True,  # overlays ship with repo, always available
+            "active": backend_id == active_backend,
+        })
+
+    return {
+        "backends": backends,
+        "activeBackend": active_backend,
+    }
+
+
+class TestModelRequest(BaseModel):
+    """Request body for testing the active model."""
+    prompt: str = Field(
+        default="Explain quantum computing in exactly 3 sentences.",
+        description="Prompt to send to the model"
+    )
+    max_tokens: int = Field(default=128, ge=16, le=512)
+
+
+def _get_llm_api_url() -> str:
+    """Read LLM_API_URL from .env, defaulting to llama-server:8080."""
+    if ENV_FILE.exists():
+        try:
+            for line in ENV_FILE.read_text().splitlines():
+                line = line.strip()
+                if line.startswith("LLM_API_URL="):
+                    return line.split("=", 1)[1].strip().strip('"').strip("'")
+        except Exception:
+            pass
+    return "http://llama-server:8080"
+
+
+@router.post("/test")
+async def test_model(req: TestModelRequest, api_key: str = Depends(verify_api_key)):
+    """Send a short prompt to the active LLM and measure token throughput.
+
+    Returns time-to-first-token (TTFT), total tokens, total time, and tok/s.
+    Uses the OpenAI-compatible streaming API exposed by all backends.
+    """
+    import httpx
+    import time as time_mod
+
+    llm_url = _get_llm_api_url()
+    backend = _get_llm_backend()
+
+    # Handle Ollama vs OpenAI-compatible API URLs
+    if backend in ("ollama",):
+        api_base = f"{llm_url}/v1/chat/completions"
+    else:
+        api_base = f"{llm_url}/v1/chat/completions"
+
+    payload = {
+        "messages": [{"role": "user", "content": req.prompt}],
+        "max_tokens": req.max_tokens,
+        "stream": True,
+        "temperature": 0.7,
+    }
+
+    start_time = time_mod.monotonic()
+    ttft = None
+    token_count = 0
+    response_text = ""
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            async with client.stream("POST", api_base, json=payload) as resp:
+                if resp.status_code != 200:
+                    body = await resp.aread()
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"LLM returned {resp.status_code}: {body.decode()[:200]}"
+                    )
+
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data = line[6:]
+                    if data.strip() == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data)
+                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+                        content = delta.get("content", "") or delta.get("reasoning_content", "")
+                        if content:
+                            if ttft is None:
+                                ttft = time_mod.monotonic() - start_time
+                            token_count += 1
+                            response_text += content
+                    except (json.JSONDecodeError, IndexError, KeyError):
+                        continue
+
+        total_time = time_mod.monotonic() - start_time
+        # tok/s excludes TTFT (generation speed only)
+        gen_time = total_time - (ttft or 0)
+        tok_per_sec = token_count / gen_time if gen_time > 0 else 0
+
+        return {
+            "success": True,
+            "backend": backend,
+            "tokens": token_count,
+            "ttft_ms": round((ttft or 0) * 1000),
+            "total_time_ms": round(total_time * 1000),
+            "tok_per_sec": round(tok_per_sec, 1),
+            "response": response_text[:500],
+        }
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503, detail="Cannot connect to LLM backend")
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="LLM request timed out")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Model test failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/backends/switch")
+async def switch_backend(req: SwitchBackendRequest, api_key: str = Depends(verify_api_key)):
+    """Switch the active LLM backend via the model-controller sidecar.
+
+    This stops the current backend container (freeing VRAM), updates
+    .env with new COMPOSE_FILE and LLM_BACKEND, then runs
+    `docker compose up -d --remove-orphans` to start the new backend.
+    """
+    try:
+        payload = {"backend": req.backend}
+        if req.model:
+            payload["model"] = req.model
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(
+                f"{MODEL_CONTROLLER_URL}/switch-backend",
+                json=payload,
+                headers=_controller_headers(),
+            )
+            try:
+                data = resp.json()
+            except Exception:
+                data = {"error": resp.text or "Empty response from controller"}
+            if resp.status_code != 200:
+                raise HTTPException(
+                    status_code=resp.status_code,
+                    detail=data.get("error", "Controller returned an error"),
+                )
+            return data
+    except HTTPException:
+        raise
+    except httpx.ConnectError:
+        raise HTTPException(
+            status_code=503,
+            detail="Model controller is not reachable. Is the service running?",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Controller proxy failed: {e}")
+
+
+@router.post("/unload")
+async def unload_model(api_key: str = Depends(verify_api_key)):
+    """Unload the active model from VRAM.
+
+    For Ollama: calls the Ollama API to unload the model.
+    For llama-server/vLLM: stops the inference container via model-controller.
+    """
+    import httpx
+
+    backend = _get_llm_backend()
+    llm_url = _get_llm_api_url()
+
+    if backend == "ollama":
+        # Ollama: create a short-lived keep_alive=0 request to unload
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(
+                    f"{llm_url}/api/generate",
+                    json={"model": "", "keep_alive": 0},
+                )
+                return {"status": "unloaded", "backend": "ollama"}
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Ollama unload failed: {e}")
+    else:
+        # llama-server / vLLM: stop the container via model-controller
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    f"{MODEL_CONTROLLER_URL}/stop",
+                    headers=_controller_headers(),
+                )
+                data = resp.json()
+                if resp.status_code != 200:
+                    raise HTTPException(
+                        status_code=resp.status_code,
+                        detail=data.get("error", "Stop failed"),
+                    )
+                return {"status": "unloaded", "backend": backend, **data}
+        except HTTPException:
+            raise
+        except httpx.ConnectError:
+            raise HTTPException(status_code=503, detail="Model controller not reachable")
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Unload failed: {e}")
+
 
 class OllamaPullRequest(BaseModel):
     model: str = Field(..., min_length=1, max_length=200)
@@ -914,8 +1216,9 @@ async def add_custom_model(model: CustomModelInput, api_key: str = Depends(verif
     if not model_id:
         raise HTTPException(status_code=400, detail="Invalid model name")
 
-    # Check for duplicates
-    if any(m["id"] == model_id for m in models):
+    # Check for duplicates (stored IDs have the 'custom:' prefix)
+    full_id = f"custom:{model_id}"
+    if any(m["id"] == full_id for m in models):
         raise HTTPException(status_code=409, detail=f"Custom model '{model_id}' already exists")
 
     # Build the model entry

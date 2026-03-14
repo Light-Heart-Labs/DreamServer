@@ -3,7 +3,8 @@ import {
   Box, Download, Trash2, Check, AlertCircle, Loader2, Play,
   RefreshCw, HardDrive, Zap, Cloud, Server, ChevronDown,
   Eye, EyeOff, ExternalLink, X, Sparkles, Search, Info,
-  AlertTriangle, Plus, Square, Upload, ArrowUpDown, RotateCcw
+  AlertTriangle, Plus, Square, Upload, ArrowUpDown, RotateCcw,
+  Power, Terminal
 } from 'lucide-react'
 import { useModels, useProviders, useOllama } from '../hooks/useModels'
 import { useDownloadProgress } from '../hooks/useDownloadProgress'
@@ -19,11 +20,19 @@ const BACKEND_LABELS = {
 
 const BACKEND_ICONS = {
   'llama-server': Server,
+  'llamacpp': Server,
   'vllm': Zap,
-  'ollama': Box,
+  'ollama': Cloud,
   'openai': Cloud,
   'anthropic': Cloud,
   'google': Cloud,
+}
+
+const BACKEND_DISPLAY_NAMES = {
+  'llama-server': 'llama.cpp',
+  'llamacpp': 'llama.cpp',
+  'vllm': 'vLLM',
+  'ollama': 'Ollama',
 }
 
 const SPECIALTY_STYLES = {
@@ -38,9 +47,31 @@ const SPECIALTY_STYLES = {
 const FILTER_TABS = [
   { id: 'all', label: 'All' },
   { id: 'local', label: 'Local (GGUF)' },
+  { id: 'vllm', label: 'vLLM' },
   { id: 'ollama', label: 'Ollama' },
   { id: 'cloud', label: 'Cloud Providers' },
 ]
+
+const BACKEND_CARD_META = {
+  llamacpp: {
+    icon: Server,
+    activeCard: 'bg-gradient-to-br from-indigo-500/20 to-indigo-600/5 border-indigo-500/40 shadow-lg shadow-indigo-500/10',
+    activeIcon: 'bg-indigo-500/20',
+    activeIconColor: 'text-indigo-400',
+  },
+  vllm: {
+    icon: Zap,
+    activeCard: 'bg-gradient-to-br from-amber-500/20 to-amber-600/5 border-amber-500/40 shadow-lg shadow-amber-500/10',
+    activeIcon: 'bg-amber-500/20',
+    activeIconColor: 'text-amber-400',
+  },
+  ollama: {
+    icon: Box,
+    activeCard: 'bg-gradient-to-br from-emerald-500/20 to-emerald-600/5 border-emerald-500/40 shadow-lg shadow-emerald-500/10',
+    activeIcon: 'bg-emerald-500/20',
+    activeIconColor: 'text-emerald-400',
+  },
+}
 
 export default function Models() {
   const downloadProgress = useDownloadProgress()
@@ -48,7 +79,9 @@ export default function Models() {
     models, gpu, activeModel, loading, error, actionLoading,
     filter, setFilter, downloadModel, loadModel, switchModel,
     deleteModel, addCustomModel, removeCustomModel, refresh,
-    llmBackend, backendCapabilities, isRestarting, backendStatus
+    llmBackend, backendCapabilities, isRestarting, backendStatus,
+    backends, switchBackend, isSwitchingBackend,
+    testModel, isTesting, testResult, unloadModel
   } = useModels()
   const ollama = useOllama()
 
@@ -75,11 +108,10 @@ export default function Models() {
     setConfirmDialog({ title, message, onConfirm })
   }, [])
 
-  const handleConfirmDelete = useCallback(async () => {
+  const handleConfirmAction = useCallback(async () => {
     if (confirmDialog?.onConfirm) await confirmDialog.onConfirm()
     setConfirmDialog(null)
-    showToast('Model deleted successfully')
-  }, [confirmDialog, showToast])
+  }, [confirmDialog])
 
   // Filter and sort models
   const filteredModels = useMemo(() => {
@@ -94,6 +126,15 @@ export default function Models() {
         m.description?.toLowerCase().includes(q) ||
         m.specialty?.toLowerCase().includes(q)
       )
+    }
+
+    // Tab filter — filter by backend source
+    if (filter === 'local') {
+      result = result.filter(m => m.backend === 'llama-server')
+    } else if (filter === 'vllm') {
+      result = result.filter(m => m.backend === 'vllm')
+    } else if (filter === 'ollama') {
+      result = result.filter(m => m.backend === 'ollama')
     }
 
     // Sort
@@ -121,7 +162,7 @@ export default function Models() {
         break
     }
     return sorted
-  }, [models, search, sort])
+  }, [models, search, sort, filter])
 
   if (loading) {
     return (
@@ -176,19 +217,29 @@ export default function Models() {
         <ActiveModelBanner
           model={activeModel}
           gpu={gpu}
-          onUnload={activeModel.backend === 'ollama' ? async () => {
-            const modelName = activeModel.id?.replace('ollama:', '') || activeModel.name
-            const ok = await ollama.unloadOllamaModel(modelName)
+          onUnload={async () => {
+            const ok = await unloadModel()
             if (ok) {
               showToast(`${activeModel.name} unloaded from VRAM`)
-              refresh()
             }
-          } : null}
+          }}
+          onTest={testModel}
+          isTesting={isTesting}
+          testResult={testResult}
         />
       )}
 
       {/* VRAM Meter */}
       {gpu && <VramMeter gpu={gpu} />}
+
+      {/* Backend Cards */}
+      {backends.length > 0 && (
+        <BackendCards
+          backends={backends}
+          isSwitching={isSwitchingBackend}
+          onSwitch={switchBackend}
+        />
+      )}
 
       {/* Filter Tabs */}
       <div className="mb-6 flex items-center gap-1 bg-zinc-900/50 border border-zinc-800 rounded-lg p-1" role="tablist" aria-label="Filter models by backend">
@@ -402,7 +453,7 @@ export default function Models() {
         <ConfirmDialog
           title={confirmDialog.title}
           message={confirmDialog.message}
-          onConfirm={handleConfirmDelete}
+          onConfirm={handleConfirmAction}
           onCancel={() => setConfirmDialog(null)}
         />
       )}
@@ -432,6 +483,7 @@ export default function Models() {
 
 function ConfirmDialog({ title, message, onConfirm, onCancel }) {
   const [loading, setLoading] = useState(false)
+  const isDelete = title?.toLowerCase().includes('delete')
 
   const handleConfirm = async () => {
     setLoading(true)
@@ -453,8 +505,11 @@ function ConfirmDialog({ title, message, onConfirm, onCancel }) {
       {/* Dialog */}
       <div className="relative bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl shadow-black/50 p-6 max-w-md w-full mx-4 animate-in fade-in zoom-in-95">
         <div className="flex items-start gap-4">
-          <div className="p-3 bg-red-500/15 rounded-xl flex-shrink-0">
-            <AlertTriangle size={22} className="text-red-400" />
+          <div className={`p-3 rounded-xl flex-shrink-0 ${isDelete ? 'bg-red-500/15' : 'bg-amber-500/15'}`}>
+            {isDelete
+              ? <AlertTriangle size={22} className="text-red-400" />
+              : <RefreshCw size={22} className="text-amber-400" />
+            }
           </div>
           <div className="flex-1 min-w-0">
             <h3 className="text-lg font-semibold text-white">{title}</h3>
@@ -473,14 +528,20 @@ function ConfirmDialog({ title, message, onConfirm, onCancel }) {
           <button
             onClick={handleConfirm}
             disabled={loading}
-            className="px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-sm font-medium flex items-center gap-2 transition-colors shadow-lg shadow-red-500/20 disabled:opacity-50"
+            className={`px-4 py-2.5 text-white rounded-lg text-sm font-medium flex items-center gap-2 transition-colors disabled:opacity-50 ${
+              isDelete
+                ? 'bg-red-600 hover:bg-red-500 shadow-lg shadow-red-500/20'
+                : 'bg-amber-600 hover:bg-amber-500 shadow-lg shadow-amber-500/20'
+            }`}
           >
             {loading ? (
               <Loader2 size={14} className="animate-spin" />
-            ) : (
+            ) : isDelete ? (
               <Trash2 size={14} />
+            ) : (
+              <RefreshCw size={14} />
             )}
-            Delete
+            {isDelete ? 'Delete' : 'Confirm'}
           </button>
         </div>
       </div>
@@ -490,11 +551,123 @@ function ConfirmDialog({ title, message, onConfirm, onCancel }) {
 
 
 /* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ */
+/* Backend Cards                                                       */
+/* ------------------------------------------------------------------ */
+
+function BackendCards({ backends, isSwitching, onSwitch }) {
+  const [confirmBackend, setConfirmBackend] = useState(null)
+
+  const handleActivate = async (backend) => {
+    setConfirmBackend(null)
+    await onSwitch(backend.id)
+  }
+
+  return (
+    <div className="mb-6">
+      <h3 className="text-xs uppercase tracking-wider text-zinc-500 font-medium mb-3">
+        LLM Backend
+      </h3>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {backends.map(backend => {
+          const meta = BACKEND_CARD_META[backend.id] || BACKEND_CARD_META.llamacpp
+          const Icon = meta.icon
+          const isActive = backend.active
+          const isInstalled = backend.installed
+
+          return (
+            <div
+              key={backend.id}
+              className={`relative p-4 rounded-xl border transition-all ${
+                isActive
+                  ? meta.activeCard
+                  : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-600'
+              }`}
+            >
+              <div className="flex items-start justify-between mb-2">
+                <div className={`p-2 rounded-lg ${
+                  isActive ? meta.activeIcon : 'bg-zinc-800'
+                }`}>
+                  <Icon size={18} className={
+                    isActive ? meta.activeIconColor : 'text-zinc-500'
+                  } />
+                </div>
+                {isActive && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/20 text-green-400">
+                    <Check size={12} /> Active
+                  </span>
+                )}
+                {!isActive && isInstalled && (
+                  <button
+                    onClick={() => setConfirmBackend(backend)}
+                    disabled={isSwitching}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSwitching ? (
+                      <><Loader2 size={12} className="animate-spin" /> Switching...</>
+                    ) : (
+                      <><Power size={12} /> Activate</>
+                    )}
+                  </button>
+                )}
+              </div>
+              <h4 className={`text-sm font-semibold mb-0.5 ${
+                isActive ? 'text-white' : 'text-zinc-300'
+              }`}>
+                {backend.name}
+              </h4>
+              <p className={`text-xs leading-relaxed ${
+                isActive ? 'text-zinc-400' : 'text-zinc-600'
+              }`}>
+                {backend.description}
+              </p>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Confirm switch dialog */}
+      {confirmBackend && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 max-w-md mx-4 shadow-2xl">
+            <h3 className="text-lg font-bold text-white mb-2">Switch Backend?</h3>
+            <p className="text-zinc-400 text-sm mb-1">
+              Switch from the current backend to <strong className="text-white">{confirmBackend.name}</strong>?
+            </p>
+            <p className="text-amber-400 text-xs mb-4 flex items-center gap-1.5">
+              <AlertTriangle size={14} />
+              This will restart the inference service. Active conversations will be interrupted.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setConfirmBackend(null)}
+                className="px-4 py-2 text-sm text-zinc-400 hover:text-white rounded-lg hover:bg-zinc-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleActivate(confirmBackend)}
+                className="px-4 py-2 text-sm font-medium text-black bg-amber-500 hover:bg-amber-400 rounded-lg transition-colors"
+              >
+                Switch to {confirmBackend.name}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+/* ------------------------------------------------------------------ */
 /* Active Model Banner                                                 */
 /* ------------------------------------------------------------------ */
 
-function ActiveModelBanner({ model, gpu, onUnload }) {
+function ActiveModelBanner({ model, gpu, onUnload, onTest, isTesting, testResult }) {
   const [unloading, setUnloading] = useState(false)
+  const isStopped = model.status === 'stopped'
+  const isRunning = model.status === 'running'
 
   return (
     <div className="mb-6 p-5 bg-gradient-to-r from-indigo-900/30 to-purple-900/20 border border-indigo-500/30 rounded-xl">
@@ -509,7 +682,7 @@ function ActiveModelBanner({ model, gpu, onUnload }) {
             <div className="flex items-center gap-3 mt-1.5 text-sm">
               <span className="flex items-center gap-1.5 text-zinc-400">
                 <Server size={14} className="text-indigo-400" />
-                {model.backend || 'llama-server'}
+                {BACKEND_DISPLAY_NAMES[model.backend] || model.backend || 'llama.cpp'}
               </span>
               {model.context_length && (
                 <span className="text-zinc-500 font-mono">
@@ -526,6 +699,20 @@ function ActiveModelBanner({ model, gpu, onUnload }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {onTest && (
+            <button
+              onClick={() => onTest()}
+              disabled={isTesting || isStopped}
+              className="px-3 py-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 border border-amber-500/20 disabled:opacity-50"
+              title={isStopped ? 'Start the model first' : 'Send a quick prompt and measure token speed'}
+            >
+              {isTesting ? (
+                <><Loader2 size={12} className="animate-spin" /> Testing...</>
+              ) : (
+                <><Zap size={12} /> Quick Test</>
+              )}
+            </button>
+          )}
           {onUnload && (
             <button
               onClick={async () => {
@@ -542,12 +729,62 @@ function ActiveModelBanner({ model, gpu, onUnload }) {
               )}
             </button>
           )}
-          <span className="px-3 py-1.5 bg-green-500/15 text-green-400 rounded-lg text-xs font-semibold border border-green-500/20">
-            <Check size={12} className="inline mr-1" />
-            Running
-          </span>
+          {isRunning ? (
+            <span className="px-3 py-1.5 bg-green-500/15 text-green-400 rounded-lg text-xs font-semibold border border-green-500/20">
+              <Check size={12} className="inline mr-1" />
+              Running
+            </span>
+          ) : isStopped ? (
+            <span className="px-3 py-1.5 bg-red-500/15 text-red-400 rounded-lg text-xs font-semibold border border-red-500/20">
+              <Square size={12} className="inline mr-1" />
+              Stopped
+            </span>
+          ) : (
+            <span className="px-3 py-1.5 bg-amber-500/15 text-amber-400 rounded-lg text-xs font-semibold border border-amber-500/20">
+              <Loader2 size={12} className="inline mr-1 animate-spin" />
+              Connecting...
+            </span>
+          )}
         </div>
       </div>
+
+      {/* Test Results */}
+      {testResult && (
+        <div className={`mt-4 p-3 rounded-lg border ${
+          testResult.success
+            ? 'bg-zinc-900/60 border-zinc-700'
+            : 'bg-red-500/10 border-red-500/30'
+        }`}>
+          {testResult.success ? (
+            <div>
+              <div className="flex items-center gap-4 mb-2">
+                <div className="flex items-center gap-1.5">
+                  <Zap size={14} className="text-amber-400" />
+                  <span className="text-lg font-bold text-white">{testResult.tok_per_sec}</span>
+                  <span className="text-xs text-zinc-500">tok/s</span>
+                </div>
+                <div className="text-xs text-zinc-500">
+                  TTFT: <span className="text-zinc-300 font-mono">{testResult.ttft_ms}ms</span>
+                </div>
+                <div className="text-xs text-zinc-500">
+                  Tokens: <span className="text-zinc-300 font-mono">{testResult.tokens}</span>
+                </div>
+                <div className="text-xs text-zinc-500">
+                  Total: <span className="text-zinc-300 font-mono">{(testResult.total_time_ms / 1000).toFixed(1)}s</span>
+                </div>
+              </div>
+              <p className="text-xs text-zinc-500 leading-relaxed line-clamp-3">
+                {testResult.response}
+              </p>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <AlertCircle size={14} className="text-red-400" />
+              <span className="text-sm text-red-400">{testResult.error}</span>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -629,7 +866,7 @@ function VramMeter({ gpu }) {
           {processes.map((proc, i) => (
             <div key={proc.pid} className="flex items-center gap-3 text-xs">
               <div className={`w-2.5 h-2.5 rounded-full ${processColors[i % processColors.length]} flex-shrink-0`} />
-              <span className="text-zinc-300 font-medium flex-1 truncate">{proc.name}</span>
+              <span className="text-zinc-300 font-medium flex-1 truncate">{proc.name === '[Not Found]' ? 'GPU Process' : proc.name}</span>
               <span className="text-zinc-500 font-mono">PID {proc.pid}</span>
               <span className="text-white font-mono min-w-[60px] text-right">
                 {proc.memoryMb >= 1024

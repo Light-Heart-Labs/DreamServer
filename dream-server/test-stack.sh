@@ -126,6 +126,18 @@ if [[ -x "$TESTS_DIR/test-dashboard-integration.sh" ]]; then
 fi
 
 # ═══════════════════════════════════════════════════════════════
+# Phase 2b: Model Hub Tests
+# ═══════════════════════════════════════════════════════════════
+
+MODEL_HUB_ARGS=""
+$QUICK && MODEL_HUB_ARGS="--quick"
+$VERBOSE && MODEL_HUB_ARGS="$MODEL_HUB_ARGS --verbose"
+
+if [[ -x "$TESTS_DIR/test-model-hub.sh" ]]; then
+    run_suite "Model Hub" "$TESTS_DIR/test-model-hub.sh" "$MODEL_HUB_ARGS"
+fi
+
+# ═══════════════════════════════════════════════════════════════
 # Phase 3: Voice Tests (optional)
 # ═══════════════════════════════════════════════════════════════
 

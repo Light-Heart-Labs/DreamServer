@@ -2,21 +2,21 @@
 # Multi-stage build: React SPA → nginx static serving
 
 # Stage 1: Build React app
-FROM node:20-alpine AS builder
+FROM oven/bun:1 AS builder
 
 WORKDIR /app
 
 # Copy package files
-COPY package*.json ./
+COPY package.json ./
 
 # Install dependencies
-RUN npm ci
+RUN bun install --no-frozen-lockfile
 
 # Copy source files
 COPY . .
 
 # Build the React app
-RUN npm run build
+RUN bun run build
 
 # Stage 2: Serve with nginx
 FROM nginx:alpine

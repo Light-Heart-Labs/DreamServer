@@ -1,0 +1,23 @@
+# Dream Server — Ollama Backend Overlay
+# Replaces llama-server (llama.cpp) with Ollama for easy model management
+# Use with: docker compose -f docker-compose.base.yml -f docker-compose.nvidia.yml -f docker-compose.ollama.yml up -d
+
+services:
+  llama-server:
+    image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
+    volumes:
+      # Shared model storage — host Ollama can use the same path for savings
+      - ${OLLAMA_DATA:-./data/ollama}:/root/.ollama
+    environment:
+      # Listen on port 8080 to match the base compose port mapping
+      OLLAMA_HOST: "0.0.0.0:8080"
+      OLLAMA_MODELS: "/root/.ollama/models"
+      # Pass through NVIDIA visible devices if set
+      NVIDIA_VISIBLE_DEVICES: "${NVIDIA_VISIBLE_DEVICES:-all}"
+    command: ["serve"]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s

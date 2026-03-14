@@ -17,8 +17,9 @@ import { parseEnv } from '../lib/env.ts';
 import * as ui from '../lib/ui.ts';
 import { setVerbose } from '../lib/ui.ts';
 import { VERSION } from '../lib/config.ts';
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, symlinkSync, unlinkSync, lstatSync, mkdirSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { homedir } from 'node:os';
 
 export interface InstallOptions {
   dryRun?: boolean;
@@ -138,6 +139,9 @@ export async function install(opts: InstallOptions): Promise<void> {
     // Post-install: AMD APU tuning (auto-detected)
     await amdTuning(ctx);
 
+    // Post-install: ensure CLI is on PATH
+    await ensureOnPath(ctx);
+
     // ── Final Summary (always last) ──────────────────────────────
     const { showSuccess, readPorts } = await import('../phases/services.ts');
     const ports = readPorts(ctx);
@@ -193,4 +197,89 @@ function loadFeaturesFromEnv(ctx: InstallContext): void {
   } catch {
     // If .env can't be read, defaults will be used
   }
+}
+
+/**
+ * Symlink the CLI binary into a PATH-accessible location so `dream-installer`
+ * works from any directory. Tries /usr/local/bin first (with sudo if needed),
+ * falls back to ~/.local/bin for non-root users.
+ */
+async function ensureOnPath(ctx: InstallContext): Promise<void> {
+  if (ctx.dryRun) {
+    ui.info('[DRY RUN] Would symlink CLI binary to /usr/local/bin/dream-installer');
+    return;
+  }
+
+  const binaryPath = resolve(process.execPath);
+  const linkName = 'dream-installer';
+
+  // Skip if we ARE the symlink target already (running from /usr/local/bin)
+  if (binaryPath.includes('/usr/local/bin/') || binaryPath.includes('/.local/bin/')) {
+    return;
+  }
+
+  // Check if `dream-installer` is already accessible on PATH
+  try {
+    const { exec } = await import('../lib/shell.ts');
+    const { exitCode } = await exec(['which', linkName], { throwOnError: false, timeout: 3000 });
+    if (exitCode === 0) return; // Already on PATH
+  } catch { /* continue to install */ }
+
+  // Try /usr/local/bin first (standard system-wide location)
+  const systemLink = `/usr/local/bin/${linkName}`;
+  const userBinDir = join(homedir(), '.local', 'bin');
+  const userLink = join(userBinDir, linkName);
+
+  const trySymlink = (target: string, linkPath: string): boolean => {
+    try {
+      // Remove stale/existing link
+      try {
+        const stat = lstatSync(linkPath);
+        if (stat.isSymbolicLink() || stat.isFile()) {
+          unlinkSync(linkPath);
+        }
+      } catch { /* doesn't exist — fine */ }
+
+      symlinkSync(target, linkPath);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  // Attempt 1: /usr/local/bin (direct — works if running as root)
+  if (trySymlink(binaryPath, systemLink)) {
+    ui.ok(`CLI linked to ${systemLink}`);
+    return;
+  }
+
+  // Attempt 2: /usr/local/bin with sudo
+  if (process.getuid?.() !== 0) {
+    try {
+      const { exec: execCmd } = await import('../lib/shell.ts');
+      await execCmd(
+        ['sudo', 'ln', '-sf', binaryPath, systemLink],
+        { throwOnError: true, timeout: 15000 },
+      );
+      ui.ok(`CLI linked to ${systemLink}`);
+      return;
+    } catch { /* sudo failed or denied — try user dir */ }
+  }
+
+  // Attempt 3: ~/.local/bin (user-writable, standard on most distros)
+  try {
+    mkdirSync(userBinDir, { recursive: true });
+  } catch { /* may already exist */ }
+
+  if (trySymlink(binaryPath, userLink)) {
+    ui.ok(`CLI linked to ${userLink}`);
+    // Check if ~/.local/bin is on PATH
+    if (!process.env.PATH?.includes(userBinDir)) {
+      ui.info(`Add to your shell profile: export PATH="$HOME/.local/bin:$PATH"`);
+    }
+    return;
+  }
+
+  // All attempts failed — non-critical, just inform
+  ui.info(`Tip: add ${binaryPath} to your PATH for easy access`);
 }

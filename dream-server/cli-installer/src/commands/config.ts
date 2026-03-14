@@ -1,7 +1,7 @@
 // ── Config Command ──────────────────────────────────────────────────────────
 // Reconfigure features, tier, or model on an existing installation.
 
-import { type InstallContext, createDefaultContext, TIER_MAP, type FeatureSet, DEFAULT_INSTALL_DIR } from '../lib/config.ts';
+import { type InstallContext, createDefaultContext, TIER_MAP, type FeatureSet, DEFAULT_INSTALL_DIR, type LlmBackend } from '../lib/config.ts';
 import { resolveComposeFiles } from '../phases/configure.ts';
 import { downloadModel } from '../phases/model.ts';
 import { killNativeLlama, nativeMetal } from '../phases/native-metal.ts';
@@ -11,13 +11,14 @@ import { parseEnv, setEnvValue } from '../lib/env.ts';
 import { getComposeFileSeparator } from '../lib/platform.ts';
 import { select, multiSelect } from '../lib/prompts.ts';
 import * as ui from '../lib/ui.ts';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 export interface ConfigOptions {
   dir?: string;
   features?: boolean;
   tier?: boolean;
+  backend?: boolean;
 }
 
 export async function config(opts: ConfigOptions): Promise<void> {
@@ -44,14 +45,16 @@ export async function config(opts: ConfigOptions): Promise<void> {
   let changed = false;
 
   // Show what to configure if no specific flag
-  if (!opts.features && !opts.tier) {
+  if (!opts.features && !opts.tier && !opts.backend) {
     const choice = await select('What would you like to configure?', [
       { label: 'Features', description: 'Enable/disable Voice, Workflows, RAG, OpenClaw' },
       { label: 'Tier / Model', description: `Currently: ${getEnv('LLM_MODEL') || 'unknown'}` },
-      { label: 'Both', description: 'Change features and model' },
+      { label: 'LLM Backend', description: `Currently: ${getEnv('LLM_BACKEND') || 'llamacpp'}` },
+      { label: 'All', description: 'Change features, model, and backend' },
     ]);
-    opts.features = choice === 0 || choice === 2;
-    opts.tier = choice === 1 || choice === 2;
+    opts.features = choice === 0 || choice === 3;
+    opts.tier = choice === 1 || choice === 3;
+    opts.backend = choice === 2 || choice === 3;
   }
 
   // ── Feature configuration ──
@@ -158,6 +161,173 @@ export async function config(opts: ConfigOptions): Promise<void> {
     }
   }
 
+  // ── LLM Backend configuration ──
+  if (opts.backend) {
+    console.log('');
+    ui.step('Configure LLM backend:');
+
+    const currentBackend = getEnv('LLM_BACKEND') || 'llamacpp';
+    const gpuBE = getEnv('GPU_BACKEND') || 'cpu';
+
+    const backendChoices = [
+      {
+        label: 'llama.cpp',
+        description: 'GGUF quantized models — lower VRAM, fast inference',
+        hint: currentBackend === 'llamacpp' ? 'current' : undefined,
+      },
+      {
+        label: 'vLLM',
+        description: 'Full-precision HuggingFace models — tensor parallelism (NVIDIA)',
+        hint: currentBackend === 'vllm' ? 'current' : (gpuBE !== 'nvidia' ? 'requires NVIDIA GPU' : undefined),
+      },
+      {
+        label: 'Ollama',
+        description: 'Easy model management with auto-downloads and large model library',
+        hint: currentBackend === 'ollama' ? 'current' : undefined,
+      },
+    ];
+
+    const backendChoice = await select('Select LLM backend', backendChoices);
+    const backendIds: LlmBackend[] = ['llamacpp', 'vllm', 'ollama'];
+    const newBackend = backendIds[backendChoice];
+
+    if (newBackend !== currentBackend) {
+      // vLLM requires NVIDIA GPU
+      if (newBackend === 'vllm' && gpuBE !== 'nvidia') {
+        ui.warn('vLLM requires an NVIDIA GPU. Your GPU backend is: ' + gpuBE);
+        const { confirm } = await import('../lib/prompts.ts');
+        const proceed = await confirm('Continue anyway?', false);
+        if (!proceed) {
+          ui.info('Backend unchanged');
+          // Skip to end without setting changed
+          opts.backend = false;
+        }
+      }
+
+      if (opts.backend !== false) {
+        // ── Ollama: install on host if not present ──
+        if (newBackend === 'ollama') {
+          console.log('');
+          ui.info('Ollama runs on the host machine (not in Docker).');
+          ui.info('The llama-server container will be disabled to free VRAM.');
+          console.log('');
+
+          // Check if Ollama is already installed
+          const { exitCode: ollamaCheck } = await exec(
+            ['which', 'ollama'],
+            { throwOnError: false, timeout: 3000 },
+          );
+
+          if (ollamaCheck !== 0) {
+            ui.step('Installing Ollama...');
+            // Download and run official install script
+            const installResult = await execStream(
+              ['bash', '-c', 'curl -fsSL https://ollama.com/install.sh | sh'],
+              { cwd: installDir },
+            );
+            if (installResult !== 0) {
+              ui.warn('Ollama install failed — you can install manually:');
+              ui.info('  curl -fsSL https://ollama.com/install.sh | sh');
+              // Continue anyway so env gets updated
+            } else {
+              ui.ok('Ollama installed');
+            }
+          } else {
+            ui.ok('Ollama already installed');
+          }
+
+          // Start Ollama service if not running
+          ui.step('Ensuring Ollama is running...');
+          const { exitCode: serveCheck } = await exec(
+            ['bash', '-c', 'curl -sf http://localhost:11434/api/version'],
+            { throwOnError: false, timeout: 3000 },
+          );
+          if (serveCheck !== 0) {
+            // Start as a background daemon
+            await exec(
+              ['bash', '-c', 'ollama serve &'],
+              { throwOnError: false, timeout: 3000 },
+            );
+            // Wait a moment for it to come up
+            for (let i = 0; i < 10; i++) {
+              await Bun.sleep(1000);
+              const { exitCode } = await exec(
+                ['bash', '-c', 'curl -sf http://localhost:11434/api/version'],
+                { throwOnError: false, timeout: 2000 },
+              );
+              if (exitCode === 0) break;
+            }
+            const { exitCode: finalCheck } = await exec(
+              ['bash', '-c', 'curl -sf http://localhost:11434/api/version'],
+              { throwOnError: false, timeout: 2000 },
+            );
+            if (finalCheck === 0) {
+              ui.ok('Ollama is running on port 11434');
+            } else {
+              ui.warn('Ollama installed but not responding. Start it with: ollama serve');
+            }
+          } else {
+            ui.ok('Ollama is already running');
+          }
+        }
+
+        // Set backend env vars
+        setEnv('LLM_BACKEND', newBackend);
+
+        // Update LLM_API_URL based on backend
+        switch (newBackend) {
+          case 'ollama':
+            setEnv('LLM_API_URL', 'http://host.docker.internal:11434');
+            break;
+          case 'vllm':
+          case 'llamacpp':
+          default:
+            setEnv('LLM_API_URL', gpuBE === 'apple' ? 'http://host.docker.internal:8080' : 'http://llama-server:8080');
+            break;
+        }
+
+        // ── vLLM: set env vars and pre-pull the Docker image ──
+        if (newBackend === 'vllm') {
+          const currentTier = getEnv('TIER') || '2';
+          const tierConfig = TIER_MAP[currentTier];
+          const vllmImage = 'vllm/vllm-openai:v0.17.0';
+
+          if (tierConfig?.vllmModel) {
+            setEnv('VLLM_MODEL', tierConfig.vllmModel);
+            setEnv('VLLM_ARGS', tierConfig.vllmArgs.join(' '));
+            setEnv('VLLM_IMAGE', vllmImage);
+            ui.ok(`vLLM model: ${tierConfig.vllmModel}`);
+          }
+
+          // Ensure HF cache directory exists for vLLM model downloads
+          const hfCache = join(installDir, 'data', 'hf-cache');
+          try { mkdirSync(hfCache, { recursive: true }); } catch { /* exists */ }
+
+          // Pre-pull the vLLM image so user sees progress
+          console.log('');
+          ui.step(`Pulling vLLM image (${vllmImage})...`);
+          ui.info('This may take a few minutes (~8 GB)');
+          const pullCmd = await getComposeCommand();
+          // Use docker pull directly for better progress output
+          const dockerBase = pullCmd[0] === 'sudo' ? ['sudo', 'docker'] : ['docker'];
+          const pullResult = await execStream(
+            [...dockerBase, 'pull', vllmImage],
+          );
+          if (pullResult === 0) {
+            ui.ok('vLLM image ready');
+          } else {
+            ui.warn('Image pull failed — Docker will retry on restart');
+          }
+        }
+
+        changed = true;
+        ui.ok(`Backend: ${currentBackend} → ${newBackend}`);
+      }
+    } else {
+      ui.info('Backend unchanged');
+    }
+  }
+
   if (!changed) {
     console.log('');
     ui.info('No changes made');
@@ -182,6 +352,7 @@ export async function config(opts: ConfigOptions): Promise<void> {
   };
   const gpuBackend = getEnv('GPU_BACKEND');
   ctx.gpu.backend = (gpuBackend as 'nvidia' | 'amd' | 'apple' | 'cpu') || 'cpu';
+  ctx.llmBackend = (rebuildParsed.LLM_BACKEND as LlmBackend) || 'llamacpp';
 
   const composeFiles = resolveComposeFiles(ctx);
   const composePaths = composeFiles.map(f => relative(installDir, f)).join(getComposeFileSeparator());

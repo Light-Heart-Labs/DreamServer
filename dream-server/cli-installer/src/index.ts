@@ -41,9 +41,10 @@ program
 
 program
   .command('config')
-  .description('Reconfigure features, tier, or model')
+  .description('Reconfigure features, tier, model, or LLM backend')
   .option('--features', 'Configure features only')
   .option('--tier', 'Configure tier/model only')
+  .option('--backend', 'Configure LLM backend only')
   .option('--dir <path>', 'Installation directory', DEFAULT_INSTALL_DIR)
   .action(config);
 

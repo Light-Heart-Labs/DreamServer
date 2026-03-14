@@ -26,6 +26,29 @@ def _get_process_name(pid: int) -> str:
         return f"PID {pid}"
 
 
+# Map raw process names to user-friendly service names
+_PROCESS_NAME_MAP = {
+    "llama-server": "llama.cpp",
+    "llama-cli": "llama.cpp",
+    "server": "llama.cpp",
+    "python3": "vLLM / Python",
+    "python": "vLLM / Python",
+    "ray::RayWorke": "vLLM Worker",
+    "ComfyUI": "ComfyUI",
+    "main": "ComfyUI",
+    "ollama_llama_server": "Ollama",
+    "ollama": "Ollama",
+}
+
+
+def _friendly_process_name(raw_name: str, pid: int) -> str:
+    """Convert raw process name to a user-friendly service name."""
+    if not raw_name or raw_name == "[Not Found]":
+        return _get_process_name(pid)
+    base = os.path.basename(raw_name)
+    return _PROCESS_NAME_MAP.get(base, base)
+
+
 def get_gpu_processes_nvidia() -> list[GPUProcess]:
     """Get per-process GPU memory usage from nvidia-smi."""
     success, output = run_command([
@@ -43,7 +66,8 @@ def get_gpu_processes_nvidia() -> list[GPUProcess]:
             continue
         try:
             pid = int(parts[0])
-            name = os.path.basename(parts[1]) if parts[1] else _get_process_name(pid)
+            raw_name = parts[1].strip() if parts[1] else ""
+            name = _friendly_process_name(raw_name, pid)
             mem_mb = int(parts[2])
             if mem_mb > 0:
                 processes.append(GPUProcess(pid=pid, name=name, memory_mb=mem_mb))
