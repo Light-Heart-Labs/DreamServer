@@ -1,8 +1,8 @@
 @{
+    ExcludeRules = @(
+        'PSAvoidUsingWriteHost'
+    )
     Rules = @{
-        PSAvoidUsingWriteHost = @{
-            Enable = $false
-        }
         PSAvoidUsingConvertToSecureStringWithPlainText = @{
             Enable = $true
         }
