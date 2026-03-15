@@ -344,31 +344,127 @@ async function downloadGGUF(job: DownloadJob, repo: string, filename: string): P
   }
 }
 
-// --- vLLM Download (set model in .env — vLLM auto-pulls from HF on restart) ---
+// --- vLLM Download (pre-load HuggingFace cache via docker exec) ---
 
 async function downloadVLLM(job: DownloadJob, repo: string): Promise<void> {
-  try {
-    // vLLM auto-downloads from HuggingFace on startup.
-    // We just set VLLM_MODEL in .env — the actual restart happens
-    // when the user activates/switches to this model.
-    // NOTE: We do NOT call composeUp() here because that would kill
-    // this container (model-controller is a compose service).
-    const env = readEnvFile();
-    env.set("VLLM_MODEL", repo);
-    writeEnvFile(env);
+  let progressInterval: ReturnType<typeof setInterval> | null = null;
 
+  try {
     broadcastWS({
       type: "download:info",
       jobId: job.id,
-      message: `Set VLLM_MODEL=${repo}. Click "Activate" to start with this model.`,
+      message: `Pre-loading HuggingFace cache for ${repo}...`,
     });
 
-    updateDownload(job.id, {
-      status: "complete",
-      percent: 100,
-    });
-  } catch (err) {
-    updateDownload(job.id, { status: "error", error: String(err) });
+    // Get total download size from HF API for accurate progress
+    try {
+      const resp = await fetch(
+        `https://huggingface.co/api/models/${repo}/tree/main?recursive=true`
+      );
+      if (resp.ok) {
+        const files = (await resp.json()) as any[];
+        const totalBytes = files
+          .filter((f: any) => f.type === "file")
+          .reduce((sum: number, f: any) => sum + (f.lfs?.size || f.size || 0), 0);
+        if (totalBytes > 0) {
+          job.bytesTotal = totalBytes;
+          updateDownload(job.id, { bytesTotal: totalBytes });
+        }
+      }
+    } catch {} // non-critical — progress just won't have byte counts
+
+    // Monitor HF cache blobs directory for download progress.
+    // The model-controller's /hf-cache maps to the same host dir as
+    // /root/.cache/huggingface inside the vLLM container.
+    const cacheSubdir = `models--${repo.replace("/", "--")}`;
+    const cacheBlobsDir = join(HF_CACHE_DIR, "hub", cacheSubdir, "blobs");
+    let lastSpeedCheck = Date.now();
+    let lastSpeedBytes = 0;
+
+    progressInterval = setInterval(() => {
+      try {
+        if (!existsSync(cacheBlobsDir)) return;
+        let totalSize = 0;
+        for (const entry of readdirSync(cacheBlobsDir)) {
+          try { totalSize += Bun.file(join(cacheBlobsDir, entry)).size; } catch {}
+        }
+        if (totalSize > 0) {
+          const now = Date.now();
+          const elapsed = (now - lastSpeedCheck) / 1000;
+          const speed = elapsed > 0 ? Math.round((totalSize - lastSpeedBytes) / elapsed) : 0;
+          lastSpeedCheck = now;
+          lastSpeedBytes = totalSize;
+
+          const percent = job.bytesTotal > 0
+            ? Math.min(95, Math.round((totalSize / job.bytesTotal) * 100))
+            : 0;
+          updateDownload(job.id, {
+            percent,
+            bytesDownloaded: totalSize,
+            speedBytesPerSec: Math.max(0, speed),
+          });
+        }
+      } catch {}
+    }, 2000);
+
+    // Run huggingface-cli download inside the llama-server (vLLM) container.
+    // The vLLM image has huggingface-cli pre-installed and the HF cache
+    // is mounted at the default path (/root/.cache/huggingface).
+    const proc = Bun.spawn(
+      [
+        "docker", "exec",
+        "-e", "HF_HUB_DISABLE_PROGRESS_BARS=1",
+        CONTAINER_NAME,
+        "huggingface-cli", "download", repo,
+      ],
+      { stdout: "pipe", stderr: "pipe" }
+    );
+
+    // Handle abort
+    if (job.abortController) {
+      job.abortController.signal.addEventListener("abort", () => {
+        proc.kill();
+      });
+    }
+
+    // Read stderr concurrently to prevent buffer deadlock
+    const stderrPromise = new Response(proc.stderr).text();
+    const exitCode = await proc.exited;
+    clearInterval(progressInterval);
+    progressInterval = null;
+    const errText = await stderrPromise;
+
+    if (exitCode === 0) {
+      // Update .env so activating this model is instant
+      const env = readEnvFile();
+      env.set("VLLM_MODEL", repo);
+      writeEnvFile(env);
+
+      updateDownload(job.id, {
+        status: "complete",
+        percent: 100,
+        bytesDownloaded: job.bytesTotal,
+      });
+    } else {
+      const isContainerErr =
+        errText.includes("No such container") ||
+        errText.includes("is not running") ||
+        errText.includes("connection refused");
+
+      updateDownload(job.id, {
+        status: "error",
+        error: isContainerErr
+          ? "vLLM container is not running. Switch to the vLLM backend first, then download."
+          : `Download failed (exit ${exitCode}): ${errText.slice(-500)}`,
+      });
+    }
+  } catch (err: any) {
+    if (progressInterval) clearInterval(progressInterval);
+    if (err?.name === "AbortError") {
+      updateDownload(job.id, { status: "cancelled" });
+    } else {
+      updateDownload(job.id, { status: "error", error: String(err) });
+    }
   }
 }
 
