@@ -174,8 +174,11 @@ function updateComposeFileForBackend(currentComposeFile: string, newBackend: str
  */
 async function composeUp(): Promise<{ ok: boolean; output: string }> {
   try {
+    // Only recreate llama-server — other services (dashboard, api, etc.)
+    // don't need to restart for a backend switch. The .env changes are
+    // already written; a full `docker compose up` will pick them up later.
     const proc = Bun.spawn(
-      ["docker", "compose", "up", "-d", "--remove-orphans"],
+      ["docker", "compose", "up", "-d", "--force-recreate", "llama-server"],
       {
         cwd: INSTALL_DIR,
         stdout: "pipe",
@@ -445,10 +448,15 @@ async function handleSwitchBackend(req: Request): Promise<Response> {
     } catch { /* pgrep not available — skip detection */ }
   }
 
-  // 7. Fire compose up in background — we MUST respond before compose
-  //    recreates this container (model-controller gets killed during compose up).
-  //    The frontend polls /backend/status to track progress.
-  composeUp().catch(() => { /* container will be killed — expected */ });
+  // 7. Restart llama-server with the new backend overlay.
+  //    Only targets llama-server — dashboard, api, and this controller stay up.
+  const composeResult = await composeUp();
+  if (!composeResult.ok) {
+    return Response.json(
+      { error: "Compose up failed", output: composeResult.output, code: "COMPOSE_FAILED" },
+      { status: 502 },
+    );
+  }
 
   return Response.json({
     status: "switching",
@@ -456,7 +464,7 @@ async function handleSwitchBackend(req: Request): Promise<Response> {
     next: backend,
     model: model || null,
     composeFile: newCompose,
-    message: `Switching from ${previousBackend} to ${backend}. Services updating...`,
+    message: `Switched from ${previousBackend} to ${backend}. llama-server restarting...`,
     ...(hostOllamaWarning ? { warning: hostOllamaWarning } : {}),
   });
 }
