@@ -72,8 +72,8 @@ def get_allowed_origins():
             if ip.startswith(("192.168.", "10.", "172.")):
                 origins.append(f"http://{ip}:3001")
                 origins.append(f"http://{ip}:3000")
-    except Exception:
-        pass
+    except (OSError, socket.gaierror):
+        logger.debug("Could not detect LAN IPs for CORS origins")
     return origins
 
 app.add_middleware(

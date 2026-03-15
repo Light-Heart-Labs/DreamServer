@@ -31,8 +31,8 @@ async def get_privacy_shield_status(api_key: str = Depends(verify_api_key)):
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
         container_running = "dream-privacy-shield" in stdout.decode()
-    except Exception:
-        pass
+    except (FileNotFoundError, asyncio.TimeoutError, OSError):
+        logger.warning("Failed to check privacy-shield container status")
 
     service_healthy = False
     if container_running:
@@ -40,8 +40,8 @@ async def get_privacy_shield_status(api_key: str = Depends(verify_api_key)):
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=2)) as session:
                 async with session.get(f"{shield_url}/health") as resp:
                     service_healthy = resp.status == 200
-        except Exception:
-            pass
+        except (asyncio.TimeoutError, aiohttp.ClientError):
+            logger.warning("Failed to reach privacy-shield health endpoint")
 
     return PrivacyShieldStatus(
         enabled=container_running and service_healthy,

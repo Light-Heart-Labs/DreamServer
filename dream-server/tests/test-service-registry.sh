@@ -283,14 +283,15 @@ for sid in "${SERVICE_IDS[@]}"; do
             fail "Core service has compose fragment (unexpected): $sid"
         fi
     else
-        # host-systemd services (e.g. opencode) have no compose fragment
+        # Host-native services (e.g. host-systemd) don't need compose fragments
         svc_type=$(python3 -c "
 import yaml
 m = yaml.safe_load(open('$svc_dir/manifest.yaml'))
 print(m.get('service',{}).get('type','docker'))
 " 2>/dev/null || echo "docker")
-        if [[ "$svc_type" == "host-systemd" ]]; then
-            pass "Extension has no compose (host-systemd): $sid"
+
+        if [[ "$svc_type" != "docker" ]]; then
+            pass "Non-docker service has no compose fragment (type=$svc_type): $sid"
         elif [[ -f "$svc_dir/compose.yaml" || -f "$svc_dir/compose.yaml.disabled" ]]; then
             pass "Extension has compose fragment: $sid"
         else

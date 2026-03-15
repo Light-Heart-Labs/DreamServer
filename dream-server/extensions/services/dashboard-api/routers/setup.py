@@ -28,8 +28,8 @@ def get_active_persona_prompt() -> str:
             with open(persona_file) as f:
                 data = json.load(f)
                 return data.get("system_prompt", PERSONAS["general"]["system_prompt"])
-        except Exception:
-            pass
+        except (FileNotFoundError, PermissionError, json.JSONDecodeError):
+            logger.debug("Failed to read persona.json, using default prompt")
     return PERSONAS["general"]["system_prompt"]
 
 
@@ -45,8 +45,8 @@ async def setup_status(api_key: str = Depends(verify_api_key)):
         try:
             with open(progress_file) as f:
                 step = json.load(f).get("step", 0)
-        except Exception:
-            pass
+        except (FileNotFoundError, PermissionError, json.JSONDecodeError):
+            logger.debug("Failed to read setup-progress.json")
 
     persona = None
     persona_file = SETUP_CONFIG_DIR / "persona.json"
@@ -54,8 +54,8 @@ async def setup_status(api_key: str = Depends(verify_api_key)):
         try:
             with open(persona_file) as f:
                 persona = json.load(f).get("persona")
-        except Exception:
-            pass
+        except (FileNotFoundError, PermissionError, json.JSONDecodeError):
+            logger.debug("Failed to read persona.json for setup status")
 
     return {"first_run": first_run, "step": step, "persona": persona, "personas_available": list(PERSONAS.keys())}
 

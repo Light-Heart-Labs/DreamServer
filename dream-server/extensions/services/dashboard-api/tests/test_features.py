@@ -1,7 +1,6 @@
 """Tests for features.py — calculate_feature_status with Apple Silicon fallback."""
 
 import os
-import pytest
 from unittest.mock import patch, AsyncMock
 
 

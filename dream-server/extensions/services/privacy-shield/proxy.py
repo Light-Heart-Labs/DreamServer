@@ -7,7 +7,6 @@ FastAPI-based proxy with connection pooling and PII caching.
 import os
 import time
 import httpx
-import logging
 import secrets
 import hashlib
 from fastapi import FastAPI, Request, Response, Depends, HTTPException, Security

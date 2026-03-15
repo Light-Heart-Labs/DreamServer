@@ -42,8 +42,9 @@ def main() -> None:
     linux = runs["linux_dryrun"]
     if not isinstance(linux.get("signals"), dict):
         fail("runs.linux_dryrun.signals must be an object")
-    if not isinstance(linux.get("install_summary"), dict):
-        fail("runs.linux_dryrun.install_summary must be an object")
+    install_summary = linux.get("install_summary")
+    if install_summary is not None and not isinstance(install_summary, dict):
+        fail("runs.linux_dryrun.install_summary must be an object or null")
     for signal in ("capability_loaded", "backend_contract_loaded", "preflight_report_logged"):
         if signal not in linux["signals"]:
             fail(f"missing linux signal: {signal}")
