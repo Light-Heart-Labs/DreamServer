@@ -75,3 +75,4 @@ dream-server/.cache/
 # ============================================
 archive/
 .claude/
+artifacts/
