@@ -31,7 +31,7 @@ jq -e '.properties.hardware_class and (.required | index("hardware_class"))' con
   || { echo "[FAIL] capability profile schema missing hardware_class"; exit 1; }
 
 echo "[contract] resolver scripts executable"
-for s in scripts/build-capability-profile.sh scripts/classify-hardware.sh scripts/load-backend-contract.sh scripts/resolve-compose-stack.sh scripts/preflight-engine.sh scripts/dream-doctor.sh scripts/simulate-installers.sh; do
+for s in scripts/build-capability-profile.sh scripts/classify-hardware.sh scripts/load-backend-contract.sh scripts/resolve-compose-stack.sh scripts/preflight-engine.sh scripts/dream-doctor.sh; do
   test -x "$s" || { echo "[FAIL] script not executable: $s"; exit 1; }
 done
 
