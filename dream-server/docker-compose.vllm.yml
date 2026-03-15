@@ -15,7 +15,7 @@ services:
       - --port
       - "8080"
       - --gpu-memory-utilization
-      - "${VLLM_GPU_MEM_UTIL:-0.90}"
+      - "${VLLM_GPU_MEM_UTIL:-0.70}"
       - --reasoning-parser
       - "qwen3"
     environment:
