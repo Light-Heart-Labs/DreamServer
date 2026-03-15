@@ -107,7 +107,7 @@ summary = {
             "exit_code": int(linux_exit),
             "signals": linux_signals,
             "log": linux_log,
-            "install_summary": load_json(linux_install_summary_json),
+            "install_summary": load_json(linux_install_summary_json) or {},
         },
         "macos_installer_mvp": {
             "exit_code": int(macos_exit),

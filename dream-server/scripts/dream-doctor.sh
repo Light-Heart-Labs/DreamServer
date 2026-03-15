@@ -3,6 +3,25 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+usage() {
+    echo "Usage: $0 [REPORT_PATH]"
+    echo "       $0 --help"
+    echo ""
+    echo "Generates a machine-readable diagnostics report for installer and runtime readiness."
+    echo "Report includes capability profile, preflight-style analysis, and autofix_hints."
+    echo ""
+    echo "Arguments:"
+    echo "  REPORT_PATH  Output JSON path (default: /tmp/dream-doctor-report.json)"
+    echo ""
+    echo "Exit codes: 0 = report generated, 1 = error (e.g. missing dependency)"
+    echo ""
+    echo "See docs/DREAM-DOCTOR.md for details."
+}
+case "${1:-}" in
+    -h|--help) usage; exit 0 ;;
+esac
+
 REPORT_FILE="${1:-/tmp/dream-doctor-report.json}"
 
 CAP_FILE="/tmp/dream-doctor-capabilities.json"
@@ -106,6 +125,7 @@ pre = json.load(open(preflight_file, "r", encoding="utf-8"))
 report = {
     "version": "1",
     "generated_at": datetime.now(timezone.utc).isoformat(),
+    "autofix_hints": [],
     "capability_profile": cap,
     "preflight": pre,
     "runtime": {
@@ -150,7 +170,7 @@ for hint in fix_hints:
     seen.add(hint)
     uniq_hints.append(hint)
 
-report["autofix_hints"] = uniq_hints
+report["autofix_hints"] = uniq_hints  # overwrite initial empty list
 
 path = pathlib.Path(report_file)
 path.parent.mkdir(parents=True, exist_ok=True)

@@ -74,7 +74,7 @@ echo "Tier 4 (Enterprise):"
 run_tier 4
 assert_eq "TIER_NAME"   "Enterprise"                           "$TIER_NAME"
 assert_eq "LLM_MODEL"   "qwen3-30b-a3b"                       "$LLM_MODEL"
-assert_eq "GGUF_FILE"   "qwen3-30b-a3b-Q4_K_M.gguf"          "$GGUF_FILE"
+assert_eq "GGUF_FILE"   "Qwen3-30B-A3B-Q4_K_M.gguf"          "$GGUF_FILE"
 assert_eq "MAX_CONTEXT"  "131072"                               "$MAX_CONTEXT"
 echo ""
 
@@ -101,7 +101,7 @@ echo "SH_COMPACT (Strix Halo Compact):"
 run_tier SH_COMPACT
 assert_eq "TIER_NAME"   "Strix Halo Compact"                  "$TIER_NAME"
 assert_eq "LLM_MODEL"   "qwen3-30b-a3b"                       "$LLM_MODEL"
-assert_eq "GGUF_FILE"   "qwen3-30b-a3b-Q4_K_M.gguf"          "$GGUF_FILE"
+assert_eq "GGUF_FILE"   "Qwen3-30B-A3B-Q4_K_M.gguf"          "$GGUF_FILE"
 assert_eq "MAX_CONTEXT"  "131072"                               "$MAX_CONTEXT"
 echo ""
 

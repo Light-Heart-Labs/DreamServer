@@ -17,10 +17,10 @@ for arg in "$@"; do
     esac
 done
 
-# Config
+# Config (defaults; .env overrides after load_env_file below)
 INSTALL_DIR="${INSTALL_DIR:-$HOME/dream-server}"
 LLM_HOST="${LLM_HOST:-localhost}"
-LLM_PORT="${LLM_PORT:-${SERVICE_PORTS[llama-server]:-8080}}"
+LLM_PORT="${LLM_PORT:-8080}"
 TIMEOUT="${TIMEOUT:-5}"
 
 # Source service registry

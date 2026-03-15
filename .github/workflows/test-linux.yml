@@ -34,6 +34,18 @@ jobs:
       - name: Service Registry Tests
         run: bash tests/test-service-registry.sh
 
+      - name: Validate Manifests Tests
+        run: bash tests/test-validate-manifests.sh
+
+      - name: Health Check Tests
+        run: bash tests/test-health-check.sh
+
+      - name: Validate Env Tests
+        run: bash tests/test-validate-env.sh
+
+      - name: CPU-Only Path Tests
+        run: bash tests/test-cpu-only-path.sh
+
       - name: Installer Contract Checks
         run: |
           bash tests/contracts/test-installer-contracts.sh
