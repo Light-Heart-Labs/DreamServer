@@ -63,8 +63,14 @@ else
         pull_count=$((pull_count + 1))
 
         if ! pull_with_progress "$img" "$label" "$pull_count" "$pull_total"; then
-            ai_warn "Failed to pull $img — will retry on next start"
-            pull_failed=$((pull_failed + 1))
+            # Retry once (transient network or registry hiccups)
+            log "Retrying pull for $img..."
+            if ! pull_with_progress "$img" "$label" "$pull_count" "$pull_total"; then
+                ai_warn "Failed to pull $img after retry"
+                warn "  Check: network access, disk space (df -h), and for private images: docker login"
+                warn "  You can re-run the installer later to retry failed pulls."
+                pull_failed=$((pull_failed + 1))
+            fi
         fi
     done
 
@@ -73,5 +79,6 @@ else
         ai_ok "All $pull_total modules downloaded"
     else
         ai_warn "$pull_failed of $pull_total modules failed — services may not start fully"
+        warn "Re-run the installer (or 'docker compose pull' in the install directory) to retry."
     fi
 fi

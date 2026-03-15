@@ -2,6 +2,24 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+usage() {
+    echo "Usage: $0 [OUTPUT_DIR]"
+    echo "       $0 --help"
+    echo ""
+    echo "Runs installer simulations: Linux dry-run, macOS installer MVP, Windows preflight,"
+    echo "dream-doctor snapshot, and manifest validation. Writes summary JSON and SUMMARY.md."
+    echo ""
+    echo "Arguments:"
+    echo "  OUTPUT_DIR   Directory for artifacts (default: ROOT_DIR/artifacts/installer-sim)"
+    echo ""
+    echo "Outputs: summary.json, SUMMARY.md, linux-dryrun.log, validate-manifests.log, etc."
+    echo "CI runs: validate-sim-summary.py on summary.json after this script."
+}
+case "${1:-}" in
+    -h|--help) usage; exit 0 ;;
+esac
+
 OUT_DIR="${1:-${ROOT_DIR}/artifacts/installer-sim}"
 mkdir -p "$OUT_DIR"
 
@@ -57,7 +75,13 @@ if ! scripts/dream-doctor.sh "$DOCTOR_JSON" >/dev/null 2>&1; then
   DOCTOR_EXIT=$?
 fi
 
-python3 - "$SUMMARY_JSON" "$SUMMARY_MD" "$LINUX_LOG" "$MACOS_LOG" "$WINDOWS_SIM_JSON" "$MACOS_PREFLIGHT_JSON" "$MACOS_DOCTOR_JSON" "$DOCTOR_JSON" "$LINUX_SUMMARY_JSON" "$LINUX_EXIT" "$MACOS_EXIT" "$DOCTOR_EXIT" <<'PY'
+# 5) Extension manifest validation (same as CI / dream config validate)
+MANIFEST_EXIT=0
+if ! bash scripts/validate-manifests.sh >"${OUT_DIR}/validate-manifests.log" 2>&1; then
+  MANIFEST_EXIT=$?
+fi
+
+python3 - "$SUMMARY_JSON" "$SUMMARY_MD" "$LINUX_LOG" "$MACOS_LOG" "$WINDOWS_SIM_JSON" "$MACOS_PREFLIGHT_JSON" "$MACOS_DOCTOR_JSON" "$DOCTOR_JSON" "$LINUX_SUMMARY_JSON" "$LINUX_EXIT" "$MACOS_EXIT" "$DOCTOR_EXIT" "$MANIFEST_EXIT" <<'PY'
 import json
 import pathlib
 import re
@@ -77,6 +101,7 @@ from datetime import datetime, timezone
     linux_exit,
     macos_exit,
     doctor_exit,
+    manifest_exit,
 ) = sys.argv[1:]
 
 def load_json(path):
@@ -97,6 +122,7 @@ linux_signals = {
     "backend_contract_loaded": bool(re.search(r"Backend contract loaded", linux_text)),
     "preflight_report_logged": bool(re.search(r"Preflight report:", linux_text)),
     "compose_selection_logged": bool(re.search(r"Compose selection:", linux_text)),
+    "no_unbound_variable_in_phase04": "unbound variable" not in linux_text,
 }
 
 summary = {
@@ -121,6 +147,9 @@ summary = {
         "doctor_snapshot": {
             "exit_code": int(doctor_exit),
             "report": load_json(doctor_json),
+        },
+        "manifest_validation": {
+            "exit_code": int(manifest_exit),
         },
     },
 }
@@ -164,6 +193,9 @@ lines.append("## Doctor Snapshot")
 lines.append(f"- Exit code: {doctor_exit}")
 lines.append(f"- Runtime ready: {dsum.get('runtime_ready', 'n/a')}")
 lines.append(f"- Report: `{doctor_json}`")
+lines.append("")
+lines.append("## Manifest Validation")
+lines.append(f"- Exit code: {manifest_exit}")
 
 pathlib.Path(summary_md_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
 PY

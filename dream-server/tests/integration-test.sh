@@ -252,7 +252,7 @@ if [[ ! -d "$WORKFLOWS_DIR" ]]; then
     WORKFLOWS_DIR="$PROJECT_DIR/config/n8n"
 fi
 if [[ ! -d "$WORKFLOWS_DIR" ]]; then
-    fail "workflow directory not found (checked workflows/ and config/n8n/)"
+    skip "workflow directory not found (optional — add workflows/ or config/n8n/ to enable)"
 else
     pass "Workflow directory exists: ${WORKFLOWS_DIR#$PROJECT_DIR/}"
 

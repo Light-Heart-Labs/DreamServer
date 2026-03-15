@@ -158,6 +158,22 @@ Every PR automatically tests installer detection on 6 distros via GitHub Actions
 - `pkg_install` for core tools (`curl`, `jq`)
 - Bash syntax validation on all scripts
 
+## Validation and integration tests
+
+These run in CI (see `.github/workflows/test-linux.yml`) and locally to keep installs and extensions reliable.
+
+| Script | Purpose |
+|--------|---------|
+| `tests/test-validate-manifests.sh` | Ensures `scripts/validate-manifests.sh` runs and reports extension compatibility (schema + `dream_min`/`dream_max`). Requires `jq`. |
+| `tests/integration-test.sh` | End-to-end checks: hardware detection, compose validation, install script flags, `.env.example` (e.g. `WEBUI_PORT`, `OLLAMA_PORT`/`LLAMA_SERVER_PORT`), workflow dir (optional — skips if neither `workflows/` nor `config/n8n/` exists), showcase and examples. |
+
+Run both from the `dream-server` directory:
+
+```bash
+bash tests/test-validate-manifests.sh
+bash tests/integration-test.sh
+```
+
 ## Adding a New Distro
 
 1. Add the distro ID to `installers/lib/packaging.sh` in the `detect_pkg_manager()` case block

@@ -219,6 +219,11 @@ if $OLLAMA_RUNNING; then
 fi
 
 # Port conflict detection with detailed process information
+# Load service registry for port defaults (same as phases 11–13); fallback to literals if unavailable
+if [[ -f "${SCRIPT_DIR:-}/lib/service-registry.sh" ]]; then
+    . "${SCRIPT_DIR}/lib/service-registry.sh"
+    sr_load 2>/dev/null || true
+fi
 PORTS_TO_CHECK="${SERVICE_PORTS[llama-server]:-8080} ${SERVICE_PORTS[open-webui]:-3000}"
 [[ "$ENABLE_VOICE" == "true" ]] && PORTS_TO_CHECK="$PORTS_TO_CHECK ${SERVICE_PORTS[whisper]:-9000} ${SERVICE_PORTS[tts]:-8880}"
 [[ "$ENABLE_WORKFLOWS" == "true" ]] && PORTS_TO_CHECK="$PORTS_TO_CHECK ${SERVICE_PORTS[n8n]:-5678}"

@@ -33,9 +33,20 @@ else
         log "[DRY RUN] Would install Docker via official script"
     else
         tmpfile=$(mktemp /tmp/install-docker.XXXXXX.sh)
-        if ! curl -fsSL --max-time 300 https://get.docker.com -o "$tmpfile" || ! sh "$tmpfile"; then
+        if ! curl -fsSL --max-time 300 https://get.docker.com -o "$tmpfile" 2>>"$LOG_FILE"; then
             rm -f "$tmpfile"
-            error "Docker installation failed. Check network connectivity and try again."
+            error "Could not download Docker install script. Check network and curl: curl -I https://get.docker.com"
+        fi
+        if ! sh "$tmpfile" 2>>"$LOG_FILE"; then
+            rm -f "$tmpfile"
+            warn "get.docker.com script failed. You can try installing Docker from your distro packages:"
+            case "$PKG_MANAGER" in
+                dnf)    warn "  sudo dnf install -y docker-ce docker-ce-cli containerd.io" ;;
+                pacman) warn "  sudo pacman -S docker" ;;
+                zypper) warn "  sudo zypper install docker" ;;
+                *)      warn "  sudo apt update && sudo apt install -y docker.io docker-compose-plugin" ;;
+            esac
+            error "Docker installation failed. Install Docker manually, then re-run this script with --skip-docker"
         fi
         rm -f "$tmpfile"
         sudo usermod -aG docker $USER
