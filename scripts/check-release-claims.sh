@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MANIFEST="${ROOT_DIR}/manifest.json"
-MATRIX="${ROOT_DIR}/../docs/SUPPORT-MATRIX.md"
-TRUTH="${ROOT_DIR}/../docs/PLATFORM-TRUTH-TABLE.md"
+MANIFEST="${ROOT_DIR}/dream-server/manifest.json"
+MATRIX="${ROOT_DIR}/dream-server/docs/SUPPORT-MATRIX.md"
+TRUTH="${ROOT_DIR}/dream-server/docs/PLATFORM-TRUTH-TABLE.md"
 
 fail() { echo "[FAIL] $1"; exit 1; }
 pass() { echo "[PASS] $1"; }

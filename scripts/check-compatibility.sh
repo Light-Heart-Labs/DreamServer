@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MANIFEST_FILE="${ROOT_DIR}/manifest.json"
+MANIFEST_FILE="${ROOT_DIR}/dream-server/manifest.json"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -47,7 +47,7 @@ pass "ports contract"
 
 # Support matrix consistency checks
 if jq -e '.compatibility.os.macos.supported == false' "$MANIFEST_FILE" >/dev/null; then
-  grep -q "macOS.*Tier C" "${ROOT_DIR}/../docs/SUPPORT-MATRIX.md" \
+  grep -q "macOS.*Tier C" "${ROOT_DIR}/docs/SUPPORT-MATRIX.md" \
     || warn "manifest says macOS unsupported/preview but docs may be out of sync"
 fi
 pass "compatibility check complete"
