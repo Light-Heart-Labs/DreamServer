@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import secrets
+import shlex
 import tempfile
 import time
 from pathlib import Path
@@ -1041,7 +1042,7 @@ def _get_local_session_status(agent: str) -> dict:
                     history_chars += sum(len(str(x)) for x in c)
                 elif isinstance(c, str):
                     history_chars += len(c)
-        except Exception:
+        except (json.JSONDecodeError, KeyError, TypeError):
             pass  # skip malformed JSONL lines
 
     limit = get_agent_setting(agent, "session_char_limit") or AUTO_RESET_HISTORY_CHARS
@@ -1110,7 +1111,7 @@ def _get_local_accumulated_turns(agent: str) -> int:
                                 user_turns += 1
                             elif role == "assistant":
                                 assistant_turns += 1
-                    except Exception:
+                    except (json.JSONDecodeError, KeyError, TypeError):
                         pass  # skip malformed JSONL lines
         except Exception:
             log.warning(f"[SESSION] Failed to read session file: {fpath}")
@@ -1189,7 +1190,6 @@ def _get_remote_session_status(agent: str) -> dict:
         " 'file_bytes': os.path.getsize(largest), 'total_lines': len(lines), 'files': len(files)}))"
     )
     try:
-        import shlex
         remote_cmd = f"python3 - {shlex.quote(sessions_dir)}"
         result = subprocess.run(
             ["ssh", "-o", "ConnectTimeout=3", "-o", "StrictHostKeyChecking=accept-new",
@@ -1271,7 +1271,6 @@ def _kill_remote_session(agent: str, reason: str = "dashboard") -> dict:
         "    print(json.dumps({'action': 'killed', 'session_id': sid, 'size_bytes': size}))"
     )
     try:
-        import shlex
         remote_cmd = f"python3 - {shlex.quote(sessions_dir)}"
         result = subprocess.run(
             ["ssh", "-o", "ConnectTimeout=3", "-o", "StrictHostKeyChecking=accept-new",
