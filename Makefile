@@ -1,7 +1,7 @@
 # Dream Server — Developer Targets
 # Run `make help` to see available commands.
 
-SHELL_FILES := $(shell find . -name '*.sh' -not -path './node_modules/*' -not -path './.git/*' -not -path './data/*' -not -path './token-spy/*')
+SHELL_FILES := $(shell find dream-server/ tests/ -name '*.sh' -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/data/*' -not -path '*/token-spy/*')
 
 .PHONY: help lint test bats smoke simulate gate doctor
 
@@ -13,16 +13,16 @@ lint: ## Syntax check all shell scripts + Python compile check
 	@echo "=== Shell syntax ==="
 	@fail=0; for f in $(SHELL_FILES); do bash -n "$$f" || fail=1; done; [ $$fail -eq 0 ]
 	@echo "=== Python compile ==="
-	@python3 -m py_compile extensions/services/dashboard-api/main.py extensions/services/dashboard-api/agent_monitor.py
+	@python3 -m py_compile dream-server/extensions/services/dashboard-api/main.py dream-server/extensions/services/dashboard-api/agent_monitor.py
 	@echo "All lint checks passed."
 
 test: ## Run unit and contract tests
 	@echo "=== Tier map tests ==="
-	@bash ../tests/test-tier-map.sh
+	@bash tests/test-tier-map.sh
 	@echo ""
 	@echo "=== Installer contracts ==="
-	@bash ../tests/contracts/test-installer-contracts.sh
-	@bash ../tests/contracts/test-preflight-fixtures.sh
+	@bash tests/contracts/test-installer-contracts.sh
+	@bash tests/contracts/test-preflight-fixtures.sh
 
 bats: ## Run BATS unit tests for shell libraries
 	@echo "=== BATS unit tests ==="
@@ -30,17 +30,17 @@ bats: ## Run BATS unit tests for shell libraries
 
 smoke: ## Run platform smoke tests
 	@echo "=== Smoke tests ==="
-	@bash ../tests/smoke/linux-amd.sh
-	@bash ../tests/smoke/linux-nvidia.sh
-	@bash ../tests/smoke/wsl-logic.sh
-	@bash ../tests/smoke/macos-dispatch.sh
+	@bash tests/smoke/linux-amd.sh
+	@bash tests/smoke/linux-nvidia.sh
+	@bash tests/smoke/wsl-logic.sh
+	@bash tests/smoke/macos-dispatch.sh
 	@echo "All smoke tests passed."
 
 simulate: ## Run installer simulation harness
-	@bash scripts/simulate-installers.sh
+	@bash dream-server/scripts/simulate-installers.sh
 
 doctor: ## Run diagnostic report
-	@bash scripts/dream-doctor.sh
+	@bash dream-server/scripts/dream-doctor.sh
 
 gate: lint test bats smoke simulate ## Full pre-release validation (lint + test + bats + smoke + simulate)
 	@echo ""
