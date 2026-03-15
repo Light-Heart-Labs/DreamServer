@@ -15,14 +15,14 @@ bash scripts/check-compatibility.sh
 bash scripts/check-release-claims.sh
 
 echo "[gate] contracts"
-bash tests/contracts/test-installer-contracts.sh
-bash tests/contracts/test-preflight-fixtures.sh
+bash dream-server/tests/contracts/test-installer-contracts.sh
+bash dream-server/tests/contracts/test-preflight-fixtures.sh
 
 echo "[gate] smoke"
-bash tests/smoke/linux-amd.sh
-bash tests/smoke/linux-nvidia.sh
-bash tests/smoke/wsl-logic.sh
-bash tests/smoke/macos-dispatch.sh
+bash dream-server/tests/smoke/linux-amd.sh
+bash dream-server/tests/smoke/linux-nvidia.sh
+bash dream-server/tests/smoke/wsl-logic.sh
+bash dream-server/tests/smoke/macos-dispatch.sh
 
 echo "[gate] installer simulation"
 bash scripts/simulate-installers.sh

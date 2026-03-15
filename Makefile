@@ -37,7 +37,7 @@ smoke: ## Run platform smoke tests
 	@echo "All smoke tests passed."
 
 simulate: ## Run installer simulation harness
-	@bash dream-server/scripts/simulate-installers.sh
+	@bash scripts/simulate-installers.sh
 
 doctor: ## Run diagnostic report
 	@bash dream-server/scripts/dream-doctor.sh

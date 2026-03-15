@@ -23,7 +23,7 @@ exit 0
 EOF
 chmod +x "${FAKEBIN}/curl"
 
-cd "$ROOT_DIR"
+cd "$ROOT_DIR/dream-server"
 
 # 1) Linux installer dry-run simulation
 LINUX_EXIT=0
@@ -48,7 +48,7 @@ scripts/preflight-engine.sh \
   --gpu-name "RTX 3060" \
   --platform-id windows \
   --compose-overlays docker-compose.base.yml,docker-compose.nvidia.yml \
-  --script-dir "$ROOT_DIR" \
+  --script-dir "$ROOT_DIR/dream-server" \
   --env >/dev/null
 
 # 4) Doctor snapshot for current machine context

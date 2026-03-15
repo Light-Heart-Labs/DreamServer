@@ -33,8 +33,8 @@ jobs:
 
       - name: Manifest Compatibility Checks
         run: |
-          bash scripts/check-compatibility.sh
-          bash scripts/check-release-claims.sh
+          bash ../scripts/check-compatibility.sh
+          bash ../scripts/check-release-claims.sh
 
       - name: BATS Unit Tests
         run: bash tests/run-bats.sh
@@ -67,10 +67,10 @@ jobs:
 
       - name: Installer Simulation Harness
         run: |
-          bash scripts/simulate-installers.sh
+          bash ../scripts/simulate-installers.sh
           test -f artifacts/installer-sim/summary.json
           test -f artifacts/installer-sim/SUMMARY.md
-          python3 scripts/validate-sim-summary.py artifacts/installer-sim/summary.json
+          python3 ../scripts/validate-sim-summary.py artifacts/installer-sim/summary.json
 
       - name: Upload Installer Simulation Artifacts
         uses: actions/upload-artifact@v4
