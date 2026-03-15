@@ -21,7 +21,7 @@ jobs:
         run: bash tests/test-doc-links.sh
 
       - name: Integration Smoke
-        run: bash tests/integration-test.sh
+        run: bash ../tests/integration-test.sh
 
       - name: Extension Audit
         run: |
@@ -29,7 +29,7 @@ jobs:
           bash tests/test-extension-audit.sh
 
       - name: Phase C P1 Static Checks
-        run: bash tests/test-phase-c-p1.sh
+        run: bash ../tests/test-phase-c-p1.sh
 
       - name: Manifest Compatibility Checks
         run: |
@@ -40,10 +40,10 @@ jobs:
         run: bash tests/run-bats.sh
 
       - name: Tier Map Unit Tests
-        run: bash tests/test-tier-map.sh
+        run: bash ../tests/test-tier-map.sh
 
       - name: Service Registry Tests
-        run: bash tests/test-service-registry.sh
+        run: bash ../tests/test-service-registry.sh
 
       - name: Validate Manifests Tests
         run: bash tests/test-validate-manifests.sh
@@ -62,8 +62,8 @@ jobs:
 
       - name: Installer Contract Checks
         run: |
-          bash tests/contracts/test-installer-contracts.sh
-          bash tests/contracts/test-preflight-fixtures.sh
+          bash ../tests/contracts/test-installer-contracts.sh
+          bash ../tests/contracts/test-preflight-fixtures.sh
 
       - name: Installer Simulation Harness
         run: |

@@ -11,7 +11,6 @@ Dream Server classifies hardware into explicit classes for predictable backend/t
 
 - `strix_unified` (AMD unified memory, Linux/WSL)
 - `nvidia_pro` (NVIDIA discrete GPU, Linux/WSL)
-- `intel_arc` (Intel Arc discrete GPU, Linux — SYCL backend via oneAPI)
 - `apple_silicon` (Apple unified memory, macOS)
 - `cpu_fallback` (no detected accelerator)
 

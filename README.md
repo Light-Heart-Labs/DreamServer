@@ -18,7 +18,7 @@ If AI is becoming critical infrastructure, it shouldn’t be rented. Self-hostin
 
 [![Watch the demo](https://img.shields.io/badge/Demo-Watch%20on%20YouTube-red?logo=youtube)](https://youtu.be/nO8xFNHX-HA)
 
-**New here?** Read the [Friendly Guide](dream-server/docs/HOW-DREAM-SERVER-WORKS.md) or [listen to the audio version](https://open.spotify.com/episode/40MvqJ41bC8cEgvUyOyE3K) — a complete walkthrough of what Dream Server is, how it works, and how to make it your own. No technical background needed.
+**New here?** Read the [Friendly Guide](docs/HOW-DREAM-SERVER-WORKS.md) or [listen to the audio version](https://open.spotify.com/episode/40MvqJ41bC8cEgvUyOyE3K) — a complete walkthrough of what Dream Server is, how it works, and how to make it your own. No technical background needed.
 
 </div>
 
@@ -38,7 +38,7 @@ If AI is becoming critical infrastructure, it shouldn’t be rented. Self-hostin
 >
 > **macOS:** Requires Apple Silicon (M1+) and Docker Desktop. llama-server runs natively with Metal GPU acceleration; all other services run in Docker.
 >
-> See the [Support Matrix](dream-server/docs/SUPPORT-MATRIX.md) for details.
+> See the [Support Matrix](docs/SUPPORT-MATRIX.md) for details.
 
 ---
 
@@ -118,7 +118,7 @@ cd DreamServer/dream-server
 
 The installer detects your chip, picks the right model for your unified memory, launches llama-server natively with Metal acceleration, and starts all other services in Docker. Manage with `./dream-macos.sh status`.
 
-See the [macOS Quickstart](dream-server/docs/MACOS-QUICKSTART.md) for details.
+See the [macOS Quickstart](docs/MACOS-QUICKSTART.md) for details.
 
 </details>
 
@@ -256,7 +256,7 @@ dream list                  # See everything
 
 The installer itself is modular — 6 libraries and 13 phases, each in its own file. Want to add a hardware tier, swap a default model, or skip a phase? Edit one file.
 
-[Full extension guide](dream-server/docs/EXTENSIONS.md) | [Installer architecture](dream-server/docs/INSTALLER-ARCHITECTURE.md)
+[Full extension guide](docs/EXTENSIONS.md) | [Installer architecture](docs/INSTALLER-ARCHITECTURE.md)
 
 ---
 
@@ -286,6 +286,153 @@ dream preset load gaming    # Restore it
 
 ---
 
+## Architecture
+
+### AMD Strix Halo (llama-server + ROCm)
+
+```
+┌─────────────────────────────────────────────────┐
+│                   Open WebUI                    │
+│               (localhost:3000)                  │
+└─────────────────────┬───────────────────────────┘
+                      │
+┌─────────────────────▼───────────────────────────┐
+│               llama-server (ROCm 7.2)           │
+│            (localhost:8080/v1/...)               │
+│        qwen3-coder-next / qwen3-30b-a3b         │
+└─────────────────────────────────────────────────┘
+         │                              │
+┌────────▼────────┐            ┌───────▼────────┐
+│   OpenClaw      │            │    Dashboard    │
+│ (Agent :7860)   │            │ (Status :3001)  │
+└─────────────────┘            └────────────────┘
+
+┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+│ n8n (:5678) │  │Qdrant(:6333)│  │LiteLLM(:4000)│
+│  Workflows  │  │  Vector DB  │  │ API Gateway │
+└─────────────┘  └─────────────┘  └─────────────┘
+```
+
+### NVIDIA (llama-server + CUDA)
+
+```
+┌─────────────────────────────────────────────────┐
+│                   Open WebUI                    │
+│               (localhost:3000)                  │
+└─────────────────────┬───────────────────────────┘
+                      │
+┌─────────────────────▼───────────────────────────┐
+│               llama-server (CUDA)               │
+│            (localhost:8080/v1/...)               │
+│            qwen2.5-32b-instruct                 │
+└─────────────────────────────────────────────────┘
+         │                              │
+┌────────▼────────┐            ┌───────▼────────┐
+│    Whisper      │            │     Kokoro      │
+│ (STT :9000)     │            │ (TTS :8880)     │
+└─────────────────┘            └────────────────┘
+
+┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+│ n8n (:5678) │  │Qdrant(:6333)│  │LiteLLM(:4000)│
+│  Workflows  │  │  Vector DB  │  │ API Gateway │
+└─────────────┘  └─────────────┘  └─────────────┘
+```
+
+---
+
+## Configuration
+
+The installer generates `.env` automatically. Key settings:
+
+```bash
+# NVIDIA
+LLM_MODEL=qwen2.5-32b-instruct            # Model (auto-set by installer)
+CTX_SIZE=32768                             # Context window
+
+# AMD Strix Halo
+LLM_MODEL=qwen3-coder-next                # or qwen3-30b-a3b for compact tier
+CTX_SIZE=131072                            # Context window
+GPU_BACKEND=amd                            # Set automatically by installer
+```
+
+---
+
+## Showcase & Demos
+
+```bash
+# Interactive showcase (requires running services)
+./scripts/showcase.sh
+
+# Offline demo mode (no GPU/services needed)
+./scripts/demo-offline.sh
+
+# Run integration tests
+./tests/integration-test.sh
+```
+
+---
+
+## Useful Commands
+
+```bash
+# Management scripts
+./scripts/session-cleanup.sh             # Clean up bloated agent sessions
+./scripts/llm-cold-storage.sh --status   # Check model hot/cold storage
+dream mode status                        # Show current mode
+```
+
+---
+
+## Installer Evidence
+
+- Run simulation suite: `bash scripts/simulate-installers.sh`
+- Output artifacts:
+  - `artifacts/installer-sim/summary.json`
+  - `artifacts/installer-sim/SUMMARY.md`
+- CI uploads these artifacts on each PR via `.github/workflows/test-linux.yml`
+- One-command maintainer gate: `bash scripts/release-gate.sh`
+
+---
+
+## Troubleshooting FAQ
+
+**llama-server won't start / OOM errors**
+- Reduce `CTX_SIZE` in `.env` (try 4096)
+- Use a smaller model: `./install.sh --tier 1`
+
+**"Model not found" on first boot**
+- First launch downloads the model (10-30 min depending on size)
+- Watch progress: `dream logs llm`
+
+**Open WebUI shows "Connection error"**
+- llama-server is still loading. Wait for health check to pass: `curl localhost:8080/health`
+
+**Port already in use**
+- Change ports in `.env` (e.g., `WEBUI_PORT=3001`)
+- Or stop the conflicting service: `sudo lsof -i :3000`
+
+**Docker permission denied**
+- Add yourself to the docker group: `sudo usermod -aG docker $USER`
+- Log out and back in for it to take effect
+
+**WSL: GPU not detected**
+- Install NVIDIA drivers on Windows (not inside WSL)
+- Verify with `nvidia-smi` inside WSL
+- Ensure Docker Desktop has WSL integration enabled
+
+**AMD Strix Halo: llama-server won't start**
+- Check GGUF model exists: `ls -lh data/models/*.gguf`
+- Watch logs: `docker compose -f docker-compose.base.yml -f docker-compose.amd.yml logs -f llama-server`
+- Verify GPU devices: `ls /dev/kfd /dev/dri/renderD128`
+- Ensure ROCm env: `HSA_OVERRIDE_GFX_VERSION=11.5.1` must be set
+
+**AMD: "missing tensor" errors**
+- Use upstream llama.cpp GGUF files (from `unsloth/` on HuggingFace)
+- Ollama's GGUF format has incompatible tensor naming for qwen3next architecture
+- Do NOT use Ollama blob files with llama-server
+
+---
+
 ## How It Compares
 
 Other tools get you part of the way. Dream Server gets you the whole way.
@@ -310,12 +457,12 @@ Other tools get you part of the way. Dream Server gets you the whole way.
 
 | | |
 |---|---|
-| [Quickstart](dream-server/QUICKSTART.md) | Step-by-step install guide with troubleshooting |
-| [Hardware Guide](dream-server/docs/HARDWARE-GUIDE.md) | What to buy, tier recommendations |
-| [FAQ](dream-server/FAQ.md) | Common questions and configuration |
-| [Extensions](dream-server/docs/EXTENSIONS.md) | How to add custom services |
-| [Installer Architecture](dream-server/docs/INSTALLER-ARCHITECTURE.md) | Modular installer deep dive |
-| [Changelog](dream-server/CHANGELOG.md) | Version history and release notes |
+| [Quickstart](QUICKSTART.md) | Step-by-step install guide with troubleshooting |
+| [Hardware Guide](docs/HARDWARE-GUIDE.md) | What to buy, tier recommendations |
+| [FAQ](FAQ.md) | Common questions and configuration |
+| [Extensions](docs/EXTENSIONS.md) | How to add custom services |
+| [Installer Architecture](docs/INSTALLER-ARCHITECTURE.md) | Modular installer deep dive |
+| [Changelog](CHANGELOG.md) | Version history and release notes |
 | [Contributing](CONTRIBUTING.md) | How to contribute |
 
 ---

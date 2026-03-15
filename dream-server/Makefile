@@ -18,11 +18,11 @@ lint: ## Syntax check all shell scripts + Python compile check
 
 test: ## Run unit and contract tests
 	@echo "=== Tier map tests ==="
-	@bash tests/test-tier-map.sh
+	@bash ../tests/test-tier-map.sh
 	@echo ""
 	@echo "=== Installer contracts ==="
-	@bash tests/contracts/test-installer-contracts.sh
-	@bash tests/contracts/test-preflight-fixtures.sh
+	@bash ../tests/contracts/test-installer-contracts.sh
+	@bash ../tests/contracts/test-preflight-fixtures.sh
 
 bats: ## Run BATS unit tests for shell libraries
 	@echo "=== BATS unit tests ==="
@@ -30,10 +30,10 @@ bats: ## Run BATS unit tests for shell libraries
 
 smoke: ## Run platform smoke tests
 	@echo "=== Smoke tests ==="
-	@bash tests/smoke/linux-amd.sh
-	@bash tests/smoke/linux-nvidia.sh
-	@bash tests/smoke/wsl-logic.sh
-	@bash tests/smoke/macos-dispatch.sh
+	@bash ../tests/smoke/linux-amd.sh
+	@bash ../tests/smoke/linux-nvidia.sh
+	@bash ../tests/smoke/wsl-logic.sh
+	@bash ../tests/smoke/macos-dispatch.sh
 	@echo "All smoke tests passed."
 
 simulate: ## Run installer simulation harness
