@@ -18,13 +18,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: AMD Path Smoke
-        run: bash ../tests/smoke/linux-amd.sh
+        run: bash tests/smoke/linux-amd.sh
 
       - name: NVIDIA Path Smoke
-        run: bash ../tests/smoke/linux-nvidia.sh
+        run: bash tests/smoke/linux-nvidia.sh
 
       - name: WSL Logic Smoke
-        run: bash ../tests/smoke/wsl-logic.sh
+        run: bash tests/smoke/wsl-logic.sh
 
   # Multi-distro installer detection tests (dry-run, no GPU required)
   distro-matrix:
@@ -141,4 +141,4 @@ jobs:
         uses: actions/checkout@v4
 
       - name: macOS Dispatch Smoke
-        run: bash ../tests/smoke/macos-dispatch.sh
+        run: bash tests/smoke/macos-dispatch.sh

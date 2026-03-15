@@ -71,11 +71,6 @@ dream-server/tests/__pycache__/
 dream-server/.cache/
 
 # ============================================
-# Test artifacts (tests/ at repo root)
-# ============================================
-tests/__pycache__/
-
-# ============================================
 # Archived / deprecated code (pre-v2.0)
 # ============================================
 archive/
