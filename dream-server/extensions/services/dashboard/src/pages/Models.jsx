@@ -7,7 +7,7 @@ import {
   Power, Terminal
 } from 'lucide-react'
 import { useModels, useProviders, useOllama } from '../hooks/useModels'
-import { useDownloadProgress } from '../hooks/useDownloadProgress'
+import { useDownloadWS, formatBytes, formatSpeed } from '../hooks/useDownloadWS'
 
 const BACKEND_LABELS = {
   'llama-server': 'Local (GGUF)',
@@ -74,7 +74,7 @@ const BACKEND_CARD_META = {
 }
 
 export default function Models() {
-  const downloadProgress = useDownloadProgress()
+  const wsDownload = useDownloadWS()
   const {
     models, gpu, activeModel, loading, error, actionLoading,
     filter, setFilter, downloadModel, loadModel, switchModel,
@@ -304,10 +304,7 @@ export default function Models() {
         </div>
       )}
 
-      {/* Download Progress */}
-      {downloadProgress.isDownloading && downloadProgress.progress && (
-        <DownloadProgressBar progress={downloadProgress.progress} helpers={downloadProgress} />
-      )}
+
 
       {/* Ollama Pull Progress */}
       {Object.keys(ollama.pulls).length > 0 && (
@@ -358,7 +355,8 @@ export default function Models() {
               model={model}
               isLoading={actionLoading === model.id}
               isRestarting={isRestarting}
-              onDownload={() => { downloadModel(model.id); downloadProgress.startPolling() }}
+              onDownload={() => wsDownload.startDownload(model.id).catch(e => showToast(e.message, 'error'))}
+              downloadState={wsDownload.getDownload(model.id)}
               onLoad={() => {
                 if (model.backend === 'ollama') {
                   ollama.loadOllamaModel(model.id.replace('ollama:', ''))
@@ -887,7 +885,7 @@ function VramMeter({ gpu }) {
 /* Model Card                                                          */
 /* ------------------------------------------------------------------ */
 
-function ModelCard({ model, isLoading, isRestarting, onDownload, onLoad, onSwitch, onDelete }) {
+function ModelCard({ model, isLoading, isRestarting, onDownload, onLoad, onSwitch, onDelete, downloadState }) {
   const isLoaded = model.status === 'loaded'
   const isDownloaded = model.status === 'downloaded'
   const BackendIcon = BACKEND_ICONS[model.backend] || Server
@@ -1052,6 +1050,45 @@ function ModelCard({ model, isLoading, isRestarting, onDownload, onLoad, onSwitc
                 <Trash2 size={16} />
               </button>
             </>
+          ) : downloadState?.status === 'downloading' ? (
+            <div className="flex-1 min-w-[200px]">
+              <div className="flex items-center justify-between text-xs text-zinc-400 mb-1">
+                <span className="flex items-center gap-1">
+                  <Loader2 size={12} className="animate-spin" />
+                  Downloading {downloadState.percent?.toFixed(1)}%
+                </span>
+                {downloadState.speedBytesPerSec > 0 && (
+                  <span>{formatSpeed(downloadState.speedBytesPerSec)}</span>
+                )}
+              </div>
+              <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-indigo-500 rounded-full transition-all duration-300"
+                  style={{ width: `${downloadState.percent || 0}%` }}
+                />
+              </div>
+              {downloadState.bytesTotal > 0 && (
+                <div className="text-xs text-zinc-500 mt-1">
+                  {formatBytes(downloadState.bytesDownloaded)} / {formatBytes(downloadState.bytesTotal)}
+                </div>
+              )}
+            </div>
+          ) : downloadState?.status === 'complete' ? (
+            <span className="text-sm text-green-400 flex items-center gap-1">
+              <Check size={14} /> Downloaded
+            </span>
+          ) : downloadState?.status === 'error' ? (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-red-400 flex items-center gap-1">
+                <AlertCircle size={14} /> Failed
+              </span>
+              <button
+                onClick={onDownload}
+                className="text-xs text-zinc-400 hover:text-white underline"
+              >
+                Retry
+              </button>
+            </div>
           ) : (
             <button
               onClick={onDownload}

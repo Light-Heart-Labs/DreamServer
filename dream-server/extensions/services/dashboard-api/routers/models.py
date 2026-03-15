@@ -23,7 +23,8 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from config import INSTALL_DIR, DATA_DIR
@@ -1662,6 +1663,56 @@ async def download_status(api_key: str = Depends(verify_api_key)):
     if not status:
         return {"active": False}
     return {"active": True, **status}
+
+
+# --- Download Proxy (delegates to model-controller) ---
+
+MODEL_CONTROLLER_URL = os.getenv("MODEL_CONTROLLER_URL", "http://model-controller:3003")
+
+@router.post("/download")
+async def proxy_download(request: Request, api_key: str = Depends(verify_api_key)):
+    """Proxy download request to the model-controller.
+
+    The model-controller handles all downloading (GGUF via fetch, vLLM via restart,
+    Ollama via pull API) with WebSocket progress streaming.
+    """
+    import httpx
+    body = await request.json()
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{MODEL_CONTROLLER_URL}/download",
+                json=body,
+            )
+            return JSONResponse(content=resp.json(), status_code=resp.status_code)
+    except httpx.ConnectError:
+        raise HTTPException(status_code=502, detail="Model controller not reachable")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Proxy error: {e}")
+
+
+@router.get("/download/jobs")
+async def proxy_get_downloads(api_key: str = Depends(verify_api_key)):
+    """Proxy download list request to the model-controller."""
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{MODEL_CONTROLLER_URL}/downloads")
+            return JSONResponse(content=resp.json(), status_code=resp.status_code)
+    except httpx.ConnectError:
+        raise HTTPException(status_code=502, detail="Model controller not reachable")
+
+
+@router.delete("/download/{job_id}")
+async def proxy_cancel_download(job_id: str, api_key: str = Depends(verify_api_key)):
+    """Proxy download cancellation to the model-controller."""
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.delete(f"{MODEL_CONTROLLER_URL}/downloads/{job_id}")
+            return JSONResponse(content=resp.json(), status_code=resp.status_code)
+    except httpx.ConnectError:
+        raise HTTPException(status_code=502, detail="Model controller not reachable")
 
 
 @router.get("/providers")

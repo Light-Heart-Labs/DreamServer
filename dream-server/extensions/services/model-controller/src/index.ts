@@ -1,14 +1,22 @@
 /**
  * Dream Server — Model Controller Sidecar
  *
- * A minimal service that manages LLM backend switching and container restarts.
- * This is the ONLY container with Docker socket + .env write access.
+ * A minimal service that manages LLM backend switching, model downloads,
+ * and container restarts. This is the ONLY container with Docker socket
+ * + .env write access.
  *
- * API:
- *   GET  /health          — liveness probe
- *   GET  /status          — container state + loaded model + available backends
- *   POST /switch          — update .env + restart container (same backend)
- *   POST /switch-backend  — switch LLM backend (llamacpp / vllm / ollama)
+ * HTTP API:
+ *   GET    /health          — liveness probe
+ *   GET    /status          — container state + loaded model + available backends
+ *   POST   /switch          — update .env + restart container (same backend)
+ *   POST   /switch-backend  — switch LLM backend (llamacpp / vllm / ollama)
+ *   POST   /stop            — stop inference container
+ *   POST   /download        — start a model download
+ *   GET    /downloads       — list active/completed downloads
+ *   DELETE /downloads/:id   — cancel an active download
+ *
+ * WebSocket:
+ *   WS     /ws              — real-time download progress + backend events
  */
 
 import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
@@ -197,6 +205,370 @@ async function composeUp(): Promise<{ ok: boolean; output: string }> {
     return { ok: false, output: String(err) };
   }
 }
+
+// --- Model Catalog ---
+
+const CATALOG_PATH = join(INSTALL_DIR, "config", "model_catalog.json");
+
+function loadCatalog(): any[] {
+  try {
+    if (!existsSync(CATALOG_PATH)) return [];
+    const data = JSON.parse(readFileSync(CATALOG_PATH, "utf-8"));
+    return data.models || [];
+  } catch {
+    return [];
+  }
+}
+
+function findCatalogEntry(modelId: string): any | null {
+  const models = loadCatalog();
+  return models.find((m: any) => m.id === modelId) || null;
+}
+
+// --- Download Manager ---
+
+interface DownloadJob {
+  id: string;
+  modelId: string;
+  modelName: string;
+  backend: string;
+  status: "downloading" | "complete" | "error" | "cancelled";
+  percent: number;
+  bytesDownloaded: number;
+  bytesTotal: number;
+  speedBytesPerSec: number;
+  error?: string;
+  startedAt: number;
+  abortController?: AbortController;
+}
+
+const activeDownloads = new Map<string, DownloadJob>();
+const wsClients = new Set<any>();
+
+function broadcastWS(event: Record<string, any>): void {
+  const msg = JSON.stringify(event);
+  for (const ws of wsClients) {
+    try { ws.send(msg); } catch { wsClients.delete(ws); }
+  }
+}
+
+function updateDownload(jobId: string, updates: Partial<DownloadJob>): void {
+  const job = activeDownloads.get(jobId);
+  if (!job) return;
+  Object.assign(job, updates);
+  broadcastWS({
+    type: `download:${job.status === "downloading" ? "progress" : job.status}`,
+    jobId: job.id,
+    modelId: job.modelId,
+    modelName: job.modelName,
+    backend: job.backend,
+    percent: job.percent,
+    bytesDownloaded: job.bytesDownloaded,
+    bytesTotal: job.bytesTotal,
+    speedBytesPerSec: job.speedBytesPerSec,
+    error: job.error,
+  });
+}
+
+// --- GGUF Download (via HuggingFace HTTP) ---
+
+async function downloadGGUF(job: DownloadJob, repo: string, filename: string): Promise<void> {
+  const url = `https://huggingface.co/${repo}/resolve/main/${filename}`;
+  const destPath = join(MODELS_DIR, filename);
+  const tmpPath = destPath + ".downloading";
+
+  try {
+    const response = await fetch(url, {
+      signal: job.abortController?.signal,
+      redirect: "follow",
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const totalBytes = parseInt(response.headers.get("content-length") || "0", 10);
+    job.bytesTotal = totalBytes || job.bytesTotal;
+
+    const writer = Bun.file(tmpPath).writer();
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("No response body");
+
+    let downloaded = 0;
+    let lastUpdate = Date.now();
+    let lastBytes = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      writer.write(value);
+      downloaded += value.length;
+
+      const now = Date.now();
+      if (now - lastUpdate >= 500) {
+        const elapsed = (now - lastUpdate) / 1000;
+        const speed = Math.round((downloaded - lastBytes) / elapsed);
+        const percent = totalBytes > 0 ? Math.round((downloaded / totalBytes) * 1000) / 10 : 0;
+
+        updateDownload(job.id, {
+          bytesDownloaded: downloaded,
+          percent,
+          speedBytesPerSec: speed,
+        });
+
+        lastUpdate = now;
+        lastBytes = downloaded;
+      }
+    }
+
+    await writer.end();
+
+    // Rename tmp to final
+    const { renameSync } = await import("node:fs");
+    renameSync(tmpPath, destPath);
+
+    updateDownload(job.id, {
+      status: "complete",
+      percent: 100,
+      bytesDownloaded: downloaded,
+    });
+  } catch (err: any) {
+    if (err?.name === "AbortError") {
+      updateDownload(job.id, { status: "cancelled" });
+      try { const { unlinkSync } = await import("node:fs"); unlinkSync(tmpPath); } catch {}
+    } else {
+      updateDownload(job.id, { status: "error", error: String(err) });
+      try { const { unlinkSync } = await import("node:fs"); unlinkSync(tmpPath); } catch {}
+    }
+  }
+}
+
+// --- vLLM Download (switch model + restart; vLLM auto-pulls from HF) ---
+
+async function downloadVLLM(job: DownloadJob, repo: string): Promise<void> {
+  try {
+    // vLLM auto-downloads from HuggingFace on startup.
+    // We just need to update the .env and restart the container.
+    const env = readEnvFile();
+    env.set("VLLM_MODEL", repo);
+    writeEnvFile(env);
+
+    updateDownload(job.id, {
+      status: "downloading",
+      percent: 10,
+      bytesDownloaded: 0,
+      bytesTotal: 0,
+    });
+
+    broadcastWS({
+      type: "download:info",
+      jobId: job.id,
+      message: `Set VLLM_MODEL=${repo}. Restarting llama-server — vLLM will download automatically.`,
+    });
+
+    // Restart llama-server so vLLM picks up the new model
+    const result = await composeUp();
+
+    if (result.ok) {
+      updateDownload(job.id, {
+        status: "complete",
+        percent: 100,
+        bytesDownloaded: job.bytesTotal,
+      });
+    } else {
+      updateDownload(job.id, {
+        status: "error",
+        error: `Compose restart failed: ${result.output}`,
+      });
+    }
+  } catch (err) {
+    updateDownload(job.id, { status: "error", error: String(err) });
+  }
+}
+
+// --- Ollama Download (via Ollama API streaming pull) ---
+
+async function downloadOllama(job: DownloadJob, modelName: string): Promise<void> {
+  try {
+    const ollamaUrl = getLlmApiUrl("ollama");
+    const response = await fetch(`${ollamaUrl}/api/pull`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: modelName, stream: true }),
+      signal: job.abortController?.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Ollama pull failed: HTTP ${response.status}`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("No response body from Ollama");
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const data = JSON.parse(line);
+          if (data.total && data.completed) {
+            const percent = Math.round((data.completed / data.total) * 1000) / 10;
+            updateDownload(job.id, {
+              percent,
+              bytesDownloaded: data.completed,
+              bytesTotal: data.total,
+            });
+          }
+          if (data.status === "success") {
+            updateDownload(job.id, {
+              status: "complete",
+              percent: 100,
+              bytesDownloaded: job.bytesTotal,
+            });
+            return;
+          }
+        } catch {}
+      }
+    }
+
+    // If we exit the loop without success, mark complete
+    updateDownload(job.id, { status: "complete", percent: 100 });
+  } catch (err: any) {
+    if (err?.name === "AbortError") {
+      updateDownload(job.id, { status: "cancelled" });
+    } else {
+      updateDownload(job.id, { status: "error", error: String(err) });
+    }
+  }
+}
+
+// --- Download Request Handler ---
+
+async function handleDownload(req: Request): Promise<Response> {
+  const authError = checkAuth(req);
+  if (authError) return authError;
+
+  let body: any;
+  try { body = await req.json(); } catch {
+    return Response.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const { modelId } = body;
+  if (!modelId) {
+    return Response.json({ error: "modelId required" }, { status: 400 });
+  }
+
+  // Check for already-active download
+  for (const [, j] of activeDownloads) {
+    if (j.modelId === modelId && j.status === "downloading") {
+      return Response.json({ error: "Download already in progress", jobId: j.id }, { status: 409 });
+    }
+  }
+
+  // Look up model in catalog
+  const entry = findCatalogEntry(modelId);
+  if (!entry) {
+    return Response.json({ error: `Model '${modelId}' not found in catalog` }, { status: 404 });
+  }
+
+  const jobId = `dl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const job: DownloadJob = {
+    id: jobId,
+    modelId,
+    modelName: entry.name,
+    backend: entry.backends?.[0] || "unknown",
+    status: "downloading",
+    percent: 0,
+    bytesDownloaded: 0,
+    bytesTotal: Math.round((entry.size_gb || 0) * 1024 * 1024 * 1024),
+    speedBytesPerSec: 0,
+    startedAt: Date.now(),
+    abortController: new AbortController(),
+  };
+  activeDownloads.set(jobId, job);
+
+  // Dispatch download based on backend
+  if (entry.gguf) {
+    const { huggingface_repo, huggingface_file } = entry.gguf;
+    downloadGGUF(job, huggingface_repo, huggingface_file).catch(() => {});
+  } else if (entry.vllm) {
+    downloadVLLM(job, entry.vllm.huggingface_repo).catch(() => {});
+  } else if (entry.ollama) {
+    downloadOllama(job, entry.ollama.model_name || entry.name).catch(() => {});
+  } else {
+    activeDownloads.delete(jobId);
+    return Response.json({ error: "No download info for this model" }, { status: 400 });
+  }
+
+  // Broadcast start event
+  broadcastWS({
+    type: "download:started",
+    jobId,
+    modelId,
+    modelName: entry.name,
+    backend: job.backend,
+  });
+
+  return Response.json({ status: "started", jobId, modelId });
+}
+
+function handleGetDownloads(req: Request): Response {
+  const authError = checkAuth(req);
+  if (authError) return authError;
+
+  const downloads: any[] = [];
+  for (const [, job] of activeDownloads) {
+    downloads.push({
+      id: job.id,
+      modelId: job.modelId,
+      modelName: job.modelName,
+      backend: job.backend,
+      status: job.status,
+      percent: job.percent,
+      bytesDownloaded: job.bytesDownloaded,
+      bytesTotal: job.bytesTotal,
+      speedBytesPerSec: job.speedBytesPerSec,
+      error: job.error,
+    });
+  }
+  return Response.json({ downloads });
+}
+
+function handleCancelDownload(req: Request, jobId: string): Response {
+  const authError = checkAuth(req);
+  if (authError) return authError;
+
+  const job = activeDownloads.get(jobId);
+  if (!job) {
+    return Response.json({ error: "Download not found" }, { status: 404 });
+  }
+  if (job.status !== "downloading") {
+    return Response.json({ error: `Download is ${job.status}, cannot cancel` }, { status: 400 });
+  }
+
+  job.abortController?.abort();
+  return Response.json({ status: "cancelling", jobId });
+}
+
+// Cleanup completed/errored downloads older than 5 minutes
+setInterval(() => {
+  const cutoff = Date.now() - 5 * 60 * 1000;
+  for (const [id, job] of activeDownloads) {
+    if (job.status !== "downloading" && job.startedAt < cutoff) {
+      activeDownloads.delete(id);
+    }
+  }
+}, 60_000);
 
 // --- Validation ---
 
@@ -520,22 +892,63 @@ async function handleStop(req: Request): Promise<Response> {
   }
 }
 
-// --- HTTP Server ---
+// --- HTTP + WebSocket Server ---
 
 const server = Bun.serve({
   port: PORT,
-  async fetch(req: Request): Promise<Response> {
+  async fetch(req: Request, server: any): Promise<Response> {
     const url = new URL(req.url);
     const path = url.pathname;
 
+    // WebSocket upgrade
+    if (path === "/ws") {
+      const upgraded = server.upgrade(req);
+      if (upgraded) return undefined as any; // Bun handles the response
+      return new Response("WebSocket upgrade failed", { status: 400 });
+    }
+
+    // REST routes
     if (req.method === "GET" && path === "/health") return handleHealth();
     if (req.method === "GET" && path === "/status") return handleStatus(req);
     if (req.method === "POST" && path === "/switch") return handleSwitch(req);
     if (req.method === "POST" && path === "/switch-backend") return handleSwitchBackend(req);
     if (req.method === "POST" && path === "/stop") return handleStop(req);
+    if (req.method === "POST" && path === "/download") return handleDownload(req);
+    if (req.method === "GET" && path === "/downloads") return handleGetDownloads(req);
+    if (req.method === "DELETE" && path.startsWith("/downloads/")) {
+      const jobId = path.slice("/downloads/".length);
+      return handleCancelDownload(req, jobId);
+    }
 
     return Response.json({ error: "Not found" }, { status: 404 });
   },
+  websocket: {
+    open(ws: any) {
+      wsClients.add(ws);
+      // Send current download state on connect
+      for (const [, job] of activeDownloads) {
+        if (job.status === "downloading") {
+          ws.send(JSON.stringify({
+            type: "download:progress",
+            jobId: job.id,
+            modelId: job.modelId,
+            modelName: job.modelName,
+            backend: job.backend,
+            percent: job.percent,
+            bytesDownloaded: job.bytesDownloaded,
+            bytesTotal: job.bytesTotal,
+            speedBytesPerSec: job.speedBytesPerSec,
+          }));
+        }
+      }
+    },
+    close(ws: any) {
+      wsClients.delete(ws);
+    },
+    message() {
+      // No client-to-server messages needed yet
+    },
+  },
 });
 
-console.log(`[model-controller] listening on :${server.port}`);
+console.log(`[model-controller] listening on :${server.port} (HTTP + WS)`);
