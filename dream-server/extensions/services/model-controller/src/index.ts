@@ -185,13 +185,20 @@ async function composeUp(): Promise<{ ok: boolean; output: string }> {
     // Only recreate llama-server — other services (dashboard, api, etc.)
     // don't need to restart for a backend switch. The .env changes are
     // already written; a full `docker compose up` will pick them up later.
+    // CRITICAL: We pass HOST_PROJECT_DIR as COMPOSE_PROJECT_DIR so that Docker
+    // resolves relative volume paths (like `./data/hf-cache`) against the host's
+    // actual directory instead of this container's internal `/dream-server` directory.
     const proc = Bun.spawn(
       ["docker", "compose", "up", "-d", "--force-recreate", "llama-server"],
       {
         cwd: INSTALL_DIR,
         stdout: "pipe",
         stderr: "pipe",
-        env: { ...process.env, DOCKER_HOST: `unix://${DOCKER_SOCKET}` },
+        env: {
+          ...process.env,
+          DOCKER_HOST: `unix://${DOCKER_SOCKET}`,
+          COMPOSE_PROJECT_DIR: process.env.HOST_PROJECT_DIR || undefined,
+        },
       }
     );
     const [stdout, stderr] = await Promise.all([

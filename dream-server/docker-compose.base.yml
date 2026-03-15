@@ -223,6 +223,7 @@ services:
       - MODELS_DIR=/models
       - HF_CACHE_DIR=/hf-cache
       - INSTALL_DIR=/dream-server
+      - HOST_PROJECT_DIR=${PWD}
     security_opt:
       - no-new-privileges:true
     deploy:
