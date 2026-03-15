@@ -24,18 +24,18 @@ pass "manifest structure"
 
 # Compose contract files
 while IFS= read -r file; do
-  test -f "${ROOT_DIR}/${file}" || fail "missing compose contract file: ${file}"
-done < <(jq -r '.contracts.compose.canonical[]' "$MANIFEST_FILE")
+  test -f "${ROOT_DIR}/dream-server/${file}" || fail "missing compose contract file: ${file}"
+done < <(jq -r '.contracts.compose.canonical[]' "$MANIFEST_FILE" | tr -d '\r')
 pass "compose canonical files"
 
 # Workflow catalog canonical path
-workflow_path="$(jq -r '.contracts.workflowCatalog.canonicalPath' "$MANIFEST_FILE")"
-test -f "${ROOT_DIR}/${workflow_path}" || fail "missing canonical workflow catalog: ${workflow_path}"
+workflow_path="$(jq -r '.contracts.workflowCatalog.canonicalPath' "$MANIFEST_FILE" | tr -d '\r')"
+test -f "${ROOT_DIR}/dream-server/${workflow_path}" || fail "missing canonical workflow catalog: ${workflow_path}"
 pass "workflow catalog canonical path"
 
 # Extension schema contract
-schema_path="$(jq -r '.contracts.extensions.serviceManifestSchema' "$MANIFEST_FILE")"
-test -f "${ROOT_DIR}/${schema_path}" || fail "missing extension schema: ${schema_path}"
+schema_path="$(jq -r '.contracts.extensions.serviceManifestSchema' "$MANIFEST_FILE" | tr -d '\r')"
+test -f "${ROOT_DIR}/dream-server/${schema_path}" || fail "missing extension schema: ${schema_path}"
 pass "extension schema contract"
 
 # Port contract
