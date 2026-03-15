@@ -54,6 +54,8 @@ generate_dream_env() {
     livekit_api_key=$(new_secure_hex 16)
     local dashboard_api_key
     dashboard_api_key=$(new_secure_hex 32)
+    local qdrant_api_key
+    qdrant_api_key=$(new_secure_hex 32)
     local openclaw_token
     openclaw_token=$(new_secure_hex 24)
     local opencode_password
@@ -105,6 +107,7 @@ SEARXNG_PORT=8888
 #=== Security (auto-generated, keep secret!) ===
 WEBUI_SECRET=${webui_secret}
 DASHBOARD_API_KEY=${dashboard_api_key}
+QDRANT_API_KEY=${qdrant_api_key}
 N8N_USER=admin
 N8N_PASS=${n8n_pass}
 LITELLM_KEY=${litellm_key}

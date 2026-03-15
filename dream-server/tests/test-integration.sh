@@ -183,8 +183,17 @@ fi
 # n8n
 test_http "n8n health" "http://localhost:5678/healthz" || log_skip "n8n not running"
 
-# Qdrant
-test_http "Qdrant health" "http://localhost:6333/" || log_skip "Qdrant not running"
+# Qdrant (with optional API key when auth enabled, PR #164)
+_qdrant_key="${QDRANT_API_KEY:-}"
+if [[ -z "$_qdrant_key" && -f "${DREAM_INSTALL_DIR:-.}/.env" ]]; then
+    _qdrant_key=$(grep -m1 "^QDRANT_API_KEY=" "${DREAM_INSTALL_DIR:-.}/.env" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'")
+fi
+if [[ -n "$_qdrant_key" ]]; then
+    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time $TIMEOUT -H "api-key: $_qdrant_key" "http://localhost:6333/" 2>/dev/null) || code="000"
+    [[ "$code" == "200" ]] && log_pass "Qdrant health" || log_skip "Qdrant not running"
+else
+    test_http "Qdrant health" "http://localhost:6333/" || log_skip "Qdrant not running"
+fi
 
 # ========================================
 # Voice Services Tests

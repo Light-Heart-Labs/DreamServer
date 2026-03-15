@@ -41,8 +41,8 @@ async def get_version():
                 current_parts += [0] * (3 - len(current_parts))
                 latest_parts += [0] * (3 - len(latest_parts))
                 result["update_available"] = latest_parts > current_parts
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Could not fetch latest release from GitHub: %s", e)
 
     return result
 
@@ -64,7 +64,8 @@ async def get_release_manifest():
                 ],
                 "checked_at": datetime.now(timezone.utc).isoformat() + "Z"
             }
-    except Exception:
+    except Exception as e:
+        logger.warning("Could not fetch release manifest from GitHub: %s", e)
         version_file = Path(INSTALL_DIR) / ".version"
         current = version_file.read_text().strip() if version_file.exists() else "0.0.0"
         return {

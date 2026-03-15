@@ -4,7 +4,7 @@
 # Backend-aware: detects AMD vs NVIDIA (both use llama-server)
 # Usage: ./dream-preflight.sh
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DREAM_DIR="$SCRIPT_DIR"

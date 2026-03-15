@@ -137,7 +137,28 @@ if [[ "$ENABLE_VOICE" == "true" ]]; then
 fi
 
 [[ "$ENABLE_WORKFLOWS" == "true" ]] && _check_health "n8n" "http://localhost:${SERVICE_PORTS[n8n]:-5678}${SERVICE_HEALTH[n8n]:-/healthz}" 30
-[[ "$ENABLE_RAG" == "true" ]] && _check_health "Qdrant" "http://localhost:${SERVICE_PORTS[qdrant]:-6333}${SERVICE_HEALTH[qdrant]:-/}" 30
+# Qdrant: when QDRANT_API_KEY is set, use HTTP check with api-key header (auth enabled)
+if [[ "$ENABLE_RAG" == "true" ]]; then
+    QDRANT_KEY=""
+    [[ -n "${INSTALL_DIR:-}" && -f "${INSTALL_DIR}/.env" ]] && QDRANT_KEY=$(grep -m1 "^QDRANT_API_KEY=" "${INSTALL_DIR}/.env" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'")
+    if [[ -n "$QDRANT_KEY" ]]; then
+        printf "  ${GRN}⠋${NC} Linking %-20s " "Qdrant"
+        _qdrant_attempts=0
+        _qdrant_max=30
+        while [[ $_qdrant_attempts -lt $_qdrant_max ]]; do
+            if curl -sf -H "api-key: $QDRANT_KEY" "http://localhost:${SERVICE_PORTS[qdrant]:-6333}/" >/dev/null 2>&1; then
+                printf "\r  ${BGRN}✓${NC} %-55s\n" "Qdrant online"
+                break
+            fi
+            _qdrant_attempts=$((_qdrant_attempts + 1))
+            printf "\r  ${GRN}⠋${NC} Linking %-20s [%ds] " "Qdrant" "$((_qdrant_attempts * 2))"
+            sleep 2
+        done
+        [[ $_qdrant_attempts -ge $_qdrant_max ]] && HEALTH_FAILURES=$((HEALTH_FAILURES + 1)) && printf "\r  ${AMB}⚠${NC} %-55s\n" "Qdrant delayed (may still be starting)"
+    else
+        _check_health "Qdrant" "http://localhost:${SERVICE_PORTS[qdrant]:-6333}${SERVICE_HEALTH[qdrant]:-/}" 30
+    fi
+fi
 
 echo ""
 if [[ "$HEALTH_FAILURES" -gt 0 ]]; then

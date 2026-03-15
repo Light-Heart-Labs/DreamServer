@@ -104,6 +104,7 @@ function New-DreamEnv {
     $livekitSecret   = Get-EnvOrNew "LIVEKIT_API_SECRET" (New-SecureBase64 -Bytes 32)
     $livekitApiKey   = Get-EnvOrNew "LIVEKIT_API_KEY"    (New-SecureHex -Bytes 16)
     $dashboardApiKey = Get-EnvOrNew "DASHBOARD_API_KEY"  (New-SecureHex -Bytes 32)
+    $qdrantApiKey    = Get-EnvOrNew "QDRANT_API_KEY"    (New-SecureHex -Bytes 32)
     $openclawToken   = Get-EnvOrNew "OPENCLAW_TOKEN"     (New-SecureHex -Bytes 24)
     $searxngSecret   = Get-EnvOrNew "SEARXNG_SECRET"     (New-SecureHex -Bytes 32)
     $difySecretKey    = Get-EnvOrNew "DIFY_SECRET_KEY"           (New-SecureHex -Bytes 32)
@@ -202,6 +203,7 @@ SEARXNG_PORT=8888
 #=== Security (auto-generated, keep secret!) ===
 WEBUI_SECRET=$webuiSecret
 DASHBOARD_API_KEY=$dashboardApiKey
+QDRANT_API_KEY=$qdrantApiKey
 N8N_USER=admin
 N8N_PASS=$n8nPass
 LITELLM_KEY=$litellmKey

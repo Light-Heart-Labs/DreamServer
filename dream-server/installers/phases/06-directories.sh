@@ -240,6 +240,7 @@ MODELS_EOF
     WEBUI_SECRET=$(_env_get WEBUI_SECRET "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
     N8N_PASS=$(_env_get N8N_PASS "$(openssl rand -base64 16 2>/dev/null || head -c 16 /dev/urandom | base64)")
     LITELLM_KEY=$(_env_get LITELLM_KEY "sk-dream-$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
+    QDRANT_API_KEY=$(_env_get QDRANT_API_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
     LIVEKIT_SECRET=$(_env_get LIVEKIT_API_SECRET "$(openssl rand -base64 32 2>/dev/null || head -c 32 /dev/urandom | base64)")
     DASHBOARD_API_KEY=$(_env_get DASHBOARD_API_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
     DIFY_SECRET_KEY=$(_env_get DIFY_SECRET_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
@@ -298,6 +299,7 @@ SEARXNG_PORT=8888
 #=== Security (auto-generated, keep secret!) ===
 WEBUI_SECRET=${WEBUI_SECRET}
 DASHBOARD_API_KEY=${DASHBOARD_API_KEY}
+QDRANT_API_KEY=${QDRANT_API_KEY}
 N8N_USER=admin
 N8N_PASS=${N8N_PASS}
 LITELLM_KEY=${LITELLM_KEY}

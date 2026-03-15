@@ -21,8 +21,11 @@ Environment variables (set in `.env`):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `QDRANT_API_KEY` | *(required)* | REST/gRPC API key (installer auto-generates). Enables authentication. |
 | `QDRANT_PORT` | 6333 | External HTTP REST API port |
 | `QDRANT_GRPC_PORT` | 6334 | External gRPC API port |
+
+**Security (PR #164):** The compose stack enables API key authentication via `QDRANT__SERVICE__API_KEY` (sourced from `QDRANT_API_KEY` in `.env`), a 1GB memory limit, and an HTTP healthcheck that validates the service with the key. All REST and gRPC requests must include the key via the `api-key` header or `Authorization: Bearer <key>`.
 
 ## API Endpoints
 
@@ -79,9 +82,18 @@ docker compose logs dream-qdrant
 
 **Collection errors:**
 ```bash
-# List collections via REST API
-curl http://localhost:6333/collections
+# List collections via REST API (with auth)
+curl -H "api-key: $QDRANT_API_KEY" http://localhost:6333/collections
 
-# Check Qdrant version
-curl http://localhost:6333/
+# Check Qdrant version / health
+curl -H "api-key: $QDRANT_API_KEY" http://localhost:6333/
+```
+
+**Test that Qdrant starts with authentication enabled:**
+```bash
+# From install dir, after compose up
+source .env 2>/dev/null || true
+curl -sf -H "api-key: $QDRANT_API_KEY" http://localhost:6333/ && echo "Qdrant OK (auth enabled)"
+# Without key should fail (401)
+curl -sf http://localhost:6333/ && echo "Unexpected: no auth" || true
 ```

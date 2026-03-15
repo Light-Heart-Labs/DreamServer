@@ -1,3 +1,7 @@
+# Qdrant security hardening (PR #164):
+# - API key auth via QDRANT__SERVICE__API_KEY (set from .env QDRANT_API_KEY)
+# - 1GB memory limit to cap resource use
+# - TCP healthcheck in-container; from host use HTTP + api-key to verify auth
 services:
   qdrant:
     image: qdrant/qdrant:v1.16.3
@@ -5,13 +9,22 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    environment:
+      # Qdrant expects this exact env var for REST/gRPC API key auth
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:?Set QDRANT_API_KEY in .env (installer auto-generates it)}
     volumes:
       - ./data/qdrant:/qdrant/storage
     ports:
       - "127.0.0.1:${QDRANT_PORT:-6333}:6333"
       - "127.0.0.1:${QDRANT_GRPC_PORT:-6334}:6334"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    # TCP check (stock image may not have curl). API key is required for all HTTP/gRPC access.
+    # From host, verify auth with: curl -H "api-key: $QDRANT_API_KEY" http://localhost:6333/
     healthcheck:
-      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333'"]
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

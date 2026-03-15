@@ -89,6 +89,7 @@ print(response.content)
 ### With RAG (Qdrant + Embeddings)
 
 ```python
+import os
 from langchain_openai import OpenAIEmbeddings
 from langchain_qdrant import Qdrant
 
@@ -97,11 +98,12 @@ embeddings = OpenAIEmbeddings(
     api_key="not-needed",
 )
 
-# Connect to Dream Server's Qdrant
+# Connect to Dream Server's Qdrant (when QDRANT_API_KEY is set, pass api_key=...)
 qdrant = Qdrant.from_existing_collection(
     embeddings=embeddings,
     collection_name="documents",
     url="http://localhost:6333",
+    api_key=os.environ.get("QDRANT_API_KEY"),  # optional; required if Qdrant auth is enabled
 )
 
 # Query documents
