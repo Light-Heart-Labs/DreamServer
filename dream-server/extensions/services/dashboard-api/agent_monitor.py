@@ -56,7 +56,7 @@ class ClusterStatus:
                 self.active_gpus = sum(1 for n in self.nodes if n.get("healthy", False))
                 self.failover_ready = self.active_gpus > 1
         except Exception:
-            pass
+            pass  # cluster proxy may not be running
 
     def to_dict(self) -> dict:
         return {
@@ -118,7 +118,7 @@ async def collect_metrics():
             agent_metrics.last_update = datetime.now()
 
         except Exception:
-            pass
+            pass  # best-effort background metrics collection
 
         await asyncio.sleep(5)  # Update every 5 seconds
 

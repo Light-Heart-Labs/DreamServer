@@ -76,8 +76,11 @@ def init_db():
         try:
             conn.execute(f"ALTER TABLE usage ADD COLUMN {col} {typedef}")
             conn.commit()
-        except sqlite3.OperationalError:
-            pass  # Column already exists
+        except sqlite3.OperationalError as e:
+            if "duplicate column" in str(e).lower():
+                pass  # Column already exists
+            else:
+                raise  # Re-raise unexpected errors (disk full, permissions, etc.)
 
 
 def log_usage(entry: dict):

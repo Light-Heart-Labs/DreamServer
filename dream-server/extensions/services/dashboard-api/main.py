@@ -73,7 +73,7 @@ def get_allowed_origins():
                 origins.append(f"http://{ip}:3001")
                 origins.append(f"http://{ip}:3000")
     except Exception:
-        pass
+        logger.debug("Could not detect LAN IPs for CORS origins")
     return origins
 
 app.add_middleware(
