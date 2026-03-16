@@ -132,7 +132,7 @@ async def run_setup_diagnostics(api_key: str = Depends(verify_api_key)):
                         async with session.get(url, timeout=5) as resp:
                             status = "\u2713" if resp.status == 200 else "\u2717"
                             yield f"{status} {name}: {resp.status}\n"
-                    except Exception as e:
+                    except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as e:
                         yield f"\u2717 {name}: {e}\n"
             yield "\nSetup complete!\n"
         return StreamingResponse(error_stream(), media_type="text/plain")
@@ -143,10 +143,20 @@ async def run_setup_diagnostics(api_key: str = Depends(verify_api_key)):
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1, universal_newlines=True
         )
-        for line in process.stdout:
-            yield line
-        process.wait()
-        yield f"\n{'All tests passed!' if process.returncode == 0 else 'Some tests failed.'}\n"
+        try:
+            for line in process.stdout:
+                yield line
+            process.wait()
+            yield f"\n{'All tests passed!' if process.returncode == 0 else 'Some tests failed.'}\n"
+        finally:
+            if process.stdout:
+                process.stdout.close()
+            if process.poll() is None:
+                try:
+                    process.kill()
+                except OSError:
+                    pass
+                process.wait()
 
     return StreamingResponse(run_tests(), media_type="text/plain")
 

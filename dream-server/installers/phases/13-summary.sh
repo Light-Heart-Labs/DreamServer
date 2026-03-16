@@ -38,6 +38,38 @@ fi
 # Show the cinematic success card
 show_success_card "http://localhost:3000" "http://localhost:3001" "$LOCAL_IP"
 
+# Check background tasks before showing additional info
+if [[ -f "$SCRIPT_DIR/installers/lib/background-tasks.sh" ]]; then
+    . "$SCRIPT_DIR/installers/lib/background-tasks.sh"
+
+    # Check if any background tasks are registered
+    if [[ -f "$BG_TASK_REGISTRY" ]]; then
+        echo ""
+        ai "Checking background tasks..."
+        bg_task_summary >> "$LOG_FILE" 2>&1
+
+        # Check FLUX download specifically
+        bg_task_status "flux-download" &>/dev/null
+        flux_status=$?
+        if [[ $flux_status -ne 3 ]]; then
+            case $flux_status in
+                0)  # Still running
+                    ai_warn "FLUX model download still in progress"
+                    ai "ComfyUI image generation will be available once download completes"
+                    ai "Check progress: tail -f $INSTALL_DIR/logs/flux-download.log"
+                    ;;
+                1)  # Completed
+                    ai_ok "FLUX model download completed"
+                    ;;
+                2)  # Failed
+                    ai_warn "FLUX model download encountered errors"
+                    ai "Check log: $INSTALL_DIR/logs/flux-download.log"
+                    ;;
+            esac
+        fi
+    fi
+fi
+
 # Additional service info
 bootline
 echo -e "${BGRN}ALL SERVICES${NC}"

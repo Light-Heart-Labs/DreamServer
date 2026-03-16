@@ -23,6 +23,8 @@ if $DRY_RUN; then
     log "[DRY RUN] Would start services: $DOCKER_COMPOSE_CMD $COMPOSE_FLAGS up -d"
 else
     cd "$INSTALL_DIR"
+    # Convert COMPOSE_FLAGS string to array for safe word-splitting
+    read -ra COMPOSE_FLAGS_ARR <<< "$COMPOSE_FLAGS"
     mkdir -p "$INSTALL_DIR/logs"
 
     # Cloud mode: skip model downloads, auto-enable litellm
@@ -158,6 +160,12 @@ else
 
         if [[ "$FLUX_NEEDED" == "true" ]]; then
             ai "Downloading FLUX.1-schnell models (~34GB) for image generation..."
+
+            # Source background task tracking
+            if [[ -f "$SCRIPT_DIR/installers/lib/background-tasks.sh" ]]; then
+                . "$SCRIPT_DIR/installers/lib/background-tasks.sh"
+            fi
+
             nohup env \
                 FLUX_DIFFUSION_DIR="$FLUX_DIFFUSION_DIR" \
                 FLUX_ENCODER_DIR="$FLUX_ENCODER_DIR" \
@@ -207,7 +215,15 @@ else
 
                     echo "[FLUX] All FLUX.1-schnell model downloads finished."
                 ' > "$INSTALL_DIR/logs/flux-download.log" 2>&1 &
-            log "Background FLUX download started. Check: tail -f $INSTALL_DIR/logs/flux-download.log"
+
+            flux_pid=$!
+
+            # Register background task
+            if command -v bg_task_start &>/dev/null; then
+                bg_task_start "flux-download" "$flux_pid" "FLUX.1-schnell model downloads" "$INSTALL_DIR/logs/flux-download.log"
+            fi
+
+            log "Background FLUX download started (PID: $flux_pid). Check: tail -f $INSTALL_DIR/logs/flux-download.log"
             ai "FLUX.1-schnell models downloading in background (~34GB). ComfyUI will be ready once complete."
         else
             ai_ok "FLUX.1-schnell models already present"
@@ -232,7 +248,7 @@ MODELS_INI_EOF
     ai "I'm bringing systems online. You can breathe."
     echo ""
     compose_ok=false
-    $DOCKER_COMPOSE_CMD $COMPOSE_FLAGS up --build -d >> "$LOG_FILE" 2>&1 &
+    $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up --build -d >> "$LOG_FILE" 2>&1 &
     compose_pid=$!
     if spin_task $compose_pid "Launching containers..."; then
         compose_ok=true
@@ -240,14 +256,14 @@ MODELS_INI_EOF
         printf "\r  ${AMB}⚠${NC} %-60s\n" "Some services still starting..."
         echo ""
         ai_warn "Some containers need more time. Retrying..."
-        $DOCKER_COMPOSE_CMD $COMPOSE_FLAGS up --build -d >> "$LOG_FILE" 2>&1 &
+        $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up --build -d >> "$LOG_FILE" 2>&1 &
         compose_pid=$!
         if spin_task $compose_pid "Waiting for remaining services..."; then
             compose_ok=true
         fi
     fi
     # Final safety net: start any containers stuck in Created state
-    $DOCKER_COMPOSE_CMD $COMPOSE_FLAGS up -d >> "$LOG_FILE" 2>&1 || true
+    $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up -d >> "$LOG_FILE" 2>&1 || true
 
     if $compose_ok; then
         printf "\r  ${BGRN}✓${NC} %-60s\n" "All containers launched"

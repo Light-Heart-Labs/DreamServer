@@ -50,11 +50,16 @@ _check_health() {
     fi
 }
 
-# Core service health checks
-_check_health "llama-server" "http://localhost:${SERVICE_PORTS[llama-server]:-8080}${SERVICE_HEALTH[llama-server]:-/health}" 120
-_check_health "Open WebUI" "http://localhost:${SERVICE_PORTS[open-webui]:-3000}${SERVICE_HEALTH[open-webui]:-/}" 60
-_check_health "Perplexica" "http://localhost:${SERVICE_PORTS[perplexica]:-3004}${SERVICE_HEALTH[perplexica]:-/}" 30
-_check_health "ComfyUI" "http://localhost:${SERVICE_PORTS[comfyui]:-8188}${SERVICE_HEALTH[comfyui]:-/}" 120
+# Core service health checks with adaptive timeouts
+# Format: _check_health "name" "url" max_attempts timeout_per_request
+# llama-server: 60 attempts * adaptive backoff (2s->8s) = up to 5 minutes (model loading can be slow)
+_check_health "llama-server" "http://localhost:${SERVICE_PORTS[llama-server]:-8080}${SERVICE_HEALTH[llama-server]:-/health}" 60 15
+# Open WebUI: 30 attempts * adaptive backoff = up to 2 minutes
+_check_health "Open WebUI" "http://localhost:${SERVICE_PORTS[open-webui]:-3000}${SERVICE_HEALTH[open-webui]:-/}" 30 10
+# Perplexica: 20 attempts * adaptive backoff = up to 1 minute
+_check_health "Perplexica" "http://localhost:${SERVICE_PORTS[perplexica]:-3004}${SERVICE_HEALTH[perplexica]:-/}" 20 10
+# ComfyUI: 60 attempts * adaptive backoff = up to 5 minutes (FLUX model loading is slow)
+_check_health "ComfyUI" "http://localhost:${SERVICE_PORTS[comfyui]:-8188}${SERVICE_HEALTH[comfyui]:-/}" 60 15
 
 # Perplexica auto-config: seed chat model + embedding model on first boot.
 # The slim-latest image stores config in a database, not just config.json.
@@ -109,10 +114,12 @@ print('ok')
     fi
 fi
 
-[[ "$ENABLE_OPENCLAW" == "true" ]] && _check_health "OpenClaw" "http://localhost:${SERVICE_PORTS[openclaw]:-7860}${SERVICE_HEALTH[openclaw]:-/}" 30
-systemctl is-active opencode-web &>/dev/null && _check_health "OpenCode Web" "http://localhost:3003/" 10
-[[ "$ENABLE_VOICE" == "true" ]] && _check_health "Whisper (STT)" "http://localhost:${SERVICE_PORTS[whisper]:-9000}${SERVICE_HEALTH[whisper]:-/health}" 60
-[[ "$ENABLE_VOICE" == "true" ]] && _check_health "Kokoro (TTS)" "http://localhost:${SERVICE_PORTS[tts]:-8880}${SERVICE_HEALTH[tts]:-/health}" 30
+# Extension service health checks with adaptive timeouts
+[[ "$ENABLE_OPENCLAW" == "true" ]] && _check_health "OpenClaw" "http://localhost:${SERVICE_PORTS[openclaw]:-7860}${SERVICE_HEALTH[openclaw]:-/}" 20 10
+systemctl is-active opencode-web &>/dev/null && _check_health "OpenCode Web" "http://localhost:3003/" 10 5
+# Whisper: 40 attempts * adaptive backoff = up to 3 minutes (model download on first start)
+[[ "$ENABLE_VOICE" == "true" ]] && _check_health "Whisper (STT)" "http://localhost:${SERVICE_PORTS[whisper]:-9000}${SERVICE_HEALTH[whisper]:-/health}" 40 10
+[[ "$ENABLE_VOICE" == "true" ]] && _check_health "Kokoro (TTS)" "http://localhost:${SERVICE_PORTS[tts]:-8880}${SERVICE_HEALTH[tts]:-/health}" 20 10
 
 # Pre-download the Whisper STT model so first transcription is instant.
 # Speaches lazy-downloads on first request, but that causes a long delay +
@@ -136,8 +143,8 @@ if [[ "$ENABLE_VOICE" == "true" ]]; then
     fi
 fi
 
-[[ "$ENABLE_WORKFLOWS" == "true" ]] && _check_health "n8n" "http://localhost:${SERVICE_PORTS[n8n]:-5678}${SERVICE_HEALTH[n8n]:-/healthz}" 30
-[[ "$ENABLE_RAG" == "true" ]] && _check_health "Qdrant" "http://localhost:${SERVICE_PORTS[qdrant]:-6333}${SERVICE_HEALTH[qdrant]:-/}" 30
+[[ "$ENABLE_WORKFLOWS" == "true" ]] && _check_health "n8n" "http://localhost:${SERVICE_PORTS[n8n]:-5678}${SERVICE_HEALTH[n8n]:-/healthz}" 20 10
+[[ "$ENABLE_RAG" == "true" ]] && _check_health "Qdrant" "http://localhost:${SERVICE_PORTS[qdrant]:-6333}${SERVICE_HEALTH[qdrant]:-/}" 20 10
 
 echo ""
 if [[ "$HEALTH_FAILURES" -gt 0 ]]; then

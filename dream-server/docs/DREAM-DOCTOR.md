@@ -1,8 +1,23 @@
 # Dream Doctor
 
-`scripts/dream-doctor.sh` generates a machine-readable diagnostics report for installer and runtime readiness. Use it to verify that a machine is ready for install or to troubleshoot an existing install.
+Diagnostics command for DreamServer installation and runtime health checks.
 
 ## Usage
+
+### Via dream-cli (Recommended)
+
+```bash
+# Run diagnostics with operator-friendly output
+dream doctor
+
+# Get raw JSON report
+dream doctor --json
+
+# Save report to custom location
+dream doctor --report /path/to/report.json
+```
+
+### Direct Script Invocation
 
 ```bash
 # Default: write report to /tmp/dream-doctor-report.json
@@ -15,33 +30,74 @@ scripts/dream-doctor.sh /tmp/custom-dream-doctor.json
 cd ~/dream-server && ./scripts/dream-doctor.sh
 ```
 
-Run from the **dream-server repo root** (or a path where `lib/service-registry.sh` and `scripts/build-capability-profile.sh` exist). The script sources the service registry and safe-env helpers, then builds a capability profile and preflight-style checks.
+## Output
 
-## Exit codes
+### Operator-Friendly Mode (default)
 
-| Code | Meaning |
-|------|---------|
-| 0 | Report generated successfully. |
-| 1 | Error (e.g. missing script dependency, build-capability-profile failed). |
+Displays color-coded diagnostics:
+- ✓ Green: Passing checks
+- ⚠ Yellow: Warnings
+- ✗ Red: Failures/blockers
 
-Exit codes are intended for scripting and CI; the report path is always the first argument or the default below.
+Example output:
+```
+━━━ Dream Server Diagnostics ━━━
 
-## Report path
+Runtime Environment:
+  ✓ Docker CLI
+  ✓ Docker Daemon
+  ✓ Docker Compose
+  ✗ Dashboard HTTP
+  ✗ WebUI HTTP
 
-- **Default:** `/tmp/dream-doctor-report.json`
-- **Override:** Pass the output file path as the first argument.
+Preflight Checks:
+  ✓ RAM: 16GB available
+  ⚠ Disk: 50GB available (recommended: 100GB)
+  ✓ GPU: NVIDIA RTX 4090 detected
 
-## Report contents
+Summary:
+  ⚠ 1 warning(s) found
 
-The JSON report includes:
+Suggested Fixes:
+  1. Free up disk space or add external storage
+```
 
-- **capability profile snapshot** — Hardware class, backend, tier, compose overlays (from `scripts/build-capability-profile.sh`).
-- **preflight-style analysis** — Blockers and warnings derived from capability and environment (similar to what the installer preflight engine produces).
-- **runtime checks** — Docker and compose availability, and when possible UI/API reachability (dashboard, webui ports from the service registry).
-- **autofix_hints** — Array of suggested next actions (e.g. install Docker, free disk, fix port conflict). Consumers can use this to drive troubleshooting UIs or docs.
+### JSON Mode
 
-Exact field names and structure may evolve; see the script and any schema or CI that consumes the report.
+Raw machine-readable report for automation:
+```bash
+dream doctor --json > report.json
+```
 
-## CI and automation
+## Report Contents
 
-CI jobs (e.g. installer simulation) often run `scripts/dream-doctor.sh` and then validate or archive the report. The report is machine-readable so downstream steps can assert on blockers, warnings, or specific hints without parsing log text.
+- **capability_profile**: Hardware detection snapshot
+- **preflight**: Blocker/warning analysis
+- **runtime**: Docker/Compose/UI reachability checks
+- **summary**: Aggregate status (blockers, warnings, runtime_ready)
+- **autofix_hints**: Prioritized remediation actions
+
+## Exit Codes
+
+- `0`: All checks passed (or warnings only)
+- `1`: Blockers found or runtime failures detected
+
+Use in scripts:
+```bash
+if dream doctor; then
+    echo "System healthy"
+else
+    echo "Issues detected, check output"
+fi
+```
+
+## Integration
+
+The doctor command integrates with:
+- `scripts/build-capability-profile.sh` - Hardware detection
+- `scripts/preflight-engine.sh` - Requirement validation
+- Service registry - Port resolution
+
+## Default Report Path
+
+`/tmp/dream-doctor-report.json`

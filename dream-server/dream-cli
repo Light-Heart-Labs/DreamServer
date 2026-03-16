@@ -96,14 +96,16 @@ cmd_status() {
     cd "$INSTALL_DIR"
     sr_load
 
-    local flags
-    flags=$(get_compose_flags)
+    local flags_str
+    flags_str=$(get_compose_flags)
+    local -a flags
+    read -ra flags <<< "$flags_str"
 
     echo -e "${BLUE}━━━ Dream Server Status ━━━${NC}"
     echo ""
 
     # Container status
-    docker compose $flags ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || docker-compose ps
+    docker compose "${flags[@]}" ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || docker-compose ps
 
     echo ""
 
@@ -139,7 +141,7 @@ cmd_status() {
 
         # For non-core services, only check if container is running
         if [[ "$cat" != "core" ]]; then
-            if ! docker compose $flags ps --format "{{.Name}}" 2>/dev/null | grep -qE "dream-${sid}|${sid}"; then
+            if ! docker compose "${flags[@]}" ps --format "{{.Name}}" 2>/dev/null | grep -qE "dream-${sid}|${sid}"; then
                 continue  # Not running, skip silently
             fi
         fi
@@ -193,13 +195,15 @@ cmd_status_json() {
     sr_load
     load_env
 
-    local flags
-    flags=$(get_compose_flags)
+    local flags_str
+    flags_str=$(get_compose_flags)
+    local -a flags
+    read -ra flags <<< "$flags_str"
 
     # Capture running services for optional-service checks (best-effort)
     local running_services=""
-    if docker compose $flags ps --format "{{.Service}}" >/dev/null 2>&1; then
-        running_services=$(docker compose $flags ps --format "{{.Service}}")
+    if docker compose "${flags[@]}" ps --format "{{.Service}}" >/dev/null 2>&1; then
+        running_services=$(docker compose "${flags[@]}" ps --format "{{.Service}}")
     elif command -v docker-compose >/dev/null 2>&1; then
         running_services=$(docker-compose ps --services --filter "status=running" 2>/dev/null || true)
     fi
@@ -269,7 +273,7 @@ cmd_status_json() {
     # Aggregate into a single document
     jq -s \
         --arg installDir "$INSTALL_DIR" \
-        --arg composeFlags "$flags" \
+        --arg composeFlags "$flags_str" \
         --arg mode "${DREAM_MODE:-local}" \
         --arg tier "${TIER:-}" \
         --arg currentModel "${LLM_MODEL:-}" \
@@ -297,9 +301,11 @@ cmd_logs() {
     fi
 
     service=$(resolve_service "$service")
-    local flags
-    flags=$(get_compose_flags)
-    docker compose $flags logs -f --tail "$lines" "$service"
+    local flags_str
+    flags_str=$(get_compose_flags)
+    local -a flags
+    read -ra flags <<< "$flags_str"
+    docker compose "${flags[@]}" logs -f --tail "$lines" "$service"
 }
 
 cmd_restart() {
@@ -307,17 +313,19 @@ cmd_restart() {
     cd "$INSTALL_DIR"
 
     local service="${1:-}"
-    local flags
-    flags=$(get_compose_flags)
+    local flags_str
+    flags_str=$(get_compose_flags)
+    local -a flags
+    read -ra flags <<< "$flags_str"
 
     if [[ -z "$service" ]]; then
         log "Restarting all services..."
-        docker compose $flags restart
+        docker compose "${flags[@]}" restart
         success "All services restarted"
     else
         service=$(resolve_service "$service")
         log "Restarting $service..."
-        docker compose $flags restart "$service"
+        docker compose "${flags[@]}" restart "$service"
         success "$service restarted"
     fi
 }
@@ -327,17 +335,19 @@ cmd_stop() {
     cd "$INSTALL_DIR"
 
     local service="${1:-}"
-    local flags
-    flags=$(get_compose_flags)
+    local flags_str
+    flags_str=$(get_compose_flags)
+    local -a flags
+    read -ra flags <<< "$flags_str"
 
     if [[ -z "$service" ]]; then
         log "Stopping all services..."
-        docker compose $flags down
+        docker compose "${flags[@]}" down
         success "All services stopped"
     else
         service=$(resolve_service "$service")
         log "Stopping $service..."
-        docker compose $flags stop "$service"
+        docker compose "${flags[@]}" stop "$service"
         success "$service stopped"
     fi
 }
@@ -347,17 +357,19 @@ cmd_start() {
     cd "$INSTALL_DIR"
 
     local service="${1:-}"
-    local flags
-    flags=$(get_compose_flags)
+    local flags_str
+    flags_str=$(get_compose_flags)
+    local -a flags
+    read -ra flags <<< "$flags_str"
 
     if [[ -z "$service" ]]; then
         log "Starting all services..."
-        docker compose $flags up -d
+        docker compose "${flags[@]}" up -d
         success "All services started"
     else
         service=$(resolve_service "$service")
         log "Starting $service..."
-        docker compose $flags up -d "$service"
+        docker compose "${flags[@]}" up -d "$service"
         success "$service started"
     fi
 }
@@ -366,14 +378,16 @@ cmd_update() {
     check_install
     cd "$INSTALL_DIR"
 
-    local flags
-    flags=$(get_compose_flags)
+    local flags_str
+    flags_str=$(get_compose_flags)
+    local -a flags
+    read -ra flags <<< "$flags_str"
 
     log "Pulling latest images..."
-    docker compose $flags pull
+    docker compose "${flags[@]}" pull
 
     log "Recreating containers with new images..."
-    docker compose $flags up -d --force-recreate
+    docker compose "${flags[@]}" up -d --force-recreate
 
     success "Update complete"
 
@@ -501,12 +515,161 @@ cmd_doctor() {
     check_install
     cd "$INSTALL_DIR"
 
-    local report="${1:-/tmp/dream-doctor-report.json}"
-    if [[ -x "$INSTALL_DIR/scripts/dream-doctor.sh" ]]; then
-        "$INSTALL_DIR/scripts/dream-doctor.sh" "$report"
-    else
+    local json_mode="false"
+    local report_file="/tmp/dream-doctor-report.json"
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --json)
+                json_mode="true"
+                shift
+                ;;
+            --report)
+                [[ -n "${2:-}" ]] || { echo "Error: --report requires a path argument" >&2; return 1; }
+                report_file="$2"
+                shift 2
+                ;;
+            *)
+                report_file="$1"
+                shift
+                ;;
+        esac
+    done
+
+    if [[ ! -x "$INSTALL_DIR/scripts/dream-doctor.sh" ]]; then
         error "dream-doctor script not found at $INSTALL_DIR/scripts/dream-doctor.sh"
     fi
+
+    # Run doctor script. If it fails to generate a report, show the script output
+    # to make failures actionable for operators.
+    local doctor_out
+    doctor_out=$(mktemp)
+    "$INSTALL_DIR/scripts/dream-doctor.sh" "$report_file" >"$doctor_out" 2>&1 || true
+
+    if [[ ! -f "$report_file" ]]; then
+        cat "$doctor_out" >&2
+        rm -f "$doctor_out"
+        error "Doctor report not generated at $report_file"
+    fi
+    rm -f "$doctor_out"
+
+    # JSON mode: just output the report
+    if [[ "$json_mode" == "true" ]]; then
+        cat "$report_file"
+        return 0
+    fi
+
+    # If python3 is unavailable, fall back to printing the JSON report.
+    if ! command -v python3 >/dev/null 2>&1; then
+        warn "python3 not found; printing raw JSON report (use --json to suppress this warning)"
+        cat "$report_file"
+        return 1
+    fi
+
+    # Parse and display operator-friendly output
+    echo -e "${BLUE}━━━ Dream Server Diagnostics ━━━${NC}"
+    echo ""
+
+    # Use Python to parse JSON and display results
+    python3 - "$report_file" <<'PY'
+import json
+import sys
+
+RED = '\033[0;31m'
+GREEN = '\033[0;32m'
+YELLOW = '\033[1;33m'
+BLUE = '\033[0;34m'
+CYAN = '\033[0;36m'
+NC = '\033[0m'
+
+report_file = sys.argv[1]
+try:
+    with open(report_file, 'r') as f:
+        report = json.load(f)
+except Exception as e:
+    print(f"{RED}✗{NC} Failed to parse report: {e}")
+    sys.exit(1)
+
+# Runtime checks
+runtime = report.get('runtime', {})
+print(f"{CYAN}Runtime Environment:{NC}")
+checks = [
+    ('Docker CLI', runtime.get('docker_cli', False)),
+    ('Docker Daemon', runtime.get('docker_daemon', False)),
+    ('Docker Compose', runtime.get('compose_cli', False)),
+    ('Dashboard HTTP', runtime.get('dashboard_http', False)),
+    ('WebUI HTTP', runtime.get('webui_http', False)),
+]
+
+has_failures = False
+for name, status in checks:
+    if status:
+        print(f"  {GREEN}✓{NC} {name}")
+    else:
+        print(f"  {RED}✗{NC} {name}")
+        has_failures = True
+
+print()
+
+# Preflight checks
+preflight = report.get('preflight', {})
+pf_checks = preflight.get('checks', [])
+blockers = []
+warnings = []
+
+if pf_checks:
+    print(f"{CYAN}Preflight Checks:{NC}")
+    for check in pf_checks:
+        name = check.get('name', 'Unknown')
+        status = check.get('status', 'unknown')
+        message = check.get('message', '')
+
+        if status == 'pass':
+            print(f"  {GREEN}✓{NC} {name}")
+        elif status == 'warn':
+            print(f"  {YELLOW}⚠{NC} {name}: {message}")
+            warnings.append((name, message))
+        elif status == 'blocker':
+            print(f"  {RED}✗{NC} {name}: {message}")
+            blockers.append((name, message))
+            has_failures = True
+        else:
+            print(f"  {YELLOW}?{NC} {name}: {message}")
+    print()
+
+# Summary
+summary = report.get('summary', {})
+blocker_count = summary.get('preflight_blockers', 0)
+warning_count = summary.get('preflight_warnings', 0)
+runtime_ready = summary.get('runtime_ready', False)
+
+print(f"{CYAN}Summary:{NC}")
+if blocker_count > 0:
+    print(f"  {RED}✗{NC} {blocker_count} blocker(s) found")
+if warning_count > 0:
+    print(f"  {YELLOW}⚠{NC} {warning_count} warning(s) found")
+if blocker_count == 0 and warning_count == 0 and runtime_ready:
+    print(f"  {GREEN}✓{NC} All checks passed")
+
+print()
+
+# Autofix hints
+hints = report.get('autofix_hints', [])
+if hints:
+    print(f"{CYAN}Suggested Fixes:{NC}")
+    for i, hint in enumerate(hints[:6], 1):
+        print(f"  {i}. {hint}")
+    print()
+
+# Exit code: 1 if blockers or runtime failures, 0 otherwise
+if has_failures or blocker_count > 0:
+    sys.exit(1)
+else:
+    sys.exit(0)
+PY
+
+    return $?
 }
 
 #=============================================================================
@@ -598,9 +761,11 @@ cmd_disable() {
     [[ "$cat" == "core" ]] && error "Cannot disable core service: $service_id"
 
     # Stop if running, then rename
-    local flags
-    flags=$(get_compose_flags)
-    docker compose $flags stop "$service_id" 2>/dev/null || true
+    local flags_str
+    flags_str=$(get_compose_flags)
+    local -a flags
+    read -ra flags <<< "$flags_str"
+    docker compose "${flags[@]}" stop "$service_id" 2>/dev/null || true
     [[ -f "$cf" ]] && mv "$cf" "${cf}.disabled"
     success "$service_id disabled."
 }
@@ -629,6 +794,37 @@ cmd_list() {
 # Preset Commands
 #=============================================================================
 PRESETS_DIR="${INSTALL_DIR}/presets"
+
+# Validate preset compatibility with current system
+validate_preset_compatibility() {
+    local preset_dir="$1"
+    local preset_name="$(basename "$preset_dir")"
+
+    # Check required files
+    [[ -f "$preset_dir/meta.txt" ]] || { error "Invalid preset: missing meta.txt"; return 1; }
+    [[ -f "$preset_dir/extensions.list" ]] || { error "Invalid preset: missing extensions.list"; return 1; }
+    [[ -f "$preset_dir/env" ]] || { warn "Preset missing .env file (will not restore config)"; }
+
+    # Check if referenced extensions still exist
+    local missing_exts=()
+    while IFS=: read -r state sid; do
+        [[ -z "$sid" ]] && continue
+        local ext_dir="$INSTALL_DIR/extensions/services/$sid"
+        if [[ ! -d "$ext_dir" ]]; then
+            missing_exts+=("$sid")
+        fi
+    done < "$preset_dir/extensions.list"
+
+    if [[ ${#missing_exts[@]} -gt 0 ]]; then
+        log "⚠️  Preset references extensions that are no longer available:"
+        for ext in "${missing_exts[@]}"; do
+            log "   - $ext"
+        done
+        log "These extensions will be skipped during restore."
+    fi
+
+    return 0
+}
 
 cmd_preset() {
     check_install
@@ -680,6 +876,11 @@ META
             [[ -d "$preset_dir" ]] || error "Preset not found: $name"
 
             echo -e "${BLUE}━━━ Loading Preset: ${name} ━━━${NC}"
+
+            # Validate preset compatibility
+            if ! validate_preset_compatibility "$preset_dir"; then
+                return 1
+            fi
 
             # Show what will be restored
             if [[ -f "$preset_dir/meta.txt" ]]; then
@@ -1120,7 +1321,16 @@ cmd_backup() {
         error "dream-backup.sh not found or not executable"
     fi
 
-    # Pass all arguments to dream-backup.sh
+    local action="${1:-}"
+    if [[ "$action" == "verify" ]]; then
+        shift
+        local id="${1:-}"
+        [[ -z "$id" ]] && error "Usage: dream backup verify <backup_id|backup_id.tar.gz>"
+        "$INSTALL_DIR/dream-backup.sh" verify "$id"
+        return
+    fi
+
+    # Default: create backup (pass all args through)
     "$INSTALL_DIR/dream-backup.sh" "$@"
 }
 
@@ -1155,6 +1365,7 @@ ${CYAN}Commands:${NC}
   model [current|list|swap]
                       View or change the local LLM model tier
   backup [options]    Create a backup of user data and config
+  backup verify <id>   Verify checksum integrity for a backup
   restore [backup_id] Restore from a backup
   logs <service>      Tail logs for a service
   restart [service]   Restart services (all if no service specified)
@@ -1166,7 +1377,7 @@ ${CYAN}Commands:${NC}
                       View, edit, or validate configuration
   chat "<message>"    Quick chat with the LLM
   benchmark           Run a quick performance test
-  doctor [report]     Run diagnostics and write JSON report
+  doctor [--json]     Run diagnostics (use --json for raw report)
   help                Show this help
 
 ${CYAN}Preset Commands:${NC}
@@ -1225,6 +1436,7 @@ ${CYAN}Examples:${NC}
   dream backup                    # Create a backup
   dream backup -c                 # Create compressed backup
   dream backup -l                 # List all backups
+  dream backup verify <id>        # Verify backup integrity
   dream restore                   # Interactive restore
   dream restore 20260309-120000   # Restore specific backup
   dream logs llm                  # Watch llama-server logs (via alias)

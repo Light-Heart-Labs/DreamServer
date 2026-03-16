@@ -109,7 +109,7 @@ def load_extension_manifests(manifest_dir: Path, gpu_backend: str) -> tuple[dict
                         features.append(feature)
 
             loaded += 1
-        except Exception as e:
+        except (yaml.YAMLError, json.JSONDecodeError, OSError, KeyError, TypeError) as e:
             logger.warning("Failed loading manifest %s: %s", path, e)
 
     logger.info("Loaded %d extension manifests (%d services, %d features)", loaded, len(services), len(features))

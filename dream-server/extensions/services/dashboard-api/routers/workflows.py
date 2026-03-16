@@ -36,7 +36,7 @@ def load_workflow_catalog() -> dict:
         if not isinstance(categories, dict):
             categories = {}
         return {"workflows": workflows, "categories": categories}
-    except Exception as e:
+    except (json.JSONDecodeError, OSError, KeyError) as e:
         logger.warning("Failed to load workflow catalog from %s: %s", WORKFLOW_CATALOG_FILE, e)
         return DEFAULT_WORKFLOW_CATALOG
 
@@ -52,7 +52,7 @@ async def get_n8n_workflows() -> list[dict]:
                 if resp.status == 200:
                     data = await resp.json()
                     return data.get("data", [])
-    except Exception as e:
+    except (aiohttp.ClientError, OSError, json.JSONDecodeError) as e:
         logger.warning(f"Failed to fetch workflows from n8n: {e}")
     return []
 
@@ -79,7 +79,7 @@ async def check_n8n_available() -> bool:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3)) as session:
             async with session.get(f"{N8N_URL}/healthz") as resp:
                 return resp.status < 500
-    except Exception:
+    except (aiohttp.ClientError, OSError):
         return False
 
 
@@ -160,7 +160,7 @@ async def enable_workflow(workflow_id: str, api_key: str = Depends(verify_api_ke
             raise HTTPException(status_code=400, detail="Invalid workflow file path")
     except HTTPException:
         raise
-    except Exception:
+    except (OSError, ValueError):
         raise HTTPException(status_code=400, detail="Invalid workflow file path")
 
     if not workflow_file.exists():
@@ -169,7 +169,7 @@ async def enable_workflow(workflow_id: str, api_key: str = Depends(verify_api_ke
     try:
         with open(workflow_file) as f:
             workflow_data = json.load(f)
-    except Exception as e:
+    except (OSError, json.JSONDecodeError) as e:
         raise HTTPException(status_code=500, detail=f"Failed to read workflow: {e}")
 
     try:
@@ -256,6 +256,6 @@ async def workflow_executions(workflow_id: str, limit: int = 20, api_key: str = 
                     return {"workflowId": workflow_id, "n8nId": n8n_wf["id"], "executions": data.get("data", [])}
                 else:
                     return {"executions": [], "error": "Failed to fetch executions"}
-    except Exception:
+    except (aiohttp.ClientError, OSError, json.JSONDecodeError):
         logger.exception("Failed to fetch workflow executions")
         return {"executions": [], "error": "Failed to fetch executions"}

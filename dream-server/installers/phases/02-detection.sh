@@ -33,7 +33,20 @@ if [[ "${DREAM_MODE:-local}" == "cloud" ]]; then
     GPU_COUNT=0
     GPU_MEMORY_TYPE="none"
     TIER="CLOUD"
-    RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+    if grep -qi microsoft /proc/version 2>/dev/null; then
+        _wsl_ram_bytes=""
+        if command -v powershell.exe &>/dev/null; then
+            _wsl_ram_bytes=$(powershell.exe -NoProfile -Command \
+                "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory" 2>/dev/null | tr -d '\r')
+        fi
+        if [[ -n "$_wsl_ram_bytes" && "$_wsl_ram_bytes" =~ ^[0-9]+$ ]]; then
+            RAM_KB=$((_wsl_ram_bytes / 1024))
+        else
+            RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+        fi
+    else
+        RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+    fi
     RAM_GB=$((RAM_KB / 1024 / 1024))
     DISK_AVAIL=$(df -BG "$HOME" | tail -1 | awk '{print $4}' | tr -d 'G')
     BACKEND_ID="cpu"
@@ -55,10 +68,37 @@ ai "Reading hardware telemetry..."
 
 load_capability_profile || true
 
-# RAM Detection
-RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
-RAM_GB=$((RAM_KB / 1024 / 1024))
-log "RAM: ${RAM_GB}GB"
+# RAM Detection (WSL2-aware: query Windows host RAM if available)
+if grep -qi microsoft /proc/version 2>/dev/null; then
+    _wsl_ram_kb=""
+    if command -v powershell.exe &>/dev/null; then
+        _wsl_ram_bytes=$(powershell.exe -NoProfile -Command \
+            "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory" 2>/dev/null | tr -d '\r')
+        if [[ -n "$_wsl_ram_bytes" && "$_wsl_ram_bytes" =~ ^[0-9]+$ ]]; then
+            _wsl_ram_kb=$((_wsl_ram_bytes / 1024))
+        fi
+    fi
+    if [[ -z "$_wsl_ram_kb" ]] && command -v wmic.exe &>/dev/null; then
+        _wsl_ram_kb=$(wmic.exe OS get TotalVisibleMemorySize /value 2>/dev/null \
+            | grep -oE '[0-9]+' | sed -n '1p')
+    fi
+    if [[ -n "$_wsl_ram_kb" && "$_wsl_ram_kb" =~ ^[0-9]+$ ]]; then
+        RAM_KB="$_wsl_ram_kb"
+        RAM_GB=$((RAM_KB / 1024 / 1024))
+        _wsl_vm_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+        _wsl_vm_gb=$((_wsl_vm_kb / 1024 / 1024))
+        log "WSL2 detected — Windows host RAM: ${RAM_GB}GB (WSL2 VM sees: ${_wsl_vm_gb}GB)"
+    else
+        RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+        RAM_GB=$((RAM_KB / 1024 / 1024))
+        log "WSL2 detected — could not query Windows host RAM (VM sees: ${RAM_GB}GB)"
+        log "For correct tier selection: use --tier N or configure .wslconfig"
+    fi
+else
+    RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+    RAM_GB=$((RAM_KB / 1024 / 1024))
+    log "RAM: ${RAM_GB}GB"
+fi
 
 # Disk Detection
 DISK_AVAIL=$(df -BG "$HOME" | tail -1 | awk '{print $4}' | tr -d 'G')
@@ -178,6 +218,19 @@ fi
 
 # Resolve compose overlay files
 resolve_compose_config
+
+# Validate compose stack syntax before proceeding
+if [[ -n "${COMPOSE_FLAGS:-}" ]]; then
+    ai "Validating compose stack configuration..."
+    if "$SCRIPT_DIR/scripts/validate-compose-stack.sh" --compose-flags "$COMPOSE_FLAGS" --quiet >> "$LOG_FILE" 2>&1; then
+        ai_ok "Compose stack validated"
+    else
+        ai_bad "Compose stack validation failed"
+        ai "Check log file for details: $LOG_FILE"
+        ai "This usually means a service manifest or compose file has syntax errors."
+        exit 1
+    fi
+fi
 
 # Resolve tier → model/GGUF/context
 resolve_tier_config

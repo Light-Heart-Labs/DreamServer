@@ -442,17 +442,33 @@ if ($DryRun) {
             $llamaZip = Join-Path $env:TEMP $script:LLAMA_CPP_VULKAN_ASSET
             if (-not (Test-Path $script:LLAMA_SERVER_EXE)) {
                 if (-not (Test-Path $llamaZip)) {
-                    $dlOk = Show-ProgressDownload -Url $script:LLAMA_CPP_VULKAN_URL `
+                    $dlOk = Invoke-DownloadWithRetry -Url $script:LLAMA_CPP_VULKAN_URL `
                         -Destination $llamaZip -Label "Downloading llama-server (Vulkan)"
                     if (-not $dlOk) {
-                        Write-AIError "llama-server download failed."
+                        Write-AIError "Failed to download llama-server after retries."
                         exit 1
                     }
                 }
-                # Extract
+
+                # Validate zip integrity before extraction
+                Write-AI "Validating llama-server archive..."
+                $zipValid = Test-ZipIntegrity -Path $llamaZip
+                if (-not $zipValid.Valid) {
+                    Write-AIWarn "Archive is corrupt: $($zipValid.ErrorMessage)"
+                    Remove-Item -Path $llamaZip -Force -ErrorAction SilentlyContinue
+                    Write-AIError "Corrupted download. Please re-run the installer."
+                    exit 1
+                }
+
+                # Extract with retry
                 Write-AI "Extracting llama-server..."
                 New-Item -ItemType Directory -Path $script:LLAMA_SERVER_DIR -Force | Out-Null
-                Expand-Archive -Path $llamaZip -DestinationPath $script:LLAMA_SERVER_DIR -Force
+
+                if (-not (Invoke-ExtractionWithRetry -ZipPath $llamaZip -DestinationPath $script:LLAMA_SERVER_DIR)) {
+                    Write-AIError "Failed to extract llama-server after retries."
+                    exit 1
+                }
+
                 # The zip may contain a subdirectory -- find llama-server.exe
                 $exeFound = Get-ChildItem -Path $script:LLAMA_SERVER_DIR -Recurse -Filter "llama-server.exe" |
                     Select-Object -First 1
@@ -465,7 +481,7 @@ if ($DryRun) {
                     Write-AIError "llama-server.exe not found after extraction."
                     exit 1
                 }
-                Write-AISuccess "Extracted llama-server.exe"
+                Write-AISuccess "llama-server extracted successfully"
             } else {
                 Write-AISuccess "llama-server.exe already present"
             }
@@ -650,28 +666,38 @@ if ($DryRun) {
                 Write-AI "Installing OpenCode v$($script:OPENCODE_VERSION)..."
                 $ocZipPath = Join-Path $env:TEMP $script:OPENCODE_ZIP
                 if (-not (Test-Path $ocZipPath)) {
-                    $dlOk = Show-ProgressDownload -Url $script:OPENCODE_URL `
+                    $dlOk = Invoke-DownloadWithRetry -Url $script:OPENCODE_URL `
                         -Destination $ocZipPath -Label "Downloading OpenCode"
                     if (-not $dlOk) {
-                        Write-AIWarn "OpenCode download failed -- skipping (install later manually)"
+                        Write-AIWarn "OpenCode download failed after retries -- skipping (install later manually)"
                     }
                 }
                 if (Test-Path $ocZipPath) {
-                    New-Item -ItemType Directory -Path $script:OPENCODE_BIN -Force | Out-Null
-                    Expand-Archive -Path $ocZipPath -DestinationPath $script:OPENCODE_BIN -Force
-                    if (Test-Path $script:OPENCODE_EXE) {
-                        Write-AISuccess "Extracted opencode.exe"
+                    # Validate zip integrity
+                    Write-AI "Validating OpenCode archive..."
+                    $zipValid = Test-ZipIntegrity -Path $ocZipPath
+                    if (-not $zipValid.Valid) {
+                        Write-AIWarn "OpenCode archive is corrupt: $($zipValid.ErrorMessage)"
+                        Remove-Item -Path $ocZipPath -Force -ErrorAction SilentlyContinue
+                        Write-AIWarn "Skipping OpenCode installation (install later manually)"
                     } else {
-                        # Zip may contain a subdirectory -- find the exe
-                        $ocFound = Get-ChildItem -Path $script:OPENCODE_BIN -Recurse -Filter "opencode.exe" |
-                            Select-Object -First 1
-                        if ($ocFound -and $ocFound.DirectoryName -ne $script:OPENCODE_BIN) {
-                            Move-Item -Path $ocFound.FullName -Destination $script:OPENCODE_EXE -Force
-                        }
-                        if (Test-Path $script:OPENCODE_EXE) {
-                            Write-AISuccess "Extracted opencode.exe"
+                        # Extract with retry
+                        New-Item -ItemType Directory -Path $script:OPENCODE_BIN -Force | Out-Null
+
+                        if (Invoke-ExtractionWithRetry -ZipPath $ocZipPath -DestinationPath $script:OPENCODE_BIN) {
+                            # Zip may contain a subdirectory -- find the exe
+                            $ocFound = Get-ChildItem -Path $script:OPENCODE_BIN -Recurse -Filter "opencode.exe" |
+                                Select-Object -First 1
+                            if ($ocFound -and $ocFound.DirectoryName -ne $script:OPENCODE_BIN) {
+                                Move-Item -Path $ocFound.FullName -Destination $script:OPENCODE_EXE -Force
+                            }
+                            if (Test-Path $script:OPENCODE_EXE) {
+                                Write-AISuccess "OpenCode extracted successfully"
+                            } else {
+                                Write-AIWarn "opencode.exe not found after extraction -- skipping"
+                            }
                         } else {
-                            Write-AIWarn "opencode.exe not found after extraction -- skipping"
+                            Write-AIWarn "OpenCode extraction failed after retries -- skipping"
                         }
                     }
                 }

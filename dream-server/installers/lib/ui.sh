@@ -201,33 +201,52 @@ pull_with_progress() {
   local count=$3
   local total=$4
   local max_attempts=3
+  local pull_timeout=600  # 10 minutes for large images (CUDA is ~10GB)
   local pull_pid
 
   for attempt in $(seq 1 $max_attempts); do
     if [[ $attempt -gt 1 ]]; then
       printf "  ${AMB}⟳${NC} [$count/$total] Retry attempt $attempt of $max_attempts for $label\n"
-      local backoff=$((5 * (2 ** (attempt - 2))))
+      # Exponential backoff: 2s, 5s, 10s
+      local backoff=$((2 * (2 ** (attempt - 2)) + (attempt - 2)))
       sleep "$backoff"
     fi
 
     local attempt_log
     attempt_log=$(mktemp)
 
-    $DOCKER_CMD pull "$img" >"$attempt_log" 2>&1 &
+    # Wrap docker pull with timeout to prevent indefinite hangs
+    timeout "$pull_timeout" $DOCKER_CMD pull "$img" >"$attempt_log" 2>&1 &
     pull_pid=$!
 
     if spin_task "$pull_pid" "[$count/$total] $label"; then
-      cat "$attempt_log" >> "$LOG_FILE" 2>&1 || true
-      rm -f "$attempt_log"
-      printf "\r  ${BGRN}✓${NC} [$count/$total] %-60s\n" "$label"
-      return 0
+      # Verify image was pulled successfully
+      if $DOCKER_CMD inspect "$img" >/dev/null 2>&1; then
+        cat "$attempt_log" >> "$LOG_FILE" 2>&1 || true
+        rm -f "$attempt_log"
+        printf "\r  ${BGRN}✓${NC} [$count/$total] %-60s\n" "$label"
+        return 0
+      else
+        cat "$attempt_log" >> "$LOG_FILE" 2>&1 || true
+        rm -f "$attempt_log"
+        printf "\r  ${RED}✗${NC} [$count/$total] %-60s (image validation failed)\n" "$label"
+        continue
+      fi
     else
       cat "$attempt_log" >> "$LOG_FILE" 2>&1 || true
 
+      # Check for non-retryable errors
       if grep -qiE 'unauthorized|denied|not[[:space:]-]?found|\b404\b|no space left on device|cannot connect to the docker daemon|is the docker daemon running' "$attempt_log"; then
         rm -f "$attempt_log"
         printf "\r  ${RED}✗${NC} [$count/$total] %-60s (non-retryable error)\n" "$label"
         return 1
+      fi
+
+      # Check for timeout
+      if grep -qiE 'timeout|timed out' "$attempt_log" || ! kill -0 "$pull_pid" 2>/dev/null; then
+        rm -f "$attempt_log"
+        printf "\r  ${RED}✗${NC} [$count/$total] %-60s (network timeout on attempt $attempt)\n" "$label"
+        continue
       fi
 
       rm -f "$attempt_log"
@@ -245,9 +264,11 @@ check_service() {
   local name=$1
   local url=$2
   local max_attempts=${3:-30}
+  local timeout=${4:-10}  # Timeout per request (default 10s)
   local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
   local i=0
   local lore_idx=$(( RANDOM % ${#LORE_MESSAGES[@]} ))
+  local elapsed=0
 
   if $DRY_RUN; then
     ai "[DRY RUN] Would link ${name} at ${url}"
@@ -256,18 +277,43 @@ check_service() {
 
   printf "  ${GRN}%s${NC} Linking %-20s " "${spin:0:1}" "$name"
   for attempt in $(seq 1 $max_attempts); do
-    if curl -sf "$url" > /dev/null 2>&1; then
+    # Exponential backoff: 2s, 4s, 8s, then 8s for remaining attempts
+    local backoff=2
+    if [[ $attempt -gt 1 ]]; then
+      backoff=$((2 ** (attempt < 4 ? attempt : 4)))
+      [[ $backoff -gt 8 ]] && backoff=8
+    fi
+
+    # Add timeout to prevent indefinite hangs
+    if timeout "$timeout" curl -sf "$url" > /dev/null 2>&1; then
       printf "\r  ${BGRN}✓${NC} %-55s\n" "$name online"
       return 0
     fi
-    printf "\r  ${GRN}%s${NC} Linking %-20s [%ds] " "${spin:$i:1}" "$name" "$((attempt * 2))"
+
+    local curl_exit=$?
+    elapsed=$((elapsed + backoff))
+
+    # Distinguish between timeout (124) and connection refused (7)
+    if [[ $curl_exit -eq 124 ]]; then
+      # Timeout - service may be overloaded or slow
+      printf "\r  ${AMB}⟳${NC} Linking %-20s [%ds] (timeout, retrying) " "$name" "$elapsed"
+    elif [[ $curl_exit -eq 7 ]]; then
+      # Connection refused - service not started yet
+      printf "\r  ${GRN}%s${NC} Linking %-20s [%ds] " "${spin:$i:1}" "$name" "$elapsed"
+    else
+      # Other error (DNS, network, etc.)
+      printf "\r  ${AMB}⟳${NC} Linking %-20s [%ds] (error $curl_exit) " "$name" "$elapsed"
+    fi
+
     i=$(( (i + 1) % ${#spin} ))
-    # Show lore every 4th attempt (~8 seconds)
-    if (( attempt > 0 && attempt % 4 == 0 )); then
+
+    # Show lore every 16 seconds of elapsed time
+    if (( elapsed > 0 && elapsed % 16 == 0 )); then
       printf "\n  ${DGRN}  « %s »${NC}\n" "${LORE_MESSAGES[$lore_idx]}"
       lore_idx=$(( (lore_idx + 1) % ${#LORE_MESSAGES[@]} ))
     fi
-    sleep 2
+
+    sleep "$backoff"
   done
 
   printf "\r  ${AMB}⚠${NC} %-55s\n" "$name delayed (may still be starting)"
