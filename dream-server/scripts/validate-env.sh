@@ -5,6 +5,24 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="${INSTALL_DIR:-$(dirname "$SCRIPT_DIR")}"
+
+usage() {
+    echo "Usage: $0 [ENV_FILE] [SCHEMA_FILE]"
+    echo "       $0 --help"
+    echo ""
+    echo "Validates .env against a JSON schema (required keys, types, unknown keys)."
+    echo ""
+    echo "Arguments:"
+    echo "  ENV_FILE     Path to .env (default: INSTALL_DIR/.env)"
+    echo "  SCHEMA_FILE  Path to .env.schema.json (default: INSTALL_DIR/.env.schema.json)"
+    echo ""
+    echo "Exit codes: 0 = valid, 1 = missing file / jq, 2 = validation failed"
+    echo "Requires: jq"
+}
+case "${1:-}" in
+    -h|--help) usage; exit 0 ;;
+esac
+
 ENV_FILE="${1:-${INSTALL_DIR}/.env}"
 SCHEMA_FILE="${2:-${INSTALL_DIR}/.env.schema.json}"
 

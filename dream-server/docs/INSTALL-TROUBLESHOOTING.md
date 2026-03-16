@@ -87,3 +87,20 @@ Check server health:
 ```bash
 curl http://localhost:<port>/health
 ```
+
+## Extension and Config Validation
+
+### Problem: Unsure if extensions match this Dream Server version or if .env is valid
+**Solution:** Run the built-in validators from your install directory.
+
+Validate environment and extension manifests (requires an existing install):
+```bash
+./dream-cli config validate
+```
+
+Or run only extension manifest validation from the repo (no install required):
+```bash
+bash scripts/validate-manifests.sh
+```
+
+Ensure `.env` defines the ports your setup uses (e.g. `WEBUI_PORT`, `OLLAMA_PORT` or `LLAMA_SERVER_PORT`). See `.env.example` for the full list.

@@ -17,16 +17,16 @@ for arg in "$@"; do
     esac
 done
 
-# Config (defaults; .env overrides after load_env_file below)
+# Config (SCRIPT_DIR first so we can source registry)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/dream-server}"
 LLM_HOST="${LLM_HOST:-localhost}"
-LLM_PORT="${LLM_PORT:-8080}"
 TIMEOUT="${TIMEOUT:-5}"
 
-# Source service registry
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Source service registry before using SERVICE_PORTS
 . "$SCRIPT_DIR/lib/service-registry.sh"
 sr_load
+LLM_PORT="${LLM_PORT:-${SERVICE_PORTS[llama-server]:-8080}}"
 
 # Safe .env loading for port overrides (no eval; use lib/safe-env.sh)
 [[ -f "$SCRIPT_DIR/lib/safe-env.sh" ]] && . "$SCRIPT_DIR/lib/safe-env.sh"

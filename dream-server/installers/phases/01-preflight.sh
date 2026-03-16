@@ -51,7 +51,7 @@ if ! command -v rsync &> /dev/null; then
 fi
 if [[ -n "$OPTIONAL_TOOLS_MISSING" ]]; then
     warn "Optional tools missing:$OPTIONAL_TOOLS_MISSING"
-    echo "  These are needed for update/backup scripts. Install with:"
+    echo "  These are needed for update/backup scripts, and jq for scripts/validate-manifests.sh and dream config validate. Install with:"
     case "$PKG_MANAGER" in
         dnf)    echo "  sudo dnf install$OPTIONAL_TOOLS_MISSING" ;;
         pacman) echo "  sudo pacman -S$OPTIONAL_TOOLS_MISSING" ;;
@@ -60,9 +60,12 @@ if [[ -n "$OPTIONAL_TOOLS_MISSING" ]]; then
     esac
 fi
 
-# Check source files exist
+# Check source files exist (ensure we are in the dream-server repo root)
 if [[ ! -f "$SCRIPT_DIR/docker-compose.yml" ]] && [[ ! -f "$SCRIPT_DIR/docker-compose.base.yml" ]]; then
-    error "No compose files found in $SCRIPT_DIR. Please run from the dream-server directory."
+    error "No compose files found in $SCRIPT_DIR."
+    echo "  Run the installer from the dream-server directory (the one containing install.sh and docker-compose.base.yml)."
+    echo "  Example: cd /path/to/DreamServer/dream-server && ./install.sh"
+    exit 1
 fi
 
 # Existing installation — update in place (secrets and data are preserved)

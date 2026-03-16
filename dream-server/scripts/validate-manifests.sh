@@ -20,6 +20,20 @@
 
 set -euo pipefail
 
+usage() {
+    echo "Usage: $0 [--help]"
+    echo ""
+    echo "Validates extension service manifests against the v1 schema and checks"
+    echo "Dream Server version compatibility (compatibility.dream_min / dream_max)."
+    echo "Requires: jq. Optional: python3 + PyYAML + jsonschema for full schema validation."
+    echo ""
+    echo "Exit codes: 0 = all valid/compatible, 1 = hard failure (schema/IO error)"
+    echo "Run from repo root or set paths via manifest.json."
+}
+case "${1:-}" in
+    -h|--help) usage; exit 0 ;;
+esac
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MANIFEST_FILE="${ROOT_DIR}/manifest.json"
 
