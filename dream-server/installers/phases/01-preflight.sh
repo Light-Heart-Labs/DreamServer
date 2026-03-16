@@ -41,11 +41,17 @@ if ! command -v curl &> /dev/null; then
 fi
 log "curl: $(curl --version 2>/dev/null | sed -n '1p')"
 
+if ! command -v jq &> /dev/null; then
+    case "$PKG_MANAGER" in
+        dnf)    error "jq is required but not installed. Install with: sudo dnf install jq" ;;
+        pacman) error "jq is required but not installed. Install with: sudo pacman -S jq" ;;
+        zypper) error "jq is required but not installed. Install with: sudo zypper install jq" ;;
+        *)      error "jq is required but not installed. Install with: sudo apt install jq" ;;
+    esac
+fi
+
 # Check optional tools (warn but don't fail)
 OPTIONAL_TOOLS_MISSING=""
-if ! command -v jq &> /dev/null; then
-    OPTIONAL_TOOLS_MISSING="$OPTIONAL_TOOLS_MISSING jq"
-fi
 if ! command -v rsync &> /dev/null; then
     OPTIONAL_TOOLS_MISSING="$OPTIONAL_TOOLS_MISSING rsync"
 fi

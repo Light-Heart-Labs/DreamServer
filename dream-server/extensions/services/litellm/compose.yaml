@@ -13,7 +13,7 @@ services:
     volumes:
       - ./config/litellm/${DREAM_MODE:-local}.yaml:/app/config.yaml:ro
     ports:
-      - "127.0.0.1:${LITELLM_PORT:-4000}:4000"
+      - "${LITELLM_PORT:-4000}:4000"
     command: --config /app/config.yaml
     deploy:
       resources:
