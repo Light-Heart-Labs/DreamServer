@@ -9,6 +9,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application
 COPY pii_scrubber.py .
 COPY proxy.py .
+COPY key_management.py .
 
 # Create data directory for session persistence
 RUN mkdir -p /data && chown -R 1000:1000 /data

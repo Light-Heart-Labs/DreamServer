@@ -33,7 +33,12 @@ usage() {
     cat << EOF
 Dream Server Backup Utility
 
-Usage: $(basename "$0") [OPTIONS]
+Usage: $(basename "$0") <command> [OPTIONS]
+
+Commands:
+    backup                   Create a backup (default)
+    verify <backup_id>        Verify checksums for an existing backup
+
 
 OPTIONS:
     -h, --help              Show this help message
@@ -50,10 +55,13 @@ BACKUP TYPES:
     config      Backup only configuration files
 
 EXAMPLES:
-    $(basename "$0")                          # Full backup with default settings
-    $(basename "$0") -t user-data -c          # Compressed user data backup
+    $(basename "$0")                          # Backup (default: user-data)
+    $(basename "$0") -t full -c               # Compressed full backup
     $(basename "$0") -l                       # List all backups
     $(basename "$0") -d 20260212-071500       # Delete specific backup
+    $(basename "$0") verify 20260212-071500   # Verify checksum integrity
+    $(basename "$0") verify 20260212-071500.tar.gz
+    $(basename "$0") backup -t config         # Explicit backup subcommand
 
 EOF
 }
@@ -230,6 +238,41 @@ backup_config() {
     fi
 }
 
+# Generate a SHA256 manifest for all backed up files
+# Writes: $backup_dir/checksums.sha256 (format: sha256  relative/path)
+create_checksums() {
+    local backup_dir="$1"
+    log_info "Generating checksums..."
+
+    local checksum_file="$backup_dir/checksums.sha256"
+
+    if command -v sha256sum >/dev/null 2>&1; then
+        (
+            cd "$backup_dir"
+            # Deterministic ordering; exclude the checksum file itself.
+            find . -type f ! -name "checksums.sha256" -print0 \
+                | sort -z \
+                | xargs -0 sha256sum \
+                | sed 's#  \./#  #' \
+                > "$(basename "$checksum_file")"
+        )
+    elif command -v shasum >/dev/null 2>&1; then
+        (
+            cd "$backup_dir"
+            find . -type f ! -name "checksums.sha256" -print0 \
+                | sort -z \
+                | xargs -0 shasum -a 256 \
+                | sed 's#  \./#  #' \
+                > "$(basename "$checksum_file")"
+        )
+    else
+        log_warn "Skipping checksums: sha256sum/shasum not found"
+        return 0
+    fi
+
+    log_info "Wrote checksums.sha256"
+}
+
 # Backup cache (optional, for full backups)
 backup_cache() {
     local backup_dir="$1"
@@ -340,6 +383,9 @@ do_backup() {
             ;;
     esac
 
+    # Generate checksums after files are copied into place
+    create_checksums "$backup_dir"
+
     # Compress if requested
     if [[ "$compress" == "true" ]]; then
         compress_backup "$backup_dir"
@@ -355,17 +401,101 @@ do_backup() {
     echo "  dream-restore.sh $backup_id"
 }
 
+# Verify checksums for an existing backup directory or archive
+verify_backup() {
+    local backup_id="$1"
+
+    # Reject path traversal attempts
+    if [[ "$backup_id" == *..* || "$backup_id" == */* || "$backup_id" == *\\* ]]; then
+        log_error "Invalid backup ID: $backup_id"
+        return 1
+    fi
+
+    local target="$BACKUP_ROOT/$backup_id"
+
+    if [[ -d "$target" ]]; then
+        if [[ ! -f "$target/checksums.sha256" ]]; then
+            log_error "checksums.sha256 not found for backup: $backup_id"
+            return 1
+        fi
+
+        (
+            cd "$target"
+            if command -v sha256sum >/dev/null 2>&1; then
+                sha256sum -c "checksums.sha256"
+            else
+                shasum -a 256 -c "checksums.sha256"
+            fi
+        )
+        log_success "Backup verified: $backup_id"
+        return 0
+    fi
+
+    if [[ -f "$target" && "$target" == *.tar.gz ]]; then
+        local tmpdir
+        tmpdir=$(mktemp -d)
+        trap 'rm -rf "$tmpdir"' RETURN
+
+        # Extract checksums first (fast fail if missing)
+        local archive_name="${backup_id%.tar.gz}"
+        if ! tar xzf "$target" -C "$tmpdir" "${archive_name}/checksums.sha256" >/dev/null 2>&1; then
+            log_error "checksums.sha256 not found in archive: $backup_id"
+            return 1
+        fi
+
+        tar xzf "$target" -C "$tmpdir"
+
+        (
+            cd "$tmpdir/$archive_name"
+            if command -v sha256sum >/dev/null 2>&1; then
+                sha256sum -c "checksums.sha256"
+            else
+                shasum -a 256 -c "checksums.sha256"
+            fi
+        )
+
+        log_success "Backup verified: $backup_id"
+        return 0
+    fi
+
+    log_error "Backup not found: $backup_id"
+    return 1
+}
+
 # Main entry point
 main() {
+    local subcommand="backup"
+
+    # Allow subcommands to appear either first (e.g. `verify ...`) or after options
+    # (e.g. `--output /path verify ...`). We'll detect `backup`/`verify` during arg parsing.
+
+
     local backup_type="user-data"
     local compress="false"
     local description=""
     local list_mode="false"
     local delete_id=""
+    local verify_id=""
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            backup)
+                subcommand="backup"
+                shift
+                ;;
+            verify)
+                subcommand="verify"
+                shift
+                verify_id="${1:-}"
+                if [[ -z "$verify_id" ]]; then
+                    log_error "Usage: $(basename "$0") verify <backup_id|backup_id.tar.gz>"
+                    exit 1
+                fi
+                shift
+                # No more flags after verify are supported
+                break
+                ;;
             -h|--help)
                 usage
                 exit 0
@@ -412,6 +542,15 @@ main() {
     if [[ -n "$delete_id" ]]; then
         delete_backup "$delete_id"
         exit 0
+    fi
+
+    # Verify mode
+    if [[ "$subcommand" == "verify" ]]; then
+        # Create backup root so --output works even if dir doesn't exist yet
+        mkdir -p "$BACKUP_ROOT"
+
+        verify_backup "$verify_id"
+        exit $?
     fi
 
     # Check if running in Dream Server directory

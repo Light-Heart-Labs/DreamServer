@@ -1730,9 +1730,17 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .save-btn:disabled { background: #30363d; color: #8b949e; cursor: not-allowed; }
   .save-status { color: #3fb950; font-size: 0.85em; margin-left: 12px; display: none; }
   @media (max-width: 768px) { .chart-row, .session-panel { grid-template-columns: 1fr; } }
+  #login-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:#0d1117;display:flex;align-items:center;justify-content:center;z-index:9999}
+  #login-box{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:32px;width:340px;text-align:center}
+  #login-box h2{color:#c9d1d9;margin:0 0 16px}
+  #login-box input{width:100%;padding:8px 12px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;margin-bottom:12px;box-sizing:border-box}
+  #login-box button{width:100%;padding:8px;background:#238636;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600}
+  #login-box button:hover{background:#2ea043}
+  #login-error{color:#f85149;font-size:13px;margin-top:8px;display:none}
 </style>
 </head>
 <body>
+<div id="login-overlay" style="display:none"><div id="login-box"><h2>Token Spy</h2><input id="login-key" type="password" placeholder="API Key" onkeydown="if(event.key==='Enter')attemptLogin()"><button onclick="attemptLogin()">Sign In</button><div id="login-error"></div></div></div>
 
 <div class="header">
   <div>
@@ -1827,6 +1835,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 </div>
 
 <script>
+function _getApiKey(){return sessionStorage.getItem('token_spy_api_key')||''}
+function _authHeaders(){return {Authorization:'Bearer '+_getApiKey()}}
+function _clearAuth(){sessionStorage.removeItem('token_spy_api_key');document.getElementById('login-overlay').style.display='flex'}
+async function _authFetch(url,opts={}){opts.headers=Object.assign({},opts.headers||{},_authHeaders());const r=await fetch(url,opts);if(r.status===401||r.status===403){_clearAuth();throw new Error('Unauthorized')}return r}
+function attemptLogin(){const k=document.getElementById('login-key').value.trim();if(!k)return;fetch('/api/summary',{headers:{Authorization:'Bearer '+k}}).then(r=>{if(r.ok){sessionStorage.setItem('token_spy_api_key',k);document.getElementById('login-overlay').style.display='none';document.getElementById('login-error').style.display='none';loadAll()}else{document.getElementById('login-error').textContent='Invalid API key';document.getElementById('login-error').style.display='block'}}).catch(()=>{document.getElementById('login-error').textContent='Connection error';document.getElementById('login-error').style.display='block'})}
+if(!_getApiKey()){document.getElementById('login-overlay').style.display='flex'}
 let tokensChart = null, breakdownChart = null, costChart = null, historyChart = null, cumulativeChart = null;
 
 function getHours() {
@@ -1836,15 +1850,15 @@ function getHours() {
 async function loadAll() {
   const hours = getHours();
   const [summaryRes, usageRes] = await Promise.all([
-    fetch('/api/summary?hours=' + hours, {headers: _authHdr}),
-    fetch('/api/usage?hours=' + hours + '&limit=500', {headers: _authHdr}),
+    _authFetch('/api/summary?hours=' + hours),
+    _authFetch('/api/usage?hours=' + hours + '&limit=500'),
   ]);
   const summary = await summaryRes.json();
   const usage = await usageRes.json();
   // Dynamically discover agents from data (usage + summary)
   const agents = [...new Set([...usage.map(u => u.agent), ...summary.map(s => s.agent)])];
   // Fetch session status for each discovered agent
-  const sessionPromises = agents.map(agent => fetch('/api/session-status?agent=' + encodeURIComponent(agent), {headers: _authHdr}));
+  const sessionPromises = agents.map(agent => _authFetch('/api/session-status?agent=' + encodeURIComponent(agent)));
   const sessionResults = await Promise.all(sessionPromises);
   const sessions = await Promise.all(sessionResults.map(r => r.json()));
   window._agents = agents;
@@ -1889,7 +1903,7 @@ async function resetSession(agent) {
   const btn = document.getElementById('reset-' + agent);
   if (btn) { btn.disabled = true; btn.textContent = 'Resetting...'; }
   try {
-    const res = await fetch('/api/reset-session?agent=' + encodeURIComponent(agent), { method: 'POST', headers: _authHdr });
+    const res = await _authFetch('/api/reset-session?agent=' + encodeURIComponent(agent), { method: 'POST' });
     const data = await res.json();
     if (data.action === 'killed') {
       if (btn) { btn.textContent = 'Reset — restarting...'; }
@@ -2185,7 +2199,7 @@ function toggleSettings() {
 
 async function loadSettingsUI() {
   try {
-    const res = await fetch('/api/settings', {headers: _authHdr});
+    const res = await _authFetch('/api/settings');
     const s = await res.json();
     document.getElementById('set-global-limit').value = s.session_char_limit || '';
     document.getElementById('set-global-poll').value = s.poll_interval_minutes || '';
@@ -2261,9 +2275,9 @@ async function saveSettings() {
   };
 
   try {
-    const res = await fetch('/api/settings', {
+    const res = await _authFetch('/api/settings', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json', ..._authHdr},
+      headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body),
     });
     if (res.ok) {
@@ -2289,8 +2303,8 @@ async function saveSettings() {
 }
 
 document.getElementById('hours-select').addEventListener('change', loadAll);
-loadAll();
-setInterval(loadAll, 30000);
+if(_getApiKey()){loadAll()}
+setInterval(function(){if(_getApiKey())loadAll()}, 30000);
 </script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
 </body>
@@ -2299,9 +2313,7 @@ setInterval(loadAll, 30000);
 
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard():
-    # Inject API key into dashboard so embedded JS can authenticate
-    auth_script = f'<script>const _TSK="{TOKEN_SPY_API_KEY}";const _authHdr={{"Authorization":"Bearer "+_TSK}};</script>'
-    return DASHBOARD_HTML.replace("<head>", "<head>" + auth_script, 1)
+    return DASHBOARD_HTML
 
 
 # ── SSE Token Events Stream ─────────────────────────────────────────────────

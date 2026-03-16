@@ -6,6 +6,11 @@ LLAMA_SERVER_URL="http://localhost:8080"
 MODEL="qwen2.5-32b-instruct"
 CONCURRENT_REQUESTS=5
 
+# Portable millisecond timestamp (macOS BSD date lacks %N)
+_now_ms() {
+    python3 -c 'import time; print(int(time.time() * 1000))' 2>/dev/null || echo "$(date +%s)000"
+}
+
 echo "=== M8 Test: Concurrency ($CONCURRENT_REQUESTS parallel requests) ==="
 
 # Create temp directory for responses
@@ -13,7 +18,7 @@ TEMP_DIR=$(mktemp -d)
 
 # Launch concurrent requests
 echo "  Launching $CONCURRENT_REQUESTS parallel requests..."
-START=$(date +%s%N)
+START=$(_now_ms)
 
 for i in $(seq 1 $CONCURRENT_REQUESTS); do
   (
@@ -29,8 +34,8 @@ done
 
 # Wait for all to complete
 wait
-END=$(date +%s%N)
-TOTAL_TIME=$(( (END - START) / 1000000 ))
+END=$(_now_ms)
+TOTAL_TIME=$(( END - START ))
 
 # Count successes
 SUCCESS=0

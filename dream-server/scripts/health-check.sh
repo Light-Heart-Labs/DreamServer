@@ -46,16 +46,21 @@ ANY_FAIL=false
 
 log() { $QUIET || echo -e "$1"; }
 
+# Portable millisecond timestamp (macOS BSD date lacks %N)
+_now_ms() {
+    python3 -c 'import time; print(int(time.time() * 1000))' 2>/dev/null || echo "$(date +%s)000"
+}
+
 # ── Test functions ──────────────────────────────────────────────────────────
 
 # llama-server: critical path — performs an actual inference test
 test_llm() {
-    local start=$(date +%s%3N)
+    local start=$(_now_ms)
     local response=$(curl -sf --max-time $TIMEOUT \
         -H "Content-Type: application/json" \
         -d '{"model":"default","prompt":"Hi","max_tokens":1}' \
         "http://${LLM_HOST}:${LLM_PORT}/v1/completions" 2>/dev/null)
-    local end=$(date +%s%3N)
+    local end=$(_now_ms)
 
     if echo "$response" | grep -q '"text"'; then
         RESULTS[llm]="ok"
@@ -137,12 +142,29 @@ check_service() {
     local name="${SERVICE_NAMES[$sid]:-$sid}"
     if test_service "$sid" 2>/dev/null; then
         log "  ${GREEN}✓${NC} $name - healthy"
+        return 0
     else
         log "  ${YELLOW}!${NC} $name - not responding"
+        return 1
+    fi
+}
+
+# Helper: run test_service in background and store result in temp file
+check_service_async() {
+    local sid="$1"
+    local result_file="$2"
+    if test_service "$sid" 2>/dev/null; then
+        echo "ok:$sid" > "$result_file"
+    else
+        echo "fail:$sid" > "$result_file"
     fi
 }
 
 # ── Run tests ───────────────────────────────────────────────────────────────
+
+# Create temp dir for parallel results
+TEMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TEMP_DIR"' EXIT
 
 log "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 log "${CYAN}  Dream Server Health Check${NC}"
@@ -158,20 +180,68 @@ else
     log "  ${RED}✗${NC} llama-server - CRITICAL: inference failed"
 fi
 
-# All other core services
+# Launch all other core services in parallel
+declare -a CORE_PIDS=()
+declare -a CORE_SIDS=()
 for sid in "${SERVICE_IDS[@]}"; do
     [[ "$sid" == "llama-server" ]] && continue
     [[ "${SERVICE_CATEGORIES[$sid]}" != "core" ]] && continue
-    check_service "$sid"
+    result_file="$TEMP_DIR/core_$sid"
+    check_service_async "$sid" "$result_file" &
+    CORE_PIDS+=($!)
+    CORE_SIDS+=("$sid")
+done
+
+# Wait for all core service checks to complete
+for pid in "${CORE_PIDS[@]}"; do
+    wait "$pid" 2>/dev/null || true
+done
+
+# Display core service results
+for sid in "${CORE_SIDS[@]}"; do
+    result_file="$TEMP_DIR/core_$sid"
+    if [[ -f "$result_file" ]]; then
+        result=$(cat "$result_file")
+        name="${SERVICE_NAMES[$sid]:-$sid}"
+        if [[ "$result" == "ok:$sid" ]]; then
+            log "  ${GREEN}✓${NC} $name - healthy"
+        else
+            log "  ${YELLOW}!${NC} $name - not responding"
+        fi
+    fi
 done
 
 log ""
 log "${CYAN}Extension Services:${NC}"
 
-# All non-core services
+# Launch all extension services in parallel
+declare -a EXT_PIDS=()
+declare -a EXT_SIDS=()
 for sid in "${SERVICE_IDS[@]}"; do
     [[ "${SERVICE_CATEGORIES[$sid]}" == "core" ]] && continue
-    check_service "$sid"
+    result_file="$TEMP_DIR/ext_$sid"
+    check_service_async "$sid" "$result_file" &
+    EXT_PIDS+=($!)
+    EXT_SIDS+=("$sid")
+done
+
+# Wait for all extension service checks to complete
+for pid in "${EXT_PIDS[@]}"; do
+    wait "$pid" 2>/dev/null || true
+done
+
+# Display extension service results
+for sid in "${EXT_SIDS[@]}"; do
+    result_file="$TEMP_DIR/ext_$sid"
+    if [[ -f "$result_file" ]]; then
+        result=$(cat "$result_file")
+        name="${SERVICE_NAMES[$sid]:-$sid}"
+        if [[ "$result" == "ok:$sid" ]]; then
+            log "  ${GREEN}✓${NC} $name - healthy"
+        else
+            log "  ${YELLOW}!${NC} $name - not responding"
+        fi
+    fi
 done
 
 log ""

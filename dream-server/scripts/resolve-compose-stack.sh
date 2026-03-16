@@ -37,6 +37,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 python3 - "$SCRIPT_DIR" "$TIER" "$GPU_BACKEND" "$PROFILE_OVERLAYS" "$ENV_MODE" <<'PY'
+import os
 import pathlib
 import sys
 import json
@@ -46,6 +47,7 @@ tier = (sys.argv[2] or "1").upper()
 gpu_backend = (sys.argv[3] or "nvidia").lower()
 profile_overlays = [x.strip() for x in (sys.argv[4] or "").split(",") if x.strip()]
 env_mode = (sys.argv[5] or "false").lower() == "true"
+dream_mode = os.environ.get("DREAM_MODE", "local").lower()
 
 def existing(overlays):
     return all((script_dir / f).exists() for f in overlays)
@@ -129,32 +131,22 @@ if ext_dir.exists():
                 compose_path = service_dir / compose_rel
                 if compose_path.exists():
                     resolved.append(str(compose_path.relative_to(script_dir)))
+                elif (service_dir / f"{compose_rel}.disabled").exists():
+                    continue  # Service disabled — skip all overlays
             # GPU-specific overlay (filesystem discovery — not in manifest)
             gpu_overlay = service_dir / f"compose.{gpu_backend}.yaml"
             if gpu_overlay.exists():
                 resolved.append(str(gpu_overlay.relative_to(script_dir)))
+            # Mode-specific overlay — depends_on for local/hybrid mode only
+            if dream_mode in ("local", "hybrid"):
+                local_mode_overlay = service_dir / "compose.local.yaml"
+                if local_mode_overlay.exists():
+                    resolved.append(str(local_mode_overlay.relative_to(script_dir)))
         except Exception as e:
-            print(f"WARNING: skipping {service_dir.name}: {e}", file=sys.stderr)
-            continue
-
-# Include docker-compose.local.yml for local/hybrid mode (Linux GPU backends only)
-# This gates open-webui on llama-server health — not appropriate for cloud mode
-# (llama-server has no model in cloud mode, so its healthcheck never passes)
-local_mode_overlay = script_dir / "docker-compose.local.yml"
-if local_mode_overlay.exists() and gpu_backend not in ("apple",):
-    # DREAM_MODE is read from .env rather than passed as a CLI arg because this script
-    # is called from multiple contexts (dream-cli, installer, CI) that do not all pass
-    # it as an argument. Reading .env keeps a single source of truth.
-    # Future: pass DREAM_MODE as a CLI arg (like gpu_backend) to eliminate this read.
-    dream_mode = ""
-    env_file = script_dir / ".env"
-    if env_file.exists():
-        for line in env_file.read_text().splitlines():
-            if line.startswith("DREAM_MODE="):
-                dream_mode = line.split("=", 1)[1].split("#")[0].strip().strip("\"'")
-                break
-    if dream_mode != "cloud":
-        resolved.append("docker-compose.local.yml")
+            print(f"ERROR: Failed to parse manifest for {service_dir.name}: {e}", file=sys.stderr)
+            print(f"  Manifest path: {manifest_path}", file=sys.stderr)
+            print(f"  This service will be skipped. Fix the manifest or disable the service.", file=sys.stderr)
+            sys.exit(1)
 
 # Include docker-compose.override.yml if it exists (user customizations)
 override = script_dir / "docker-compose.override.yml"

@@ -6,6 +6,7 @@ import logging
 import os
 import platform
 import shutil
+import subprocess
 import time
 from pathlib import Path
 from typing import Optional
