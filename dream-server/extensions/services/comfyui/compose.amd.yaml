@@ -19,7 +19,7 @@ services:
     volumes:
       - ./data/comfyui/ComfyUI:/opt/ComfyUI
     ports:
-      - "127.0.0.1:${COMFYUI_PORT:-8188}:8188"
+      - "${COMFYUI_PORT:-8188}:8188"
     command: >-
       /bin/sh -c "/opt/comfyui-gfx1151-utils/check-comfyui.sh &&
       python3 /opt/ComfyUI/main.py --listen 0.0.0.0 --use-flash-attention"

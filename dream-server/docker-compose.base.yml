@@ -19,7 +19,7 @@ services:
       - ./data/models:/models
       - ./config/llama-server/models.ini:/config/models.ini:ro
     ports:
-      - "127.0.0.1:${OLLAMA_PORT:-11434}:8080"
+      - "${OLLAMA_PORT:-11434}:8080"
     command:
       - --model
       - /models/${GGUF_FILE:-Qwen3-8B-Q4_K_M.gguf}
@@ -105,7 +105,7 @@ services:
     volumes:
       - ./data/open-webui:/app/backend/data
     ports:
-      - "127.0.0.1:${WEBUI_PORT:-3000}:8080"
+      - "${WEBUI_PORT:-3000}:8080"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
@@ -125,7 +125,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "127.0.0.1:${DASHBOARD_API_PORT:-3002}:3002"
+      - "${DASHBOARD_API_PORT:-3002}:3002"
     security_opt:
       - no-new-privileges:true
     environment:
@@ -175,7 +175,7 @@ services:
     volumes:
       - ./data:/data:ro
     ports:
-      - "127.0.0.1:${DASHBOARD_PORT:-3001}:3001"
+      - "${DASHBOARD_PORT:-3001}:3001"
     deploy:
       resources:
         limits:

@@ -19,7 +19,7 @@ services:
     volumes:
       - ./data/privacy-shield:/data
     ports:
-      - "127.0.0.1:${SHIELD_PORT:-8085}:8085"
+      - "${SHIELD_PORT:-8085}:8085"
     deploy:
       resources:
         limits:
