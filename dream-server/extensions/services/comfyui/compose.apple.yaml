@@ -1,0 +1,34 @@
+# ComfyUI — Apple Silicon / CPU overlay
+# Uses Dockerfile.cpu (no CUDA) with CPU-only PyTorch.
+# Image generation is functional but slow (~minutes per image on CPU).
+# For production use on Mac, run ComfyUI natively for Metal acceleration.
+services:
+  comfyui:
+    build:
+      context: ./extensions/services/comfyui
+      dockerfile: Dockerfile.cpu
+    container_name: dream-comfyui
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:${COMFYUI_PORT:-8188}:8188"
+    volumes:
+      - ./data/comfyui/models:/models
+      - ./data/comfyui/output:/output
+      - ./data/comfyui/input:/input
+      - ./data/comfyui/workflows:/workflows:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '8.0'
+          memory: 8G
+        reservations:
+          cpus: '2.0'
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8188"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 3
