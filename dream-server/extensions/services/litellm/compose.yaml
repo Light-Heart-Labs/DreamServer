@@ -3,6 +3,9 @@ services:
     image: ghcr.io/berriai/litellm:v1.81.3-stable
     container_name: dream-litellm
     restart: unless-stopped
+    depends_on:
+      llama-server:
+        condition: service_healthy
     security_opt:
       - no-new-privileges:true
     environment:
