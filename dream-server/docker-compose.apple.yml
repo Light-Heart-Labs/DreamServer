@@ -10,7 +10,7 @@
 services:
   llama-server:
     image: ghcr.io/ggml-org/llama.cpp:server-b8248
-    platform: linux/arm64
+    platform: linux/amd64
     deploy:
       resources:
         limits:
@@ -20,5 +20,5 @@ services:
           cpus: '2.0'
           memory: 4G
     environment:
-      # Hint to llama.cpp for ARM NEON optimizations
+      # No Metal passthrough in Docker — CPU inference via Rosetta 2 (amd64 emulation)
       - LLAMA_NO_METAL=1
