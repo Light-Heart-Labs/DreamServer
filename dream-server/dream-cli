@@ -1136,7 +1136,16 @@ cmd_backup() {
         error "dream-backup.sh not found or not executable"
     fi
 
-    # Pass all arguments to dream-backup.sh
+    local action="${1:-}"
+    if [[ "$action" == "verify" ]]; then
+        shift
+        local id="${1:-}"
+        [[ -z "$id" ]] && error "Usage: dream backup verify <backup_id|backup_id.tar.gz>"
+        "$INSTALL_DIR/dream-backup.sh" verify "$id"
+        return
+    fi
+
+    # Default: create backup (pass all args through)
     "$INSTALL_DIR/dream-backup.sh" "$@"
 }
 
@@ -1171,6 +1180,7 @@ ${CYAN}Commands:${NC}
   model [current|list|swap]
                       View or change the local LLM model tier
   backup [options]    Create a backup of user data and config
+  backup verify <id>   Verify checksum integrity for a backup
   restore [backup_id] Restore from a backup
   logs <service>      Tail logs for a service
   restart [service]   Restart services (all if no service specified)
@@ -1241,6 +1251,7 @@ ${CYAN}Examples:${NC}
   dream backup                    # Create a backup
   dream backup -c                 # Create compressed backup
   dream backup -l                 # List all backups
+  dream backup verify <id>        # Verify backup integrity
   dream restore                   # Interactive restore
   dream restore 20260309-120000   # Restore specific backup
   dream logs llm                  # Watch llama-server logs (via alias)
