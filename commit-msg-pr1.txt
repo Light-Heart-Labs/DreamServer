@@ -1,7 +1,0 @@
-Add test suites (validate-manifests, health-check, validate-env, cpu-only-path) and CI steps
-
-- tests/test-validate-manifests.sh
-- tests/test-health-check.sh
-- tests/test-validate-env.sh
-- tests/test-cpu-only-path.sh
-- .github/workflows/test-linux.yml: new CI steps for the four tests
