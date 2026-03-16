@@ -16,8 +16,8 @@
         "notes": "Tier B path via WSL2 + Docker Desktop"
       },
       "macos": {
-        "supported": true,
-        "notes": "Tier B — Apple Silicon with native Metal inference + Docker services"
+        "supported": false,
+        "notes": "Tier C — Apple Silicon preview; native Metal inference + Docker services"
       },
       "windows_native": {
         "supported": false,
