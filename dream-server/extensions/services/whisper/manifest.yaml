@@ -12,7 +12,7 @@ service:
   external_port_default: 9000
   health: /health
   type: docker
-  gpu_backends: [amd, nvidia]
+  gpu_backends: [amd, nvidia, apple, cpu]
   compose_file: compose.yaml
   category: optional
   depends_on: []
@@ -29,4 +29,4 @@ features:
     enabled_services_all: [whisper, tts]
     setup_time: ~5 minutes
     priority: 2
-    gpu_backends: [amd, nvidia]
+    gpu_backends: [amd, nvidia, apple, cpu]
