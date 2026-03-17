@@ -452,6 +452,18 @@ def validate_records(records: list[ServiceRecord], global_issues: list[Issue], r
                         if backend not in record.overlay_paths:
                             record.add_issue("error", "overlay-required", f"stub compose requires compose.{backend}.yaml")
 
+                # Warn when filesystem overlays don't match declared gpu_backends.
+                # This helps avoid stale overlay files after backend contract changes.
+                for overlay_backend in record.overlay_paths.keys():
+                    if "all" in backends or "none" in backends:
+                        break
+                    if overlay_backend not in backends_for_stub:
+                        record.add_issue(
+                            "warning",
+                            "overlay-backend-extra",
+                            f"compose.{overlay_backend}.yaml exists but gpu_backends does not include '{overlay_backend}'",
+                        )
+
                 definitions = [definition for definition in [base_service] if isinstance(definition, dict)]
                 for overlay_path in record.overlay_paths.values():
                     try:
