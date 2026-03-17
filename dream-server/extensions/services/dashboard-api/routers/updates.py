@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -114,3 +115,108 @@ async def trigger_update(action: UpdateAction, background_tasks: BackgroundTasks
         return {"success": True, "message": "Update started in background. Check logs for progress."}
     else:
         raise HTTPException(status_code=400, detail=f"Unknown action: {action.action}")
+
+
+def _resolve_update_script_for_readiness() -> Path | None:
+    """Resolve update script path without changing existing update action behavior."""
+    candidates = (
+        Path(INSTALL_DIR).parent / "scripts" / "dream-update.sh",
+        Path(INSTALL_DIR) / "scripts" / "dream-update.sh",
+        Path(INSTALL_DIR) / "dream-update.sh",
+    )
+    for script_path in candidates:
+        if script_path.exists():
+            return script_path
+    return None
+
+
+def _resolve_compatibility_script() -> Path | None:
+    candidates = (
+        Path(INSTALL_DIR).parent / "scripts" / "check-compatibility.sh",
+        Path(INSTALL_DIR) / "scripts" / "check-compatibility.sh",
+    )
+    for script_path in candidates:
+        if script_path.exists():
+            return script_path
+    return None
+
+
+def _check_compatibility_status() -> dict:
+    checked_at = datetime.now(timezone.utc).isoformat() + "Z"
+    script_path = _resolve_compatibility_script()
+    if script_path is None:
+        return {
+            "available": False,
+            "ok": None,
+            "checked_at": checked_at,
+            "details": "check-compatibility.sh not found",
+        }
+
+    try:
+        result = subprocess.run(
+            ["bash", str(script_path)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        details = ((result.stdout or "") + (result.stderr or "")).strip() or None
+        return {
+            "available": True,
+            "ok": result.returncode == 0,
+            "checked_at": checked_at,
+            "details": details[-4000:] if details else None,
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "available": True,
+            "ok": False,
+            "checked_at": checked_at,
+            "details": "Compatibility check timed out",
+        }
+    except Exception as exc:
+        logger.exception("Compatibility check failed")
+        return {
+            "available": True,
+            "ok": False,
+            "checked_at": checked_at,
+            "details": f"Compatibility check failed: {exc}",
+        }
+
+
+def _collect_rollback_state() -> dict:
+    data_dir = Path(os.environ.get("DREAM_DATA_DIR", "~/.dream-server")).expanduser()
+    backup_dir = data_dir / "backups"
+    backups = sorted(
+        [entry for entry in backup_dir.glob("backup-*") if entry.is_dir()],
+        key=lambda entry: entry.name,
+        reverse=True,
+    )
+    return {
+        "backup_dir": str(backup_dir),
+        "backup_count": len(backups),
+        "latest_backup": backups[0].name if backups else None,
+        "available": len(backups) > 0,
+    }
+
+
+@router.get("/api/update/readiness", dependencies=[Depends(verify_api_key)])
+async def get_update_readiness():
+    """Get update readiness including compatibility and rollback availability."""
+    version_info = await get_version()
+    if hasattr(version_info, "model_dump"):
+        version_info = version_info.model_dump()
+    elif not isinstance(version_info, dict):
+        version_info = dict(version_info)
+
+    update_script = _resolve_update_script_for_readiness()
+    return {
+        **version_info,
+        "update_system": {
+            "available": update_script is not None,
+            "script_path": str(update_script) if update_script is not None else None,
+        },
+        "compatibility": _check_compatibility_status(),
+        "rollback": _collect_rollback_state(),
+        "checked_at": datetime.now(timezone.utc).isoformat() + "Z",
+    }

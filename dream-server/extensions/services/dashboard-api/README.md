@@ -120,6 +120,7 @@ Environment variables (set in `.env`):
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/api/version` | Yes | Current version + GitHub update check |
+| `GET` | `/api/update/readiness` | Yes | Update readiness summary (compatibility + rollback availability) |
 | `GET` | `/api/releases/manifest` | No | Recent release history from GitHub |
 | `POST` | `/api/update` | Yes | Trigger update actions (`check`, `backup`, `update`) |
 
