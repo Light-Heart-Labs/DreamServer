@@ -95,12 +95,15 @@ _now_ms() {
 
 # llama-server: critical path — performs an actual inference test
 test_llm() {
-    local start=$(_now_ms)
-    local response=$(curl -sf --max-time $TIMEOUT \
+    local start
+    start=$(_now_ms)
+    local response
+    response=$(curl -sf --max-time $TIMEOUT \
         -H "Content-Type: application/json" \
         -d '{"model":"default","prompt":"Hi","max_tokens":1}' \
         "http://${LLM_HOST}:${LLM_PORT}/v1/completions" 2>/dev/null)
-    local end=$(_now_ms)
+    local end
+    end=$(_now_ms)
 
     if echo "$response" | grep -q '"text"'; then
         result_set "llm" "ok"
@@ -139,7 +142,8 @@ test_service() {
 # System-level: GPU
 test_gpu() {
     if command -v nvidia-smi &>/dev/null; then
-        local gpu_info=$(nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu,temperature.gpu --format=csv,noheader,nounits 2>/dev/null | head -1)
+        local gpu_info
+        gpu_info=$(nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu,temperature.gpu --format=csv,noheader,nounits 2>/dev/null | head -1)
         if [ -n "$gpu_info" ]; then
             IFS=',' read -r mem_used mem_total gpu_util temp <<< "$gpu_info"
             result_set "gpu" "ok"
@@ -164,7 +168,8 @@ test_gpu() {
 
 # System-level: Disk
 test_disk() {
-    local usage=$(df -h "$INSTALL_DIR" 2>/dev/null | tail -1 | awk '{print $5}' | tr -d '%')
+    local usage
+    usage=$(df -h "$INSTALL_DIR" 2>/dev/null | tail -1 | awk '{print $5}' | tr -d '%')
     if [ -n "$usage" ]; then
         result_set "disk" "ok"
         result_set "disk_usage" "$usage"

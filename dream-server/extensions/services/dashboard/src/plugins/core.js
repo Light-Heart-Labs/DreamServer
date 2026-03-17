@@ -1,10 +1,11 @@
+import { lazy } from 'react'
 import {
   LayoutDashboard,
   Settings,
 } from 'lucide-react'
 
-import Dashboard from '../pages/Dashboard'
-import SettingsPage from '../pages/Settings'
+const Dashboard = lazy(() => import('../pages/Dashboard'))
+const SettingsPage = lazy(() => import('../pages/Settings'))
 
 export const coreRoutes = [
   {

@@ -90,7 +90,8 @@ generate_dream_env() {
     webui_secret=$(new_secure_hex 32)
     local n8n_pass
     n8n_pass=$(new_secure_base64 16)
-    local litellm_key="sk-dream-$(new_secure_hex 16)"
+    local litellm_key
+    litellm_key="sk-dream-$(new_secure_hex 16)"
     local livekit_secret
     livekit_secret=$(new_secure_base64 32)
     local livekit_api_key
@@ -166,11 +167,14 @@ HOST_RAM_GB=${SYSTEM_RAM_GB}
 #=== Ports ===
 OLLAMA_PORT=8080
 WEBUI_PORT=3000
+SEARXNG_PORT=8888
+PERPLEXICA_PORT=3004
 WHISPER_PORT=9000
 TTS_PORT=8880
 N8N_PORT=5678
 QDRANT_PORT=6333
 QDRANT_GRPC_PORT=6334
+EMBEDDINGS_PORT=8090
 LITELLM_PORT=4000
 OPENCLAW_PORT=7860
 SEARXNG_PORT=8888

@@ -16,6 +16,7 @@
 #   Change minimum RAM/disk thresholds per tier here.
 # ============================================================================
 
+dream_progress 25 "requirements" "Checking system requirements"
 chapter "REQUIREMENTS CHECK"
 
 [[ -f "${SCRIPT_DIR:-}/lib/safe-env.sh" ]] && . "${SCRIPT_DIR}/lib/safe-env.sh"

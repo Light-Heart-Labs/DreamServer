@@ -22,6 +22,7 @@
 #   Change tier auto-detection thresholds or add new hardware classes here.
 # ============================================================================
 
+dream_progress 12 "detection" "Detecting GPU hardware"
 chapter "SYSTEM DETECTION"
 
 # Cloud mode: skip GPU detection entirely
@@ -110,7 +111,8 @@ detect_gpu || true
 
 if [[ "${CAP_PROFILE_LOADED:-false}" == "true" ]]; then
     case "${CAP_LLM_BACKEND:-}" in
-        amd) GPU_BACKEND="amd" ;;
+        amd)   GPU_BACKEND="amd" ;;
+        intel) GPU_BACKEND="intel" ;;
         *) GPU_BACKEND="nvidia" ;;
     esac
     [[ -n "${CAP_GPU_MEMORY_TYPE:-}" ]] && GPU_MEMORY_TYPE="${CAP_GPU_MEMORY_TYPE}"
@@ -187,14 +189,107 @@ if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "nvidia" ]]; then
     fi
 fi
 
+#-----------------------------------------------------------------------------
+# Intel Arc validation (lspci cross-check, Level Zero, intel_gpu_top)
+#-----------------------------------------------------------------------------
+if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "intel" ]]; then
+
+    # 1. Cross-validate with lspci — confirm the Arc card is visible to the PCI bus
+    #    detect_gpu() already confirmed it via sysfs; this adds a human-readable log line.
+    _arc_pci_name=""
+    if command -v lspci &>/dev/null; then
+        _arc_pci_name=$(lspci 2>/dev/null \
+            | grep -i 'VGA\|Display\|3D' \
+            | grep -i 'Intel.*Arc\|Arc.*Intel\|Intel.*A[0-9][0-9][0-9]\|Intel.*B[0-9][0-9][0-9]' \
+            | head -1 \
+            | sed 's/.*: //')
+        if [[ -n "$_arc_pci_name" ]]; then
+            ai_ok "lspci: $_arc_pci_name"
+        else
+            # Broader fallback: any Intel VGA/3D controller (covers cards lspci names without "Arc")
+            _arc_pci_name=$(lspci 2>/dev/null \
+                | grep -i 'VGA\|Display\|3D' \
+                | grep -i 'Intel' \
+                | head -1 \
+                | sed 's/.*: //')
+            [[ -n "$_arc_pci_name" ]] && ai_ok "lspci: $_arc_pci_name (Intel GPU)" \
+                || ai_warn "lspci: Intel Arc sysfs entry found but lspci VGA entry not visible — IOMMU or PCIe bridge may obscure it"
+        fi
+    else
+        ai_warn "lspci not found (install pciutils for richer GPU info); sysfs detection succeeded"
+    fi
+
+    # 2. Check Level Zero runtime — required for SYCL inference
+    #    level-zero-loader provides /usr/lib/libze_loader.so.1 or the ze_info binary.
+    _level_zero_ok=false
+    if command -v ze_info &>/dev/null; then
+        _level_zero_ok=true
+        _ze_version=$(ze_info 2>/dev/null | grep -i 'driver version\|Driver Version' | head -1 | xargs || true)
+        ai_ok "Level Zero: available${_ze_version:+ — $_ze_version}"
+    elif ldconfig -p 2>/dev/null | grep -q 'libze_loader'; then
+        _level_zero_ok=true
+        ai_ok "Level Zero: libze_loader found"
+    elif [[ -f /usr/lib/x86_64-linux-gnu/libze_loader.so.1 || \
+            -f /usr/lib/libze_loader.so.1 ]]; then
+        _level_zero_ok=true
+        ai_ok "Level Zero: libze_loader.so.1 present"
+    fi
+    if [[ "$_level_zero_ok" == "false" ]]; then
+        ai_warn "Level Zero runtime not detected."
+        ai "  The SYCL backend requires Level Zero to offload inference to the Arc GPU."
+        ai "  Install: sudo apt install intel-level-zero-gpu level-zero"
+        ai "  Without it, llama-server will fall back to CPU-only mode inside the container."
+    fi
+
+    # 3. Check /dev/dri — device node needed for Docker passthrough
+    if [[ -c /dev/dri/renderD128 || -d /dev/dri ]]; then
+        _render_node=$(ls /dev/dri/renderD* 2>/dev/null | head -1 || true)
+        ai_ok "/dev/dri: ${_render_node:-/dev/dri present} (GPU device pass-through available)"
+    else
+        ai_warn "/dev/dri not found — Docker GPU device pass-through may fail."
+        ai "  Ensure the Intel i915/xe kernel module is loaded: modprobe i915"
+    fi
+
+    # 4. Check intel_gpu_top (from intel-gpu-tools) — non-fatal, used for monitoring
+    if command -v intel_gpu_top &>/dev/null; then
+        _igt_ver=$(intel_gpu_top --version 2>/dev/null | head -1 || true)
+        ai_ok "intel_gpu_top: available${_igt_ver:+ ($_igt_ver)}"
+    else
+        log "intel_gpu_top not found (optional — used for GPU utilisation monitoring)"
+        log "  Install: sudo apt install intel-gpu-tools"
+    fi
+
+    # 5. Check video/render group membership (needed for rootless Docker device access)
+    _missing_groups=()
+    for _grp in video render; do
+        if ! id -nG 2>/dev/null | grep -qw "$_grp"; then
+            _missing_groups+=("$_grp")
+        fi
+    done
+    if [[ ${#_missing_groups[@]} -gt 0 ]]; then
+        ai_warn "Current user is not in group(s): ${_missing_groups[*]}"
+        ai "  Run: sudo usermod -aG ${_missing_groups[*]} \$USER   (then re-login)"
+        ai "  Without this, Docker cannot access /dev/dri inside the container."
+    else
+        ai_ok "User groups: video + render membership confirmed"
+    fi
+
+    # 6. Log final Arc summary
+    _arc_vram_gb=$((GPU_VRAM / 1024))
+    ai_ok "Intel Arc detected: $GPU_NAME (${_arc_vram_gb} GB VRAM, device ${GPU_DEVICE_ID:-unknown})"
+    log "Intel Arc backend: GPU_BACKEND=intel, VRAM=${GPU_VRAM}MB, Level Zero=${_level_zero_ok}"
+fi
+
 # Auto-detect tier if not specified
 if [[ -z "$TIER" ]]; then
     PROFILE_TIER="$(normalize_profile_tier "${CAP_RECOMMENDED_TIER:-}")"
     if [[ -n "$PROFILE_TIER" ]]; then
         TIER="$PROFILE_TIER"
     elif [[ "$GPU_BACKEND" == "intel" ]]; then
-        # Intel Arc discrete GPU (SYCL backend via llama.cpp)
-        # A770 = 16 GB → ARC; A750 = 8 GB, A380 = 6 GB → ARC_LITE
+        # Intel Arc discrete GPU — SYCL backend via llama.cpp
+        # A770 = 16 GB  → ARC  (≥12 GB)
+        # A750 =  8 GB  → ARC_LITE
+        # A380 =  6 GB  → ARC_LITE
         arc_vram_gb=$((GPU_VRAM / 1024))
         if [[ $arc_vram_gb -ge 12 ]]; then
             TIER="ARC"

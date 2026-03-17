@@ -31,7 +31,8 @@ echo "0" > "$FAIL_FILE"
 increment_pass() {
     (
         flock -x 200
-        local count=$(cat "$PASS_FILE")
+        local count
+        count=$(cat "$PASS_FILE")
         echo $((count + 1)) > "$PASS_FILE"
     ) 200>"$PASS_FILE.lock"
 }
@@ -39,7 +40,8 @@ increment_pass() {
 increment_fail() {
     (
         flock -x 200
-        local count=$(cat "$FAIL_FILE")
+        local count
+        count=$(cat "$FAIL_FILE")
         echo $((count + 1)) > "$FAIL_FILE"
     ) 200>"$FAIL_FILE.lock"
 }
@@ -181,7 +183,7 @@ echo -e "  Results: ${GREEN}$(get_passed) passed${NC}, ${RED}$(get_failed) faile
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
-if [ $(get_failed) -gt 0 ]; then
+if [ "$(get_failed)" -gt 0 ]; then
     exit 1
 fi
 

@@ -25,6 +25,9 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 log_step() { echo -e "${CYAN}[STEP]${NC} $*"; }
 
+# Source shared rsync utilities
+. "$DREAM_DIR/lib/rsync.sh"
+
 # Convert bytes to a human-friendly string (best-effort)
 fmt_bytes() {
     local bytes="${1:-0}"
@@ -401,7 +404,7 @@ restore_user_data() {
             mkdir -p "$DREAM_DIR/$(dirname "$dir")"
             # Note: Using -a without --delete to preserve any new files created after backup
             # Use --force flag or manually delete target if you need exact restoration
-            rsync -a "$backup_dir/$dir" "$DREAM_DIR/$(dirname "$dir")/"
+            rsync_with_progress "$backup_dir/$dir" "$DREAM_DIR/$(dirname "$dir")/" "Restoring $dir"
             log_success "Restored: $dir"
         else
             log_warn "Skipped (not in backup): $dir"

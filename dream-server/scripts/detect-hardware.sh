@@ -87,6 +87,18 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
+usage() {
+    cat <<'EOF'
+Usage: detect-hardware.sh [--json] [--json-compact] [--verbose] [--help]
+
+Options:
+  --json          Print machine-readable JSON output
+  --json-compact  Print JSON in one line (for scripting)
+  --verbose       Include extra hardware identifiers in text mode
+  --help          Show this help
+EOF
+}
+
 # Detect OS and environment
 detect_os() {
     # Explicit WSL detection first
@@ -268,7 +280,8 @@ detect_apple() {
 
 # Get CPU info
 detect_cpu() {
-    local os=$(detect_os)
+    local os
+    os=$(detect_os)
     case $os in
         macos)
             sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "Unknown"
@@ -281,7 +294,8 @@ detect_cpu() {
 
 # Get CPU cores
 detect_cores() {
-    local os=$(detect_os)
+    local os
+    os=$(detect_os)
     case $os in
         macos)
             sysctl -n hw.ncpu 2>/dev/null || echo "0"
@@ -294,7 +308,8 @@ detect_cores() {
 
 # Get RAM in GB
 detect_ram() {
-    local os=$(detect_os)
+    local os
+    os=$(detect_os)
     case $os in
         macos)
             sysctl -n hw.memsize 2>/dev/null | awk '{print int($1/1024/1024/1024)}'
@@ -386,12 +401,20 @@ tier_model() {
 # Main detection
 main() {
     local json_output=false
+    local compact_json=false
     local verbose=false
 
     for arg in "$@"; do
         case "$arg" in
             --json) json_output=true ;;
+            --json-compact) json_output=true; compact_json=true ;;
             --verbose) verbose=true ;;
+            --help|-h) usage; return 0 ;;
+            *)
+                err "Unknown argument: $arg"
+                usage
+                return 2
+                ;;
         esac
     done
 
@@ -492,7 +515,8 @@ main() {
     if [[ "$memory_type" == "unified" && "$gpu_type" == "amd" ]]; then
         tier=$(get_strix_halo_tier "$ram")
     elif [[ "$gpu_type" == "apple" ]]; then
-        local unified_gb=$((gpu_vram_mb / 1024))
+        local unified_gb
+        unified_gb=$((gpu_vram_mb / 1024))
         tier=$(get_apple_tier "$unified_gb")
     else
         tier=$(get_tier "$gpu_vram_mb")
@@ -500,7 +524,8 @@ main() {
     tier_desc=$(tier_description "$tier")
     recommended_model=$(tier_model "$tier")
 
-    local gpu_vram_gb=$((gpu_vram_mb / 1024))
+    local gpu_vram_gb
+    gpu_vram_gb=$((gpu_vram_mb / 1024))
 
     if $json_output; then
         # Emit JSON with escaping to avoid breaking downstream parsers.
@@ -508,7 +533,8 @@ main() {
         esc_os=$(json_escape "$os")
         esc_cpu=$(json_escape "$cpu")
         esc_gpu=$(json_escape "$gpu_name")
-        cat <<EOF
+        local payload
+        payload=$(cat <<EOF
 {
   "os": "$esc_os",
   "platform": "$(json_escape "$platform")",
@@ -537,6 +563,12 @@ main() {
   "recommended_model": "$(json_escape "$recommended_model")"
 }
 EOF
+)
+        if $compact_json; then
+            printf '%s\n' "$(printf '%s' "$payload" | tr -d '\n')"
+        else
+            printf '%s\n' "$payload"
+        fi
     else
         echo -e "${BLUE}╔══════════════════════════════════════════╗${NC}"
         echo -e "${BLUE}║      Dream Server Hardware Detection     ║${NC}"

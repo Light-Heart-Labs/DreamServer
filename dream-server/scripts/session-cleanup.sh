@@ -20,6 +20,28 @@ SESSIONS_DIR="${SESSIONS_DIR:-$OPENCLAW_DIR/agents/main/sessions}"
 SESSIONS_JSON="$SESSIONS_DIR/sessions.json"
 MAX_SIZE="${MAX_SIZE:-256000}"
 
+usage() {
+    echo "Usage: $0 [OPTIONS]"
+    echo ""
+    echo "Prevents context overflow by pruning OpenClaw session files: removes inactive"
+    echo "sessions and deletes bloated ones (over size threshold), then updates"
+    echo "sessions.json so the gateway creates a fresh session."
+    echo ""
+    echo "Options:"
+    echo "  -h, --help   Show this help and exit."
+    echo ""
+    echo "Environment:"
+    echo "  OPENCLAW_DIR   Base OpenClaw dir (default: \$HOME/dream-server/data/openclaw/home/.openclaw)"
+    echo "  SESSIONS_DIR   Sessions directory (default: \$OPENCLAW_DIR/agents/main/sessions)"
+    echo "  MAX_SIZE       Max session file size in bytes (default: 256000)"
+    echo ""
+    echo "Exit: 0 (always; missing paths are skipped with a log message)."
+}
+
+case "${1:-}" in
+    -h|--help) usage; exit 0 ;;
+esac
+
 # ── Preflight ──────────────────────────────────────────────────
 if [ ! -f "$SESSIONS_JSON" ]; then
     echo "[$(date)] No sessions.json found at $SESSIONS_JSON, skipping"
@@ -31,8 +53,8 @@ if [ ! -d "$SESSIONS_DIR" ]; then
     exit 0
 fi
 
-# ── Extract active session IDs ─────────────────────────────────
-ACTIVE_IDS=$(grep -oP '"sessionId":\s*"\K[^"]+' "$SESSIONS_JSON" 2>/dev/null || true)
+# ── Extract active session IDs (portable: no grep -P) ─────────
+ACTIVE_IDS=$(grep -oE '"sessionId"[[:space:]]*:[[:space:]]*"[^"]+"' "$SESSIONS_JSON" 2>/dev/null | sed -E 's/.*"sessionId"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/' || true)
 
 echo "[$(date)] Session cleanup starting"
 echo "[$(date)] Sessions dir: $SESSIONS_DIR"
@@ -70,10 +92,16 @@ for f in "$SESSIONS_DIR"/*.jsonl; do
         rm -f "$f"
         REMOVED_INACTIVE=$((REMOVED_INACTIVE + 1))
     else
-        SIZE_BYTES=$(stat -c%s "$f" 2>/dev/null || echo 0)
+        # Portable stat: Linux uses -c%s, macOS uses -f%z
+        if [ "$(uname -s)" = "Darwin" ]; then
+            SIZE_BYTES=$(stat -f%z "$f" 2>/dev/null || echo 0)
+        else
+            SIZE_BYTES=$(stat -c%s "$f" 2>/dev/null || echo 0)
+        fi
         if [ "$SIZE_BYTES" -gt "$MAX_SIZE" ]; then
             SIZE=$(du -h "$f" | cut -f1)
-            echo "[$(date)] Session $BASENAME is bloated ($SIZE > $(numfmt --to=iec $MAX_SIZE 2>/dev/null || echo "${MAX_SIZE}B")), deleting to force fresh session"
+            SIZE_LABEL=$(command -v numfmt >/dev/null 2>&1 && numfmt --to=iec "$MAX_SIZE" || echo "${MAX_SIZE}B")
+            echo "[$(date)] Session $BASENAME is bloated ($SIZE > ${SIZE_LABEL}), deleting to force fresh session"
             rm -f "$f"
             WIPE_IDS="$WIPE_IDS $BASENAME"
             REMOVED_BLOATED=$((REMOVED_BLOATED + 1))

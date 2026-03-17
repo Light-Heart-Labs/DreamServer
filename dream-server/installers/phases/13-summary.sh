@@ -21,6 +21,8 @@
 #   shortcut here.
 # ============================================================================
 
+dream_progress 98 "summary" "Finishing up"
+
 # Source service registry for port resolution
 . "$SCRIPT_DIR/lib/service-registry.sh"
 sr_load

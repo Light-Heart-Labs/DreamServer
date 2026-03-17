@@ -126,8 +126,9 @@ detect_ram_gb() {
 }
 
 recommend_tier() {
-    local vram=$(detect_vram_gb)
-    local ram=$(detect_ram_gb)
+    local vram ram
+    vram=$(detect_vram_gb)
+    ram=$(detect_ram_gb)
     
     if [[ $vram -ge 40 ]]; then
         echo "cluster"
@@ -225,8 +226,8 @@ verify_cache() {
     local missing=0
     
     for tier in nano edge pro cluster; do
-        local model="${TIER_MODELS[$tier]}"
-        if verify_model "$model" 2>/dev/null; then
+        local tier_model="${TIER_MODELS[$tier]}"
+        if verify_model "$tier_model" 2>/dev/null; then
             ((found++))
         else
             echo -e "  ${RED}✗${NC} $tier: Not cached"
@@ -270,7 +271,8 @@ download_tier() {
     echo ""
     
     # Estimate time
-    local est_minutes=$((size * 2))  # ~0.5GB/min on average connection
+    local est_minutes
+    est_minutes=$((size * 2))  # ~0.5GB/min on average connection
     warn "Estimated download time: ${est_minutes}-$((est_minutes * 2)) minutes (depends on connection)"
     echo ""
     
@@ -302,9 +304,10 @@ interactive_menu() {
     print_banner
     check_dependencies
     
-    local recommended=$(recommend_tier)
-    local vram=$(detect_vram_gb)
-    local ram=$(detect_ram_gb)
+    local recommended vram ram
+    recommended=$(recommend_tier)
+    vram=$(detect_vram_gb)
+    ram=$(detect_ram_gb)
     
     echo -e "${BOLD}Detected Hardware:${NC}"
     echo "  RAM:  ${ram}GB"

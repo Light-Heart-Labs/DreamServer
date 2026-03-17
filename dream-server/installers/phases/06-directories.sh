@@ -23,6 +23,7 @@
 #   or change directory layout here.
 # ============================================================================
 
+dream_progress 38 "directories" "Preparing installation directory"
 chapter "SETTING UP INSTALLATION"
 
 if $DRY_RUN; then
@@ -34,12 +35,14 @@ if $DRY_RUN; then
     log "[DRY RUN] Would validate .env against schema"
 else
     # Create directories
+    dream_progress 38 "directories" "Creating directory structure"
     mkdir -p "$INSTALL_DIR"/{config,data,models}
     mkdir -p "$INSTALL_DIR"/data/{open-webui,whisper,tts,n8n,qdrant,models}
     mkdir -p "$INSTALL_DIR"/data/langfuse/{postgres,clickhouse,redis,minio}
     mkdir -p "$INSTALL_DIR"/config/{n8n,litellm,openclaw,searxng}
 
     # Copy entire source tree to install dir (skip if same directory)
+    dream_progress 39 "directories" "Copying source files"
     if [[ "$SCRIPT_DIR" != "$INSTALL_DIR" ]]; then
         ai "Copying source files to $INSTALL_DIR..."
         if command -v rsync &>/dev/null; then
@@ -212,6 +215,7 @@ MODELS_EOF
     fi
 
     # ── .env merge logic: preserve user-configured values on re-install ──
+    dream_progress 40 "directories" "Generating secrets and configuration"
     # If an existing .env exists, read user-editable values so we don't
     # destroy API keys, custom ports, or manually-set secrets.
     _env_existing=""
@@ -317,11 +321,14 @@ fi)
 #=== Ports ===
 OLLAMA_PORT=8080
 WEBUI_PORT=3000
+SEARXNG_PORT=8888
+PERPLEXICA_PORT=3004
 WHISPER_PORT=9000
 TTS_PORT=8880
 N8N_PORT=5678
 QDRANT_PORT=6333
 QDRANT_GRPC_PORT=6334
+EMBEDDINGS_PORT=8090
 LITELLM_PORT=4000
 OPENCLAW_PORT=7860
 SEARXNG_PORT=8888
@@ -338,7 +345,6 @@ LIVEKIT_API_SECRET=${LIVEKIT_SECRET}
 OPENCLAW_TOKEN=${OPENCLAW_TOKEN:-$(openssl rand -hex 24 2>/dev/null || head -c 24 /dev/urandom | xxd -p)}
 QDRANT_API_KEY=${QDRANT_API_KEY}
 OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD}
-OPENCODE_PORT=3003
 DIFY_SECRET_KEY=${DIFY_SECRET_KEY}
 
 #=== Voice Settings ===
@@ -378,6 +384,7 @@ ENV_EOF
     ai_ok "Generated secure secrets in .env (permissions: 600)"
 
     # Validate generated .env against schema (fails fast on missing/unknown keys).
+    dream_progress 41 "directories" "Validating configuration"
     if [[ -f "$SCRIPT_DIR/scripts/validate-env.sh" && -f "$SCRIPT_DIR/.env.schema.json" ]]; then
         if bash "$SCRIPT_DIR/scripts/validate-env.sh" "$INSTALL_DIR/.env" "$SCRIPT_DIR/.env.schema.json" >> "$LOG_FILE" 2>&1; then
             ai_ok "Validated .env against .env.schema.json"

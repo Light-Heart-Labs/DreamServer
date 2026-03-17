@@ -6,6 +6,7 @@ services:
     security_opt:
       - no-new-privileges:true
     environment:
+      HOSTNAME: "0.0.0.0"
       TELEMETRY_ENABLED: "false"
       NEXT_TELEMETRY_DISABLED: "1"
       DATABASE_URL: "postgresql://langfuse:${LANGFUSE_DB_PASSWORD}@langfuse-postgres:5432/langfuse"
@@ -51,7 +52,7 @@ services:
       langfuse-minio:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://$$HOSTNAME:3000/api/public/health"]
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/public/health"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -72,6 +73,7 @@ services:
     security_opt:
       - no-new-privileges:true
     environment:
+      HOSTNAME: "0.0.0.0"
       DATABASE_URL: "postgresql://langfuse:${LANGFUSE_DB_PASSWORD}@langfuse-postgres:5432/langfuse"
       CLICKHOUSE_MIGRATION_URL: "clickhouse://langfuse-clickhouse:9000"
       CLICKHOUSE_URL: "http://langfuse-clickhouse:8123"
@@ -103,7 +105,7 @@ services:
       langfuse-minio:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://$$HOSTNAME:3030/api/health"]
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3030/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -235,6 +237,16 @@ services:
         reservations:
           cpus: '0.1'
           memory: 128m
+
+  # Inject Langfuse credentials into LiteLLM when this extension is active.
+  # The callback itself is conditionally enabled by litellm's own entrypoint
+  # based on LANGFUSE_ENABLED (already in .env, set by installer).
+  litellm:
+    environment:
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PROJECT_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_PROJECT_SECRET_KEY:-}
+      - LANGFUSE_HOST=http://langfuse-web:3000
+      - LANGFUSE_TRACING_ENABLED=${LANGFUSE_ENABLED:-false}
 
 networks:
   langfuse-internal:

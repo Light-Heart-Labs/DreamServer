@@ -26,7 +26,7 @@ Environment variables (set in `.env`):
 |----------|---------|-------------|
 | `GGUF_FILE` | `Qwen3-8B-Q4_K_M.gguf` | Model filename inside `data/models/` |
 | `CTX_SIZE` | `16384` | Context window size in tokens |
-| `OLLAMA_PORT` | `11434` | External port (maps to internal 8080) |
+| `OLLAMA_PORT` | `8080` | External port (maps to internal 8080) |
 | `GPU_BACKEND` | `nvidia` | GPU backend: `nvidia` or `amd` |
 | `LLAMA_SERVER_MEMORY_LIMIT` | `64G` | Docker memory limit for the container |
 
@@ -52,7 +52,7 @@ llama-server exposes an OpenAI-compatible REST API:
 ### Example
 
 ```bash
-curl http://localhost:11434/v1/chat/completions \
+curl http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "default",
@@ -74,7 +74,7 @@ curl http://localhost:11434/v1/chat/completions \
                     │  llama-server   │
                     │  (llama.cpp)    │
                     │  :8080 (int)    │
-                    │  :11434 (ext)   │
+                    │  :8080 (ext)    │
                     └──────┬──────────┘
                            │  OpenAI-compatible API
           ┌────────────────┼──────────────────┐
@@ -111,7 +111,7 @@ docker compose logs llama-server
 
 **Check inference metrics:**
 ```bash
-curl http://localhost:11434/metrics
+curl http://localhost:8080/metrics
 ```
 
 ## License

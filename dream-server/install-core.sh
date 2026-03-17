@@ -72,6 +72,7 @@ source "$SCRIPT_DIR/installers/lib/detection.sh"
 source "$SCRIPT_DIR/installers/lib/tier-map.sh"
 source "$SCRIPT_DIR/installers/lib/compose-select.sh"
 source "$SCRIPT_DIR/installers/lib/packaging.sh"
+source "$SCRIPT_DIR/installers/lib/progress.sh"
 if [[ -f "$SCRIPT_DIR/lib/service-registry.sh" ]]; then 
     source "$SCRIPT_DIR/lib/service-registry.sh" 
     sr_load 
