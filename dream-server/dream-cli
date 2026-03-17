@@ -1775,7 +1775,8 @@ ${CYAN}Commands:${NC}
                       View, edit, or validate configuration
   chat "<message>"    Quick chat with the LLM
   benchmark           Run a quick performance test
-  doctor [report]     Run diagnostics and write JSON report
+  monitor <action>    Service health monitoring (start|stop|status|reset|check)
+  doctor [--json]     Run diagnostics (use --json for raw report)
   audit [extensions]  Audit extension manifests and compose contracts
   help                Show this help
 
@@ -1839,6 +1840,8 @@ ${CYAN}Examples:${NC}
   dream restore                   # Interactive restore
   dream restore 20260309-120000   # Restore specific backup
   dream rollback                  # Rollback after failed update
+  dream monitor start             # Start health monitoring daemon
+  dream monitor status            # Show service restart statistics
   dream logs llm                  # Watch llama-server logs (via alias)
   dream restart stt               # Restart Whisper (via alias)
   dream chat "What is 2+2?"      # Quick LLM test
@@ -1876,6 +1879,7 @@ case "${1:-help}" in
     config|cfg)  shift; cmd_config "$@" ;;
     chat|c)      shift; cmd_chat "$@" ;;
     benchmark|bench|b) cmd_benchmark ;;
+    monitor)     shift; cmd_monitor "$@" ;;
     doctor|diag|d) shift; cmd_doctor "$@" ;;
     audit)        shift; cmd_audit "$@" ;;
     help|h|--help|-h) cmd_help ;;
