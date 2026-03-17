@@ -19,6 +19,7 @@ declare -A SERVICE_COMPOSE      # service_id → compose file path
 declare -A SERVICE_CATEGORIES   # service_id → core|recommended|optional
 declare -A SERVICE_DEPENDS      # service_id → space-separated dependency IDs
 declare -A SERVICE_HEALTH       # service_id → health endpoint path
+declare -A SERVICE_HEALTH_TIMEOUTS  # service_id → health check timeout in seconds
 declare -A SERVICE_PORTS        # service_id → external port (what the user hits on localhost)
 declare -A SERVICE_PORT_ENVS    # service_id → env var name for the external port
 declare -A SERVICE_NAMES        # service_id → display name
@@ -126,9 +127,11 @@ for service_dir in sorted(ext_dir.iterdir()):
         print(f'SERVICE_CATEGORIES["{_esc(sid)}"]="{_esc(category)}"')
         print(f'SERVICE_DEPENDS["{_esc(sid)}"]="{_esc(" ".join(str(d) for d in depends))}"')
         health = s.get("health", "/health")
+        health_timeout = s.get("health_timeout", 5)  # Default 5 seconds
         port = s.get("external_port_default", s.get("port", 0))
         port_env = s.get("external_port_env", "")
         print(f'SERVICE_HEALTH["{_esc(sid)}"]="{_esc(health)}"')
+        print(f'SERVICE_HEALTH_TIMEOUTS["{_esc(sid)}"]="{_esc(health_timeout)}"')
         print(f'SERVICE_PORTS["{_esc(sid)}"]="{_esc(port)}"')
         print(f'SERVICE_PORT_ENVS["{_esc(sid)}"]="{_esc(port_env)}"')
         print(f'SERVICE_NAMES["{_esc(sid)}"]="{_esc(s.get("name", sid))}"')

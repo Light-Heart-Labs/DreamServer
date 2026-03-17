@@ -192,6 +192,15 @@ if [[ -z "$TIER" ]]; then
     PROFILE_TIER="$(normalize_profile_tier "${CAP_RECOMMENDED_TIER:-}")"
     if [[ -n "$PROFILE_TIER" ]]; then
         TIER="$PROFILE_TIER"
+    elif [[ "$GPU_BACKEND" == "intel" ]]; then
+        # Intel Arc discrete GPU (SYCL backend via llama.cpp)
+        # A770 = 16 GB → ARC; A750 = 8 GB, A380 = 6 GB → ARC_LITE
+        arc_vram_gb=$((GPU_VRAM / 1024))
+        if [[ $arc_vram_gb -ge 12 ]]; then
+            TIER="ARC"
+        else
+            TIER="ARC_LITE"
+        fi
     elif [[ "$GPU_BACKEND" == "amd" && "$GPU_MEMORY_TYPE" == "unified" ]]; then
         # Strix Halo binary tier system
         unified_gb=$((GPU_VRAM / 1024))
@@ -247,6 +256,8 @@ if [[ "$INTERACTIVE" == "true" ]]; then
         NV_ULTRA)   SPEED_EST=50; USERS_EST="10-20" ;;
         SH_LARGE)   SPEED_EST=40; USERS_EST="5-10" ;;
         SH_COMPACT) SPEED_EST=80; USERS_EST="5-10" ;;
+        ARC)        SPEED_EST=35; USERS_EST="3-5" ;;
+        ARC_LITE)   SPEED_EST=20; USERS_EST="1-2" ;;
         0) SPEED_EST=50; USERS_EST="1" ;;
         1) SPEED_EST=25; USERS_EST="1-2" ;;
         2) SPEED_EST=45; USERS_EST="3-5" ;;

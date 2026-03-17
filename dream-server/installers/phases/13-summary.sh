@@ -181,6 +181,26 @@ DESKTOP_EOF
     ai_ok "Desktop shortcut created: Dream Server"
 fi
 
+#=============================================================================
+# Bash Completion Setup
+#=============================================================================
+if ! $DRY_RUN; then
+    COMPLETION_FILE="$INSTALL_DIR/completions/dream-cli.bash"
+    if [[ -f "$COMPLETION_FILE" ]]; then
+        # Add completion sourcing to .bashrc if not already present
+        if ! grep -q "dream-cli.bash" "$HOME/.bashrc" 2>/dev/null; then
+            cat >> "$HOME/.bashrc" << 'BASHRC_EOF'
+
+# Dream Server CLI bash completion
+if [[ -f "$HOME/dream-server/completions/dream-cli.bash" ]]; then
+    . "$HOME/dream-server/completions/dream-cli.bash"
+fi
+BASHRC_EOF
+            ai_ok "Bash completion enabled for dream-cli"
+        fi
+    fi
+fi
+
 echo ""
 signal "Broadcast stable. You're free now."
 echo ""

@@ -2,7 +2,7 @@
 # Dream Server Offline Mode - Model Pre-download Check
 # Verifies required models exist before starting services
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DREAM_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"

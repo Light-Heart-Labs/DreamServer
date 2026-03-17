@@ -46,6 +46,7 @@ class ClusterStatus:
 
     async def refresh(self):
         """Query cluster status from smart proxy"""
+        logger.debug("Refreshing cluster status from proxy")
         try:
             proc = await asyncio.create_subprocess_exec(
                 "curl", "-s", f"http://localhost:{os.environ.get('CLUSTER_PROXY_PORT', '9199')}/status",
@@ -60,8 +61,16 @@ class ClusterStatus:
                 self.total_gpus = len(self.nodes)
                 self.active_gpus = sum(1 for n in self.nodes if n.get("healthy", False))
                 self.failover_ready = self.active_gpus > 1
-        except (FileNotFoundError, asyncio.TimeoutError, OSError, json.JSONDecodeError):
-            pass  # cluster proxy may not be running
+                logger.debug("Cluster status: %d/%d GPUs active, failover_ready=%s",
+                           self.active_gpus, self.total_gpus, self.failover_ready)
+        except FileNotFoundError:
+            logger.debug("Cluster proxy not available: curl command not found")
+        except asyncio.TimeoutError:
+            logger.debug("Cluster proxy health check timed out after 5s")
+        except OSError as e:
+            logger.debug("Cluster proxy connection failed: %s", e)
+        except json.JSONDecodeError as e:
+            logger.warning("Cluster proxy returned invalid JSON: %s", e)
 
     def to_dict(self) -> dict:
         return {
@@ -116,7 +125,9 @@ throughput = ThroughputMetrics()
 async def _fetch_token_spy_metrics() -> None:
     """Pull per-agent session count and throughput from Token Spy /api/summary."""
     if not TOKEN_SPY_URL:
+        logger.debug("Token Spy URL not configured, skipping metrics fetch")
         return
+    logger.debug("Fetching metrics from Token Spy at %s", TOKEN_SPY_URL)
     try:
         headers = {}
         if TOKEN_SPY_API_KEY:
@@ -134,8 +145,16 @@ async def _fetch_token_spy_metrics() -> None:
                     # an average tokens/sec over the last hour (approximation)
                     total_out = sum(r.get("total_output_tokens", 0) or 0 for r in data)
                     throughput.add_sample(total_out / 3600.0)
-    except (aiohttp.ClientError, asyncio.TimeoutError, aiohttp.ContentTypeError):
-        pass  # Token Spy may not be running — degrade gracefully
+                    logger.debug("Token Spy metrics: %d sessions, %d total output tokens",
+                               len(data), total_out)
+                else:
+                    logger.debug("Token Spy returned status %d", resp.status)
+    except aiohttp.ClientError as e:
+        logger.debug("Token Spy unavailable: %s", e)
+    except asyncio.TimeoutError:
+        logger.debug("Token Spy request timed out after 5s")
+    except aiohttp.ContentTypeError as e:
+        logger.warning("Token Spy returned unexpected content type: %s", e)
 
 
 async def collect_metrics():
@@ -150,8 +169,14 @@ async def collect_metrics():
 
             agent_metrics.last_update = datetime.now()
 
-        except (FileNotFoundError, asyncio.TimeoutError, OSError, json.JSONDecodeError):
-            pass  # best-effort background metrics collection
+        except FileNotFoundError as e:
+            logger.debug("Metrics collection failed: command not found - %s", e)
+        except asyncio.TimeoutError:
+            logger.debug("Metrics collection timed out")
+        except OSError as e:
+            logger.debug("Metrics collection OS error: %s", e)
+        except json.JSONDecodeError as e:
+            logger.warning("Metrics collection JSON decode error: %s", e)
 
         await asyncio.sleep(5)  # Update every 5 seconds
 

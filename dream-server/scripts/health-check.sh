@@ -31,14 +31,16 @@ for arg in "$@"; do
 done
 
 # Config (defaults; .env overrides after load_env_file below)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" 
+if [[ -f "$SCRIPT_DIR/lib/service-registry.sh" ]]; then 
+    . "$SCRIPT_DIR/lib/service-registry.sh" 
+    sr_load 
+fi
 INSTALL_DIR="${INSTALL_DIR:-$HOME/dream-server}"
 LLM_HOST="${LLM_HOST:-localhost}"
 LLM_PORT="${LLM_PORT:-8080}"
 TIMEOUT="${TIMEOUT:-5}"
 
-# Source service registry
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-. "$SCRIPT_DIR/lib/service-registry.sh"
 sr_load
 
 # Safe .env loading for port overrides (no eval; use lib/safe-env.sh)
@@ -117,6 +119,7 @@ test_service() {
     local port_env="${SERVICE_PORT_ENVS[$sid]}"
     local default_port="${SERVICE_PORTS[$sid]}"
     local health="${SERVICE_HEALTH[$sid]}"
+    local timeout="${SERVICE_HEALTH_TIMEOUTS[$sid]:-$TIMEOUT}"
 
     # Resolve port
     local port="$default_port"
@@ -124,7 +127,7 @@ test_service() {
 
     [[ -z "$health" || "$port" == "0" ]] && return 1
 
-    if curl -sf --max-time $TIMEOUT "http://localhost:${port}${health}" >/dev/null 2>&1; then
+    if curl -sf --max-time "$timeout" "http://localhost:${port}${health}" >/dev/null 2>&1; then
         result_set "$sid" "ok"
         return 0
     fi

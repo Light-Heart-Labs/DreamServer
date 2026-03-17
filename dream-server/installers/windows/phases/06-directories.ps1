@@ -1,0 +1,231 @@
+# ============================================================================
+# Dream Server Windows Installer -- Phase 06: Directories & Configuration
+# ============================================================================
+# Part of: installers/windows/phases/
+# Purpose: Create install directory tree, copy source files via robocopy,
+#          generate .env with secure secrets, generate SearXNG settings.yml,
+#          generate OpenClaw configs (if enabled), validate .env schema.
+#
+# Reads:
+#   $installDir, $sourceRoot   -- from orchestrator context
+#   $dryRun, $cloudMode        -- from orchestrator context
+#   $selectedTier, $tierConfig -- from phase 02
+#   $gpuInfo                   -- from phase 02
+#   $llamaServerImage          -- from phase 02
+#   $enableOpenClaw            -- from phase 03
+#   $openClawConfig            -- from phase 03
+#
+# Writes:
+#   $envResult  -- hashtable: EnvPath, SearxngSecret, OpenclawToken, DashboardKey
+#
+# Modder notes:
+#   Add new directories to $_dirs array below.
+#   Add new .env variables in lib/env-generator.ps1 New-DreamEnv function.
+#   Add new config files (e.g., Perplexica config) as a New-XyzConfig function
+#   in env-generator.ps1 and call it here.
+# ============================================================================
+
+Write-Phase -Phase 6 -Total 13 -Name "SETUP" -Estimate "~1-2 minutes"
+
+if ($dryRun) {
+    Write-AI "[DRY RUN] Would create: $installDir"
+    Write-AI "[DRY RUN] Would copy source files via robocopy (excluding .git, data/, .env, models/)"
+    Write-AI "[DRY RUN] Would generate .env with secure secrets (WEBUI_SECRET, N8N_PASS, LITELLM_KEY, ...)"
+    Write-AI "[DRY RUN] Would generate SearXNG config with randomized secret key"
+    Write-AI "[DRY RUN] Would copy dream.ps1 CLI + lib/ to install root"
+    if ($enableOpenClaw) {
+        Write-AI "[DRY RUN] Would generate OpenClaw configs (model: $($tierConfig.LlmModel))"
+    }
+    # Signal to later phases: no envResult in dry-run mode
+    $envResult = @{
+        EnvPath       = Join-Path $installDir ".env"
+        SearxngSecret = "(dry-run-placeholder)"
+        OpenclawToken = "(dry-run-placeholder)"
+        DashboardKey  = "(dry-run-placeholder)"
+    }
+    return
+}
+
+# ── Directory structure ───────────────────────────────────────────────────────
+# NOTE: Nested Join-Path required for PS 5.1 (only accepts 2 path arguments).
+$_configDir = Join-Path $installDir "config"
+$_dataDir   = Join-Path $installDir "data"
+
+$_dirs = @(
+    (Join-Path $_configDir "searxng"),
+    (Join-Path $_configDir "n8n"),
+    (Join-Path $_configDir "litellm"),
+    (Join-Path $_configDir "openclaw"),
+    (Join-Path $_configDir "llama-server"),
+    (Join-Path $_dataDir "open-webui"),
+    (Join-Path $_dataDir "whisper"),
+    (Join-Path $_dataDir "tts"),
+    (Join-Path $_dataDir "n8n"),
+    (Join-Path $_dataDir "qdrant"),
+    (Join-Path $_dataDir "models"),
+    (Join-Path $_dataDir "comfyui"),
+    (Join-Path $_dataDir "perplexica")
+)
+foreach ($_d in $_dirs) {
+    New-Item -ItemType Directory -Path $_d -Force | Out-Null
+}
+Write-AISuccess "Created directory structure under $installDir"
+
+# ── Copy source tree (skip if running in-place) ───────────────────────────────
+if ($sourceRoot -ne $installDir) {
+    Write-AI "Copying source files to $installDir..."
+
+    # robocopy exit codes 0-7 are success (bits for files copied, extras, etc.)
+    $robocopyArgs = @(
+        $sourceRoot, $installDir,
+        "/E",                                  # Copy subdirectories including empty ones
+        "/NFL", "/NDL", "/NJH", "/NJS",        # Suppress file/dir/job headers (clean output)
+        "/XD", ".git", "data", "logs", "models", "node_modules", "dist",
+        "/XF", ".env", "*.log", ".current-mode", ".profiles",
+               ".target-model", ".target-quantization", ".offline-mode"
+    )
+    & robocopy @robocopyArgs | Out-Null
+    if ($LASTEXITCODE -gt 7) {
+        Write-AIError "File copy failed (robocopy exit code: $LASTEXITCODE)."
+        Write-AI "  Try re-running with --Force or check that $installDir is writable."
+        exit 1
+    }
+    Write-AISuccess "Source files installed to $installDir"
+} else {
+    Write-AI "Running in-place (source == install directory) -- skipping file copy"
+}
+
+# ── Copy dream.ps1 CLI + lib/ ─────────────────────────────────────────────────
+# Copies from the Windows installer directory to the install root so users
+# can manage Dream Server with: .\dream.ps1 status
+# $ScriptDir is set by install-windows.ps1 (installers/windows/) and is
+# visible here because phases are dot-sourced in the orchestrator's scope.
+$_scriptDir = $ScriptDir   # installers/windows/
+$_dreamSrc  = Join-Path $_scriptDir "dream.ps1"
+$_dreamDst  = Join-Path $installDir "dream.ps1"
+if (Test-Path $_dreamSrc) {
+    Copy-Item -Path $_dreamSrc -Destination $_dreamDst -Force
+    # Also copy lib/ so dream.ps1 can find its helper functions
+    $_libSrc = Join-Path $_scriptDir "lib"
+    $_libDst = Join-Path $installDir "lib"
+    New-Item -ItemType Directory -Path $_libDst -Force | Out-Null
+    Copy-Item -Path (Join-Path $_libSrc "*") -Destination $_libDst -Recurse -Force
+    Write-AISuccess "Installed dream.ps1 CLI"
+} else {
+    Write-AIWarn "dream.ps1 not found at $_dreamSrc -- CLI management unavailable"
+}
+
+# ── Generate .env with secure secrets ────────────────────────────────────────
+$_dreamMode = $(if ($cloudMode) { "cloud" } else { "local" })
+$envResult = New-DreamEnv `
+    -InstallDir     $installDir `
+    -TierConfig     $tierConfig `
+    -Tier           $selectedTier `
+    -GpuBackend     $gpuInfo.Backend `
+    -DreamMode      $_dreamMode `
+    -LlamaServerImage $llamaServerImage
+Write-AISuccess "Generated .env with secure secrets"
+
+# ── Generate SearXNG config ───────────────────────────────────────────────────
+$_searxngPath = New-SearxngConfig -InstallDir $installDir -SecretKey $envResult.SearxngSecret
+Write-AISuccess "Generated SearXNG config ($_searxngPath)"
+
+# ── Generate OpenClaw configs ─────────────────────────────────────────────────
+if ($enableOpenClaw) {
+    # On Windows, AMD native llama-server is reachable from Docker containers
+    # via host.docker.internal; NVIDIA runs in Docker as llama-server service name.
+    $_providerUrl = $(if ($gpuInfo.Backend -eq "amd") {
+        "http://host.docker.internal:8080"
+    } else {
+        "http://llama-server:8080"
+    })
+
+    New-OpenClawConfig `
+        -InstallDir   $installDir `
+        -LlmModel     $tierConfig.LlmModel `
+        -MaxContext   $tierConfig.MaxContext `
+        -Token        $envResult.OpenclawToken `
+        -ProviderUrl  $_providerUrl
+    Write-AISuccess "Generated OpenClaw configs (model: $($tierConfig.LlmModel))"
+
+    # Select and copy the tier-appropriate OpenClaw agent profile
+    if ($openClawConfig) {
+        $_ocSrcProfile = Join-Path (Join-Path $installDir "config\openclaw") $openClawConfig
+        $_ocDstProfile = Join-Path (Join-Path $installDir "config\openclaw") "openclaw.json"
+        if (Test-Path $_ocSrcProfile) {
+            Copy-Item -Path $_ocSrcProfile -Destination $_ocDstProfile -Force
+            Write-AISuccess "Installed OpenClaw profile: $openClawConfig -> openclaw.json"
+        } else {
+            # Fallback to example if tier profile is missing
+            $_ocExample = Join-Path (Join-Path $installDir "config\openclaw") "openclaw.json.example"
+            if (Test-Path $_ocExample) {
+                Copy-Item -Path $_ocExample -Destination $_ocDstProfile -Force
+                Write-AIWarn "OpenClaw profile $openClawConfig not found -- using default example"
+            }
+        }
+    }
+}
+
+# ── Create llama-server models.ini stub ──────────────────────────────────────
+$_modelsIni = Join-Path (Join-Path $installDir "config\llama-server") "models.ini"
+if (-not (Test-Path $_modelsIni)) {
+    Write-Utf8NoBom -Path $_modelsIni -Content "# Dream Server model registry`n"
+}
+
+# ── .env schema validation ────────────────────────────────────────────────────
+# Validates the generated .env against .env.schema.json using Python if available.
+# Non-fatal on Windows: Python may not be present, and the schema validator is
+# primarily a CI gate. A warning is shown but installation continues.
+$_schemaJson = Join-Path $installDir ".env.schema.json"
+if (Test-Path $_schemaJson) {
+    # Locate Python (python3 preferred, python fallback)
+    $_pyCmd = $null
+    foreach ($_pyTry in @("python3", "python")) {
+        $_pyFound = Get-Command $_pyTry -ErrorAction SilentlyContinue
+        if ($_pyFound) { $_pyCmd = $_pyTry; break }
+    }
+
+    if ($_pyCmd) {
+        $_validateScript = Join-Path $installDir "scripts\validate-env.sh"
+        if (-not (Test-Path $_validateScript)) {
+            # Use inline Python for schema validation (no bash dependency)
+            $_envPath = Join-Path $installDir ".env"
+            $prevEAP = $ErrorActionPreference
+            $ErrorActionPreference = "SilentlyContinue"
+            $_pyOut = & $_pyCmd -c @"
+import json, sys, re
+env_path = r'$($_envPath -replace "\\", "\\")'
+schema_path = r'$($_schemaJson -replace "\\", "\\")'
+try:
+    schema = json.load(open(schema_path, encoding='utf-8'))
+    required = schema.get('required', [])
+    props = schema.get('properties', {})
+    env = {}
+    for line in open(env_path, encoding='utf-8'):
+        m = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)=(.*)', line.strip())
+        if m: env[m.group(1)] = m.group(2)
+    missing = [k for k in required if k not in env]
+    if missing:
+        print('MISSING: ' + ', '.join(missing))
+        sys.exit(1)
+    print('OK')
+except Exception as e:
+    print(f'SKIP: {e}')
+"@ 2>&1
+            $ErrorActionPreference = $prevEAP
+            if ($_pyOut -match "^OK") {
+                Write-AISuccess "Validated .env against .env.schema.json"
+            } elseif ($_pyOut -match "^MISSING") {
+                Write-AIWarn ".env schema validation warning: $_pyOut"
+            } else {
+                Write-AIWarn ".env schema validation skipped: $_pyOut"
+            }
+        }
+    } else {
+        Write-AIWarn ".env schema validation skipped (Python not found -- install Python 3 for validation)"
+    }
+} else {
+    Write-AIWarn ".env.schema.json not found -- skipping schema validation"
+}
+
+Write-AISuccess "Setup complete"

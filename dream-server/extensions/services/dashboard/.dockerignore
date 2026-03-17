@@ -1,0 +1,66 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm/
+.yarn/
+
+# Build outputs
+dist/
+build/
+.cache/
+.parcel-cache/
+.vite/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation
+README.md
+*.md
+docs/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Tests
+tests/
+test/
+__tests__/
+*.test.js
+*.test.jsx
+*.test.ts
+*.test.tsx
+*.spec.js
+*.spec.jsx
+*.spec.ts
+*.spec.tsx
+coverage/
+
+# Source maps (not needed in production)
+*.map

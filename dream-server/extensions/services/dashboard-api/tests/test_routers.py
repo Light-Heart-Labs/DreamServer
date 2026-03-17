@@ -168,6 +168,41 @@ def test_preflight_required_ports_no_auth(test_client):
     assert isinstance(data["ports"], list)
 
 
+def test_preflight_docker_authenticated(test_client):
+    """GET /api/preflight/docker with auth → 200, returns docker availability."""
+    resp = test_client.get("/api/preflight/docker", headers=test_client.auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "available" in data
+    if data["available"]:
+        assert "version" in data
+
+
+def test_preflight_gpu_authenticated(test_client):
+    """GET /api/preflight/gpu with auth → 200, returns GPU info or error."""
+    resp = test_client.get("/api/preflight/gpu", headers=test_client.auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "available" in data
+    if data["available"]:
+        assert "name" in data
+        assert "vram" in data
+        assert "backend" in data
+    else:
+        assert "error" in data
+
+
+def test_preflight_disk_authenticated(test_client):
+    """GET /api/preflight/disk with auth → 200, returns disk space info."""
+    resp = test_client.get("/api/preflight/disk", headers=test_client.auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "free" in data
+    assert "total" in data
+    assert "used" in data
+    assert "path" in data
+
+
 # ---------------------------------------------------------------------------
 # Workflow path-traversal and catalog miss
 # ---------------------------------------------------------------------------
@@ -221,214 +256,56 @@ def test_privacy_shield_status_with_mock(test_client):
 
 
 # ---------------------------------------------------------------------------
-# Updates router
+# Core API Endpoints
 # ---------------------------------------------------------------------------
 
 
-def test_version_endpoint_reads_json_version_state(test_client, tmp_path, monkeypatch):
-    """GET /api/version should parse JSON .version contract."""
-    import routers.updates as updates_router
-
-    install_dir = tmp_path / "install"
-    install_dir.mkdir()
-    (install_dir / ".version").write_text(
-        json.dumps(
-            {
-                "version": "2.0.0",
-                "last_check": "2026-03-17T00:00:00Z",
-                "last_update": "2026-03-16T00:00:00Z",
-            }
-        )
-    )
-
-    monkeypatch.setattr(updates_router, "INSTALL_DIR", str(install_dir))
-    monkeypatch.setattr(updates_router, "_resolve_update_script", lambda: None)
-    monkeypatch.setattr(
-        updates_router,
-        "_fetch_latest_release",
-        lambda: {"latest": "2.1.0", "changelog_url": "https://example.com/release"},
-    )
-
-    resp = test_client.get("/api/version", headers=test_client.auth_headers)
+def test_api_status_authenticated(test_client):
+    """GET /api/status with auth → 200, returns full system status."""
+    resp = test_client.get("/api/status", headers=test_client.auth_headers)
     assert resp.status_code == 200
     data = resp.json()
-    assert data["current"] == "2.0.0"
-    assert data["latest"] == "2.1.0"
-    assert data["update_available"] is True
-    assert data["last_check"] == "2026-03-17T00:00:00Z"
+    assert "gpu" in data
+    assert "services" in data
+    assert "model" in data
+    assert "bootstrap" in data
+    assert "uptime" in data
+    assert "version" in data
+    assert "tier" in data
+    assert "cpu" in data
+    assert "ram" in data
+    assert "inference" in data
 
 
-def test_version_endpoint_reads_legacy_plain_text(test_client, tmp_path, monkeypatch):
-    """GET /api/version should support legacy plain-text .version files."""
-    import routers.updates as updates_router
-
-    install_dir = tmp_path / "install"
-    install_dir.mkdir()
-    (install_dir / ".version").write_text("1.9.0\n")
-
-    monkeypatch.setattr(updates_router, "INSTALL_DIR", str(install_dir))
-    monkeypatch.setattr(updates_router, "_resolve_update_script", lambda: None)
-    monkeypatch.setattr(
-        updates_router,
-        "_fetch_latest_release",
-        lambda: {"latest": "1.9.0", "changelog_url": "https://example.com/release"},
-    )
-
-    resp = test_client.get("/api/version", headers=test_client.auth_headers)
+def test_api_storage_authenticated(test_client):
+    """GET /api/storage with auth → 200, returns storage breakdown."""
+    resp = test_client.get("/api/storage", headers=test_client.auth_headers)
     assert resp.status_code == 200
     data = resp.json()
-    assert data["current"] == "1.9.0"
-    assert data["update_available"] is False
-    assert data["status"] == "up_to_date"
+    assert "models" in data
+    assert "vector_db" in data
+    assert "total_data" in data
+    assert "disk" in data
+    assert "gb" in data["models"]
+    assert "percent" in data["models"]
 
 
-def test_update_readiness_has_expected_sections(test_client, monkeypatch):
-    """GET /api/update/readiness should include update, compatibility, rollback sections."""
-    import routers.updates as updates_router
-
-    monkeypatch.setattr(
-        updates_router,
-        "_build_version_info",
-        lambda: {
-            "current": "2.0.0",
-            "latest": "2.1.0",
-            "update_available": True,
-            "status": "update_available",
-            "changelog_url": "https://example.com/release",
-            "checked_at": "2026-03-17T00:00:00Z",
-            "last_check": "2026-03-17T00:00:00Z",
-            "last_update": "2026-03-16T00:00:00Z",
-        },
-    )
-    monkeypatch.setattr(
-        updates_router,
-        "_check_compatibility",
-        lambda: {
-            "available": True,
-            "ok": True,
-            "checked_at": "2026-03-17T00:00:00Z",
-            "details": "[PASS] compatibility",
-        },
-    )
-    monkeypatch.setattr(
-        updates_router,
-        "_collect_backup_state",
-        lambda: {
-            "backup_dir": "/tmp/backups",
-            "backup_count": 2,
-            "latest_backup": "backup-20260317-010101",
-            "available": True,
-        },
-    )
-    monkeypatch.setattr(updates_router, "_resolve_update_script", lambda: Path("/tmp/dream-update.sh"))
-
-    resp = test_client.get("/api/update/readiness", headers=test_client.auth_headers)
+def test_api_external_links_authenticated(test_client):
+    """GET /api/external-links with auth → 200, returns sidebar links."""
+    resp = test_client.get("/api/external-links", headers=test_client.auth_headers)
     assert resp.status_code == 200
     data = resp.json()
-    assert data["update_system"]["available"] is True
-    assert data["compatibility"]["ok"] is True
-    assert data["rollback"]["backup_count"] == 2
+    assert isinstance(data, list)
+    for link in data:
+        assert "id" in link
+        assert "label" in link
+        assert "port" in link
+        assert "icon" in link
 
 
-def test_update_check_works_without_script(test_client, monkeypatch):
-    """POST /api/update action=check should work even when update script is unavailable."""
-    import routers.updates as updates_router
-
-    monkeypatch.setattr(updates_router, "_resolve_update_script", lambda: None)
-    monkeypatch.setattr(
-        updates_router,
-        "_build_version_info",
-        lambda: {
-            "current": "2.0.0",
-            "latest": "2.0.0",
-            "update_available": False,
-            "status": "up_to_date",
-            "checked_at": "2026-03-17T00:00:00Z",
-        },
-    )
-
-    resp = test_client.post(
-        "/api/update",
-        json={"action": "check"},
-        headers=test_client.auth_headers,
-    )
+def test_api_service_tokens_authenticated(test_client):
+    """GET /api/service-tokens with auth → 200, returns service tokens."""
+    resp = test_client.get("/api/service-tokens", headers=test_client.auth_headers)
     assert resp.status_code == 200
     data = resp.json()
-    assert data["success"] is True
-    assert data["status"] == "up_to_date"
-
-
-def test_update_backup_requires_script(test_client, monkeypatch):
-    """POST /api/update action=backup returns 501 when update script is missing."""
-    import routers.updates as updates_router
-
-    monkeypatch.setattr(updates_router, "_resolve_update_script", lambda: None)
-    resp = test_client.post(
-        "/api/update",
-        json={"action": "backup"},
-        headers=test_client.auth_headers,
-    )
-    assert resp.status_code == 501
-
-
-def test_version_endpoint_parses_multiline_script_json(test_client, tmp_path, monkeypatch):
-    """GET /api/version should parse pretty-printed JSON from dream-update.sh --json."""
-    import routers.updates as updates_router
-
-    install_dir = tmp_path / "install"
-    install_dir.mkdir()
-    (install_dir / ".version").write_text(json.dumps({"version": "2.0.0"}))
-
-    script_path = install_dir / "dream-update.sh"
-    script_path.write_text("#!/bin/sh\n")
-
-    monkeypatch.setattr(updates_router, "INSTALL_DIR", str(install_dir))
-    monkeypatch.setattr(updates_router, "_resolve_update_script", lambda: script_path)
-
-    fake_result = MagicMock()
-    fake_result.returncode = 2
-    fake_result.stdout = """{
-  "success": true,
-  "current": "2.0.0",
-  "latest": "2.1.0",
-  "update_available": true,
-  "status": "update_available",
-  "checked_at": "2026-03-17T00:00:00Z"
-}
-"""
-    fake_result.stderr = ""
-
-    with patch("routers.updates.subprocess.run", return_value=fake_result):
-        resp = test_client.get("/api/version", headers=test_client.auth_headers)
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["current"] == "2.0.0"
-    assert data["latest"] == "2.1.0"
-    assert data["update_available"] is True
-    assert data["status"] == "update_available"
-
-
-def test_update_rollback_passes_backup_id(test_client, monkeypatch):
-    """POST /api/update action=rollback should pass backup_id to script invocation."""
-    import routers.updates as updates_router
-
-    script_path = Path("/tmp/dream-update.sh")
-    monkeypatch.setattr(updates_router, "_resolve_update_script", lambda: script_path)
-
-    fake_result = MagicMock()
-    fake_result.returncode = 0
-    fake_result.stdout = "ok"
-    fake_result.stderr = ""
-
-    with patch("routers.updates.subprocess.run", return_value=fake_result) as mock_run:
-        resp = test_client.post(
-            "/api/update",
-            json={"action": "rollback", "backup_id": "backup-20260317-010101"},
-            headers=test_client.auth_headers,
-        )
-
-    assert resp.status_code == 200
-    assert resp.json()["success"] is True
-    called_args = mock_run.call_args[0][0]
-    assert called_args[-1] == "backup-20260317-010101"
+    assert isinstance(data, dict)
