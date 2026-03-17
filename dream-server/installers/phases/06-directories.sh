@@ -272,6 +272,7 @@ GGUF_FILE=${GGUF_FILE}
 MAX_CONTEXT=${MAX_CONTEXT}
 CTX_SIZE=${MAX_CONTEXT}
 GPU_BACKEND=${GPU_BACKEND}
+N_GPU_LAYERS=${N_GPU_LAYERS:-99}
 
 $(if [[ "$GPU_BACKEND" == "amd" ]]; then cat << AMD_ENV
 #=== GPU Group IDs (for container device access) ===
@@ -282,6 +283,17 @@ RENDER_GID=$(getent group render 2>/dev/null | cut -d: -f3 || echo 992)
 HSA_OVERRIDE_GFX_VERSION=11.5.1
 ROCBLAS_USE_HIPBLASLT=0
 AMD_ENV
+fi)
+$(if [[ "$GPU_BACKEND" == "sycl" ]]; then cat << INTEL_ENV
+#=== GPU Group IDs (for container device access) ===
+VIDEO_GID=$(getent group video 2>/dev/null | cut -d: -f3 || echo 44)
+RENDER_GID=$(getent group render 2>/dev/null | cut -d: -f3 || echo 992)
+
+#=== Intel Arc / oneAPI SYCL Settings ===
+ONEAPI_DEVICE_SELECTOR=level_zero:gpu
+SYCL_CACHE_PERSISTENT=1
+ZES_ENABLE_SYSMAN=1
+INTEL_ENV
 fi)
 
 #=== Ports ===
