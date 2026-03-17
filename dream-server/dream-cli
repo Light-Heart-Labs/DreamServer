@@ -1304,10 +1304,13 @@ cmd_model() {
             local model
             model=$(tier_to_model "$tier")
             [[ -z "$model" ]] && error "Unknown tier: $tier"
+            # Normalize aliases for resolve_tier_config (T0→0, T1→1, SH→SH_COMPACT)
             TIER="$tier"
+            [[ "$TIER" =~ ^T([0-9]+)$ ]] && TIER="${BASH_REMATCH[1]}"
+            [[ "$TIER" == "SH" ]] && TIER="SH_COMPACT"
             resolve_tier_config
             _env_set "LLM_MODEL" "$model"
-            _env_set "TIER" "$tier"
+            _env_set "TIER" "$TIER"
             _env_set "GGUF_FILE" "$GGUF_FILE"
             _env_set "GGUF_URL" "$GGUF_URL"
             _env_set "CTX_SIZE" "$MAX_CONTEXT"
