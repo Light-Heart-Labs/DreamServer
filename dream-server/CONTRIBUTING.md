@@ -76,13 +76,13 @@ Where to help:
 
 ## Before You Submit
 
-Run validation locally:
+Don't make us find bugs you could have caught. Run this:
 
 ```bash
 make gate    # lint + test + smoke + simulate
 ```
 
-Or individual steps:
+Or if you just want a quick check:
 
 ```bash
 make lint    # shell syntax + Python compile
@@ -90,18 +90,20 @@ make test    # tier map + installer contracts
 make smoke   # platform smoke tests
 ```
 
-If you touched the dashboard:
+Touched the frontend? Make sure it builds:
 ```bash
 cd dashboard && npm install && npm run lint && npm run build
 ```
 
 ## What Gets Merged Fast
 
-- Bug fixes with clear reproduction
-- Tests for existing untested code
-- Focused PRs that do one thing well
-- New platform or hardware support
-- Security fixes with a clear explanation
+We merge good work quickly. You'll know it's good if:
+
+- It fixes a real bug and you can show us how to reproduce it
+- It tests code that wasn't tested before
+- It does exactly one thing and does it well
+- It makes Dream Server run on hardware it didn't before
+- It fixes a security hole and explains what was exposed
 
 ## What Gets Sent Back
 
@@ -116,23 +118,19 @@ We review a lot of PRs. These patterns waste everyone's time — yours and ours:
 
 ## Style
 
-- Bash: `set -euo pipefail`, quote your variables, `shellcheck` your scripts
-- Python: match the file you're editing, don't reformat code you didn't change
-- YAML/JSON: stable keys, no tabs, minimal noise
-- Commits: imperative subject line, explain *why* in the body
+We're not precious about style, but we have standards:
 
-## Questions?
+- **Bash** — `set -euo pipefail` at the top. Quote your variables. Run `shellcheck`. If it passes, we're happy.
+- **Python** — match whatever the file already does. Don't reformat code you didn't change.
+- **YAML/JSON** — stable keys, no tabs, don't get creative.
+- **Commit messages** — imperative subject ("fix X", not "fixed X"). Body explains *why*, not *what* — we can read the diff.
 
-Open an issue or start a [GitHub Discussion](https://github.com/Light-Heart-Labs/DreamServer/discussions). We'd rather help you get the approach right before you write code than review a PR that needs a redesign.
+## Questions and Bugs
 
-## Reporting Bugs
+**Got a question?** Open an issue or start a [GitHub Discussion](https://github.com/Light-Heart-Labs/DreamServer/discussions). Seriously — ask before you build. It's faster for everyone.
 
-Open an issue with:
-- Hardware (GPU, RAM, OS)
-- What you expected
-- What actually happened
-- Logs (`docker compose logs`)
+**Found a bug?** Open an issue with your hardware (GPU, RAM, OS), what you expected, what actually happened, and logs (`docker compose logs`). The more context you give us, the faster we fix it.
 
 ## License
 
-By contributing, your work is licensed under [Apache 2.0](LICENSE) — same as the rest of the project.
+[Apache 2.0](LICENSE). Your code stays open. That's the whole point.
