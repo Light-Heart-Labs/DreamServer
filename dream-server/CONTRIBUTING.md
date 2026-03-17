@@ -68,11 +68,11 @@ npm run build
 
 These are the things we most need help with, in order of impact:
 
-1. **Model switching UI** — let users swap models from the dashboard without reinstalling or touching the CLI. The backend (`dream model swap`) exists; the frontend doesn't.
-2. **Bun website installer** — a one-click install experience from the website. This is a greenfield project — talk to us before starting.
-3. **Dashboard theming** — customizable color themes so users can make the dashboard their own. CSS variables, theme picker, preset themes.
-4. **Extensions reliability** — manifest validation, health check coverage, dependency resolution. The foundation is in; keep hardening it.
-5. **Multi-GPU utilization** — we detect multiple GPUs but don't split work across them yet.
+1. **Clean installs** — the installer should work first try on every supported platform. Idempotent re-runs, clear error messages, no manual fixups. If someone hits a wall during install, that's a bug.
+2. **Runs on anything** — Tier 0 (4GB RAM, no GPU) to Tier 4 (enterprise). Laptops, desktops, servers, WSL2, bare metal. If someone has a machine, Dream Server should run on it.
+3. **Extensions and integrations** — Dream Server should work really well with other apps and services. New extension manifests, service integrations, API bridges, workflow templates. The ecosystem is what makes this useful beyond a demo.
+4. **Installer portability** — macOS, Linux (Ubuntu/Debian/Arch/Fedora), Windows (native + WSL2). Every platform-specific bug fixed is hundreds of users unblocked.
+5. **Test coverage for real code paths** — integration tests that exercise the actual installer, health checks, and service startup. Not theoretical tests for features that don't exist yet.
 
 If you want to tackle any of these, open an issue first so we can align on approach.
 
