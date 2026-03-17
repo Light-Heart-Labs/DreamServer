@@ -56,11 +56,10 @@ else
         log "[DRY RUN] Would install Docker via official script"
     else
         tmpfile=$(mktemp /tmp/install-docker.XXXXXX.sh)
+        trap 'rm -f "$tmpfile"' EXIT INT TERM
         if ! curl -fsSL --max-time 300 https://get.docker.com -o "$tmpfile" || ! sh "$tmpfile"; then
-            rm -f "$tmpfile"
             error "Docker installation failed. Check network connectivity and try again."
         fi
-        rm -f "$tmpfile"
 
         # Add the invoking user (not root) to the docker group
         target_user="${SUDO_USER:-$USER}"

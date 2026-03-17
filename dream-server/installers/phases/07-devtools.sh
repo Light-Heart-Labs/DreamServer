@@ -26,10 +26,10 @@ else
         case "$PKG_MANAGER" in
             apt)
                 tmpfile=$(mktemp /tmp/nodesource-setup.XXXXXX.sh)
+                trap 'rm -f "$tmpfile"' EXIT INT TERM
                 if curl -fsSL --max-time 300 https://deb.nodesource.com/setup_22.x -o "$tmpfile" 2>/dev/null; then
                     sudo -E bash "$tmpfile" >> "$LOG_FILE" 2>&1 || true
                 fi
-                rm -f "$tmpfile"
                 sudo apt-get install -y nodejs >> "$LOG_FILE" 2>&1 || true
                 ;;
             dnf)
@@ -91,12 +91,12 @@ else
     if ! command -v opencode &> /dev/null && [[ ! -x "$HOME/.opencode/bin/opencode" ]]; then
         ai "Installing OpenCode..."
         tmpfile=$(mktemp /tmp/opencode-install.XXXXXX.sh)
+        trap 'rm -f "$tmpfile"' EXIT INT TERM
         if curl -fsSL --max-time 300 https://opencode.ai/install -o "$tmpfile" 2>/dev/null && bash "$tmpfile" >> "$LOG_FILE" 2>&1; then
             ai_ok "OpenCode installed (~/.opencode/bin/opencode)"
         else
             ai_warn "OpenCode install failed — install later with: curl -fsSL https://opencode.ai/install | bash"
         fi
-        rm -f "$tmpfile"
     else
         ai_ok "OpenCode already installed"
     fi
