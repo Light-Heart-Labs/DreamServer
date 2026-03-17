@@ -449,6 +449,42 @@ if ($DryRun) {
                         exit 1
                     }
                 }
+                # Verify ZIP integrity before extracting (prevents "Central Directory corrupt" crash)
+                Write-AI "Verifying downloaded archive..."
+                Add-Type -AssemblyName System.IO.Compression.FileSystem
+                $zipValid = $false
+                try {
+                    $zipArchive = [System.IO.Compression.ZipFile]::OpenRead($llamaZip)
+                    $zipArchive.Dispose()
+                    $zipValid = $true
+                } catch {
+                    $zipValid = $false
+                }
+
+                # If corrupt, delete and retry download once
+                if (-not $zipValid) {
+                    Write-AIWarn "Downloaded archive is corrupt. Deleting and retrying..."
+                    Remove-Item -Path $llamaZip -Force -ErrorAction SilentlyContinue
+                    $dlOk = Show-ProgressDownload -Url $script:LLAMA_CPP_VULKAN_URL `
+                        -Destination $llamaZip -Label "Downloading llama-server (Vulkan) [retry]"
+                    if (-not $dlOk) {
+                        Write-AIError "llama-server download failed on retry."
+                        exit 1
+                    }
+                    # Verify again after retry
+                    try {
+                        $zipArchive = [System.IO.Compression.ZipFile]::OpenRead($llamaZip)
+                        $zipArchive.Dispose()
+                        $zipValid = $true
+                    } catch {
+                        Write-AIError "Downloaded archive is still corrupt after retry."
+                        Write-AI "This may be a network issue. Check your connection and re-run the installer."
+                        Remove-Item -Path $llamaZip -Force -ErrorAction SilentlyContinue
+                        exit 1
+                    }
+                }
+                Write-AISuccess "Archive verified OK"
+
                 # Extract
                 Write-AI "Extracting llama-server..."
                 New-Item -ItemType Directory -Path $script:LLAMA_SERVER_DIR -Force | Out-Null
