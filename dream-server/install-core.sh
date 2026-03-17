@@ -171,7 +171,10 @@ $DRY_RUN && echo -e "${AMB}>>> DRY RUN MODE — I will simulate everything. No c
 #=============================================================================
 START_PHASE=1
 if ! $DRY_RUN && ! $FORCE; then
-    if RESUME_PHASE=$(checkpoint_should_resume); then
+    # Prompt user for resume (must be called in parent shell, not subshell)
+    if checkpoint_prompt_resume; then
+        # Load the last completed phase
+        RESUME_PHASE=$(checkpoint_load)
         START_PHASE=$(checkpoint_next_phase "$RESUME_PHASE")
         echo -e "${GREEN}Resuming from phase $START_PHASE${NC}"
         echo ""

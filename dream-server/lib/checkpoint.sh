@@ -4,7 +4,14 @@
 # Purpose: Save installer state and resume from last successful phase
 #
 # Expects: INSTALL_DIR, INSTALL_PHASE (set by install-core.sh)
-# Provides: checkpoint_save(), checkpoint_load(), checkpoint_clear()
+# Provides: checkpoint_save(), checkpoint_load(), checkpoint_prompt_resume(), checkpoint_clear()
+#
+# Idempotency notes:
+#   Phases 01-04 (preflight, detection, features, requirements) perform system
+#   detection and validation. These are safe to re-run but may produce different
+#   results if system state changed. Phases 05+ (docker, directories, devtools,
+#   images, offline, amd-tuning, services, health, summary) are generally
+#   idempotent and safe to resume from.
 
 CHECKPOINT_FILE="${INSTALL_DIR}/.install-checkpoint"
 
@@ -25,6 +32,7 @@ EOF
 }
 
 # Load checkpoint from previous installation
+# Returns: echoes last phase number to stdout, returns 0 on success, 1 on failure
 checkpoint_load() {
     if [[ ! -f "$CHECKPOINT_FILE" ]]; then
         return 1
@@ -72,29 +80,31 @@ checkpoint_clear() {
     fi
 }
 
-# Check if we should resume from checkpoint
-checkpoint_should_resume() {
+# Prompt user if they want to resume from checkpoint
+# Must be called in parent shell (not in command substitution) to allow user input
+# Returns: 0 if user wants to resume, 1 if not
+checkpoint_prompt_resume() {
     local last_phase
 
+    # Load checkpoint (this doesn't prompt, just validates)
     if ! last_phase=$(checkpoint_load); then
         return 1
     fi
 
-    # Ask user if they want to resume
+    # Ask user if they want to resume (interactive mode only)
     if [[ "${INTERACTIVE:-true}" == "true" ]]; then
         echo ""
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "Previous installation detected (stopped at phase $last_phase)"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
-        read -rp "Resume from phase $last_phase? [Y/n] " response
+        read -rp "Resume from phase $last_phase? [Y/n] " response </dev/tty
         if [[ "$response" =~ ^[Nn]$ ]]; then
             checkpoint_clear
             return 1
         fi
     fi
 
-    echo "$last_phase"
     return 0
 }
 
