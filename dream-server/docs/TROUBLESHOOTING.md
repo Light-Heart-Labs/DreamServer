@@ -42,6 +42,27 @@ sudo systemctl restart docker
 
 ## Startup Issues
 
+### Update/Start blocked by env validation
+
+**Error pattern:** update/start reports `.env` validation errors or mode requirement failures.
+
+**Fix:**
+```bash
+cd ~/dream-server
+./scripts/validate-env.sh --strict
+```
+
+If deprecated keys are listed (`LLAMA_SERVER_PORT`, `MAX_CONTEXT`):
+```bash
+./scripts/migrate-config.sh autofix-env
+./scripts/validate-env.sh --strict
+```
+
+**Need JSON output for tooling:**
+```bash
+./scripts/validate-env.sh --json > /tmp/env-validation.json
+```
+
 ### llama-server Container Won't Start
 
 **Check logs:**

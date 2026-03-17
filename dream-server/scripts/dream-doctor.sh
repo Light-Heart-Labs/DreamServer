@@ -54,6 +54,8 @@ if [[ -x "$SCRIPT_DIR/preflight-engine.sh" ]]; then
         --platform-id "${CAP_PLATFORM_ID:-unknown}" \
         --compose-overlays "${CAP_COMPOSE_OVERLAYS:-}" \
         --script-dir "$ROOT_DIR" \
+        --env-file "$ROOT_DIR/.env" \
+        --schema-file "$ROOT_DIR/.env.schema.json" \
         --env)"
     eval "$PREFLIGHT_ENV"
 else
@@ -112,6 +114,10 @@ report = {
     "summary": {
         "preflight_blockers": pre.get("summary", {}).get("blockers", 0),
         "preflight_warnings": pre.get("summary", {}).get("warnings", 0),
+        "env_validation_status": pre.get("env_validation", {}).get("status", "not_run"),
+        "env_validation_errors": pre.get("env_validation", {}).get("summary", {}).get("errors", 0),
+        "env_validation_warnings": pre.get("env_validation", {}).get("summary", {}).get("warnings", 0),
+        "env_validation_deprecated": pre.get("env_validation", {}).get("summary", {}).get("deprecated", 0),
         "runtime_ready": (docker_daemon == "true" and compose_cli == "true"),
     },
 }
@@ -122,6 +128,19 @@ for check in pre.get("checks", []):
     action = (check.get("action") or "").strip()
     if status in {"blocker", "warn"} and action:
         fix_hints.append(action)
+
+env_validation = pre.get("env_validation", {}) or {}
+env_status = str(env_validation.get("status", "not_run"))
+env_summary = env_validation.get("summary", {}) or {}
+env_errs = int(env_summary.get("errors", 0) or 0)
+env_warns = int(env_summary.get("warnings", 0) or 0)
+env_deprecated = int(env_summary.get("deprecated", 0) or 0)
+if env_status in {"failed", "error"} or env_errs > 0:
+    fix_hints.append("Fix .env validation errors: ./scripts/validate-env.sh --strict")
+if env_deprecated > 0:
+    fix_hints.append("Auto-fix deprecated env keys: ./scripts/migrate-config.sh autofix-env")
+if env_status == "unavailable":
+    fix_hints.append("Ensure .env, .env.schema.json, and scripts/validate-env.sh exist in install dir.")
 
 runtime = report["runtime"]
 if not runtime["docker_cli"]:
@@ -154,6 +173,7 @@ PY
 echo "Dream Doctor report: $REPORT_FILE"
 echo "  Preflight blockers: ${PREFLIGHT_BLOCKERS:-0}"
 echo "  Preflight warnings: ${PREFLIGHT_WARNINGS:-0}"
+echo "  Env validation: ${PREFLIGHT_ENV_VALIDATION_STATUS:-not_run} (errors=${PREFLIGHT_ENV_VALIDATION_ERRORS:-0}, warnings=${PREFLIGHT_ENV_VALIDATION_WARNINGS:-0}, deprecated=${PREFLIGHT_ENV_VALIDATION_DEPRECATED:-0})"
 echo "  Docker daemon: $DOCKER_DAEMON"
 echo "  Compose CLI:   $COMPOSE_CLI"
 python3 - "$REPORT_FILE" <<'PY'

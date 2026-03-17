@@ -2,6 +2,37 @@
 
 This guide provides solutions for common issues encountered during the installation of Dream Server.
 
+## Environment Validation (PR-17)
+
+Dream Server now validates `.env` with a strict parser (quoted values, inline comments, mode-aware requirements).
+
+### Problem: Installer fails with `.env` validation error
+**Symptoms:** installer stops after generating `.env`, or logs mention `validate-env.sh`.
+
+**Fix:**
+```bash
+cd ~/dream-server
+./scripts/validate-env.sh --strict
+```
+
+### Problem: You need machine-readable validation output
+**Fix:**
+```bash
+./scripts/validate-env.sh --json > /tmp/env-validation.json
+```
+
+### Problem: Deprecated keys are present (`LLAMA_SERVER_PORT`, `MAX_CONTEXT`)
+**Fix:**
+```bash
+./scripts/migrate-config.sh autofix-env
+./scripts/validate-env.sh --strict
+```
+
+### Mode requirements
+- `DREAM_MODE=local`: local model keys required.
+- `DREAM_MODE=cloud`: requires at least one cloud API key (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `TOGETHER_API_KEY`).
+- `DREAM_MODE=hybrid`: requires local model keys plus at least one cloud API key.
+
 ## Docker Issues
 
 ### Problem: Docker Not Installed

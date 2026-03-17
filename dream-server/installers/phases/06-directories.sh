@@ -330,10 +330,15 @@ ENV_EOF
 
     # Validate generated .env against schema (fails fast on missing/unknown keys).
     if [[ -f "$SCRIPT_DIR/scripts/validate-env.sh" && -f "$SCRIPT_DIR/.env.schema.json" ]]; then
-        if bash "$SCRIPT_DIR/scripts/validate-env.sh" "$INSTALL_DIR/.env" "$SCRIPT_DIR/.env.schema.json" >> "$LOG_FILE" 2>&1; then
+        env_validation_report="$INSTALL_DIR/data/env-validation-install.json"
+        if bash "$SCRIPT_DIR/scripts/validate-env.sh" \
+            --env-file "$INSTALL_DIR/.env" \
+            --schema-file "$SCRIPT_DIR/.env.schema.json" \
+            --strict \
+            --json-file "$env_validation_report" >> "$LOG_FILE" 2>&1; then
             ai_ok "Validated .env against .env.schema.json"
         else
-            error "Generated .env failed schema validation. See $LOG_FILE for details."
+            error "Generated .env failed schema validation. See $LOG_FILE and $env_validation_report for details."
         fi
     else
         warn "Skipping .env schema validation (.env.schema.json or scripts/validate-env.sh missing)"

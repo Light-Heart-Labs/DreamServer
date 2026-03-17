@@ -20,7 +20,7 @@ Utility scripts for diagnostics, testing, validation, and operations.
 | `dream-test.sh` | Full validation (`--quick`, `--json`, `--service`) | Yes |
 | `dream-test-functional.sh` | Functional tests (inference, TTS, STT) | Yes |
 | `validate.sh` | Post-install validation | Yes |
-| `validate-env.sh` | Validate .env against schema | No |
+| `validate-env.sh` | Validate .env against schema (`--strict`, `--warn-only`, `--json`) | No |
 | `simulate-installers.sh` | Cross-platform installer simulation | No |
 | `release-gate.sh` | Full pre-release checklist | No |
 | `check-compatibility.sh` | Manifest compatibility checks | No |

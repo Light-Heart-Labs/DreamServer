@@ -61,6 +61,20 @@ load_env() {
     set +a
 }
 
+validate_env_gate() {
+    local env_file="$INSTALL_DIR/.env"
+    local schema_file="$INSTALL_DIR/.env.schema.json"
+    local validator="$INSTALL_DIR/scripts/validate-env.sh"
+
+    [[ -f "$env_file" ]] || error "Missing .env at $env_file"
+    [[ -f "$schema_file" ]] || error "Missing .env schema at $schema_file"
+    [[ -x "$validator" ]] || error "Missing validator script at $validator"
+
+    if ! "$validator" --env-file "$env_file" --schema-file "$schema_file" --strict; then
+        error "Environment validation failed. Fix .env before start/update."
+    fi
+}
+
 check_install() {
     if [[ ! -d "$INSTALL_DIR" ]]; then
         error "Dream Server not found at $INSTALL_DIR. Set DREAM_HOME or run installer first."
@@ -263,6 +277,7 @@ cmd_stop() {
 cmd_start() {
     check_install
     cd "$INSTALL_DIR"
+    validate_env_gate
 
     local service="${1:-}"
     local flags
@@ -283,6 +298,7 @@ cmd_start() {
 cmd_update() {
     check_install
     cd "$INSTALL_DIR"
+    validate_env_gate
 
     local flags
     flags=$(get_compose_flags)

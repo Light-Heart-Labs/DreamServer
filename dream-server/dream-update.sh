@@ -48,6 +48,33 @@ log_ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
 log_warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 
+validate_env_strict() {
+    local env_file="${INSTALL_DIR}/.env"
+    local schema_file="${INSTALL_DIR}/.env.schema.json"
+    local validator="${INSTALL_DIR}/scripts/validate-env.sh"
+
+    if [[ ! -f "$env_file" ]]; then
+        log_error "Missing ${env_file}. Refusing to update without environment configuration."
+        return 1
+    fi
+    if [[ ! -f "$schema_file" ]]; then
+        log_error "Missing ${schema_file}. Refusing update because env contract is unavailable."
+        return 1
+    fi
+    if [[ ! -x "$validator" ]]; then
+        log_error "Missing validator script: ${validator}. Refusing update."
+        return 1
+    fi
+
+    log_info "Validating .env before update..."
+    if ! "$validator" --env-file "$env_file" --schema-file "$schema_file" --strict; then
+        log_error "Environment validation failed. Fix .env before re-running update."
+        log_info "Tip: run ./scripts/migrate-config.sh autofix-env for deprecated keys."
+        return 1
+    fi
+    log_ok ".env validation passed"
+}
+
 get_current_version() {
     if [[ -f "$VERSION_FILE" ]]; then
         jq -r '.version // "0.0.0"' "$VERSION_FILE" 2>/dev/null || echo "0.0.0"
@@ -256,6 +283,9 @@ cmd_backup() {
 
 cmd_update() {
     log_info "Starting Dream Server update..."
+
+    # PR-17 gate: block unsafe updates when .env is invalid.
+    validate_env_strict
     
     local current_version
     current_version=$(get_current_version)
@@ -537,7 +567,7 @@ Commands:
   check          Check for available updates
   status         Show current version and update status
   backup [name]  Create backup of current configuration
-  update         Perform update with auto-rollback on failure
+  update         Perform update with env/health guards and auto-rollback
   rollback [id]  Restore from backup (default: latest)
   changelog [v]  Show changelog (optional: specific version)
   health         Run health checks on all services

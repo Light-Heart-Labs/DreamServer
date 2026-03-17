@@ -194,6 +194,28 @@ Options:
 
 That's it. Updates are optional — you control when to apply them.
 
+### Why did update/start block on `.env`?
+
+Dream Server now enforces env validation gates for unsafe lifecycle actions.
+
+Run:
+```bash
+./scripts/validate-env.sh --strict
+```
+
+If deprecated keys are reported:
+```bash
+./scripts/migrate-config.sh autofix-env
+```
+
+Then retry update/start.
+
+### How do cloud/local/hybrid env rules work?
+
+- `local`: does not require cloud API keys.
+- `cloud`: requires at least one cloud API key (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `TOGETHER_API_KEY`).
+- `hybrid`: requires local model keys plus at least one cloud API key.
+
 ### Where do I get help?
 
 1. This documentation

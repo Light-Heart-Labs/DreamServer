@@ -38,7 +38,11 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 # Get current version
 get_current_version() {
     if [[ -f "$VERSION_FILE" ]]; then
-        cat "$VERSION_FILE" | tr -d '[:space:]'
+        if command -v jq >/dev/null 2>&1 && jq -e 'type=="object"' "$VERSION_FILE" >/dev/null 2>&1; then
+            jq -r '.version // "0.0.0"' "$VERSION_FILE" 2>/dev/null || echo "0.0.0"
+        else
+            cat "$VERSION_FILE" | tr -d '[:space:]'
+        fi
     else
         echo "0.0.0"
     fi
@@ -76,6 +80,10 @@ compare_versions() {
     for i in {0..2}; do
         local p1="${V1_PARTS[$i]:-0}"
         local p2="${V2_PARTS[$i]:-0}"
+        p1="${p1%%[!0-9]*}"
+        p2="${p2%%[!0-9]*}"
+        [[ -n "$p1" ]] || p1=0
+        [[ -n "$p2" ]] || p2=0
         
         if [[ "$p1" -gt "$p2" ]]; then
             return 1
@@ -160,8 +168,10 @@ cmd_check() {
     log_info "Current version: $current_version"
     log_info "Last migrated: $last_migrated"
     
+    set +e
     compare_versions "$current_version" "$last_migrated"
     local result=$?
+    set -e
     
     if [[ $result -eq 2 ]]; then
         log_warn "Migration needed: $last_migrated → $current_version"
@@ -174,8 +184,11 @@ cmd_check() {
                 local migration_version
                 migration_version=$(basename "$migration" | sed 's/migrate-v//;s/.sh//')
                 
+                set +e
                 compare_versions "$migration_version" "$last_migrated"
-                if [[ $? -eq 1 ]]; then
+                local migration_cmp=$?
+                set -e
+                if [[ $migration_cmp -eq 1 ]]; then
                     echo "  - $migration_version: $(head -5 "$migration" | grep '^# Description:' | sed 's/# Description://')"
                 fi
             fi
@@ -201,8 +214,11 @@ cmd_migrate() {
     # Create backup first
     cmd_backup >/dev/null
     
+    set +e
     compare_versions "$current_version" "$last_migrated"
-    if [[ $? -ne 2 ]]; then
+    local migrate_cmp=$?
+    set -e
+    if [[ $migrate_cmp -ne 2 ]]; then
         log_success "Already up to date ($current_version)"
         return 0
     fi
@@ -217,8 +233,11 @@ cmd_migrate() {
             migration_version=$(basename "$migration" | sed 's/migrate-v//;s/.sh//')
             
             # Check if this migration is needed
+            set +e
             compare_versions "$migration_version" "$last_migrated"
-            if [[ $? -eq 1 ]]; then
+            local migration_needed=$?
+            set -e
+            if [[ $migration_needed -eq 1 ]]; then
                 log_info "Running migration: $migration_version"
                 
                 if bash "$migration"; then
@@ -234,12 +253,111 @@ cmd_migrate() {
     done
     
     if [[ $failed -eq 0 ]]; then
+        # PR-17: auto-fix known deprecated env keys after successful migrations.
+        cmd_autofix_env || true
+        # Report remaining config issues without failing migration flow.
+        cmd_validate --warn-only >/dev/null || true
         set_last_migrated_version "$current_version"
         log_success "Migration complete! Updated to $current_version"
         return 0
     else
         log_error "Migration failed. Check logs and restore from backup."
         return 1
+    fi
+}
+
+# Auto-fix deprecated .env keys using schema metadata.
+cmd_autofix_env() {
+    local env_file="${INSTALL_DIR}/.env"
+    local schema_file="${INSTALL_DIR}/.env.schema.json"
+
+    if [[ ! -f "$env_file" ]]; then
+        log_warn "No .env found at $env_file"
+        return 0
+    fi
+    if [[ ! -f "$schema_file" ]]; then
+        log_warn "No schema found at $schema_file"
+        return 0
+    fi
+    if ! command -v python3 >/dev/null 2>&1; then
+        log_error "python3 is required for autofix-env"
+        return 1
+    fi
+
+    mapfile -t fix_rules < <(
+        python3 - "$schema_file" <<'PY'
+import json
+import sys
+
+schema = json.load(open(sys.argv[1], "r", encoding="utf-8"))
+deprecated = schema.get("x-deprecatedKeys", {}) or {}
+for key, meta in deprecated.items():
+    if not isinstance(meta, dict):
+        continue
+    if not bool(meta.get("auto_fix", False)):
+        continue
+    replacement = str(meta.get("replacement", "") or "").strip()
+    if not replacement:
+        continue
+    message = str(meta.get("message", "") or "").replace("\t", " ").strip()
+    print(f"{key}\t{replacement}\t{message}")
+PY
+    )
+
+    if [[ ${#fix_rules[@]} -eq 0 ]]; then
+        log_info "No auto-fix deprecations declared in schema"
+        return 0
+    fi
+
+    local backup_file="${env_file}.bak-$(date +%Y%m%d-%H%M%S)"
+    cp "$env_file" "$backup_file"
+    log_info "Backed up .env to $backup_file"
+
+    local changed=0
+    local removed=0
+
+    for rule in "${fix_rules[@]}"; do
+        local old_key new_key note
+        IFS=$'\t' read -r old_key new_key note <<< "$rule"
+        [[ -n "$old_key" && -n "$new_key" ]] || continue
+
+        if ! grep -Eq "^[[:space:]]*${old_key}[[:space:]]*=" "$env_file"; then
+            continue
+        fi
+
+        if grep -Eq "^[[:space:]]*${new_key}[[:space:]]*=" "$env_file"; then
+            local tmp_remove
+            tmp_remove="$(mktemp)"
+            awk -v key="$old_key" '
+                $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {next}
+                {print}
+            ' "$env_file" > "$tmp_remove"
+            mv "$tmp_remove" "$env_file"
+            log_warn "Removed deprecated ${old_key} because ${new_key} is already set"
+            ((removed+=1))
+            continue
+        fi
+
+        local tmp_file
+        tmp_file="$(mktemp)"
+        awk -v old="$old_key" -v new="$new_key" '
+            {
+                if ($0 ~ "^[[:space:]]*" old "[[:space:]]*=") {
+                    sub("^[[:space:]]*" old "[[:space:]]*=", new "=")
+                }
+                print
+            }
+        ' "$env_file" > "$tmp_file"
+        mv "$tmp_file" "$env_file"
+        log_success "Renamed ${old_key} -> ${new_key}"
+        [[ -n "$note" ]] && log_info "$note"
+        ((changed+=1))
+    done
+
+    if [[ $changed -eq 0 && $removed -eq 0 ]]; then
+        log_info "No deprecated env keys needed auto-fix"
+    else
+        log_success "autofix-env complete (renamed=${changed}, removed=${removed})"
     fi
 }
 
@@ -257,7 +375,7 @@ cmd_validate() {
         log_error "Schema missing: $schema_file"
         return 1
     fi
-    bash "$validator" "$env_file" "$schema_file"
+    bash "$validator" --env-file "$env_file" --schema-file "$schema_file" "$@"
 }
 
 # Show help
@@ -272,7 +390,8 @@ Commands:
   migrate     Run pending migrations (with backup)
   diff        Show configuration differences
   backup      Backup current configuration
-  validate    Validate .env against .env.schema.json
+  validate    Validate .env against .env.schema.json (passes through validator options)
+  autofix-env Auto-fix deprecated .env keys based on schema metadata
   help        Show this help message
 
 Examples:
@@ -280,6 +399,8 @@ Examples:
   ./migrate-config.sh migrate
   ./migrate-config.sh diff
   ./migrate-config.sh validate
+  ./migrate-config.sh validate --json
+  ./migrate-config.sh autofix-env
 
 Migration scripts should be placed in the migrations/ directory
 and named: migrate-vX.Y.Z.sh
@@ -302,7 +423,11 @@ case "${1:-help}" in
         cmd_backup
         ;;
     validate)
-        cmd_validate
+        shift
+        cmd_validate "$@"
+        ;;
+    autofix-env|autofix_env|autofix)
+        cmd_autofix_env
         ;;
     help|--help|-h)
         cmd_help

@@ -13,6 +13,12 @@ COMPOSE_OVERLAYS="${COMPOSE_OVERLAYS:-}"
 SCRIPT_DIR="${SCRIPT_DIR:-$(pwd)}"
 STRICT="false"
 ENV_MODE="false"
+ENV_FILE="${ENV_FILE:-}"
+SCHEMA_FILE="${SCHEMA_FILE:-}"
+ENV_STRICT="false"
+SKIP_ENV_VALIDATION="false"
+ENV_FILE_SET="false"
+SCHEMA_FILE_SET="false"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -56,6 +62,24 @@ while [[ $# -gt 0 ]]; do
             SCRIPT_DIR="${2:-$SCRIPT_DIR}"
             shift 2
             ;;
+        --env-file)
+            ENV_FILE="${2:-$ENV_FILE}"
+            ENV_FILE_SET="true"
+            shift 2
+            ;;
+        --schema-file)
+            SCHEMA_FILE="${2:-$SCHEMA_FILE}"
+            SCHEMA_FILE_SET="true"
+            shift 2
+            ;;
+        --env-strict)
+            ENV_STRICT="true"
+            shift
+            ;;
+        --skip-env-validation)
+            SKIP_ENV_VALIDATION="true"
+            shift
+            ;;
         --strict)
             STRICT="true"
             shift
@@ -71,7 +95,40 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-python3 - "$REPORT_FILE" "$TIER" "$RAM_GB" "$DISK_GB" "$GPU_BACKEND" "$GPU_VRAM_MB" "$GPU_NAME" "$PLATFORM_ID" "$COMPOSE_OVERLAYS" "$SCRIPT_DIR" "$ENV_MODE" "$STRICT" <<'PY'
+if [[ "$ENV_FILE_SET" != "true" ]]; then
+    ENV_FILE="${SCRIPT_DIR}/.env"
+fi
+if [[ "$SCHEMA_FILE_SET" != "true" ]]; then
+    SCHEMA_FILE="${SCRIPT_DIR}/.env.schema.json"
+fi
+
+ENV_VALIDATION_FILE=""
+ENV_VALIDATION_EXIT=""
+ENV_VALIDATION_ATTEMPTED="false"
+ENV_VALIDATION_STRICT="$ENV_STRICT"
+cleanup_tmp() {
+    if [[ -n "${ENV_VALIDATION_FILE:-}" && -f "${ENV_VALIDATION_FILE:-}" ]]; then
+        rm -f "$ENV_VALIDATION_FILE"
+    fi
+}
+trap cleanup_tmp EXIT
+if [[ "$SKIP_ENV_VALIDATION" != "true" ]]; then
+    validator="${SCRIPT_DIR}/scripts/validate-env.sh"
+    if [[ -x "$validator" && -f "$ENV_FILE" && -f "$SCHEMA_FILE" ]]; then
+        ENV_VALIDATION_ATTEMPTED="true"
+        ENV_VALIDATION_FILE="$(mktemp)"
+        set +e
+        if [[ "$ENV_STRICT" == "true" ]]; then
+            "$validator" --env-file "$ENV_FILE" --schema-file "$SCHEMA_FILE" --strict --json > "$ENV_VALIDATION_FILE"
+        else
+            "$validator" --env-file "$ENV_FILE" --schema-file "$SCHEMA_FILE" --warn-only --json > "$ENV_VALIDATION_FILE"
+        fi
+        ENV_VALIDATION_EXIT=$?
+        set -e
+    fi
+fi
+
+python3 - "$REPORT_FILE" "$TIER" "$RAM_GB" "$DISK_GB" "$GPU_BACKEND" "$GPU_VRAM_MB" "$GPU_NAME" "$PLATFORM_ID" "$COMPOSE_OVERLAYS" "$SCRIPT_DIR" "$ENV_MODE" "$STRICT" "$ENV_FILE" "$SCHEMA_FILE" "$ENV_VALIDATION_ATTEMPTED" "$ENV_VALIDATION_FILE" "$ENV_VALIDATION_EXIT" "$ENV_VALIDATION_STRICT" "$SKIP_ENV_VALIDATION" <<'PY'
 import json
 import pathlib
 import sys
@@ -90,10 +147,20 @@ from datetime import datetime, timezone
     script_dir,
     env_mode,
     strict_mode,
+    env_file,
+    schema_file,
+    env_validation_attempted,
+    env_validation_file,
+    env_validation_exit,
+    env_validation_strict,
+    skip_env_validation,
 ) = sys.argv[1:]
 
 env_mode = env_mode == "true"
 strict_mode = strict_mode == "true"
+env_validation_attempted = env_validation_attempted == "true"
+env_validation_strict = env_validation_strict == "true"
+skip_env_validation = skip_env_validation == "true"
 
 try:
     ram_gb = int(float(ram_gb))
@@ -295,6 +362,84 @@ else:
         "Verify capability profile and hardware detection output.",
     )
 
+env_validation: dict[str, object] = {
+    "attempted": env_validation_attempted,
+    "strict": env_validation_strict,
+    "env_file": env_file,
+    "schema_file": schema_file,
+    "status": "not_run",
+    "summary": {"errors": 0, "warnings": 0, "deprecated": 0},
+}
+
+if skip_env_validation:
+    env_validation["status"] = "skipped"
+elif env_validation_attempted:
+    try:
+        payload = json.loads(pathlib.Path(env_validation_file).read_text(encoding="utf-8"))
+        summary = payload.get("summary", {}) if isinstance(payload, dict) else {}
+        err_count = int(summary.get("errors", 0) or 0)
+        warn_count = int(summary.get("warnings", 0) or 0)
+        dep_count = int(summary.get("deprecated", 0) or 0)
+
+        env_validation["summary"] = {
+            "errors": err_count,
+            "warnings": warn_count,
+            "deprecated": dep_count,
+        }
+        env_validation["mode"] = payload.get("mode") if isinstance(payload, dict) else None
+        env_validation["exit_code"] = int(env_validation_exit) if str(env_validation_exit).strip() else 0
+        env_validation["status"] = "pass"
+
+        if err_count > 0:
+            env_validation["status"] = "failed"
+            add_check(
+                "env-validation",
+                "blocker" if env_validation_strict else "warn",
+                f".env validation found {err_count} error(s).",
+                "Run ./scripts/validate-env.sh --strict and fix reported keys before proceeding.",
+            )
+        elif warn_count > 0 or dep_count > 0:
+            env_validation["status"] = "warn"
+            add_check(
+                "env-validation",
+                "warn",
+                f".env validation warnings: {warn_count}, deprecated keys: {dep_count}.",
+                "Run ./scripts/validate-env.sh and optionally ./scripts/migrate-config.sh autofix-env.",
+            )
+        else:
+            add_check(
+                "env-validation",
+                "pass",
+                ".env validation passed.",
+                "",
+            )
+    except Exception as exc:
+        env_validation["status"] = "error"
+        env_validation["error"] = f"Failed to parse env validation report: {exc}"
+        add_check(
+            "env-validation",
+            "warn",
+            "Unable to parse env validation report.",
+            "Re-run ./scripts/validate-env.sh manually to inspect configuration issues.",
+        )
+else:
+    missing_bits = []
+    if not pathlib.Path(env_file).exists():
+        missing_bits.append(f"env file not found: {env_file}")
+    if not pathlib.Path(schema_file).exists():
+        missing_bits.append(f"schema not found: {schema_file}")
+    if not pathlib.Path(script_dir, "scripts", "validate-env.sh").exists():
+        missing_bits.append("validator script not found")
+    if missing_bits:
+        env_validation["status"] = "unavailable"
+        env_validation["details"] = missing_bits
+        add_check(
+            "env-validation",
+            "warn",
+            "Env validation could not run (" + "; ".join(missing_bits) + ").",
+            "Ensure .env, .env.schema.json, and scripts/validate-env.sh are present.",
+        )
+
 blockers = [c for c in checks if c["status"] == "blocker"]
 warnings = [c for c in checks if c["status"] == "warn"]
 
@@ -318,6 +463,7 @@ report = {
         "warnings": len(warnings),
         "can_proceed": len(blockers) == 0,
     },
+    "env_validation": env_validation,
     "checks": checks,
 }
 
@@ -335,6 +481,15 @@ if env_mode:
     out("PREFLIGHT_BLOCKERS", report["summary"]["blockers"])
     out("PREFLIGHT_WARNINGS", report["summary"]["warnings"])
     out("PREFLIGHT_CAN_PROCEED", str(report["summary"]["can_proceed"]).lower())
+    out("PREFLIGHT_ENV_VALIDATION_STATUS", report["env_validation"].get("status", "not_run"))
+    out("PREFLIGHT_ENV_VALIDATION_ERRORS", report["env_validation"].get("summary", {}).get("errors", 0))
+    out("PREFLIGHT_ENV_VALIDATION_WARNINGS", report["env_validation"].get("summary", {}).get("warnings", 0))
+    out("PREFLIGHT_ENV_VALIDATION_DEPRECATED", report["env_validation"].get("summary", {}).get("deprecated", 0))
+
+env_status = str(report["env_validation"].get("status", "not_run"))
+env_errors = int(report["env_validation"].get("summary", {}).get("errors", 0))
+if env_validation_strict and (env_errors > 0 or env_status in {"unavailable", "error"}):
+    raise SystemExit(1)
 
 if strict_mode and blockers:
     raise SystemExit(1)
