@@ -72,6 +72,7 @@ source "$SCRIPT_DIR/installers/lib/detection.sh"
 source "$SCRIPT_DIR/installers/lib/tier-map.sh"
 source "$SCRIPT_DIR/installers/lib/compose-select.sh"
 source "$SCRIPT_DIR/installers/lib/packaging.sh"
+source "$SCRIPT_DIR/lib/checkpoint.sh"
 
 #=============================================================================
 # Command Line Args
@@ -166,18 +167,33 @@ show_stranger_boot
 $DRY_RUN && echo -e "${AMB}>>> DRY RUN MODE — I will simulate everything. No changes made. <<<${NC}\n"
 
 #=============================================================================
+# Checkpoint Resume
+#=============================================================================
+START_PHASE=1
+if ! $DRY_RUN && ! $FORCE; then
+    if RESUME_PHASE=$(checkpoint_should_resume); then
+        START_PHASE=$(checkpoint_next_phase "$RESUME_PHASE")
+        echo -e "${GREEN}Resuming from phase $START_PHASE${NC}"
+        echo ""
+    fi
+fi
+
+#=============================================================================
 # Run phases
 #=============================================================================
-INSTALL_PHASE="01-preflight";    source "$SCRIPT_DIR/installers/phases/01-preflight.sh"
-INSTALL_PHASE="02-detection";    source "$SCRIPT_DIR/installers/phases/02-detection.sh"
-INSTALL_PHASE="03-features";     source "$SCRIPT_DIR/installers/phases/03-features.sh"
-INSTALL_PHASE="04-requirements"; source "$SCRIPT_DIR/installers/phases/04-requirements.sh"
-INSTALL_PHASE="05-docker";       source "$SCRIPT_DIR/installers/phases/05-docker.sh"
-INSTALL_PHASE="06-directories";  source "$SCRIPT_DIR/installers/phases/06-directories.sh"
-INSTALL_PHASE="07-devtools";     source "$SCRIPT_DIR/installers/phases/07-devtools.sh"
-INSTALL_PHASE="08-images";       source "$SCRIPT_DIR/installers/phases/08-images.sh"
-INSTALL_PHASE="09-offline";      source "$SCRIPT_DIR/installers/phases/09-offline.sh"
-INSTALL_PHASE="10-amd-tuning";   source "$SCRIPT_DIR/installers/phases/10-amd-tuning.sh"
-INSTALL_PHASE="11-services";     source "$SCRIPT_DIR/installers/phases/11-services.sh"
-INSTALL_PHASE="12-health";       source "$SCRIPT_DIR/installers/phases/12-health.sh"
-INSTALL_PHASE="13-summary";      source "$SCRIPT_DIR/installers/phases/13-summary.sh"
+[[ $START_PHASE -le 1 ]] && { INSTALL_PHASE="01-preflight";    source "$SCRIPT_DIR/installers/phases/01-preflight.sh"; checkpoint_save 1; }
+[[ $START_PHASE -le 2 ]] && { INSTALL_PHASE="02-detection";    source "$SCRIPT_DIR/installers/phases/02-detection.sh"; checkpoint_save 2; }
+[[ $START_PHASE -le 3 ]] && { INSTALL_PHASE="03-features";     source "$SCRIPT_DIR/installers/phases/03-features.sh"; checkpoint_save 3; }
+[[ $START_PHASE -le 4 ]] && { INSTALL_PHASE="04-requirements"; source "$SCRIPT_DIR/installers/phases/04-requirements.sh"; checkpoint_save 4; }
+[[ $START_PHASE -le 5 ]] && { INSTALL_PHASE="05-docker";       source "$SCRIPT_DIR/installers/phases/05-docker.sh"; checkpoint_save 5; }
+[[ $START_PHASE -le 6 ]] && { INSTALL_PHASE="06-directories";  source "$SCRIPT_DIR/installers/phases/06-directories.sh"; checkpoint_save 6; }
+[[ $START_PHASE -le 7 ]] && { INSTALL_PHASE="07-devtools";     source "$SCRIPT_DIR/installers/phases/07-devtools.sh"; checkpoint_save 7; }
+[[ $START_PHASE -le 8 ]] && { INSTALL_PHASE="08-images";       source "$SCRIPT_DIR/installers/phases/08-images.sh"; checkpoint_save 8; }
+[[ $START_PHASE -le 9 ]] && { INSTALL_PHASE="09-offline";      source "$SCRIPT_DIR/installers/phases/09-offline.sh"; checkpoint_save 9; }
+[[ $START_PHASE -le 10 ]] && { INSTALL_PHASE="10-amd-tuning";   source "$SCRIPT_DIR/installers/phases/10-amd-tuning.sh"; checkpoint_save 10; }
+[[ $START_PHASE -le 11 ]] && { INSTALL_PHASE="11-services";     source "$SCRIPT_DIR/installers/phases/11-services.sh"; checkpoint_save 11; }
+[[ $START_PHASE -le 12 ]] && { INSTALL_PHASE="12-health";       source "$SCRIPT_DIR/installers/phases/12-health.sh"; checkpoint_save 12; }
+[[ $START_PHASE -le 13 ]] && { INSTALL_PHASE="13-summary";      source "$SCRIPT_DIR/installers/phases/13-summary.sh"; checkpoint_save 13; }
+
+# Clear checkpoint after successful installation
+checkpoint_clear
