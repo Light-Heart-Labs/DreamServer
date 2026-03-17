@@ -95,6 +95,10 @@ python3 -c "import yaml; yaml.safe_load(open('extensions/services/my-service/man
 docker compose -f docker-compose.base.yml -f docker-compose.amd.yml \
   -f extensions/services/my-service/compose.yaml config
 
+# Contract audit (manifest + compose + overlay consistency)
+python3 scripts/audit-extensions.py --project-dir .
+bash tests/test-extension-audit.sh
+
 # Integration/smoke checks
 bash tests/integration-test.sh
 bash tests/smoke/linux-amd.sh
@@ -126,6 +130,47 @@ dream enable my-service    # Renames compose.yaml.disabled → compose.yaml
 dream disable my-service   # Stops container, renames compose.yaml → compose.yaml.disabled
 dream list                 # Shows all services with status
 ```
+
+## Audit Extensions Before You Ship
+
+Dream Server now includes an extension audit workflow so new services can be
+validated like core components instead of relying on ad hoc manual checks.
+
+Run the full audit:
+
+```bash
+python3 scripts/audit-extensions.py --project-dir .
+```
+
+Audit one service only:
+
+```bash
+python3 scripts/audit-extensions.py --project-dir . whisper
+```
+
+Fail on warnings too:
+
+```bash
+python3 scripts/audit-extensions.py --project-dir . --strict
+```
+
+From an installed system you can use the CLI:
+
+```bash
+dream audit
+dream audit --json comfyui
+```
+
+What the audit checks:
+- manifest schema/version, categories, types, ports, and health endpoints
+- alias collisions and broken dependency references
+- feature IDs and feature service references
+- compose file presence for non-core docker services
+- compose container names, port mappings, healthchecks, and disabled-state discovery
+- GPU overlay coverage for stub-based GPU services such as ComfyUI-style layouts
+
+This is especially useful when validating large extension libraries, because it
+surfaces integration regressions before they hit installer or runtime testing.
 
 ## Manifest Contract (v1)
 
