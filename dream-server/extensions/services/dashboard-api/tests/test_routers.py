@@ -460,3 +460,48 @@ def test_agents_throughput_authenticated(test_client):
     assert data["average"] == (42.0 + 55.0 + 38.0) / 3  # Average of all samples
     assert len(data["history"]) == 3
 
+
+# ---------------------------------------------------------------------------
+# Additional Input Validation Tests
+# ---------------------------------------------------------------------------
+
+
+def test_setup_persona_empty_string(test_client, setup_config_dir):
+    """POST /api/setup/persona with empty string → 400."""
+    resp = test_client.post(
+        "/api/setup/persona",
+        json={"persona": ""},
+        headers=test_client.auth_headers,
+    )
+    assert resp.status_code == 400
+
+
+def test_setup_persona_null_value(test_client, setup_config_dir):
+    """POST /api/setup/persona with null → 422."""
+    resp = test_client.post(
+        "/api/setup/persona",
+        json={"persona": None},
+        headers=test_client.auth_headers,
+    )
+    assert resp.status_code == 422
+
+
+def test_preflight_ports_max_valid_port(test_client):
+    """POST /api/preflight/ports with port 65535 (max valid) → 200."""
+    resp = test_client.post(
+        "/api/preflight/ports",
+        json={"ports": [65535]},
+        headers=test_client.auth_headers,
+    )
+    assert resp.status_code == 200
+
+
+def test_preflight_ports_min_valid_port(test_client):
+    """POST /api/preflight/ports with port 1 (min valid) → 200."""
+    resp = test_client.post(
+        "/api/preflight/ports",
+        json={"ports": [1]},
+        headers=test_client.auth_headers,
+    )
+    assert resp.status_code == 200
+>>>>>>> 8a44877 (test: add comprehensive input validation and injection resistance tests)
