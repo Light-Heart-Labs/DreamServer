@@ -11,6 +11,10 @@ RUN adduser --system --no-create-home ape
 
 EXPOSE 7890
 
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:7890/health')" || exit 1
+
 USER ape
 
 CMD ["python", "main.py"]
