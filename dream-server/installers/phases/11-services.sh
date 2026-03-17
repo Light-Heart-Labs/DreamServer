@@ -90,10 +90,8 @@ else
                         rm -f "$f" 2>/dev/null || true
                     done
                 }
-                # Don't override install-core.sh's SIGINT handler.
+                # EXIT trap handles cleanup without overriding install-core.sh's INT handler
                 trap _model_dl_cleanup EXIT
-                # Ensure we still cleanup temp files if the user aborts.
-                trap '_model_dl_cleanup; interrupt_handler' INT
             fi
 
             for _attempt in 1 2 3; do
