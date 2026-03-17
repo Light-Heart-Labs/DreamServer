@@ -7,6 +7,7 @@ service:
   container_name: dream-dashboard
   default_host: dashboard
   port: 3001
+  external_port_env: DASHBOARD_PORT
   external_port_default: 3001
   health: /
   type: docker

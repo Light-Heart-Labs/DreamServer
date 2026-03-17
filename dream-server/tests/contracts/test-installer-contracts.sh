@@ -30,6 +30,10 @@ echo "[contract] capability profile schema has hardware_class"
 jq -e '.properties.hardware_class and (.required | index("hardware_class"))' config/capability-profile.schema.json >/dev/null \
   || { echo "[FAIL] capability profile schema missing hardware_class"; exit 1; }
 
+echo "[contract] canonical port contract parity"
+test -x tests/contracts/test-port-contracts.sh || { echo "[FAIL] script not executable: tests/contracts/test-port-contracts.sh"; exit 1; }
+bash tests/contracts/test-port-contracts.sh
+
 echo "[contract] resolver scripts executable"
 for s in scripts/build-capability-profile.sh scripts/classify-hardware.sh scripts/load-backend-contract.sh scripts/resolve-compose-stack.sh scripts/preflight-engine.sh scripts/dream-doctor.sh scripts/simulate-installers.sh; do
   test -x "$s" || { echo "[FAIL] script not executable: $s"; exit 1; }

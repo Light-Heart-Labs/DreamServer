@@ -20,7 +20,7 @@ done
 # Config
 INSTALL_DIR="${INSTALL_DIR:-$HOME/dream-server}"
 LLM_HOST="${LLM_HOST:-localhost}"
-LLM_PORT="${LLM_PORT:-${SERVICE_PORTS[llama-server]:-8080}}"
+LLM_PORT="${LLM_PORT:-${SERVICE_PORTS[llama-server]:-11434}}"
 TIMEOUT="${TIMEOUT:-5}"
 
 # Source service registry

@@ -141,7 +141,7 @@ check_port() {
     return 0
 }
 
-PORTS_TO_CHECK="${SERVICE_PORTS[llama-server]:-8080} ${SERVICE_PORTS[open-webui]:-3000}"
+PORTS_TO_CHECK="${SERVICE_PORTS[llama-server]:-11434} ${SERVICE_PORTS[open-webui]:-3000}"
 [[ "$ENABLE_VOICE" == "true" ]] && PORTS_TO_CHECK="$PORTS_TO_CHECK ${SERVICE_PORTS[whisper]:-9000} ${SERVICE_PORTS[tts]:-8880}"
 [[ "$ENABLE_WORKFLOWS" == "true" ]] && PORTS_TO_CHECK="$PORTS_TO_CHECK ${SERVICE_PORTS[n8n]:-5678}"
 [[ "$ENABLE_RAG" == "true" ]] && PORTS_TO_CHECK="$PORTS_TO_CHECK ${SERVICE_PORTS[qdrant]:-6333}"
