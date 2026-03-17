@@ -91,10 +91,13 @@ validate_install_path() {
         return 1
     fi
     
-    # Check available disk space
+    # Check available disk space (POSIX-portable df -Pk)
     local avail_gb
     if command -v df &>/dev/null; then
-        avail_gb=$(df -BG "$parent_dir" 2>/dev/null | tail -1 | awk '{print $4}' | tr -d 'G' || echo "0")
+        # Use df -Pk (POSIX) which returns KB, then convert to GB
+        local avail_kb
+        avail_kb=$(df -Pk "$parent_dir" 2>/dev/null | tail -1 | awk '{print $4}' || echo "0")
+        avail_gb=$((avail_kb / 1048576))  # KB to GB (1024*1024)
         if [[ "$avail_gb" -lt "$required_gb" ]]; then
             echo "WARNING: Low disk space. Available: ${avail_gb}GB, Required: ${required_gb}GB" >&2
             return 2  # Warning, not fatal
