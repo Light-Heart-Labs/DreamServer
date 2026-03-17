@@ -325,9 +325,9 @@ import yaml
 import pathlib
 
 services_dir = pathlib.Path("extensions/services")
-internal_ports = {}
 external_ports = {}
 errors = []
+total_services = 0
 
 for svc_dir in services_dir.iterdir():
     if not svc_dir.is_dir():
@@ -341,17 +341,10 @@ for svc_dir in services_dir.iterdir():
 
     svc = data.get("service", {})
     svc_id = svc.get("id", svc_dir.name)
-    port = svc.get("port", 0)
     ext_port = svc.get("external_port_default", 0)
+    total_services += 1
 
-    # Check internal port uniqueness
-    if port and port != 0:
-        if port in internal_ports:
-            errors.append(f"Internal port {port} conflict: {internal_ports[port]} and {svc_id}")
-        else:
-            internal_ports[port] = svc_id
-
-    # Check external port uniqueness
+    # Only check external port uniqueness (internal ports can overlap in Docker)
     if ext_port and ext_port != 0:
         if ext_port in external_ports:
             errors.append(f"External port {ext_port} conflict: {external_ports[ext_port]} and {svc_id}")
@@ -361,7 +354,7 @@ for svc_dir in services_dir.iterdir():
 if errors:
     print("FAIL:" + "|".join(errors))
 else:
-    print(f"OK:{len(internal_ports)} internal + {len(external_ports)} external ports")
+    print(f"OK:{len(external_ports)} unique external ports across {total_services} services")
 PYEOF
 )
 
