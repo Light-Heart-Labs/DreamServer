@@ -13,6 +13,8 @@ import logging
 import os
 import re
 import secrets
+import shlex
+import tempfile
 import time
 from pathlib import Path
 
@@ -29,8 +31,8 @@ if DB_BACKEND == "postgres":
 else:
     from db import init_db, log_usage, query_session_status, query_summary, query_usage, query_recent_events
 
-from filters import apply_filters, FilterResult
-from providers import ProviderRegistry, AnthropicProvider, OpenAICompatibleProvider
+from filters import apply_filters
+from providers import ProviderRegistry
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
@@ -169,10 +171,20 @@ def load_settings() -> dict:
 
 
 def save_settings(data: dict):
-    """Persist settings to disk."""
-    os.makedirs(os.path.dirname(SETTINGS_PATH), exist_ok=True)
-    with open(SETTINGS_PATH, "w") as f:
-        json.dump(data, f, indent=2)
+    """Persist settings to disk via atomic write (write to temp + rename)."""
+    settings_dir = os.path.dirname(SETTINGS_PATH)
+    os.makedirs(settings_dir, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=settings_dir, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp_path, SETTINGS_PATH)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def get_agent_setting(agent: str, key: str):
@@ -496,7 +508,7 @@ def analyze_messages(messages: list) -> dict:
 def estimate_cost(model: str, input_tokens: int, output_tokens: int,
                   cache_read: int, cache_write: int, provider_name: str = "anthropic") -> float:
     """Estimate USD cost based on model and token counts.
-    
+
     Uses the provider plugin system for pricing data. Falls back to hardcoded
     COST_PER_MILLION if provider lookup fails for backwards compatibility.
     """
@@ -506,12 +518,12 @@ def estimate_cost(model: str, input_tokens: int, output_tokens: int,
         "cache_read_tokens": cache_read,
         "cache_write_tokens": cache_write,
     }
-    
+
     # Try provider-based cost calculation first
     provider = ProviderRegistry.get_or_none(provider_name)
     if provider:
         return provider.calculate_cost(usage, model)
-    
+
     # Fallback to hardcoded rates for backwards compatibility
     rates = None
     model_lower = (model or "").lower()
@@ -1004,6 +1016,7 @@ def _get_local_session_status(agent: str) -> dict:
         with open(largest) as f:
             lines = f.readlines()
     except Exception:
+        log.warning(f"[SESSION] Failed to read session file: {largest}")
         return None
 
     user_turns = 0
@@ -1029,8 +1042,8 @@ def _get_local_session_status(agent: str) -> dict:
                     history_chars += sum(len(str(x)) for x in c)
                 elif isinstance(c, str):
                     history_chars += len(c)
-        except Exception:
-            pass
+        except (json.JSONDecodeError, KeyError, TypeError):
+            pass  # skip malformed JSONL lines
 
     limit = get_agent_setting(agent, "session_char_limit") or AUTO_RESET_HISTORY_CHARS
     if tool_results >= 480:
@@ -1098,10 +1111,10 @@ def _get_local_accumulated_turns(agent: str) -> int:
                                 user_turns += 1
                             elif role == "assistant":
                                 assistant_turns += 1
-                    except Exception:
-                        pass
+                    except (json.JSONDecodeError, KeyError, TypeError):
+                        pass  # skip malformed JSONL lines
         except Exception:
-            pass
+            log.warning(f"[SESSION] Failed to read session file: {fpath}")
     current_file_turns = user_turns if user_turns > 0 else assistant_turns
 
     # Persistent accumulator — survives session purge (250KB/24h cleanup)
@@ -1109,7 +1122,7 @@ def _get_local_accumulated_turns(agent: str) -> int:
     try:
         with open(acc_path) as f:
             acc = json.load(f)
-    except Exception:
+    except (FileNotFoundError, json.JSONDecodeError):
         acc = {"total": 0, "last_file_turns": 0}
 
     last_file_turns = acc.get("last_file_turns", 0)
@@ -1128,7 +1141,7 @@ def _get_local_accumulated_turns(agent: str) -> int:
         with open(acc_path, "w") as f:
             json.dump(acc, f)
     except Exception:
-        pass
+        log.warning(f"[SESSION] Failed to save accumulated turns for {agent}")
 
     return total
 
@@ -1146,8 +1159,8 @@ def _get_remote_session_status(agent: str) -> dict:
     sessions_dir = remote["sessions_dir"]
 
     script = (
-        "import json, os, glob\n"
-        f"sdir = \"{sessions_dir}\"\n"
+        "import json, os, glob, sys\n"
+        "sdir = sys.argv[1]\n"
         "files = sorted(glob.glob(os.path.join(sdir, '*.jsonl')), key=os.path.getmtime, reverse=True)\n"
         "if not files:\n"
         "    print(json.dumps({'turns': 0, 'chars': 0, 'files': 0}))\n"
@@ -1177,9 +1190,10 @@ def _get_remote_session_status(agent: str) -> dict:
         " 'file_bytes': os.path.getsize(largest), 'total_lines': len(lines), 'files': len(files)}))"
     )
     try:
+        remote_cmd = f"python3 - {shlex.quote(sessions_dir)}"
         result = subprocess.run(
             ["ssh", "-o", "ConnectTimeout=3", "-o", "StrictHostKeyChecking=accept-new",
-             ssh_target, "python3", "-"],
+             ssh_target, remote_cmd],
             input=script, capture_output=True, text=True, timeout=10,
         )
         if result.returncode != 0:
@@ -1237,8 +1251,8 @@ def _kill_remote_session(agent: str, reason: str = "dashboard") -> dict:
     sessions_dir = remote["sessions_dir"]
 
     script = (
-        "import os, glob, json\n"
-        f"sdir = \"{sessions_dir}\"\n"
+        "import os, glob, json, sys\n"
+        "sdir = sys.argv[1]\n"
         "files = sorted(glob.glob(os.path.join(sdir, '*.jsonl')), key=os.path.getsize, reverse=True)\n"
         "if not files:\n"
         "    print(json.dumps({'action': 'none', 'reason': 'no sessions'}))\n"
@@ -1257,9 +1271,10 @@ def _kill_remote_session(agent: str, reason: str = "dashboard") -> dict:
         "    print(json.dumps({'action': 'killed', 'session_id': sid, 'size_bytes': size}))"
     )
     try:
+        remote_cmd = f"python3 - {shlex.quote(sessions_dir)}"
         result = subprocess.run(
             ["ssh", "-o", "ConnectTimeout=3", "-o", "StrictHostKeyChecking=accept-new",
-             ssh_target, "python3", "-"],
+             ssh_target, remote_cmd],
             input=script, capture_output=True, text=True, timeout=10,
         )
         if result.returncode != 0:
@@ -1314,8 +1329,8 @@ def _kill_session(agent: str, reason: str = "manual") -> dict:
             del data[k]
         with open(sessions_json, "w") as f:
             json.dump(data, f, indent=2)
-    except Exception:
-        pass
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        log.warning(f"[RESET] Failed to clean sessions.json for {agent}")
 
     log.warning(f"[RESET] Killed session {largest} for {agent} ({size} bytes) — {reason}")
     return {"agent": agent, "action": "killed", "session_id": largest, "size_bytes": size}
@@ -1323,7 +1338,7 @@ def _kill_session(agent: str, reason: str = "manual") -> dict:
 
 def _auto_reset_check(agent: str, history_chars: int):
     """Check if session should be auto-reset based on history size.
-    
+
     Uses dynamic settings from settings.json (editable via dashboard).
     Per-agent overrides take precedence over the global session_char_limit.
     """
@@ -1715,9 +1730,17 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .save-btn:disabled { background: #30363d; color: #8b949e; cursor: not-allowed; }
   .save-status { color: #3fb950; font-size: 0.85em; margin-left: 12px; display: none; }
   @media (max-width: 768px) { .chart-row, .session-panel { grid-template-columns: 1fr; } }
+  #login-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:#0d1117;display:flex;align-items:center;justify-content:center;z-index:9999}
+  #login-box{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:32px;width:340px;text-align:center}
+  #login-box h2{color:#c9d1d9;margin:0 0 16px}
+  #login-box input{width:100%;padding:8px 12px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;margin-bottom:12px;box-sizing:border-box}
+  #login-box button{width:100%;padding:8px;background:#238636;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600}
+  #login-box button:hover{background:#2ea043}
+  #login-error{color:#f85149;font-size:13px;margin-top:8px;display:none}
 </style>
 </head>
 <body>
+<div id="login-overlay" style="display:none"><div id="login-box"><h2>Token Spy</h2><input id="login-key" type="password" placeholder="API Key" onkeydown="if(event.key==='Enter')attemptLogin()"><button onclick="attemptLogin()">Sign In</button><div id="login-error"></div></div></div>
 
 <div class="header">
   <div>
@@ -1812,6 +1835,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 </div>
 
 <script>
+function _getApiKey(){return sessionStorage.getItem('token_spy_api_key')||''}
+function _authHeaders(){return {Authorization:'Bearer '+_getApiKey()}}
+function _clearAuth(){sessionStorage.removeItem('token_spy_api_key');document.getElementById('login-overlay').style.display='flex'}
+async function _authFetch(url,opts={}){opts.headers=Object.assign({},opts.headers||{},_authHeaders());const r=await fetch(url,opts);if(r.status===401||r.status===403){_clearAuth();throw new Error('Unauthorized')}return r}
+function attemptLogin(){const k=document.getElementById('login-key').value.trim();if(!k)return;fetch('/api/summary',{headers:{Authorization:'Bearer '+k}}).then(r=>{if(r.ok){sessionStorage.setItem('token_spy_api_key',k);document.getElementById('login-overlay').style.display='none';document.getElementById('login-error').style.display='none';loadAll()}else{document.getElementById('login-error').textContent='Invalid API key';document.getElementById('login-error').style.display='block'}}).catch(()=>{document.getElementById('login-error').textContent='Connection error';document.getElementById('login-error').style.display='block'})}
+if(!_getApiKey()){document.getElementById('login-overlay').style.display='flex'}
 let tokensChart = null, breakdownChart = null, costChart = null, historyChart = null, cumulativeChart = null;
 
 function getHours() {
@@ -1821,15 +1850,15 @@ function getHours() {
 async function loadAll() {
   const hours = getHours();
   const [summaryRes, usageRes] = await Promise.all([
-    fetch('/api/summary?hours=' + hours, {headers: _authHdr}),
-    fetch('/api/usage?hours=' + hours + '&limit=500', {headers: _authHdr}),
+    _authFetch('/api/summary?hours=' + hours),
+    _authFetch('/api/usage?hours=' + hours + '&limit=500'),
   ]);
   const summary = await summaryRes.json();
   const usage = await usageRes.json();
   // Dynamically discover agents from data (usage + summary)
   const agents = [...new Set([...usage.map(u => u.agent), ...summary.map(s => s.agent)])];
   // Fetch session status for each discovered agent
-  const sessionPromises = agents.map(agent => fetch('/api/session-status?agent=' + encodeURIComponent(agent), {headers: _authHdr}));
+  const sessionPromises = agents.map(agent => _authFetch('/api/session-status?agent=' + encodeURIComponent(agent)));
   const sessionResults = await Promise.all(sessionPromises);
   const sessions = await Promise.all(sessionResults.map(r => r.json()));
   window._agents = agents;
@@ -1874,7 +1903,7 @@ async function resetSession(agent) {
   const btn = document.getElementById('reset-' + agent);
   if (btn) { btn.disabled = true; btn.textContent = 'Resetting...'; }
   try {
-    const res = await fetch('/api/reset-session?agent=' + encodeURIComponent(agent), { method: 'POST', headers: _authHdr });
+    const res = await _authFetch('/api/reset-session?agent=' + encodeURIComponent(agent), { method: 'POST' });
     const data = await res.json();
     if (data.action === 'killed') {
       if (btn) { btn.textContent = 'Reset — restarting...'; }
@@ -2170,7 +2199,7 @@ function toggleSettings() {
 
 async function loadSettingsUI() {
   try {
-    const res = await fetch('/api/settings', {headers: _authHdr});
+    const res = await _authFetch('/api/settings');
     const s = await res.json();
     document.getElementById('set-global-limit').value = s.session_char_limit || '';
     document.getElementById('set-global-poll').value = s.poll_interval_minutes || '';
@@ -2246,9 +2275,9 @@ async function saveSettings() {
   };
 
   try {
-    const res = await fetch('/api/settings', {
+    const res = await _authFetch('/api/settings', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json', ..._authHdr},
+      headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body),
     });
     if (res.ok) {
@@ -2274,8 +2303,8 @@ async function saveSettings() {
 }
 
 document.getElementById('hours-select').addEventListener('change', loadAll);
-loadAll();
-setInterval(loadAll, 30000);
+if(_getApiKey()){loadAll()}
+setInterval(function(){if(_getApiKey())loadAll()}, 30000);
 </script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
 </body>
@@ -2284,9 +2313,7 @@ setInterval(loadAll, 30000);
 
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard():
-    # Inject API key into dashboard so embedded JS can authenticate
-    auth_script = f'<script>const _TSK="{TOKEN_SPY_API_KEY}";const _authHdr={{"Authorization":"Bearer "+_TSK}};</script>'
-    return DASHBOARD_HTML.replace("<head>", "<head>" + auth_script, 1)
+    return DASHBOARD_HTML
 
 
 # ── SSE Token Events Stream ─────────────────────────────────────────────────
@@ -2300,7 +2327,7 @@ async def token_events(request: Request):
             try:
                 # Query recent events
                 events = query_recent_events(limit=50, after_id=last_id)
-                
+
                 for event in events:
                     # Format event as SSE
                     event_data = {
@@ -2315,21 +2342,21 @@ async def token_events(request: Request):
                         "timestamp": event.get("timestamp", ""),
                         "agent_name": event.get("agent_name", AGENT_NAME)
                     }
-                    
+
                     yield f"data: {json.dumps(event_data)}\n\n"
                     last_id = event.get("id")
-                
+
                 # Heartbeat to keep connection alive
                 yield ":heartbeat\n\n"
-                
+
                 # Wait before next poll
                 await asyncio.sleep(2)
-                
+
             except Exception as e:
                 log.error(f"SSE stream error: {e}")
                 yield f"event: error\ndata: {json.dumps({'error': 'Stream error'})}\n\n"
                 await asyncio.sleep(5)
-    
+
     return StreamingResponse(
         event_stream(),
         media_type="text/event-stream",

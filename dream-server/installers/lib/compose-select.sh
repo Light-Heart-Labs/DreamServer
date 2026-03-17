@@ -14,6 +14,8 @@
 #   Add new compose overlay mappings or backends here.
 # ============================================================================
 
+[[ -f "${SCRIPT_DIR:-}/lib/safe-env.sh" ]] && . "${SCRIPT_DIR}/lib/safe-env.sh"
+
 resolve_compose_config() {
     COMPOSE_FILE="docker-compose.yml"
     COMPOSE_FLAGS=""
@@ -75,7 +77,13 @@ resolve_compose_config() {
             --gpu-backend "$GPU_BACKEND" \
             --profile-overlays "${CAP_COMPOSE_OVERLAYS:-}" \
             --env 2>>"$LOG_FILE")"
-        eval "$COMPOSE_ENV"
+        load_env_from_output <<< "$COMPOSE_ENV"
+    fi
+
+    # Layer Tier 0 memory overlay for low-RAM machines
+    if [[ "$TIER" == "0" && -f "$SCRIPT_DIR/docker-compose.tier0.yml" ]]; then
+        COMPOSE_FLAGS="$COMPOSE_FLAGS -f docker-compose.tier0.yml"
+        log "Including docker-compose.tier0.yml (Tier 0 memory limits)"
     fi
 
     # Auto-include docker-compose.override.yml if present (standard Docker convention).

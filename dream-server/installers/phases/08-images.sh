@@ -24,21 +24,21 @@ if [[ "$GPU_BACKEND" == "amd" ]]; then
     PULL_LIST+=("kyuz0/amd-strix-halo-toolboxes:rocm-7.2|LLAMA-SERVER — downloading the brain (AMD ROCm)")
     PULL_LIST+=("ignatberesnev/comfyui-gfx1151:v0.2|COMFYUI — image generation engine (gfx1151)")
 else
-    PULL_LIST+=("ghcr.io/ggml-org/llama.cpp:server-cuda|LLAMA-SERVER — downloading the brain (NVIDIA CUDA)")
+    PULL_LIST+=("ghcr.io/ggml-org/llama.cpp:server-cuda-b8248|LLAMA-SERVER — downloading the brain (NVIDIA CUDA)")
 fi
 PULL_LIST+=("ghcr.io/open-webui/open-webui:v0.7.2|OPEN WEBUI — interface module")
-PULL_LIST+=("itzcrazykns1337/perplexica:slim-latest|PERPLEXICA — deep research engine")
+PULL_LIST+=("itzcrazykns1337/perplexica:slim-latest@sha256:6e399abf4ff587822b0ef0df11f36088fb928e17ac61556fe89beb68d48c378e|PERPLEXICA — deep research engine")
 if [[ "$ENABLE_VOICE" == "true" ]]; then
     if [[ "$GPU_BACKEND" == "nvidia" ]]; then
-        PULL_LIST+=("ghcr.io/speaches-ai/speaches:latest-cuda|WHISPER — ears online (Speaches STT, CUDA)")
+        PULL_LIST+=("ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cuda|WHISPER — ears online (Speaches STT, CUDA)")
     else
-        PULL_LIST+=("ghcr.io/speaches-ai/speaches:latest-cpu|WHISPER — ears online (Speaches STT)")
+        PULL_LIST+=("ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cpu|WHISPER — ears online (Speaches STT)")
     fi
     PULL_LIST+=("ghcr.io/remsky/kokoro-fastapi-cpu:v0.2.4|KOKORO — voice module")
 fi
 [[ "$ENABLE_WORKFLOWS" == "true" ]] && PULL_LIST+=("n8nio/n8n:2.6.4|N8N — automation engine")
 [[ "$ENABLE_RAG" == "true" ]] && PULL_LIST+=("qdrant/qdrant:v1.16.3|QDRANT — memory vault")
-[[ "$ENABLE_OPENCLAW" == "true" ]] && PULL_LIST+=("ghcr.io/openclaw/openclaw:latest|OPENCLAW — agent framework")
+[[ "$ENABLE_OPENCLAW" == "true" ]] && PULL_LIST+=("ghcr.io/openclaw/openclaw:2026.3.8|OPENCLAW — agent framework")
 [[ "$ENABLE_RAG" == "true" ]] && PULL_LIST+=("ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.1|TEI — embedding engine")
 
 if $DRY_RUN; then

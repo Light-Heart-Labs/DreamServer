@@ -87,7 +87,15 @@ if [ -n "$WIPE_IDS" ]; then
     cp "$SESSIONS_JSON" "$SESSIONS_JSON.bak-cleanup"
 
     for ID in $WIPE_IDS; do
-        python3 -c "
+        PYTHON_CMD="python3"
+        if [[ -f "$(dirname "$0")/../lib/python-cmd.sh" ]]; then
+            . "$(dirname "$0")/../lib/python-cmd.sh"
+            PYTHON_CMD="$(ds_detect_python_cmd)"
+        elif command -v python >/dev/null 2>&1; then
+            PYTHON_CMD="python"
+        fi
+
+        "$PYTHON_CMD" -c "
 import json, sys
 with open('$SESSIONS_JSON', 'r') as f:
     data = json.load(f)

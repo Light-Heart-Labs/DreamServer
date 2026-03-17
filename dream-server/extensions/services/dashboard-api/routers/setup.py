@@ -28,8 +28,8 @@ def get_active_persona_prompt() -> str:
             with open(persona_file) as f:
                 data = json.load(f)
                 return data.get("system_prompt", PERSONAS["general"]["system_prompt"])
-        except Exception:
-            pass
+        except (FileNotFoundError, PermissionError, json.JSONDecodeError):
+            logger.debug("Failed to read persona.json, using default prompt")
     return PERSONAS["general"]["system_prompt"]
 
 
@@ -45,8 +45,8 @@ async def setup_status(api_key: str = Depends(verify_api_key)):
         try:
             with open(progress_file) as f:
                 step = json.load(f).get("step", 0)
-        except Exception:
-            pass
+        except (FileNotFoundError, PermissionError, json.JSONDecodeError):
+            logger.debug("Failed to read setup-progress.json")
 
     persona = None
     persona_file = SETUP_CONFIG_DIR / "persona.json"
@@ -54,8 +54,8 @@ async def setup_status(api_key: str = Depends(verify_api_key)):
         try:
             with open(persona_file) as f:
                 persona = json.load(f).get("persona")
-        except Exception:
-            pass
+        except (FileNotFoundError, PermissionError, json.JSONDecodeError):
+            logger.debug("Failed to read persona.json for setup status")
 
     return {"first_run": first_run, "step": step, "persona": persona, "personas_available": list(PERSONAS.keys())}
 
@@ -132,7 +132,7 @@ async def run_setup_diagnostics(api_key: str = Depends(verify_api_key)):
                         async with session.get(url, timeout=5) as resp:
                             status = "\u2713" if resp.status == 200 else "\u2717"
                             yield f"{status} {name}: {resp.status}\n"
-                    except Exception as e:
+                    except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as e:
                         yield f"\u2717 {name}: {e}\n"
             yield "\nSetup complete!\n"
         return StreamingResponse(error_stream(), media_type="text/plain")
@@ -143,10 +143,20 @@ async def run_setup_diagnostics(api_key: str = Depends(verify_api_key)):
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1, universal_newlines=True
         )
-        for line in process.stdout:
-            yield line
-        process.wait()
-        yield f"\n{'All tests passed!' if process.returncode == 0 else 'Some tests failed.'}\n"
+        try:
+            for line in process.stdout:
+                yield line
+            process.wait()
+            yield f"\n{'All tests passed!' if process.returncode == 0 else 'Some tests failed.'}\n"
+        finally:
+            if process.stdout:
+                process.stdout.close()
+            if process.poll() is None:
+                try:
+                    process.kill()
+                except OSError:
+                    pass
+                process.wait()
 
     return StreamingResponse(run_tests(), media_type="text/plain")
 
@@ -176,6 +186,6 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
                 else:
                     error_text = await resp.text()
                     raise HTTPException(status_code=resp.status, detail=f"LLM error: {error_text}")
-    except aiohttp.ClientError as e:
+    except aiohttp.ClientError:
         logger.exception("Cannot reach LLM backend")
         raise HTTPException(status_code=503, detail="Cannot reach LLM backend")

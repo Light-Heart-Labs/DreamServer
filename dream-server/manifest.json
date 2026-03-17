@@ -16,8 +16,8 @@
         "notes": "Tier B path via WSL2 + Docker Desktop"
       },
       "macos": {
-        "supported": false,
-        "notes": "Installer dispatch stub present, runtime support pending"
+        "supported": true,
+        "notes": "Tier B — Apple Silicon with native Metal inference + Docker services"
       },
       "windows_native": {
         "supported": false,

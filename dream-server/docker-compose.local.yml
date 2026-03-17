@@ -1,0 +1,8 @@
+# Mode-specific overlay: included by resolve-compose-stack.sh for local and hybrid modes only.
+# Do NOT add this file to docker-compose directly — it is conditionally included based on DREAM_MODE.
+
+services:
+  open-webui:
+    depends_on:
+      llama-server:
+        condition: service_healthy

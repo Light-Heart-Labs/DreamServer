@@ -5,10 +5,14 @@ Collects real-time metrics on agent swarms, sessions, and throughput.
 
 import asyncio
 import json
-import subprocess
 from datetime import datetime, timedelta
-from typing import Optional, Dict, List
+from typing import List
 import os
+
+import aiohttp
+
+TOKEN_SPY_URL = os.environ.get("TOKEN_SPY_URL", "http://token-spy:8080")
+TOKEN_SPY_API_KEY = os.environ.get("TOKEN_SPY_API_KEY", "")
 
 
 class AgentMetrics:
@@ -17,9 +21,9 @@ class AgentMetrics:
     def __init__(self):
         self.last_update = datetime.now()
         self.session_count = 0
-        self.tokens_per_second = 0.0
+        self.tokens_per_second = 0.0  # no data source located; use throughput.get_stats() for live rate
         self.error_rate_1h = 0.0
-        self.queue_depth = 0
+        self.queue_depth = 0  # no data source located; llama-server /health does not expose queued requests
 
     def to_dict(self) -> dict:
         return {
@@ -56,8 +60,8 @@ class ClusterStatus:
                 self.total_gpus = len(self.nodes)
                 self.active_gpus = sum(1 for n in self.nodes if n.get("healthy", False))
                 self.failover_ready = self.active_gpus > 1
-        except Exception:
-            pass
+        except (FileNotFoundError, asyncio.TimeoutError, OSError, json.JSONDecodeError):
+            pass  # cluster proxy may not be running
 
     def to_dict(self) -> dict:
         return {
@@ -109,6 +113,31 @@ cluster_status = ClusterStatus()
 throughput = ThroughputMetrics()
 
 
+async def _fetch_token_spy_metrics() -> None:
+    """Pull per-agent session count and throughput from Token Spy /api/summary."""
+    if not TOKEN_SPY_URL:
+        return
+    try:
+        headers = {}
+        if TOKEN_SPY_API_KEY:
+            headers["Authorization"] = f"Bearer {TOKEN_SPY_API_KEY}"
+        timeout = aiohttp.ClientTimeout(total=5)
+        async with aiohttp.ClientSession(timeout=timeout) as http:
+            async with http.get(
+                f"{TOKEN_SPY_URL}/api/summary",
+                headers=headers,
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    agent_metrics.session_count = len(data)
+                    # total_output_tokens is a 24 h aggregate; dividing by 3600 gives
+                    # an average tokens/sec over the last hour (approximation)
+                    total_out = sum(r.get("total_output_tokens", 0) or 0 for r in data)
+                    throughput.add_sample(total_out / 3600.0)
+    except (aiohttp.ClientError, asyncio.TimeoutError, aiohttp.ContentTypeError):
+        pass  # Token Spy may not be running — degrade gracefully
+
+
 async def collect_metrics():
     """Background task to collect metrics periodically"""
     while True:
@@ -116,10 +145,13 @@ async def collect_metrics():
             # Update cluster status
             await cluster_status.refresh()
 
+            # Update agent session count and throughput from Token Spy
+            await _fetch_token_spy_metrics()
+
             agent_metrics.last_update = datetime.now()
 
-        except Exception:
-            pass
+        except (FileNotFoundError, asyncio.TimeoutError, OSError, json.JSONDecodeError):
+            pass  # best-effort background metrics collection
 
         await asyncio.sleep(5)  # Update every 5 seconds
 

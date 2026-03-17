@@ -75,7 +75,10 @@ download_with_progress() {
 
     ai "${label}..."
     local part_file="${destination}.part"
-    if curl -C - -L --progress-bar -o "$part_file" "$url"; then
+    if curl -C - -L --progress-bar \
+        --connect-timeout 10 \
+        --speed-time 30 --speed-limit 10240 \
+        -o "$part_file" "$url"; then
         mv "$part_file" "$destination"
         ai_ok "${label} complete"
         return 0

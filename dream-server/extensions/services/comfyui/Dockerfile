@@ -33,9 +33,9 @@ RUN pip3 install --no-cache-dir \
         --index-url https://download.pytorch.org/whl/cu128
 
 # ---------------------------------------------------------------------------
-# Layer 3: ComfyUI from source (pinned to release tag)
+# Layer 3: ComfyUI from source (pinned to v0.16.4)
 # ---------------------------------------------------------------------------
-RUN git clone https://github.com/comfyanonymous/ComfyUI.git "$COMFYUI_DIR" \
+RUN git clone --branch v0.16.4 --depth 1 https://github.com/comfyanonymous/ComfyUI.git "$COMFYUI_DIR" \
     && cd "$COMFYUI_DIR" \
     && pip3 install --no-cache-dir -r requirements.txt
 
@@ -43,7 +43,7 @@ RUN git clone https://github.com/comfyanonymous/ComfyUI.git "$COMFYUI_DIR" \
 # Layer 4: ComfyUI-Manager
 # ---------------------------------------------------------------------------
 RUN cd "$COMFYUI_DIR/custom_nodes" \
-    && git clone https://github.com/ltdrdata/ComfyUI-Manager.git \
+    && git clone --branch 4.1b2 --depth 1 https://github.com/ltdrdata/ComfyUI-Manager.git \
     && cd ComfyUI-Manager \
     && pip3 install --no-cache-dir -r requirements.txt 2>/dev/null || true
 
@@ -53,6 +53,7 @@ RUN cd "$COMFYUI_DIR/custom_nodes" \
 RUN cd "$COMFYUI_DIR/custom_nodes" \
     && git clone https://github.com/city96/ComfyUI-GGUF.git \
     && cd ComfyUI-GGUF \
+    && git checkout 6ea2651e \
     && pip3 install --no-cache-dir -r requirements.txt 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
@@ -61,6 +62,7 @@ RUN cd "$COMFYUI_DIR/custom_nodes" \
 RUN cd "$COMFYUI_DIR/custom_nodes" \
     && git clone https://github.com/kijai/ComfyUI-KJNodes.git \
     && cd ComfyUI-KJNodes \
+    && git checkout 2747d76e \
     && pip3 install --no-cache-dir -r requirements.txt 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
@@ -69,6 +71,7 @@ RUN cd "$COMFYUI_DIR/custom_nodes" \
 RUN cd "$COMFYUI_DIR/custom_nodes" \
     && git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git \
     && cd ComfyUI-VideoHelperSuite \
+    && git checkout 993082e4 \
     && pip3 install --no-cache-dir -r requirements.txt 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
@@ -77,6 +80,7 @@ RUN cd "$COMFYUI_DIR/custom_nodes" \
 RUN cd "$COMFYUI_DIR/custom_nodes" \
     && git clone https://github.com/Lightricks/ComfyUI-LTXVideo.git \
     && cd ComfyUI-LTXVideo \
+    && git checkout 531512f7 \
     && pip3 install --no-cache-dir -r requirements.txt 2>/dev/null || true
 
 # ---------------------------------------------------------------------------

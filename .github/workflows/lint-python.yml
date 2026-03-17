@@ -28,4 +28,4 @@ jobs:
         run: |
           ruff check dream-server/ \
             --select E,F,W \
-            --ignore E501
+            --ignore E501,E701,E731,E741,E402

@@ -132,6 +132,11 @@ dream list                 # Shows all services with status
 Required root field:
 - `schema_version: dream.services.v1`
 
+Optional root field:
+- `compatibility` — version compatibility hints:
+  - `dream_min`: minimum Dream Server version this extension supports (e.g. `"2.0.0"`)
+  - `dream_max`: maximum Dream Server version this extension was tested against (optional)
+
 Service section:
 - required: `id`, `name`, `port`, `health`
 - recommended: `aliases`, `container_name`, `compose_file`, `category`, `depends_on`
@@ -316,3 +321,4 @@ npm run build
 - Unknown/malformed manifests are skipped with warnings, not fatal crashes.
 - Keep extension files ASCII and small; one service per directory is preferred.
 - The service registry (`lib/service-registry.sh`) provides bash functions for resolving aliases and discovering enabled services.
+- **Scripts that load `.env`:** Source `lib/safe-env.sh` and use `load_env_file "<path>"`; do not use `eval` or `export $(grep ... .env | xargs)` (injection risk).

@@ -18,6 +18,8 @@
 
 chapter "REQUIREMENTS CHECK"
 
+[[ -f "${SCRIPT_DIR:-}/lib/safe-env.sh" ]] && . "${SCRIPT_DIR}/lib/safe-env.sh"
+
 REQUIREMENTS_MET=true
 TIER_RANK="$(tier_rank "$TIER")"
 
@@ -35,13 +37,22 @@ if [[ -x "$SCRIPT_DIR/scripts/preflight-engine.sh" ]]; then
         --compose-overlays "${CAP_COMPOSE_OVERLAYS:-}" \
         --script-dir "$SCRIPT_DIR" \
         --env 2>>"$LOG_FILE")"
-    eval "$PREFLIGHT_ENV"
+    load_env_from_output <<< "$PREFLIGHT_ENV"
 
     log "Preflight report: $PREFLIGHT_REPORT_FILE"
     if [[ "${PREFLIGHT_BLOCKERS:-0}" -gt 0 ]]; then
         REQUIREMENTS_MET=false
         ai_bad "Preflight found ${PREFLIGHT_BLOCKERS} blocker(s) and ${PREFLIGHT_WARNINGS:-0} warning(s)."
-        python3 - "$PREFLIGHT_REPORT_FILE" << 'PY'
+
+        PYTHON_CMD="python3"
+        if [[ -f "$SCRIPT_DIR/lib/python-cmd.sh" ]]; then
+            . "$SCRIPT_DIR/lib/python-cmd.sh"
+            PYTHON_CMD="$(ds_detect_python_cmd)"
+        elif command -v python >/dev/null 2>&1; then
+            PYTHON_CMD="python"
+        fi
+
+        "$PYTHON_CMD" - "$PREFLIGHT_REPORT_FILE" << 'PY'
 import json
 import sys
 
@@ -65,7 +76,7 @@ PY
     fi
 
     if [[ "${PREFLIGHT_WARNINGS:-0}" -gt 0 ]]; then
-        python3 - "$PREFLIGHT_REPORT_FILE" << 'PY'
+        "$PYTHON_CMD" - "$PREFLIGHT_REPORT_FILE" << 'PY'
 import json
 import sys
 
@@ -94,6 +105,7 @@ else
         4) MIN_RAM=64 ;;
         3) MIN_RAM=48 ;;
         2) MIN_RAM=32 ;;
+        0) MIN_RAM=4 ;;
         *) MIN_RAM=16 ;;
     esac
     if [[ $RAM_GB -lt $MIN_RAM ]]; then
@@ -102,6 +114,7 @@ else
         ai_ok "RAM: ${RAM_GB}GB (recommended: ${MIN_RAM}GB+)"
     fi
     case $TIER in
+        0) MIN_DISK=15 ;;
         1) MIN_DISK=30 ;;
         2) MIN_DISK=50 ;;
         3) MIN_DISK=80 ;;
@@ -121,34 +134,114 @@ else
     fi
 fi
 
-# Port availability check (handles IPv4 and IPv6)
+# Port conflict detection with process details
+# Warn-once guard for missing port-check tools
 _port_check_warned=false
-check_port() {
-    local port=$1
-    if command -v ss &> /dev/null; then
-        ss -tln 2>/dev/null | grep -qE ":${port}(\s|$)" && return 1
-    elif command -v netstat &> /dev/null; then
-        netstat -tln 2>/dev/null | grep -qE ":${port}(\s|$)" && return 1
-    else
-        # Neither tool available — warn once, then skip port checks
-        if [[ "$_port_check_warned" != "true" ]]; then
-            warn "Neither 'ss' nor 'netstat' found — cannot verify port availability"
-            warn "Install iproute2 (for ss) or net-tools (for netstat) to enable port checks"
-            _port_check_warned=true
+
+check_port_conflict() {
+    local port="$1"
+    PORT_CONFLICT=false
+    PORT_CONFLICT_PID=""
+    PORT_CONFLICT_PROC=""
+
+    # Try lsof first (most reliable for getting process info)
+    if command -v lsof &> /dev/null; then
+        if lsof -i ":${port}" -sTCP:LISTEN >/dev/null 2>&1; then
+            PORT_CONFLICT_PID=$(lsof -t -i ":${port}" -sTCP:LISTEN 2>/dev/null | head -1)
+            PORT_CONFLICT_PROC=$(ps -p "$PORT_CONFLICT_PID" -o comm= 2>/dev/null || echo "unknown")
+            PORT_CONFLICT=true
+            return 0
         fi
-        return 0  # Can't check, assume free but user is warned
+    # Fallback to ss (faster but less detailed)
+    elif command -v ss &> /dev/null; then
+        if ss -tln 2>/dev/null | grep -qE ":${port}(\s|$)"; then
+            # Try to extract PID from ss output (format: users:(("process",pid=1234,fd=5)))
+            local ss_line
+            ss_line=$(ss -tlnp 2>/dev/null | grep -E ":${port}(\s|$)" | head -1)
+            if [[ "$ss_line" =~ pid=([0-9]+) ]]; then
+                PORT_CONFLICT_PID="${BASH_REMATCH[1]}"
+                PORT_CONFLICT_PROC=$(ps -p "$PORT_CONFLICT_PID" -o comm= 2>/dev/null || echo "unknown")
+            else
+                PORT_CONFLICT_PROC="unknown"
+            fi
+            PORT_CONFLICT=true
+            return 0
+        fi
+    # Fallback to netstat
+    elif command -v netstat &> /dev/null; then
+        if netstat -tln 2>/dev/null | grep -qE ":${port}(\s|$)"; then
+            # netstat -tlnp requires root, so we may not get PID
+            local netstat_line
+            netstat_line=$(netstat -tlnp 2>/dev/null | grep -E ":${port}(\s|$)" | head -1)
+            if [[ "$netstat_line" =~ ([0-9]+)/([^ ]+) ]]; then
+                PORT_CONFLICT_PID="${BASH_REMATCH[1]}"
+                PORT_CONFLICT_PROC="${BASH_REMATCH[2]}"
+            else
+                PORT_CONFLICT_PROC="unknown"
+            fi
+            PORT_CONFLICT=true
+            return 0
+        fi
+    else
+        # No tools available
+        if [[ "${_port_check_warned}" != "true" ]]; then
+            _port_check_warned=true
+            warn "Neither 'lsof', 'ss', nor 'netstat' found — cannot verify port availability"
+            warn "Install lsof, iproute2 (for ss), or net-tools (for netstat) to enable port checks"
+        fi
+        return 1
     fi
-    return 0
+
+    return 1
 }
 
+# Ollama conflict detection
+check_ollama_conflict() {
+    OLLAMA_RUNNING=false
+    OLLAMA_PID=""
+
+    if pgrep -x ollama >/dev/null 2>&1; then
+        OLLAMA_RUNNING=true
+        OLLAMA_PID=$(pgrep -x ollama | head -1)
+    fi
+}
+
+# Ollama conflict detection (must happen before port checks)
+check_ollama_conflict
+if $OLLAMA_RUNNING; then
+    ai_warn "Ollama is running (PID ${OLLAMA_PID}) and may conflict with Dream Server."
+    ai "  Note: this is usually not a port collision. Open WebUI may auto-discover Ollama (11434) and prefer it over the local llama-server (8080)."
+    if $INTERACTIVE && ! $DRY_RUN; then
+        read -r -p "  Stop Ollama for this session? [Y/n] " ollama_choice
+        if [[ ! "$ollama_choice" =~ ^[nN] ]]; then
+            kill "$OLLAMA_PID" 2>/dev/null || sudo kill "$OLLAMA_PID" 2>/dev/null || true
+            sleep 2
+            if pgrep -x ollama >/dev/null 2>&1; then
+                ai_warn "Ollama restarted automatically. Stop it manually: sudo systemctl stop ollama"
+            else
+                ai_ok "Ollama stopped"
+            fi
+        else
+            ai_warn "Ollama left running. Port conflicts may occur."
+        fi
+    else
+        ai_warn "Ollama detected. Run without --non-interactive to resolve, or stop manually: sudo systemctl stop ollama"
+    fi
+fi
+
+# Port conflict detection with detailed process information
 PORTS_TO_CHECK="${SERVICE_PORTS[llama-server]:-8080} ${SERVICE_PORTS[open-webui]:-3000}"
 [[ "$ENABLE_VOICE" == "true" ]] && PORTS_TO_CHECK="$PORTS_TO_CHECK ${SERVICE_PORTS[whisper]:-9000} ${SERVICE_PORTS[tts]:-8880}"
 [[ "$ENABLE_WORKFLOWS" == "true" ]] && PORTS_TO_CHECK="$PORTS_TO_CHECK ${SERVICE_PORTS[n8n]:-5678}"
 [[ "$ENABLE_RAG" == "true" ]] && PORTS_TO_CHECK="$PORTS_TO_CHECK ${SERVICE_PORTS[qdrant]:-6333}"
 
 for port in $PORTS_TO_CHECK; do
-    if ! check_port $port; then
-        warn "Port $port is already in use"
+    if check_port_conflict "$port"; then
+        if [[ -n "$PORT_CONFLICT_PID" ]]; then
+            warn "Port $port is in use by ${PORT_CONFLICT_PROC} (PID ${PORT_CONFLICT_PID})"
+        else
+            warn "Port $port is in use by ${PORT_CONFLICT_PROC}"
+        fi
         REQUIREMENTS_MET=false
     fi
 done

@@ -4,9 +4,7 @@ Pre-flight model validation for Dream Server offline mode.
 Ensures required models are downloaded before starting services.
 """
 
-import os
 import sys
-import json
 from pathlib import Path
 
 # Model requirements for offline mode
@@ -38,21 +36,21 @@ def check_model(service, config):
     # Resolve base path relative to script location (scripts/ -> parent -> dream-server root)
     base_path = Path(__file__).parent.parent
     model_path = base_path / config["path"]
-    
+
     if not model_path.exists():
         return False, f"Not found: {config['path']}"
-    
+
     # Check size (rough validation)
     if model_path.is_file():
         size_gb = model_path.stat().st_size / (1024**3)
     else:
         # Directory - sum all files
         size_gb = sum(f.stat().st_size for f in model_path.rglob('*') if f.is_file()) / (1024**3)
-    
+
     min_size = config["size_gb"] * 0.5  # At least 50% of expected size
     if size_gb < min_size:
         return False, f"Too small: {size_gb:.2f}GB (expected ~{config['size_gb']}GB)"
-    
+
     return True, f"OK: {size_gb:.2f}GB"
 
 def main():
@@ -60,21 +58,21 @@ def main():
     print("=" * 60)
     print("Dream Server Offline Mode - Model Validation")
     print("=" * 60)
-    
+
     all_ok = True
     missing = []
-    
+
     for service, config in REQUIRED_MODELS.items():
         ok, msg = check_model(service, config)
         status = "✓" if ok else "✗"
         print(f"{status} {config['description']:40s} {msg}")
-        
+
         if not ok:
             all_ok = False
             missing.append(service)
-    
+
     print("=" * 60)
-    
+
     if all_ok:
         print("All models present. Ready for offline mode!")
         return 0

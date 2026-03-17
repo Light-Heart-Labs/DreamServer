@@ -1,5 +1,7 @@
 """Tests for config.py — manifest loading and service discovery."""
 
+import logging
+
 import pytest
 
 from config import load_extension_manifests, _read_manifest_file
@@ -196,3 +198,24 @@ class TestLoadExtensionManifests:
 
         _, features = load_extension_manifests(tmp_path, "apple")
         assert any(f["id"] == "gpu-feat" for f in features)
+
+    def test_warns_on_missing_optional_feature_fields(self, tmp_path, caplog):
+        """A feature missing optional fields is loaded but a warning is logged."""
+        svc_dir = tmp_path / "sparse-svc"
+        svc_dir.mkdir()
+        (svc_dir / "manifest.yaml").write_text(
+            "schema_version: dream.services.v1\n"
+            "service:\n  id: sparse-svc\n  name: Sparse\n  port: 80\n"
+            "features:\n"
+            "  - id: sparse-feat\n    name: Sparse Feature\n"
+        )
+
+        with caplog.at_level(logging.WARNING, logger="config"):
+            _, features = load_extension_manifests(tmp_path, "nvidia")
+
+        assert any(f["id"] == "sparse-feat" for f in features)
+        warning_msgs = [r.message for r in caplog.records if "missing optional fields" in r.message]
+        assert len(warning_msgs) == 1
+        assert "sparse-feat" in warning_msgs[0]
+        for field in ("description", "icon", "category", "setup_time", "priority"):
+            assert field in warning_msgs[0]

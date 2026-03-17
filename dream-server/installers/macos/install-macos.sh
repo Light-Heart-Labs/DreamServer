@@ -146,8 +146,17 @@ if $OLLAMA_RUNNING; then
     fi
 fi
 
-# Port conflict checks
-for port_check in 8080 11434 3000 3001 3003; do
+# Port conflict checks — dynamically read from extension manifests
+_conflict_ports=(8080 11434)  # llama-server (native) + Ollama default (host conflict, no manifest)
+for _manifest in "${SOURCE_ROOT}/extensions/services/"*/manifest.yaml; do
+    [[ -f "$_manifest" ]] || continue
+    _port=$(grep 'external_port_default:' "$_manifest" 2>/dev/null | awk '{print $2}' | tr -d '"') || true
+    if [[ -n "$_port" && "$_port" =~ ^[0-9]+$ && "$_port" -ne 8080 ]]; then
+        _conflict_ports+=("$_port")
+    fi
+done
+
+for port_check in "${_conflict_ports[@]}"; do
     if check_port_conflict "$port_check"; then
         ai_warn "Port ${port_check} is in use by ${PORT_CONFLICT_PROC} (PID ${PORT_CONFLICT_PID})"
     fi
@@ -501,7 +510,7 @@ else
         while [[ "$WAITED" -lt "$MAX_WAIT" ]]; do
             sleep 2
             WAITED=$((WAITED + 2))
-            if curl -sf http://localhost:8080/health >/dev/null 2>&1; then
+            if curl -sf --max-time 10 http://localhost:8080/health >/dev/null 2>&1; then
                 HEALTHY=true
                 break
             fi
@@ -590,6 +599,12 @@ else
         done
     fi
 
+    # Layer Tier 0 memory overlay for low-RAM machines
+    if [[ "$SELECTED_TIER" == "0" && -f "${INSTALL_DIR}/docker-compose.tier0.yml" ]]; then
+        COMPOSE_FLAGS+=("-f" "docker-compose.tier0.yml")
+        ai "Applying lightweight memory limits for Tier 0"
+    fi
+
     # Docker compose override (user customizations)
     if [[ -f "${INSTALL_DIR}/docker-compose.override.yml" ]]; then
         COMPOSE_FLAGS+=("-f" "docker-compose.override.yml")
@@ -610,11 +625,14 @@ else
     # ── Start Docker services ──
     chapter "STARTING SERVICES"
     ai "Running: docker compose ${COMPOSE_FLAGS[*]} up -d"
+    set +o pipefail  # pipefail would abort on compose exit before PIPESTATUS is read; capture it first
     docker compose "${COMPOSE_FLAGS[@]}" up -d 2>&1 | while IFS= read -r line; do
         echo "  $line"
     done
+    compose_exit="${PIPESTATUS[0]}"
+    set -o pipefail
 
-    if [[ "${PIPESTATUS[0]}" -ne 0 ]]; then
+    if [[ "$compose_exit" -ne 0 ]]; then
         ai_err "docker compose up failed"
         exit 1
     fi
@@ -629,7 +647,7 @@ else
     if [[ ! -x "$OPENCODE_BIN" ]]; then
         ai "Installing OpenCode..."
         tmpfile=$(mktemp /tmp/opencode-install.XXXXXX.sh)
-        if curl -fsSL https://opencode.ai/install -o "$tmpfile" 2>/dev/null && bash "$tmpfile" >> "$DS_LOG_FILE" 2>&1; then
+        if curl -fsSL --max-time 300 https://opencode.ai/install -o "$tmpfile" 2>/dev/null && bash "$tmpfile" >> "$DS_LOG_FILE" 2>&1; then
             ai_ok "OpenCode installed (~/.opencode/bin/opencode)"
         else
             ai_warn "OpenCode install failed — install later with: curl -fsSL https://opencode.ai/install | bash"

@@ -18,7 +18,7 @@ def run_command(cmd: list[str], timeout: int = 5) -> tuple[bool, str]:
         return result.returncode == 0, result.stdout.strip()
     except subprocess.TimeoutExpired:
         return False, "timeout"
-    except Exception as e:
+    except (subprocess.SubprocessError, OSError) as e:
         return False, str(e)
 
 
@@ -207,56 +207,99 @@ def get_gpu_info_nvidia() -> Optional[GPUInfo]:
 
 
 def get_gpu_info_apple() -> Optional[GPUInfo]:
-    """Get GPU metrics for Apple Silicon via system_profiler."""
-    if platform.system() != "Darwin":
-        return None
+    """Get GPU metrics for Apple Silicon via system_profiler (native) or env vars (container)."""
+    gpu_backend = os.environ.get("GPU_BACKEND", "").lower()
 
-    try:
-        # Get chip name
-        success, chip_output = run_command(["sysctl", "-n", "machdep.cpu.brand_string"])
-        chip_name = chip_output.strip() if success else "Apple Silicon"
+    if platform.system() == "Darwin":
+        try:
+            # Get chip name
+            success, chip_output = run_command(["sysctl", "-n", "machdep.cpu.brand_string"])
+            chip_name = chip_output.strip() if success else "Apple Silicon"
 
-        # Get total memory (unified memory on Apple Silicon)
-        success, mem_output = run_command(["sysctl", "-n", "hw.memsize"])
-        if not success:
+            # Get total memory (unified memory on Apple Silicon)
+            success, mem_output = run_command(["sysctl", "-n", "hw.memsize"])
+            if not success:
+                return None
+
+            total_bytes = int(mem_output.strip())
+            total_mb = total_bytes // (1024 * 1024)
+
+            # Estimate used memory from vm_stat
+            used_mb = 0
+            success, vm_output = run_command(["vm_stat"])
+            if success:
+                import re
+                pages = {}
+                for line in vm_output.splitlines():
+                    match = re.match(r"(.+?):\s+(\d+)", line)
+                    if match:
+                        pages[match.group(1).strip()] = int(match.group(2))
+                page_size = 16384
+                ps_match = re.search(r"page size of (\d+) bytes", vm_output)
+                if ps_match:
+                    page_size = int(ps_match.group(1))
+                active = pages.get("Pages active", 0)
+                wired = pages.get("Pages wired down", 0)
+                compressed = pages.get("Pages occupied by compressor", 0)
+                used_mb = (active + wired + compressed) * page_size // (1024 * 1024)
+
+            return GPUInfo(
+                name=chip_name,
+                memory_used_mb=used_mb,
+                memory_total_mb=total_mb,
+                memory_percent=round(used_mb / total_mb * 100, 1) if total_mb > 0 else 0,
+                utilization_percent=0,  # not easily available without IOKit
+                temperature_c=0,
+                power_w=None,
+                memory_type="unified",
+                gpu_backend="apple",
+            )
+        except (ValueError, TypeError) as e:
+            logger.debug("Apple Silicon GPU detection failed: %s", e)
             return None
 
-        total_bytes = int(mem_output.strip())
-        total_mb = total_bytes // (1024 * 1024)
-
-        # Estimate used memory from vm_stat
+    elif gpu_backend == "apple":
+        # Linux container path (Docker Desktop on macOS): use HOST_RAM_GB env var
+        host_ram_gb_str = os.environ.get("HOST_RAM_GB", "")
+        if not host_ram_gb_str:
+            return None
+        try:
+            host_ram_gb_float = float(host_ram_gb_str)
+        except ValueError:
+            return None
+        if host_ram_gb_float <= 0:
+            return None
+        total_mb = int(host_ram_gb_float * 1024)
+        # Use /proc/meminfo for used memory (best available proxy inside container)
+        # Note: used_mb reflects Docker Desktop VM memory pressure, not the host Mac's.
+        # Total is correctly overridden by HOST_RAM_GB. See issue #102 for a future
+        # host-metrics collector that would fix used_mb.
         used_mb = 0
-        success, vm_output = run_command(["vm_stat"])
-        if success:
-            import re
-            pages = {}
-            for line in vm_output.splitlines():
-                match = re.match(r"(.+?):\s+(\d+)", line)
-                if match:
-                    pages[match.group(1).strip()] = int(match.group(2))
-            page_size = 16384
-            ps_match = re.search(r"page size of (\d+) bytes", vm_output)
-            if ps_match:
-                page_size = int(ps_match.group(1))
-            active = pages.get("Pages active", 0)
-            wired = pages.get("Pages wired down", 0)
-            compressed = pages.get("Pages occupied by compressor", 0)
-            used_mb = (active + wired + compressed) * page_size // (1024 * 1024)
-
+        try:
+            with open("/proc/meminfo") as f:
+                meminfo = {}
+                for line in f:
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        meminfo[parts[0].rstrip(":")] = int(parts[1])
+            avail = meminfo.get("MemAvailable", 0)
+            total_kb = meminfo.get("MemTotal", 0)
+            used_mb = (total_kb - avail) // 1024
+        except OSError:
+            pass
         return GPUInfo(
-            name=chip_name,
+            name=f"Apple M-Series ({int(host_ram_gb_float)} GB Unified)",
             memory_used_mb=used_mb,
             memory_total_mb=total_mb,
             memory_percent=round(used_mb / total_mb * 100, 1) if total_mb > 0 else 0,
-            utilization_percent=0,  # not easily available without IOKit
+            utilization_percent=0,
             temperature_c=0,
             power_w=None,
             memory_type="unified",
             gpu_backend="apple",
         )
-    except (ValueError, TypeError) as e:
-        logger.debug("Apple Silicon GPU detection failed: %s", e)
-        return None
+
+    return None
 
 
 def get_gpu_info() -> Optional[GPUInfo]:

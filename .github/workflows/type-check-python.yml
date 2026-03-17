@@ -1,0 +1,58 @@
+name: Python Type Check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "dream-server/**/*.py"
+      - ".github/workflows/type-check-python.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "dream-server/**/*.py"
+      - ".github/workflows/type-check-python.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  mypy:
+    name: Type check with mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install mypy
+        run: pip install mypy
+
+      - name: Type check dashboard-api
+        continue-on-error: true
+        working-directory: dream-server/extensions/services/dashboard-api
+        run: |
+          pip install -r requirements.txt
+          mypy . --ignore-missing-imports --no-strict-optional --check-untyped-defs
+
+      - name: Type check token-spy
+        continue-on-error: true
+        working-directory: dream-server/extensions/services/token-spy
+        run: |
+          pip install -r requirements.txt
+          mypy . --ignore-missing-imports --no-strict-optional --check-untyped-defs
+
+      - name: Type check privacy-shield
+        continue-on-error: true
+        working-directory: dream-server/extensions/services/privacy-shield
+        run: |
+          pip install -r requirements.txt
+          mypy . --ignore-missing-imports --no-strict-optional --check-untyped-defs
+
+      - name: Type check scripts
+        continue-on-error: true
+        working-directory: dream-server/scripts
+        run: |
+          mypy *.py --ignore-missing-imports --no-strict-optional --check-untyped-defs
