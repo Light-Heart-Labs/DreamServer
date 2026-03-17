@@ -339,6 +339,17 @@ ENV_EOF
         warn "Skipping .env schema validation (.env.schema.json or scripts/validate-env.sh missing)"
     fi
 
+    # Validate extension manifests against shared schema before continuing install.
+    if [[ -f "$SCRIPT_DIR/scripts/validate-manifests.sh" ]]; then
+        if bash "$SCRIPT_DIR/scripts/validate-manifests.sh" >> "$LOG_FILE" 2>&1; then
+            ai_ok "Validated extension manifests against service-manifest.v1 schema"
+        else
+            error "Extension manifest validation failed. See $LOG_FILE for details."
+        fi
+    else
+        warn "Skipping extension manifest validation (scripts/validate-manifests.sh missing)"
+    fi
+
     # Generate SearXNG config with randomized secret key
     # Fix ownership from previous container runs (SearXNG writes as uid 977)
     mkdir -p "$INSTALL_DIR/config/searxng"

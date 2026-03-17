@@ -283,9 +283,17 @@ for sid in "${SERVICE_IDS[@]}"; do
             fail "Core service has compose fragment (unexpected): $sid"
         fi
     else
-        # Extension services should have compose.yaml (enabled) or compose.yaml.disabled
+        # Docker extension services should have compose fragments.
+        # Host-level services (type: host-systemd) do not use compose.
+        is_host_service="false"
+        if [[ -f "$svc_dir/manifest.yaml" ]] && grep -Eq '^[[:space:]]*type:[[:space:]]*host-systemd[[:space:]]*$' "$svc_dir/manifest.yaml"; then
+            is_host_service="true"
+        fi
+
         if [[ -f "$svc_dir/compose.yaml" || -f "$svc_dir/compose.yaml.disabled" ]]; then
             pass "Extension has compose fragment: $sid"
+        elif [[ "$is_host_service" == "true" ]]; then
+            pass "Host-level extension has no compose fragment: $sid"
         else
             fail "Extension missing compose fragment: $sid"
         fi

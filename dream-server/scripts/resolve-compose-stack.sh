@@ -41,7 +41,7 @@ import pathlib
 import sys
 import json
 
-script_dir = pathlib.Path(sys.argv[1])
+script_dir = pathlib.Path(sys.argv[1]).resolve()
 tier = (sys.argv[2] or "1").upper()
 gpu_backend = (sys.argv[3] or "nvidia").lower()
 profile_overlays = [x.strip() for x in (sys.argv[4] or "").split(",") if x.strip()]
@@ -92,49 +92,47 @@ if not resolved:
 # Discover enabled extension compose fragments via manifests
 ext_dir = script_dir / "extensions" / "services"
 if ext_dir.exists():
-    try:
-        import yaml
-    except ImportError:
-        import json as yaml  # fallback if yaml not available
+    scripts_dir = script_dir / "scripts"
+    if scripts_dir.exists():
+        sys.path.insert(0, str(scripts_dir))
 
-    for service_dir in sorted(ext_dir.iterdir()):
-        if not service_dir.is_dir():
+    from service_registry import ensure_registry_artifact, load_registry_artifact
+
+    artifact_path = ensure_registry_artifact(root_dir=script_dir, strict=True)
+    registry = load_registry_artifact(artifact_path)
+
+    seen = set(resolved)
+    services = registry.get("services", [])
+    for service in services:
+        if not isinstance(service, dict):
             continue
-        # Find manifest
-        manifest_path = None
-        for name in ("manifest.yaml", "manifest.yml", "manifest.json"):
-            candidate = service_dir / name
-            if candidate.exists():
-                manifest_path = candidate
-                break
-        if not manifest_path:
+
+        backends = service.get("gpu_backends", ["amd", "nvidia"])
+        if not isinstance(backends, list):
+            backends = ["amd", "nvidia"]
+
+        # "none" means CPU-only — compatible with any GPU backend
+        if gpu_backend not in backends and "all" not in backends and "none" not in backends:
             continue
-        try:
-            with open(manifest_path) as f:
-                if manifest_path.suffix == ".json":
-                    manifest = json.load(f)
-                else:
-                    manifest = yaml.safe_load(f)
-            if manifest.get("schema_version") != "dream.services.v1":
-                continue
-            service = manifest.get("service", {})
-            # Check GPU backend compatibility
-            backends = service.get("gpu_backends", ["amd", "nvidia"])
-            # "none" means CPU-only — compatible with any GPU backend
-            if gpu_backend not in backends and "all" not in backends and "none" not in backends:
-                continue
-            # Get compose file from manifest
-            compose_rel = service.get("compose_file", "")
-            if compose_rel and not compose_rel.endswith(".disabled"):
-                compose_path = service_dir / compose_rel
-                if compose_path.exists():
-                    resolved.append(str(compose_path.relative_to(script_dir)))
-            # GPU-specific overlay (filesystem discovery — not in manifest)
+
+        compose_path_str = service.get("compose_path", "")
+        if compose_path_str:
+            compose_path = pathlib.Path(compose_path_str)
+            if compose_path.exists():
+                rel_compose = str(compose_path.relative_to(script_dir))
+                if rel_compose not in seen:
+                    resolved.append(rel_compose)
+                    seen.add(rel_compose)
+
+        # GPU-specific overlay (filesystem discovery — not in manifest)
+        service_dir = pathlib.Path(service.get("service_dir", ""))
+        if service_dir.exists():
             gpu_overlay = service_dir / f"compose.{gpu_backend}.yaml"
             if gpu_overlay.exists():
-                resolved.append(str(gpu_overlay.relative_to(script_dir)))
-        except Exception:
-            continue
+                rel_overlay = str(gpu_overlay.relative_to(script_dir))
+                if rel_overlay not in seen:
+                    resolved.append(rel_overlay)
+                    seen.add(rel_overlay)
 
 # Include docker-compose.override.yml if it exists (user customizations)
 override = script_dir / "docker-compose.override.yml"

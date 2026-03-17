@@ -1,26 +1,74 @@
 """Tests for config.py — manifest loading and service discovery."""
 
+from __future__ import annotations
+
+import json
+
 import pytest
 
-from config import load_extension_manifests, _read_manifest_file
+from config import _read_manifest_file, load_extension_manifests
 
 
-VALID_MANIFEST = """\
-schema_version: dream.services.v1
-service:
-  id: test-service
-  name: Test Service
-  port: 8080
-  health: /health
-  gpu_backends: [amd, nvidia]
-  external_port_default: 8080
-features:
-  - id: test-feature
-    name: Test Feature
-    icon: Zap
-    category: inference
-    gpu_backends: [amd, nvidia]
-"""
+def _feature_yaml(
+    service_id: str, feature_id: str, name: str, gpu_backends: str | None
+) -> str:
+    lines = [
+        f"  - id: {feature_id}",
+        f"    name: {name}",
+        f"    description: {name} description",
+        "    icon: Zap",
+        "    category: inference",
+        "    requirements:",
+        f"      services: [{service_id}]",
+        f"    enabled_services_all: [{service_id}]",
+        "    setup_time: fast",
+        "    priority: 1",
+    ]
+    if gpu_backends is not None:
+        lines.append(f"    gpu_backends: {gpu_backends}")
+    return "\n".join(lines) + "\n"
+
+
+def _service_manifest(
+    *,
+    service_id: str,
+    service_name: str,
+    port: int = 80,
+    service_type: str = "docker",
+    gpu_backends: str = "[amd, nvidia]",
+    category: str = "core",
+    features: str = "",
+) -> str:
+    env_key = f"{service_id.upper().replace('-', '_')}_PORT"
+    lines = [
+        "schema_version: dream.services.v1",
+        "service:",
+        f"  id: {service_id}",
+        f"  name: {service_name}",
+        "  aliases: []",
+        f"  container_name: dream-{service_id}",
+        f"  default_host: {service_id}",
+        f"  port: {port}",
+        f"  external_port_env: {env_key}",
+        f"  external_port_default: {port}",
+        "  health: /health",
+        f"  type: {service_type}",
+        f"  gpu_backends: {gpu_backends}",
+        f"  category: {category}",
+        "  depends_on: []",
+    ]
+    if features:
+        lines.append("features:")
+        lines.extend(features.rstrip("\n").splitlines())
+    return "\n".join(lines) + "\n"
+
+
+VALID_MANIFEST = _service_manifest(
+    service_id="test-service",
+    service_name="Test Service",
+    port=8080,
+    features=_feature_yaml("test-service", "test-feature", "Test Feature", "[amd, nvidia]"),
+)
 
 
 class TestReadManifestFile:
@@ -33,12 +81,15 @@ class TestReadManifestFile:
         assert data["service"]["id"] == "test-service"
 
     def test_reads_json(self, tmp_path):
-        import json
         f = tmp_path / "manifest.json"
-        f.write_text(json.dumps({
-            "schema_version": "dream.services.v1",
-            "service": {"id": "json-svc", "name": "JSON", "port": 9090},
-        }))
+        f.write_text(
+            json.dumps(
+                {
+                    "schema_version": "dream.services.v1",
+                    "service": {"id": "json-svc", "name": "JSON", "port": 9090},
+                }
+            )
+        )
         data = _read_manifest_file(f)
         assert data["service"]["id"] == "json-svc"
 
@@ -61,6 +112,7 @@ class TestLoadExtensionManifests:
         assert services["test-service"]["port"] == 8080
         assert services["test-service"]["name"] == "Test Service"
         assert services["test-service"]["health"] == "/health"
+        assert services["test-service"]["category"] == "core"
         assert len(features) == 1
         assert features[0]["id"] == "test-feature"
 
@@ -71,20 +123,22 @@ class TestLoadExtensionManifests:
             "schema_version: dream.services.v0\nservice:\n  id: old\n  port: 80\n"
         )
 
-        services, features = load_extension_manifests(tmp_path, "nvidia")
-        assert len(services) == 0
+        services, _ = load_extension_manifests(tmp_path, "nvidia")
+        assert services == {}
 
     def test_filters_by_gpu_backend(self, tmp_path):
         svc_dir = tmp_path / "nvidia-only"
         svc_dir.mkdir()
         (svc_dir / "manifest.yaml").write_text(
-            "schema_version: dream.services.v1\n"
-            "service:\n  id: nvidia-only\n  name: NVIDIA Only\n  port: 80\n"
-            "  gpu_backends: [nvidia]\n"
+            _service_manifest(
+                service_id="nvidia-only",
+                service_name="NVIDIA Only",
+                gpu_backends="[nvidia]",
+            )
         )
 
         services, _ = load_extension_manifests(tmp_path, "amd")
-        assert len(services) == 0
+        assert services == {}
 
         services, _ = load_extension_manifests(tmp_path, "nvidia")
         assert "nvidia-only" in services
@@ -103,53 +157,48 @@ class TestLoadExtensionManifests:
     def test_features_filtered_by_gpu(self, tmp_path):
         svc_dir = tmp_path / "mixed"
         svc_dir.mkdir()
+        features = _feature_yaml("mixed", "amd-feat", "AMD Feature", "[amd]") + _feature_yaml(
+            "mixed", "both-feat", "Both Feature", "[amd, nvidia]"
+        )
         (svc_dir / "manifest.yaml").write_text(
-            "schema_version: dream.services.v1\n"
-            "service:\n  id: mixed\n  name: Mixed\n  port: 80\n"
-            "  gpu_backends: [amd, nvidia]\n"
-            "features:\n"
-            "  - id: amd-feat\n    name: AMD Feature\n    gpu_backends: [amd]\n"
-            "  - id: both-feat\n    name: Both Feature\n    gpu_backends: [amd, nvidia]\n"
+            _service_manifest(
+                service_id="mixed",
+                service_name="Mixed",
+                gpu_backends="[amd, nvidia]",
+                features=features,
+            )
         )
 
-        _, features = load_extension_manifests(tmp_path, "nvidia")
-        feature_ids = [f["id"] for f in features]
+        _, loaded_features = load_extension_manifests(tmp_path, "nvidia")
+        feature_ids = [f["id"] for f in loaded_features]
         assert "both-feat" in feature_ids
         assert "amd-feat" not in feature_ids
 
-    def test_apple_backend_discovers_services_without_explicit_list(self, tmp_path):
-        """Services with no gpu_backends key default to [amd, nvidia, apple]."""
-        svc_dir = tmp_path / "generic-svc"
-        svc_dir.mkdir()
-        (svc_dir / "manifest.yaml").write_text(
-            "schema_version: dream.services.v1\n"
-            "service:\n  id: generic-svc\n  name: Generic\n  port: 80\n"
-        )
-
-        services, _ = load_extension_manifests(tmp_path, "apple")
-        assert "generic-svc" in services
-
-    def test_apple_backend_filtered_by_explicit_nvidia_amd_list(self, tmp_path):
-        """Docker service explicitly listing [amd, nvidia] is still loaded for apple backend."""
+    def test_apple_backend_loads_docker_services(self, tmp_path):
+        """Docker services are exposed on apple backend regardless of gpu_backends."""
         svc_dir = tmp_path / "gpu-only-svc"
         svc_dir.mkdir()
         (svc_dir / "manifest.yaml").write_text(
-            "schema_version: dream.services.v1\n"
-            "service:\n  id: gpu-only-svc\n  name: GPU Only\n  port: 80\n"
-            "  gpu_backends: [amd, nvidia]\n"
+            _service_manifest(
+                service_id="gpu-only-svc",
+                service_name="GPU Only",
+                gpu_backends="[amd, nvidia]",
+            )
         )
 
         services, _ = load_extension_manifests(tmp_path, "apple")
         assert "gpu-only-svc" in services
 
     def test_apple_backend_discovers_service_explicitly_listing_apple(self, tmp_path):
-        """Service that lists apple in gpu_backends is discovered for apple backend."""
+        """Service listing apple in gpu_backends is discovered for apple backend."""
         svc_dir = tmp_path / "apple-svc"
         svc_dir.mkdir()
         (svc_dir / "manifest.yaml").write_text(
-            "schema_version: dream.services.v1\n"
-            "service:\n  id: apple-svc\n  name: Apple Svc\n  port: 80\n"
-            "  gpu_backends: [amd, nvidia, apple]\n"
+            _service_manifest(
+                service_id="apple-svc",
+                service_name="Apple Svc",
+                gpu_backends="[amd, nvidia, apple]",
+            )
         )
 
         services, _ = load_extension_manifests(tmp_path, "apple")
@@ -159,11 +208,13 @@ class TestLoadExtensionManifests:
         """Features with no gpu_backends key default to include apple."""
         svc_dir = tmp_path / "svc-with-feature"
         svc_dir.mkdir()
+        feature_block = _feature_yaml("svc-with-feature", "default-feat", "Default Feature", None)
         (svc_dir / "manifest.yaml").write_text(
-            "schema_version: dream.services.v1\n"
-            "service:\n  id: svc\n  name: Svc\n  port: 80\n"
-            "features:\n"
-            "  - id: default-feat\n    name: Default Feature\n"
+            _service_manifest(
+                service_id="svc-with-feature",
+                service_name="Svc",
+                features=feature_block,
+            )
         )
 
         _, features = load_extension_manifests(tmp_path, "apple")
@@ -174,10 +225,11 @@ class TestLoadExtensionManifests:
         svc_dir = tmp_path / "systemd-svc"
         svc_dir.mkdir()
         (svc_dir / "manifest.yaml").write_text(
-            "schema_version: dream.services.v1\n"
-            "service:\n  id: systemd-svc\n  name: Systemd Svc\n  port: 80\n"
-            "  type: host-systemd\n"
-            "  gpu_backends: [amd, nvidia]\n"
+            _service_manifest(
+                service_id="systemd-svc",
+                service_name="Systemd Svc",
+                service_type="host-systemd",
+            )
         )
 
         services, _ = load_extension_manifests(tmp_path, "apple")
@@ -187,11 +239,15 @@ class TestLoadExtensionManifests:
         """Features with gpu_backends: [amd, nvidia] are loaded for apple backend."""
         svc_dir = tmp_path / "svc-with-gpu-feature"
         svc_dir.mkdir()
+        feature_block = _feature_yaml(
+            "svc-with-gpu-feature", "gpu-feat", "GPU Feature", "[amd, nvidia]"
+        )
         (svc_dir / "manifest.yaml").write_text(
-            "schema_version: dream.services.v1\n"
-            "service:\n  id: svc\n  name: Svc\n  port: 80\n"
-            "features:\n"
-            "  - id: gpu-feat\n    name: GPU Feature\n    gpu_backends: [amd, nvidia]\n"
+            _service_manifest(
+                service_id="svc-with-gpu-feature",
+                service_name="Svc",
+                features=feature_block,
+            )
         )
 
         _, features = load_extension_manifests(tmp_path, "apple")

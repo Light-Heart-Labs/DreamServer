@@ -21,6 +21,7 @@ Utility scripts for diagnostics, testing, validation, and operations.
 | `dream-test-functional.sh` | Functional tests (inference, TTS, STT) | Yes |
 | `validate.sh` | Post-install validation | Yes |
 | `validate-env.sh` | Validate .env against schema | No |
+| `validate-manifests.sh` | Validate extension manifests against schema | No |
 | `simulate-installers.sh` | Cross-platform installer simulation | No |
 | `release-gate.sh` | Full pre-release checklist | No |
 | `check-compatibility.sh` | Manifest compatibility checks | No |
@@ -44,6 +45,7 @@ Utility scripts for diagnostics, testing, validation, and operations.
 | `load-backend-contract.sh` | Load backend contract JSON as env vars |
 | `resolve-compose-stack.sh` | Resolve compose overlay stack |
 | `preflight-engine.sh` | Preflight validation engine |
+| `build-service-registry.py` | Build shared manifest registry artifact |
 | `check-offline-models.sh` | Verify offline model availability |
 
 ## Python Utilities

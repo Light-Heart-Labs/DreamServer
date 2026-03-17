@@ -2,9 +2,12 @@
 # Service Registry — loads extension manifests and provides lookup functions.
 # Source this file: . "$SCRIPT_DIR/lib/service-registry.sh"
 
-EXTENSIONS_DIR="${SCRIPT_DIR:-$(pwd)}/extensions/services"
+ROOT_DIR="${SCRIPT_DIR:-$(pwd)}"
+EXTENSIONS_DIR="$ROOT_DIR/extensions/services"
+SR_REGISTRY_BUILDER="$ROOT_DIR/scripts/build-service-registry.py"
 _SR_LOADED=false
 _SR_CACHE="/tmp/dream-service-registry.$$.sh"
+_SR_ARTIFACT="${DREAM_SERVICE_REGISTRY_PATH:-${TMPDIR:-/tmp}/dream-service-registry.$(id -u).json}"
 
 # Associative arrays (bash 4+)
 declare -A SERVICE_ALIASES      # alias → service_id
@@ -21,78 +24,94 @@ declare -a SERVICE_IDS          # ordered list of all service IDs
 
 sr_load() {
     [[ "$_SR_LOADED" == "true" ]] && return 0
-    SERVICE_IDS=()
 
-    # Single Python pass: reads ALL manifests, emits sourceable bash
-    python3 - "$EXTENSIONS_DIR" <<'PYEOF' > "$_SR_CACHE"
-import yaml, sys, os
+    SERVICE_IDS=()
+    SERVICE_ALIASES=()
+    SERVICE_CONTAINERS=()
+    SERVICE_COMPOSE=()
+    SERVICE_CATEGORIES=()
+    SERVICE_DEPENDS=()
+    SERVICE_HEALTH=()
+    SERVICE_PORTS=()
+    SERVICE_PORT_ENVS=()
+    SERVICE_NAMES=()
+    SERVICE_SETUP_HOOKS=()
+
+    if [[ ! -f "$SR_REGISTRY_BUILDER" ]]; then
+        echo "service-registry: missing builder script at $SR_REGISTRY_BUILDER" >&2
+        return 1
+    fi
+
+    # Generate (or refresh) shared registry artifact.
+    python3 "$SR_REGISTRY_BUILDER" \
+        --root-dir "$ROOT_DIR" \
+        --output "$_SR_ARTIFACT" >/dev/null
+
+    # Convert artifact JSON into sourceable bash assignments.
+    python3 - "$_SR_ARTIFACT" <<'PYEOF' > "$_SR_CACHE"
+import json
+import shlex
+import sys
 from pathlib import Path
 
-ext_dir = Path(sys.argv[1])
-if not ext_dir.exists():
-    sys.exit(0)
+artifact = Path(sys.argv[1])
+if not artifact.exists():
+    sys.exit("service-registry: artifact missing")
 
-for service_dir in sorted(ext_dir.iterdir()):
-    if not service_dir.is_dir():
-        continue
-    manifest_path = None
-    for name in ("manifest.yaml", "manifest.yml", "manifest.json"):
-        candidate = service_dir / name
-        if candidate.exists():
-            manifest_path = candidate
-            break
-    if not manifest_path:
-        continue
-    try:
-        with open(manifest_path) as f:
-            m = yaml.safe_load(f)
-        if m.get("schema_version") != "dream.services.v1":
-            continue
-        s = m.get("service", {})
-        sid = s.get("id", "")
-        if not sid:
-            continue
-        aliases = s.get("aliases", [])
-        container = s.get("container_name", f"dream-{sid}")
-        compose_file = s.get("compose_file", "")
-        category = s.get("category", "optional")
-        depends = s.get("depends_on", [])
+data = json.loads(artifact.read_text(encoding="utf-8"))
+if data.get("schema_version") != "dream.service-registry.v1":
+    sys.exit("service-registry: unsupported artifact schema_version")
 
-        # Resolve compose path (relative to extension dir)
-        compose_path = ""
-        if compose_file:
-            full = service_dir / compose_file
-            if full.exists():
-                compose_path = str(full)
+services = data.get("services", [])
+if not isinstance(services, list):
+    sys.exit("service-registry: invalid services payload")
 
-        # Emit sourceable lines
-        print(f'SERVICE_IDS+=("{sid}")')
-        print(f'SERVICE_ALIASES["{sid}"]="{sid}"')
-        for a in aliases:
-            print(f'SERVICE_ALIASES["{a}"]="{sid}"')
-        print(f'SERVICE_CONTAINERS["{sid}"]="{container}"')
-        print(f'SERVICE_COMPOSE["{sid}"]="{compose_path}"')
-        print(f'SERVICE_CATEGORIES["{sid}"]="{category}"')
-        print(f'SERVICE_DEPENDS["{sid}"]="{" ".join(depends)}"')
-        health = s.get("health", "/health")
-        port = s.get("external_port_default", s.get("port", 0))
-        port_env = s.get("external_port_env", "")
-        print(f'SERVICE_HEALTH["{sid}"]="{health}"')
-        print(f'SERVICE_PORTS["{sid}"]="{port}"')
-        print(f'SERVICE_PORT_ENVS["{sid}"]="{port_env}"')
-        print(f'SERVICE_NAMES["{sid}"]="{s.get("name", sid)}"')
-        setup_hook = s.get("setup_hook", "")
-        setup_path = ""
-        if setup_hook:
-            full = service_dir / setup_hook
-            if full.exists():
-                setup_path = str(full)
-        print(f'SERVICE_SETUP_HOOKS["{sid}"]="{setup_path}"')
-    except Exception:
+
+def q(value):
+    return shlex.quote("" if value is None else str(value))
+
+
+for service in services:
+    if not isinstance(service, dict):
         continue
+
+    sid = str(service.get("id", "")).strip()
+    if not sid:
+        continue
+
+    aliases = service.get("aliases", [])
+    if not isinstance(aliases, list):
+        aliases = []
+
+    depends_on = service.get("depends_on", [])
+    if not isinstance(depends_on, list):
+        depends_on = []
+
+    container_name = service.get("container_name") or f"dream-{sid}"
+    compose_path = service.get("compose_path", "")
+    category = service.get("category", "optional")
+    health = service.get("health", "/health")
+    port = service.get("external_port_default", service.get("port", 0))
+    port_env = service.get("external_port_env", "")
+    display_name = service.get("name", sid)
+    setup_path = service.get("setup_path", "")
+
+    print(f"SERVICE_IDS+=({q(sid)})")
+    print(f"SERVICE_ALIASES[{q(sid)}]={q(sid)}")
+    for alias in aliases:
+        print(f"SERVICE_ALIASES[{q(alias)}]={q(sid)}")
+
+    print(f"SERVICE_CONTAINERS[{q(sid)}]={q(container_name)}")
+    print(f"SERVICE_COMPOSE[{q(sid)}]={q(compose_path)}")
+    print(f"SERVICE_CATEGORIES[{q(sid)}]={q(category)}")
+    print(f"SERVICE_DEPENDS[{q(sid)}]={q(' '.join(str(x) for x in depends_on))}")
+    print(f"SERVICE_HEALTH[{q(sid)}]={q(health)}")
+    print(f"SERVICE_PORTS[{q(sid)}]={q(port)}")
+    print(f"SERVICE_PORT_ENVS[{q(sid)}]={q(port_env)}")
+    print(f"SERVICE_NAMES[{q(sid)}]={q(display_name)}")
+    print(f"SERVICE_SETUP_HOOKS[{q(sid)}]={q(setup_path)}")
 PYEOF
 
-    # Source the generated registry (one subprocess for all manifests)
     [[ -f "$_SR_CACHE" ]] && . "$_SR_CACHE"
     rm -f "$_SR_CACHE"
     _SR_LOADED=true
@@ -154,3 +173,4 @@ sr_compose_flags() {
     done
     echo "$flags"
 }
+
