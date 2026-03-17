@@ -280,7 +280,7 @@ for agent_entry in "${AGENTS[@]}"; do
   log "Checking $agent (port $port)"
 
   status_json=$(query_status "$agent" "$port")
-  local pycmd="python3"
+  pycmd="python3"
   if [[ -f "$(dirname "$0")/../../../lib/python-cmd.sh" ]]; then
     . "$(dirname "$0")/../../../lib/python-cmd.sh"
     pycmd="$(ds_detect_python_cmd)"
