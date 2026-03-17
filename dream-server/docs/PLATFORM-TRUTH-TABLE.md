@@ -10,7 +10,9 @@ Last updated: 2026-03-05
 | Linux AMD unified (Strix) | Preferred AMD path | Tier A | — | Real install + runtime benchmarks + doctor/preflight clean |
 | Linux NVIDIA | CUDA/llama-server path | Tier B | — | Real install + model load + runtime/throughput checks |
 | Windows (Docker Desktop + WSL2) | Standalone installer with full runtime | Tier B | — | `.\install.ps1` real run + GPU detection + Docker compose up + health checks pass |
+| Windows via WSL2 | Delegated installer flow (Docker Desktop backend) | Tier B | — | Same as above. |
 | macOS Apple Silicon | Native Metal inference + Docker services | Tier B | — | `./install.sh` real run + chip detection + llama-server Metal healthy + 16/17 services online + health checks pass |
+| macOS Apple Silicon (release gates) | Installer MVP / experimental in manifest | Tier C | — | CI treats as Tier C for claim checks. |
 
 ## Release language guardrails
 

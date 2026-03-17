@@ -2,7 +2,7 @@
 
 **Date:** February 2, 2026  
 **Researcher:** OpenClaw Subagent  
-**Archive Location:** `/home/michael/HVAC_Grace_V2_Archive/`
+**Archive Location:** `./archive/`
 
 ---
 
@@ -292,12 +292,12 @@ This preserves multi-agent's structural benefits while smoothing the seams.
 
 | File | Key Evidence |
 |------|-------------|
-| `/home/michael/HVAC_Grace_V2_Archive/grace_agent.py` | Main V2 agent with race condition fix comments |
-| `/home/michael/HVAC_Grace_V2_Archive/cfc_integration.py` | CFC system integration |
-| `/home/michael/HVAC_Grace_V2_Archive/loop_detector.py` | Response fingerprinting complexity |
-| `/home/michael/HVAC_Grace_V2_Archive/prompt_builder.py` | Dynamic prompt construction |
-| `/home/michael/HVAC_Grace/hvac_agent.py` | Current multi-agent for comparison |
-| `/home/michael/HVAC_Grace/seamless-handoffs.md` | Recommended fixes for multi-agent |
+| `./archive/grace_agent.py` | Main V2 agent with race condition fix comments |
+| `./archive/cfc_integration.py` | CFC system integration |
+| `./archive/loop_detector.py` | Response fingerprinting complexity |
+| `./archive/prompt_builder.py` | Dynamic prompt construction |
+| `./hvac_agent.py` | Current multi-agent for comparison |
+| `./seamless-handoffs.md` | Recommended fixes for multi-agent |
 
 ---
 

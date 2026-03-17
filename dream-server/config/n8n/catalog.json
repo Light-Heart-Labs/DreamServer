@@ -1,0 +1,109 @@
+{
+  "version": "1",
+  "workflows": [
+    {
+      "id": "m4-deterministic-voice",
+      "file": "08-m4-deterministic-voice.json",
+      "name": "M4 Deterministic Voice",
+      "description": "Intent classification with deterministic routing",
+      "icon": "Brain",
+      "category": "voice",
+      "dependencies": ["llama-server"],
+      "setupTime": "2 minutes",
+      "featured": true
+    },
+    {
+      "id": "document-qa",
+      "file": "document-qa.json",
+      "name": "Document Q&A",
+      "description": "Upload documents and ask questions about them",
+      "icon": "FileText",
+      "category": "productivity",
+      "dependencies": ["qdrant", "llama-server"],
+      "setupTime": "2 minutes",
+      "featured": true
+    },
+    {
+      "id": "voice-transcription",
+      "file": "03-voice-transcription.json",
+      "name": "Voice Transcription",
+      "description": "Transcribe audio files to text",
+      "icon": "Mic",
+      "category": "voice",
+      "dependencies": ["whisper"],
+      "setupTime": "1 minute",
+      "featured": false
+    },
+    {
+      "id": "voice-to-voice",
+      "file": "05-voice-to-voice.json",
+      "name": "Voice to Voice",
+      "description": "Speak, get AI response as audio",
+      "icon": "Headphones",
+      "category": "voice",
+      "dependencies": ["whisper", "llama-server", "kokoro"],
+      "setupTime": "2 minutes",
+      "featured": true
+    },
+    {
+      "id": "daily-digest",
+      "file": "daily-digest.json",
+      "name": "Daily Digest",
+      "description": "Summarize your day every morning",
+      "icon": "Calendar",
+      "category": "productivity",
+      "dependencies": ["llama-server"],
+      "setupTime": "5 minutes",
+      "featured": false
+    },
+    {
+      "id": "code-assistant",
+      "file": "07-code-assistant.json",
+      "name": "Code Assistant",
+      "description": "AI-powered coding help via API",
+      "icon": "Code",
+      "category": "development",
+      "dependencies": ["llama-server"],
+      "setupTime": "1 minute",
+      "featured": false
+    },
+    {
+      "id": "rag-demo",
+      "file": "06-rag-demo.json",
+      "name": "RAG Demo",
+      "description": "Retrieval-augmented generation example",
+      "icon": "Search",
+      "category": "development",
+      "dependencies": ["qdrant", "llama-server"],
+      "setupTime": "3 minutes",
+      "featured": false
+    },
+    {
+      "id": "voice-memo",
+      "file": "voice-memo.json",
+      "name": "Voice Memo",
+      "description": "Record and transcribe voice memos",
+      "icon": "Mic",
+      "category": "productivity",
+      "dependencies": ["whisper"],
+      "setupTime": "1 minute",
+      "featured": false
+    },
+    {
+      "id": "chat-endpoint",
+      "file": "01-chat-endpoint.json",
+      "name": "Chat API Endpoint",
+      "description": "REST API for chat completions",
+      "icon": "MessageSquare",
+      "category": "development",
+      "dependencies": ["llama-server"],
+      "setupTime": "1 minute",
+      "featured": false
+    }
+  ],
+  "categories": {
+    "productivity": {"name": "Productivity", "description": "Automate your daily tasks"},
+    "voice": {"name": "Voice", "description": "Speech-to-text and text-to-speech"},
+    "development": {"name": "Development", "description": "APIs and coding tools"}
+  }
+}

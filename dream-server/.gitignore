@@ -8,6 +8,13 @@
 .target-model
 .target-quantization
 
+# Secret files (security)
+*.key
+*.pem
+secrets.*
+private.*
+credentials.*
+
 # Install-time data directories
 data/
 models/

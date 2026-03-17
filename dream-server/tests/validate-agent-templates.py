@@ -5,10 +5,8 @@ Tests that agent templates work reliably on local qwen2.5-32b-instruct via llama
 """
 
 import requests
-import json
 import time
 import sys
-from pathlib import Path
 
 LLAMA_SERVER_URL = "http://localhost:8080"
 MODEL = "qwen2.5-32b-instruct"
@@ -55,14 +53,14 @@ TEMPLATES = {
 def test_template(name: str, config: dict) -> dict:
     """Test a single template"""
     print(f"\n🧪 Testing {name}...")
-    
+
     results = {
         "template": name,
         "tests": [],
         "passed": 0,
         "failed": 0
     }
-    
+
     for test_prompt in config["tests"]:
         payload = {
             "model": MODEL,
@@ -73,7 +71,7 @@ def test_template(name: str, config: dict) -> dict:
             "max_tokens": 200,
             "temperature": 0.7
         }
-        
+
         try:
             start = time.time()
             response = requests.post(
@@ -82,21 +80,21 @@ def test_template(name: str, config: dict) -> dict:
                 timeout=30
             )
             elapsed = (time.time() - start) * 1000
-            
+
             if response.status_code == 200:
                 data = response.json()
                 content = data["choices"][0]["message"]["content"]
-                
+
                 # Basic validation - response should be non-empty and relevant
                 passed = len(content) > 50 and len(content) < 2000
-                
+
                 results["tests"].append({
                     "prompt": test_prompt[:50],
                     "passed": passed,
                     "time_ms": elapsed,
                     "response_preview": content[:100]
                 })
-                
+
                 if passed:
                     results["passed"] += 1
                     print(f"  ✓ {test_prompt[:40]}... ({elapsed:.0f}ms)")
@@ -111,7 +109,7 @@ def test_template(name: str, config: dict) -> dict:
                 })
                 results["failed"] += 1
                 print(f"  ✗ {test_prompt[:40]}... (HTTP {response.status_code})")
-                
+
         except Exception as e:
             results["tests"].append({
                 "prompt": test_prompt[:50],
@@ -120,7 +118,7 @@ def test_template(name: str, config: dict) -> dict:
             })
             results["failed"] += 1
             print(f"  ✗ {test_prompt[:40]}... ({e})")
-    
+
     return results
 
 
@@ -129,29 +127,29 @@ def main():
     print("M7 Agent Template Validation")
     print("Testing on qwen2.5-32b-instruct")
     print("=" * 60)
-    
+
     all_results = []
     total_passed = 0
     total_failed = 0
-    
+
     for name, config in TEMPLATES.items():
         result = test_template(name, config)
         all_results.append(result)
         total_passed += result["passed"]
         total_failed += result["failed"]
-    
+
     # Summary
     print("\n" + "=" * 60)
     print("VALIDATION SUMMARY")
     print("=" * 60)
-    
+
     for result in all_results:
         status = "✅ PASS" if result["failed"] == 0 else "⚠️ PARTIAL" if result["passed"] > 0 else "❌ FAIL"
         print(f"{result['template']:20} {status} ({result['passed']}/{result['passed']+result['failed']} tests)")
-    
+
     print("-" * 60)
     print(f"Total: {total_passed} passed, {total_failed} failed")
-    
+
     if total_failed == 0:
         print("\n✅ All templates validated successfully!")
         return 0

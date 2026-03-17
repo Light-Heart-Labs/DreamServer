@@ -31,8 +31,8 @@ async def get_privacy_shield_status(api_key: str = Depends(verify_api_key)):
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
         container_running = "dream-privacy-shield" in stdout.decode()
-    except Exception:
-        pass
+    except (FileNotFoundError, asyncio.TimeoutError, OSError):
+        logger.warning("Failed to check privacy-shield container status")
 
     service_healthy = False
     if container_running:
@@ -40,8 +40,8 @@ async def get_privacy_shield_status(api_key: str = Depends(verify_api_key)):
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=2)) as session:
                 async with session.get(f"{shield_url}/health") as resp:
                     service_healthy = resp.status == 200
-        except Exception:
-            pass
+        except (asyncio.TimeoutError, aiohttp.ClientError):
+            logger.warning("Failed to reach privacy-shield health endpoint")
 
     return PrivacyShieldStatus(
         enabled=container_running and service_healthy,
@@ -81,7 +81,7 @@ async def toggle_privacy_shield(request: PrivacyShieldToggle, api_key: str = Dep
         return {"success": False, "message": "Docker not available", "note": "Running in development mode without Docker"}
     except asyncio.TimeoutError:
         return {"success": False, "message": "Operation timed out"}
-    except Exception as e:
+    except OSError:
         logger.exception("Privacy Shield toggle failed")
         return {"success": False, "message": "Privacy Shield operation failed"}
 
@@ -100,6 +100,6 @@ async def get_privacy_shield_stats(api_key: str = Depends(verify_api_key)):
                     return await resp.json()
                 else:
                     return {"error": "Privacy Shield not responding", "status": resp.status}
-    except Exception as e:
+    except (aiohttp.ClientError, OSError):
         logger.exception("Cannot reach Privacy Shield")
         return {"error": "Cannot reach Privacy Shield", "enabled": False}

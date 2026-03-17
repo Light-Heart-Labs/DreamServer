@@ -17,8 +17,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Docs Link Checks
+        run: bash tests/test-doc-links.sh
+
       - name: Integration Smoke
         run: bash tests/integration-test.sh
+
+      - name: Extension Audit
+        run: |
+          python3 scripts/audit-extensions.py --project-dir .
+          bash tests/test-extension-audit.sh
 
       - name: Phase C P1 Static Checks
         run: bash tests/test-phase-c-p1.sh
@@ -30,6 +38,24 @@ jobs:
 
       - name: Tier Map Unit Tests
         run: bash tests/test-tier-map.sh
+
+      - name: Service Registry Tests
+        run: bash tests/test-service-registry.sh
+
+      - name: Validate Manifests Tests
+        run: bash tests/test-validate-manifests.sh
+
+      - name: Health Check Tests
+        run: bash tests/test-health-check.sh
+
+      - name: Validate Env Tests
+        run: bash tests/test-validate-env.sh
+
+      - name: Validate Simulation Summary Tests
+        run: bash tests/test-validate-sim-summary.sh
+
+      - name: CPU-Only Path Tests
+        run: bash tests/test-cpu-only-path.sh
 
       - name: Installer Contract Checks
         run: |

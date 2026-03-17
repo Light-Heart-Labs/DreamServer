@@ -3,7 +3,6 @@ HVAC Grace Multi-Agent Voice System
 Portal agent routes callers to specialized department agents.
 With full transcript capture, audio recording, and shared caller state.
 
-Deploy to: /home/michael/HVAC_Grace/hvac_agent.py
 Run with: python hvac_agent.py start
 """
 
@@ -39,20 +38,20 @@ import re
 from pathlib import Path
 from typing import Optional, List
 
-load_dotenv(".env")
+load_dotenv(Path(__file__).parent.parent / "config" / ".env", override=False)
 
 # HVAC-specific n8n webhook endpoint
-N8N_INTAKE_URL = os.getenv("N8N_INTAKE_URL", "https://hvac-n8n.lightheartcloud.com/webhook/ticket")
+N8N_INTAKE_URL = os.getenv("N8N_INTAKE_URL", "http://localhost:5679/webhook/ticket")
 
-# Shared LLM endpoint (same as healthcare - port 8000)
+# Shared LLM endpoint
 # naming matches the SDK's base_url parameter for clarity
-LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://localhost:8000/v1/chat/completions")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://localhost:8080/v1")
 
 # Company name for consistent messaging
 COMPANY_NAME = os.getenv("COMPANY_NAME", "Light Heart Mechanical")
 
 # Recordings directory
-RECORDINGS_DIR = Path("/home/michael/HVAC_Grace/recordings")
+RECORDINGS_DIR = Path(os.getenv("RECORDINGS_DIR", "./recordings"))
 RECORDINGS_DIR.mkdir(exist_ok=True)
 
 
@@ -467,9 +466,9 @@ async def transcribe_audio_file(filepath: str) -> Optional[str]:
             audio_data = f.read()
 
         resp = requests.post(
-            os.getenv("STT_BASE_URL", "http://localhost:9101/v1") + "/audio/transcriptions",
+            os.getenv("STT_BASE_URL", "http://localhost:9000/v1") + "/audio/transcriptions",
             files={"file": (os.path.basename(filepath), audio_data, "audio/wav")},
-            data={"model": "Systran/faster-whisper-large-v3"},
+            data={"model": os.getenv("STT_MODEL", "Systran/faster-whisper-large-v3")},
             timeout=300  # 5 minutes for long recordings
         )
         resp.raise_for_status()
@@ -485,7 +484,7 @@ async def extract_ticket_data(transcript: str) -> dict:
     prompt = EXTRACTION_PROMPT.replace("{transcript}", transcript)
 
     payload = {
-        "model": "Qwen/Qwen2.5-32B-Instruct-AWQ",
+        "model": os.getenv("LLM_MODEL", "Qwen/Qwen2.5-32B-Instruct-AWQ"),
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.1,
         "max_tokens": 1500
@@ -804,9 +803,9 @@ class ClosingAgent(Agent):
                 recap = f"I have created tickets for {recap_parts[0]} and {recap_parts[1]}."
             else:
                 recap = f"I have created tickets for {', '.join(recap_parts[:-1])}, and {recap_parts[-1]}."
-            message = f"{recap} These are in our system and prioritized by urgency. You can expect a callback soon. How was your experience today?"
+            message = f"{recap} These are in our system and prioritized by urgency. You can expect a callback soon."
         else:
-            message = "Your ticket is in our system and prioritized by urgency. You can expect a callback soon. How was your experience today?"
+            message = "Your ticket is in our system and prioritized by urgency. You can expect a callback soon."
 
         self.session.say(message, allow_interruptions=True)
 
@@ -907,9 +906,9 @@ def warmup_whisper():
         wav_data = wav_buffer.getvalue()
 
         resp = requests.post(
-            os.getenv("STT_BASE_URL", "http://localhost:9101/v1") + "/audio/transcriptions",
+            os.getenv("STT_BASE_URL", "http://localhost:9000/v1") + "/audio/transcriptions",
             files={"file": ("warmup.wav", wav_data, "audio/wav")},
-            data={"model": "Systran/faster-whisper-large-v3"},
+            data={"model": os.getenv("STT_MODEL", "Systran/faster-whisper-large-v3")},
             timeout=120
         )
         resp.raise_for_status()
@@ -940,25 +939,25 @@ async def hvac_agent(ctx: agents.JobContext):
 
     # Initialize Whisper STT
     whisper_stt = openai.STT(
-        base_url=os.getenv("STT_BASE_URL", "http://localhost:9101/v1"),
-        model="Systran/faster-whisper-large-v3",
+        base_url=os.getenv("STT_BASE_URL", "http://localhost:9000/v1"),
+        model=os.getenv("STT_MODEL", "Systran/faster-whisper-large-v3"),
     )
 
     stt_with_vad = stt.StreamAdapter(stt=whisper_stt, vad=vad)
 
     # Shared LLM configuration
     llm = openai.LLM(
-        model="Qwen/Qwen2.5-32B-Instruct-AWQ",
-        base_url=os.getenv("LLM_BASE_URL", "http://localhost:9100/v1/chat/completions").rsplit("/chat/completions", 1)[0],
+        model=os.getenv("LLM_MODEL", "Qwen/Qwen2.5-32B-Instruct-AWQ"),
+        base_url=os.getenv("LLM_BASE_URL", "http://localhost:8080/v1").rsplit("/chat/completions", 1)[0],
         api_key="not-needed",
         temperature=0.4
     )
 
     # Shared TTS configuration with filtering
     raw_tts = openai.TTS(
-        base_url=os.getenv("TTS_BASE_URL", "http://localhost:9102/v1"),
+        base_url=os.getenv("TTS_BASE_URL", "http://localhost:8880/v1"),
         model="kokoro",
-        voice="af_heart",
+        voice=os.getenv("TTS_VOICE", "af_heart"),
     )
     tts = FilteredTTS(raw_tts)
 

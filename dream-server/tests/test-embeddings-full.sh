@@ -4,20 +4,25 @@
 
 LLAMA_SERVER_URL="http://localhost:8080"
 
+# Portable millisecond timestamp (macOS BSD date lacks %N)
+_now_ms() {
+    python3 -c 'import time; print(int(time.time() * 1000))' 2>/dev/null || echo "$(date +%s)000"
+}
+
 echo "=== M8 Test: Embeddings Full ==="
 
 TEST_TEXT="The quick brown fox jumps over the lazy dog"
 
 # Test embeddings endpoint
-START=$(date +%s%N)
+START=$(_now_ms)
 RESPONSE=$(curl -s -X POST "$LLAMA_SERVER_URL/v1/embeddings" \
   -H "Content-Type: application/json" \
   -d "{
     \"model\": \"qwen2.5-32b-instruct\",
     \"input\": \"$TEST_TEXT\"
   }" 2>/dev/null)
-END=$(date +%s%N)
-LATENCY=$(( (END - START) / 1000000 ))
+END=$(_now_ms)
+LATENCY=$(( END - START ))
 
 # Check for embedding array
 if echo "$RESPONSE" | grep -q '"embedding":\['; then

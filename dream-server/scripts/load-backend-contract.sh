@@ -35,7 +35,15 @@ if [[ ! -f "$CONTRACT_FILE" ]]; then
 fi
 
 if [[ "$ENV_MODE" == "true" ]]; then
-    python3 - "$CONTRACT_FILE" <<'PY'
+    PYTHON_CMD="python3"
+    if [[ -f "$ROOT_DIR/lib/python-cmd.sh" ]]; then
+        . "$ROOT_DIR/lib/python-cmd.sh"
+        PYTHON_CMD="$(ds_detect_python_cmd)"
+    elif command -v python >/dev/null 2>&1; then
+        PYTHON_CMD="python"
+    fi
+
+    "$PYTHON_CMD" - "$CONTRACT_FILE" <<'PY'
 import json
 import sys
 

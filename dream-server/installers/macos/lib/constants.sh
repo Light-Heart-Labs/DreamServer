@@ -13,8 +13,15 @@
 
 DS_VERSION="2.0.0-strix-halo"
 
-# Install location (override via $DREAM_HOME)
-DS_INSTALL_DIR="${DREAM_HOME:-$HOME/dream-server}"
+# Install location - use shared path resolution if available
+MACOS_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+if [[ -f "$MACOS_SCRIPT_DIR/installers/lib/path-utils.sh" ]]; then
+    . "$MACOS_SCRIPT_DIR/installers/lib/path-utils.sh"
+    DS_INSTALL_DIR="$(resolve_install_dir)"
+else
+    # Fallback to legacy behavior
+    DS_INSTALL_DIR="${DREAM_HOME:-$HOME/dream-server}"
+fi
 
 # Logging
 DS_LOG_FILE="/tmp/dream-server-install-macos.log"

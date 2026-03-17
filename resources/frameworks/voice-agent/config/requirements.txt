@@ -14,7 +14,6 @@ requests>=2.31.0
 # Flask API server
 flask>=3.0.0
 flask-cors>=4.0.0
-psycopg2-binary>=2.9.9
 
 # Audio processing
 numpy>=1.26.0

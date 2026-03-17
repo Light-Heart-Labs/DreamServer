@@ -14,6 +14,7 @@
 #   Add new pre-flight checks (e.g., kernel version) here.
 # ============================================================================
 
+dream_progress 5 "preflight" "Running preflight checks"
 show_phase 1 6 "Pre-flight Checks" "~30 seconds"
 ai "I'm scanning your system for required components..."
 
@@ -39,7 +40,7 @@ if ! command -v curl &> /dev/null; then
         *)      error "curl is required but not installed. Install with: sudo apt install curl" ;;
     esac
 fi
-log "curl: $(curl --version | head -1)"
+log "curl: $(curl --version 2>/dev/null | sed -n '1p')"
 
 # Check optional tools (warn but don't fail)
 OPTIONAL_TOOLS_MISSING=""

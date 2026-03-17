@@ -1,0 +1,58 @@
+# APE Policy Configuration
+# Reload is automatic — edit this file and APE picks it up within ~30s.
+#
+# Intent classes: ExecuteCommand, WriteFile, ReadFile, NetworkFetch, SpawnAgent, Other
+#
+# Modes:
+#   allow       — always permit
+#   deny        — always block
+#   allowlist   — permit only listed commands; optionally reject by regex pattern
+#   path_guard  — permit writes only within allowed_paths
+
+version: 1
+
+intents:
+  ExecuteCommand:
+    mode: allowlist
+    allowed:
+      - ls
+      - cat
+      - grep
+      - find
+      - head
+      - tail
+      - wc
+      - echo
+      - pwd
+      - env
+      - which
+      - curl         # allow curl but deny pipe-to-shell pattern below
+      - wget
+    deny_patterns:
+      - 'rm\s+-rf'            # no recursive deletes
+      - '>\s*/dev/sd'         # no raw disk writes
+      - 'curl[^|]+\|\s*sh'   # no curl | sh
+      - 'wget[^|]+\|\s*sh'   # no wget | sh
+      - 'bash\s+-i'           # no interactive bash
+      - 'nc\s+.*-e'           # no netcat reverse shells
+
+  WriteFile:
+    mode: path_guard
+    allowed_paths:
+      - /home/node/.openclaw/workspace
+      - /tmp/openclaw
+
+  ReadFile:
+    mode: allow
+
+  NetworkFetch:
+    mode: allow
+
+  SpawnAgent:
+    mode: allow
+
+  Other:
+    mode: allow
+
+rate_limit:
+  requests_per_minute: 60

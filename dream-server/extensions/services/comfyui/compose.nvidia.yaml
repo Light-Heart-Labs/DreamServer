@@ -5,8 +5,10 @@ services:
       dockerfile: Dockerfile
     container_name: dream-comfyui
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     ports:
-      - "${COMFYUI_PORT:-8188}:8188"
+      - "127.0.0.1:${COMFYUI_PORT:-8188}:8188"
     volumes:
       - ./data/comfyui/models:/models
       - ./data/comfyui/output:/output
@@ -15,6 +17,9 @@ services:
     shm_size: '8g'
     deploy:
       resources:
+        limits:
+          cpus: '16.0'
+          memory: 24G
         reservations:
           devices:
             - driver: nvidia

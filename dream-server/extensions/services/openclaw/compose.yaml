@@ -1,6 +1,6 @@
 services:
   openclaw:
-    image: ghcr.io/openclaw/openclaw:latest
+    image: ghcr.io/openclaw/openclaw:2026.3.8
     container_name: dream-openclaw
     restart: unless-stopped
     security_opt:
