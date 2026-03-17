@@ -83,7 +83,15 @@ if [[ -x "$SCRIPT_DIR/scripts/preflight-engine.sh" ]]; then
     load_env_from_output <<< "$PREFLIGHT_ENV"
     echo "[INFO] Preflight report: $REPORT_FILE"
     echo "[INFO] Blockers: ${PREFLIGHT_BLOCKERS:-0}  Warnings: ${PREFLIGHT_WARNINGS:-0}"
-    python3 - "$REPORT_FILE" << 'PY'
+    PYTHON_CMD="python3"
+    if [[ -f "$SCRIPT_DIR/lib/python-cmd.sh" ]]; then
+        . "$SCRIPT_DIR/lib/python-cmd.sh"
+        PYTHON_CMD="$(ds_detect_python_cmd)"
+    elif command -v python >/dev/null 2>&1; then
+        PYTHON_CMD="python"
+    fi
+
+    "$PYTHON_CMD" - "$REPORT_FILE" << 'PY'
 import json
 import sys
 

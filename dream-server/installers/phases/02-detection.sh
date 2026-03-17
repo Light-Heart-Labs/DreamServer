@@ -208,6 +208,8 @@ if [[ -z "$TIER" ]]; then
         TIER=3
     elif [[ $GPU_VRAM -ge 12000 ]] || [[ $RAM_GB -ge 48 ]]; then
         TIER=2
+    elif [[ $GPU_VRAM -lt 4000 ]] && [[ $RAM_GB -lt 12 ]]; then
+        TIER=0
     else
         TIER=1
     fi
@@ -245,6 +247,7 @@ if [[ "$INTERACTIVE" == "true" ]]; then
         NV_ULTRA)   SPEED_EST=50; USERS_EST="10-20" ;;
         SH_LARGE)   SPEED_EST=40; USERS_EST="5-10" ;;
         SH_COMPACT) SPEED_EST=80; USERS_EST="5-10" ;;
+        0) SPEED_EST=50; USERS_EST="1" ;;
         1) SPEED_EST=25; USERS_EST="1-2" ;;
         2) SPEED_EST=45; USERS_EST="3-5" ;;
         3) SPEED_EST=55; USERS_EST="5-8" ;;

@@ -12,7 +12,14 @@ apply_patch() {
     echo "[dream-whisper] apply_patch called for $stt_file (no-op)"
 }
 
-STT_FILE=$(python3 -c "import speaches.routers.stt as m; print(m.__file__)" 2>/dev/null || true)
+PYTHON_CMD="python3"
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(0)' >/dev/null 2>&1; then
+    PYTHON_CMD="python3"
+elif command -v python >/dev/null 2>&1 && python -c 'import sys; sys.exit(0)' >/dev/null 2>&1; then
+    PYTHON_CMD="python"
+fi
+
+STT_FILE=$($PYTHON_CMD -c "import speaches.routers.stt as m; print(m.__file__)" 2>/dev/null || true)
 
 # VAD patch disabled — upstream compatibility, using defaults
 # TODO: Fix patch to handle multi-line function calls safely.

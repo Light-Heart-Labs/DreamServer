@@ -106,6 +106,9 @@ def load_extension_manifests(manifest_dir: Path, gpu_backend: str) -> tuple[dict
                     if gpu_backend != "apple" and gpu_backend not in supported and "all" not in supported:
                         continue
                     if feature.get("id") and feature.get("name"):
+                        missing = [f for f in ("description", "icon", "category", "setup_time", "priority") if f not in feature]
+                        if missing:
+                            logger.warning("Feature '%s' in %s missing optional fields: %s", feature["id"], path, ", ".join(missing))
                         features.append(feature)
 
             loaded += 1

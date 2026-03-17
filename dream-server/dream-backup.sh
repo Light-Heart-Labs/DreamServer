@@ -28,6 +28,110 @@ log_success() { echo -e "${GREEN}[SUCCESS]${NC} $*"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
+# Convert bytes to a human-friendly string (best-effort)
+fmt_bytes() {
+    local bytes="${1:-0}"
+    if command -v numfmt >/dev/null 2>&1; then
+        numfmt --to=iec --suffix=B "$bytes" 2>/dev/null || echo "${bytes}B"
+    else
+        # Fallback: show MiB rounding
+        local mib=$(( (bytes + 1048575) / 1048576 ))
+        echo "${mib}MiB"
+    fi
+}
+
+# Available bytes on filesystem containing a path
+free_bytes_for_path() {
+    local path="$1"
+    # df -P gives POSIX output; field 4 = available 1K-blocks
+    df -Pk "$path" 2>/dev/null | awk 'NR==2 { print $4 * 1024 }'
+}
+
+# Estimate bytes needed for a backup type (rough but safe)
+estimate_backup_bytes() {
+    local backup_type="$1"
+
+    local total=0
+
+    # user data volumes
+    if [[ "$backup_type" == "full" || "$backup_type" == "user-data" ]]; then
+        local -a user_data_paths=(
+            "data/open-webui"
+            "data/n8n"
+            "data/qdrant"
+            "data/openclaw"
+            "data/litellm"
+            "data/livekit"
+            "data/ollama"
+        )
+
+        for p in "${user_data_paths[@]}"; do
+            if [[ -d "$DREAM_DIR/$p" ]]; then
+                local b
+                b=$(du -sk "$DREAM_DIR/$p" 2>/dev/null | awk '{print $1 * 1024}')
+                total=$(( total + ${b:-0} ))
+            fi
+        done
+    fi
+
+    # config files/dir
+    if [[ "$backup_type" == "full" || "$backup_type" == "config" ]]; then
+        if [[ -d "$DREAM_DIR/config" ]]; then
+            local b
+            b=$(du -sk "$DREAM_DIR/config" 2>/dev/null | awk '{print $1 * 1024}')
+            total=$(( total + ${b:-0} ))
+        fi
+        for f in "$DREAM_DIR"/.env "$DREAM_DIR"/.version "$DREAM_DIR"/docker-compose*.y*ml "$DREAM_DIR"/dream-preflight.sh "$DREAM_DIR"/dream-update.sh; do
+            if [[ -f "$f" ]]; then
+                local s
+                s=$(wc -c < "$f" 2>/dev/null || echo 0)
+                total=$(( total + ${s:-0} ))
+            fi
+        done
+    fi
+
+    # cache (models + some caches)
+    if [[ "$backup_type" == "full" ]]; then
+        if [[ -d "$DREAM_DIR/models" ]]; then
+            local b
+            b=$(du -sk "$DREAM_DIR/models" 2>/dev/null | awk '{print $1 * 1024}')
+            total=$(( total + ${b:-0} ))
+        fi
+        local -a cache_paths=("data/whisper/cache" "data/kokoro/cache")
+        for p in "${cache_paths[@]}"; do
+            if [[ -d "$DREAM_DIR/$p" ]]; then
+                local b
+                b=$(du -sk "$DREAM_DIR/$p" 2>/dev/null | awk '{print $1 * 1024}')
+                total=$(( total + ${b:-0} ))
+            fi
+        done
+    fi
+
+    # Add a small overhead buffer (manifest, filesystem slack, etc.)
+    total=$(( total + 50 * 1024 * 1024 ))
+
+    echo "$total"
+}
+
+ensure_backup_space() {
+    local backup_type="$1"
+
+    mkdir -p "$BACKUP_ROOT"
+
+    local need
+    need=$(estimate_backup_bytes "$backup_type")
+
+    local free
+    free=$(free_bytes_for_path "$BACKUP_ROOT")
+
+    if [[ -n "$free" && "$free" -gt 0 && "$free" -lt "$need" ]]; then
+        log_error "Not enough disk space in $(dirname "$BACKUP_ROOT") to create backup."
+        log_error "Need ~$(fmt_bytes "$need"), have ~$(fmt_bytes "$free")."
+        log_error "Free up space or use --output to write backups to another disk."
+        exit 1
+    fi
+}
+
 # Show usage
 usage() {
     cat << EOF
@@ -356,6 +460,9 @@ do_backup() {
 
     log_info "Starting $backup_type backup: $backup_id"
     log_info "Backup directory: $backup_dir"
+
+    # Disk space preflight (best-effort)
+    ensure_backup_space "$backup_type"
 
     # Create backup directory
     mkdir -p "$backup_dir"

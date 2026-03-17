@@ -53,6 +53,14 @@ resolve_tier_config() {
             GGUF_SHA256="120307ba529eb2439d6c430d94104dabd578497bc7bfe7e322b5d9933b449bd4"
             MAX_CONTEXT=32768
             ;;
+        0)
+            TIER_NAME="Lightweight"
+            LLM_MODEL="qwen3.5-2b"
+            GGUF_FILE="Qwen3.5-2B-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf"
+            GGUF_SHA256=""
+            MAX_CONTEXT=8192
+            ;;
         1)
             TIER_NAME="Entry Level"
             LLM_MODEL="qwen3-4b"
@@ -62,7 +70,7 @@ resolve_tier_config() {
             MAX_CONTEXT=16384
             ;;
         *)
-            ai_err "Invalid tier: $tier. Valid tiers: 1, 2, 3, 4, CLOUD"
+            ai_err "Invalid tier: $tier. Valid tiers: 0, 1, 2, 3, 4, CLOUD"
             exit 1
             ;;
     esac
@@ -86,8 +94,11 @@ auto_select_tier() {
         echo "3"
     elif [[ "$ram_gb" -ge 32 ]]; then
         echo "2"
-    else
-        # 8–24 GB unified → lightweight 4B model
+    elif [[ "$ram_gb" -ge 16 ]]; then
+        # 16–31 GB unified → lightweight 4B model
         echo "1"
+    else
+        # < 16 GB unified → ultra-lightweight 2B model
+        echo "0"
     fi
 }

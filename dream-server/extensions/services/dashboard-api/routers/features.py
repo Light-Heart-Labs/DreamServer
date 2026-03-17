@@ -74,9 +74,9 @@ def calculate_feature_status(feature: dict, services: list, gpu_info: Optional[G
     return {
         "id": feature["id"],
         "name": feature["name"],
-        "description": feature["description"],
-        "icon": feature["icon"],
-        "category": feature["category"],
+        "description": feature.get("description", ""),
+        "icon": feature.get("icon", "Package"),
+        "category": feature.get("category", "other"),
         "status": status,
         "enabled": is_enabled,
         "requirements": {
@@ -90,8 +90,8 @@ def calculate_feature_status(feature: dict, services: list, gpu_info: Optional[G
             "servicesMissing": services_missing,
             "servicesOk": services_ok,
         },
-        "setupTime": feature["setup_time"],
-        "priority": feature["priority"]
+        "setupTime": feature.get("setup_time", "Unknown"),
+        "priority": feature.get("priority", 99)
     }
 
 

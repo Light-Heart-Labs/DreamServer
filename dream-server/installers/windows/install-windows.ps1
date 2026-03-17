@@ -619,6 +619,12 @@ if ($DryRun) {
             }
         }
 
+        # Tier 0 memory overlay (reduces reservations for low-RAM machines)
+        if ($selectedTier -eq "0" -and (Test-Path (Join-Path $InstallDir "docker-compose.tier0.yml"))) {
+            $composeFlags += @("-f", "docker-compose.tier0.yml")
+            Write-AI "Applying lightweight memory limits for Tier 0"
+        }
+
         # Docker compose override (user customizations)
         if (Test-Path (Join-Path $InstallDir "docker-compose.override.yml")) {
             $composeFlags += @("-f", "docker-compose.override.yml")

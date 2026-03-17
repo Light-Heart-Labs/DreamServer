@@ -599,6 +599,12 @@ else
         done
     fi
 
+    # Layer Tier 0 memory overlay for low-RAM machines
+    if [[ "$SELECTED_TIER" == "0" && -f "${INSTALL_DIR}/docker-compose.tier0.yml" ]]; then
+        COMPOSE_FLAGS+=("-f" "docker-compose.tier0.yml")
+        ai "Applying lightweight memory limits for Tier 0"
+    fi
+
     # Docker compose override (user customizations)
     if [[ -f "${INSTALL_DIR}/docker-compose.override.yml" ]]; then
         COMPOSE_FLAGS+=("-f" "docker-compose.override.yml")

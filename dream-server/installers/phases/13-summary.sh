@@ -210,7 +210,15 @@ echo -e "${GRN}─────────────────────�
 echo ""
 
 if [[ -n "$SUMMARY_JSON_FILE" ]]; then
-    python3 - "$SUMMARY_JSON_FILE" "$VERSION" "$INSTALL_DIR" "$TIER" "$TIER_NAME" "$GPU_BACKEND" "${BACKEND_SERVICE_NAME:-llama-server}" "$LLM_MODEL" "$COMPOSE_FLAGS" "$DRY_RUN" "$PREFLIGHT_REPORT_FILE" "${CAP_HARDWARE_CLASS_ID:-unknown}" "${CAP_HARDWARE_CLASS_LABEL:-Unknown}" <<'PY'
+    PYTHON_CMD="python3"
+    if [[ -f "$SCRIPT_DIR/lib/python-cmd.sh" ]]; then
+        . "$SCRIPT_DIR/lib/python-cmd.sh"
+        PYTHON_CMD="$(ds_detect_python_cmd)"
+    elif command -v python >/dev/null 2>&1; then
+        PYTHON_CMD="python"
+    fi
+
+    "$PYTHON_CMD" - "$SUMMARY_JSON_FILE" "$VERSION" "$INSTALL_DIR" "$TIER" "$TIER_NAME" "$GPU_BACKEND" "${BACKEND_SERVICE_NAME:-llama-server}" "$LLM_MODEL" "$COMPOSE_FLAGS" "$DRY_RUN" "$PREFLIGHT_REPORT_FILE" "${CAP_HARDWARE_CLASS_ID:-unknown}" "${CAP_HARDWARE_CLASS_LABEL:-Unknown}" <<'PY'
 import json
 import pathlib
 import sys
