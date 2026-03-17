@@ -84,6 +84,8 @@ async def get_release_manifest():
 @router.post("/api/update")
 async def trigger_update(action: UpdateAction, background_tasks: BackgroundTasks, api_key: str = Depends(verify_api_key)):
     """Trigger update actions via dashboard (non-blocking subprocess)."""
+    if action.action not in ("check", "backup", "update"):
+        raise HTTPException(status_code=400, detail=f"Unknown action: {action.action}")
     script_path = Path(INSTALL_DIR).parent / "scripts" / "dream-update.sh"
     if not script_path.exists():
         install_script = Path(INSTALL_DIR) / "install.sh"
@@ -122,7 +124,8 @@ async def trigger_update(action: UpdateAction, background_tasks: BackgroundTasks
         except OSError:
             logger.exception("Backup failed")
             raise HTTPException(status_code=500, detail="Backup failed")
-    elif action.action == "update":
+    else:
+        # action.action == "update"
         async def run_update():
             proc = await asyncio.create_subprocess_exec(
                 str(script_path), "update",
@@ -131,5 +134,3 @@ async def trigger_update(action: UpdateAction, background_tasks: BackgroundTasks
             await proc.communicate()
         background_tasks.add_task(run_update)
         return {"success": True, "message": "Update started in background. Check logs for progress."}
-    else:
-        raise HTTPException(status_code=400, detail=f"Unknown action: {action.action}")
