@@ -21,6 +21,7 @@ Utility scripts for diagnostics, testing, validation, and operations.
 | `dream-test-functional.sh` | Functional tests (inference, TTS, STT) | Yes |
 | `validate.sh` | Post-install validation | Yes |
 | `validate-env.sh` | Validate .env against schema | No |
+| `audit-extensions.py` | Audit extension manifests and compose contracts | No |
 | `simulate-installers.sh` | Cross-platform installer simulation | No |
 | `release-gate.sh` | Full pre-release checklist | No |
 | `check-compatibility.sh` | Manifest compatibility checks | No |

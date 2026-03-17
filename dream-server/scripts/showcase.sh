@@ -2,7 +2,7 @@
 # Dream Server Interactive Showcase
 # Demonstrates all capabilities in an interactive menu
 
-set -e
+set -euo pipefail
 
 # Colors
 RED='\033[0;31m'
@@ -24,20 +24,8 @@ if [[ -f "$DREAM_DIR/lib/service-registry.sh" ]]; then
     export SCRIPT_DIR="$DREAM_DIR"
     . "$DREAM_DIR/lib/service-registry.sh"
     sr_load
-    if [[ -f "$DREAM_DIR/.env" ]]; then
-        set -a
-        while IFS='=' read -r key value; do
-            [[ "$key" =~ ^[[:space:]]*# ]] && continue
-            [[ -z "$key" ]] && continue
-            [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-            value="${value%\"}"
-            value="${value#\"}"
-            value="${value%\'}"
-            value="${value#\'}"
-            export "$key=$value"
-        done < "$DREAM_DIR/.env"
-        set +a
-    fi
+    [[ -f "$DREAM_DIR/lib/safe-env.sh" ]] && . "$DREAM_DIR/lib/safe-env.sh"
+    load_env_file "$DREAM_DIR/.env"
 fi
 
 # URLs — resolved from registry

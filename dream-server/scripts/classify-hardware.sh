@@ -46,7 +46,15 @@ if [[ ! -f "$GPU_DB" ]]; then
     exit 1
 fi
 
-python3 - "$GPU_DB" "$ENV_MODE" "$PLATFORM_ID" "$GPU_VENDOR" "$MEMORY_TYPE" "$VRAM_MB" "$DEVICE_ID" "$GPU_NAME" "$CPU_NAME" "$RAM_MB" <<'PY'
+PYTHON_CMD="python3"
+if [[ -f "$ROOT_DIR/lib/python-cmd.sh" ]]; then
+    . "$ROOT_DIR/lib/python-cmd.sh"
+    PYTHON_CMD="$(ds_detect_python_cmd)"
+elif command -v python >/dev/null 2>&1; then
+    PYTHON_CMD="python"
+fi
+
+"$PYTHON_CMD" - "$GPU_DB" "$ENV_MODE" "$PLATFORM_ID" "$GPU_VENDOR" "$MEMORY_TYPE" "$VRAM_MB" "$DEVICE_ID" "$GPU_NAME" "$CPU_NAME" "$RAM_MB" <<'PY'
 import json
 import sys
 

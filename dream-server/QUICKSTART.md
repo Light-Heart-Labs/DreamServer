@@ -228,7 +228,7 @@ The installer handles everything — GPU detection, tier selection, Docker setup
 
 ### Common Windows Issues
 
-**Ollama conflict:** If Ollama Desktop is running, it uses port 11434 which conflicts with llama-server. The installer will detect this and offer to stop it.
+**Ollama conflict:** If you set `OLLAMA_PORT=11434` and Ollama Desktop is running, ports will conflict. Keep `OLLAMA_PORT=8080` (default) or stop Ollama.
 
 **Docker Desktop not running:** Start Docker Desktop from the Start Menu before running the installer.
 

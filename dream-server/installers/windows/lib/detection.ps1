@@ -271,6 +271,76 @@ function Test-ModelIntegrity {
     }
 }
 
+function Test-ZipIntegrity {
+    <#
+    .SYNOPSIS
+        Validate a zip file's structure without extracting it.
+    .DESCRIPTION
+        Uses System.IO.Compression.ZipFile to verify the zip file can be opened
+        and has a valid central directory. Catches the "Central Directory corrupt"
+        error that occurs with incomplete or corrupted downloads.
+    .PARAMETER Path
+        Full path to the zip file to validate.
+    .OUTPUTS
+        @{ Valid; ErrorMessage; SizeBytes }
+    #>
+    param(
+        [string]$Path
+    )
+
+    if (-not (Test-Path $Path)) {
+        return @{
+            Valid        = $false
+            ErrorMessage = "File not found"
+            SizeBytes    = 0
+        }
+    }
+
+    $fileInfo = Get-Item $Path
+    $sizeBytes = $fileInfo.Length
+
+    # Check for empty or suspiciously small files
+    if ($sizeBytes -lt 100) {
+        return @{
+            Valid        = $false
+            ErrorMessage = "File is too small to be a valid zip archive ($sizeBytes bytes)"
+            SizeBytes    = $sizeBytes
+        }
+    }
+
+    # Load System.IO.Compression.FileSystem if not already loaded
+    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+
+    try {
+        # Attempt to open the zip file (validates central directory)
+        $zip = [System.IO.Compression.ZipFile]::OpenRead($Path)
+        $entryCount = $zip.Entries.Count
+        $zip.Dispose()
+
+        return @{
+            Valid        = $true
+            ErrorMessage = ""
+            SizeBytes    = $sizeBytes
+        }
+    }
+    catch [System.IO.InvalidDataException] {
+        # This is the "Central Directory corrupt" error from issue #209
+        return @{
+            Valid        = $false
+            ErrorMessage = "Central Directory is invalid or corrupt"
+            SizeBytes    = $sizeBytes
+        }
+    }
+    catch {
+        # Other errors (permissions, file locked, etc.)
+        return @{
+            Valid        = $false
+            ErrorMessage = $_.Exception.Message
+            SizeBytes    = $sizeBytes
+        }
+    }
+}
+
 function Test-DiskSpace {
     <#
     .SYNOPSIS

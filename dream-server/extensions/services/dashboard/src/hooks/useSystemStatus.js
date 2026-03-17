@@ -57,11 +57,13 @@ export function useSystemStatus() {
 
   useEffect(() => {
     const fetchStatus = async () => {
-      // If using mock data, don't attempt API call
       if (USE_MOCK_DATA) {
         setLoading(false)
         return
       }
+
+      // Pause polling when the tab is hidden to save CPU/network
+      if (document.hidden) return
 
       // Skip this tick if the previous fetch hasn't returned yet.
       if (fetchInFlight.current) return
@@ -75,7 +77,6 @@ export function useSystemStatus() {
         setError(null)
       } catch (err) {
         setError(err.message)
-        // Keep previous status on error so the UI doesn't flash
       } finally {
         fetchInFlight.current = false
         setLoading(false)
@@ -84,7 +85,15 @@ export function useSystemStatus() {
 
     fetchStatus()
     const interval = setInterval(fetchStatus, POLL_INTERVAL)
-    return () => clearInterval(interval)
+
+    // Resume immediately when the tab becomes visible again
+    const onVisibility = () => { if (!document.hidden) fetchStatus() }
+    document.addEventListener('visibilitychange', onVisibility)
+
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [])
 
   return { status, loading, error }
