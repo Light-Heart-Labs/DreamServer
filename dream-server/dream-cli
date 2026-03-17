@@ -455,6 +455,26 @@ cmd_catalog() {
     python3 "$INSTALL_DIR/scripts/extension-catalog.py" --project-dir "$INSTALL_DIR" --format "$format"
 }
 
+cmd_extensions() {
+    local subcmd="${1:-}"
+    case "$subcmd" in
+        audit)
+            shift
+            cmd_audit "$@"
+            ;;
+        catalog)
+            shift
+            cmd_catalog "$@"
+            ;;
+        list|"")
+            cmd_list
+            ;;
+        *)
+            error "Unknown extensions subcommand: $subcmd (use: list|audit|catalog)"
+            ;;
+    esac
+}
+
 #=============================================================================
 # Extension Management Commands
 #=============================================================================
@@ -961,6 +981,7 @@ ${CYAN}Commands:${NC}
   doctor [report]     Run diagnostics and write JSON report
   audit [service]     Audit extension manifests and feature contracts
   catalog             Export extension inventory as JSON or Markdown
+  extensions          Extension namespace: list/audit/catalog
   help                Show this help
 
 ${CYAN}Preset Commands:${NC}
@@ -1026,6 +1047,7 @@ ${CYAN}Examples:${NC}
   dream config edit               # Edit .env file
   dream audit --json whisper      # Audit one extension as JSON
   dream catalog --format markdown # Export extension inventory table
+  dream extensions audit whisper  # Same audit via namespace
 
 ${CYAN}Environment:${NC}
   DREAM_HOME          Installation directory (default: ~/dream-server)
@@ -1058,6 +1080,7 @@ case "${1:-help}" in
     doctor|diag|d) shift; cmd_doctor "$@" ;;
     audit)        shift; cmd_audit "$@" ;;
     catalog)      shift; cmd_catalog "$@" ;;
+    extensions|ext) shift; cmd_extensions "$@" ;;
     help|h|--help|-h) cmd_help ;;
     version|v|--version|-v) echo "dream-cli v${VERSION}" ;;
     *)           error "Unknown command: $1. Run 'dream help' for usage." ;;
