@@ -38,10 +38,13 @@ else
             error "Docker installation failed. Check network connectivity and try again."
         fi
         rm -f "$tmpfile"
-        sudo usermod -aG docker $USER
+        target_user="${SUDO_USER:-$USER}"
+        sudo usermod -aG docker "$target_user"
 
-        # Check if we need to use newgrp or restart
-        if ! groups | grep -q docker; then
+        # Check the current shell's effective groups, not the updated account record.
+        # usermod updates future login sessions immediately, but this shell usually
+        # cannot use the new docker group until re-login or newgrp.
+        if ! id -nG 2>/dev/null | tr ' ' '\n' | grep -qx docker; then
             warn "Docker installed! Group membership requires re-login."
             warn "Option 1: Log out and back in, then re-run this script with --skip-docker"
             warn "Option 2: Run 'newgrp docker' in a new terminal, then re-run"
