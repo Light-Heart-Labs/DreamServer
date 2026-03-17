@@ -117,5 +117,19 @@ json.dump(data, open(dest, "w", encoding="utf-8"))
 PY
 run_expect 2 "strict mode requires generated_at" python3 "$TARGET" --strict "$TMP_DIR/no-generated-at.json"
 
+python3 - "$TMP_DIR/missing-signal.json" "$TMP_DIR/multi-error.json" <<'PY'
+import json, sys
+src, dest = sys.argv[1], sys.argv[2]
+data = json.load(open(src, encoding="utf-8"))
+data["runs"].pop("doctor_snapshot", None)
+json.dump(data, open(dest, "w", encoding="utf-8"))
+PY
+run_expect 2 "max-issues still fails validation" python3 "$TARGET" --max-issues 1 "$TMP_DIR/multi-error.json"
+if grep -q "omitted (--max-issues=1)" /tmp/dream-sim-test.out; then
+    pass "max-issues omits extra errors in output"
+else
+    fail "max-issues omits extra errors in output"
+fi
+
 echo "Result: $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]]

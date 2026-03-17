@@ -52,8 +52,9 @@ class ValidationIssue:
 
 
 class Validator:
-    def __init__(self, *, strict: bool = False) -> None:
+    def __init__(self, *, strict: bool = False, max_issues: int = 0) -> None:
         self.strict = strict
+        self.max_issues = max_issues
         self.issues: List[ValidationIssue] = []
 
     def add(self, path: str, message: str) -> None:
@@ -63,8 +64,14 @@ class Validator:
         if not self.issues:
             return
         print("[FAIL] simulation summary validation")
-        for issue in self.issues:
+        issues_to_print = self.issues
+        if self.max_issues > 0:
+            issues_to_print = self.issues[: self.max_issues]
+        for issue in issues_to_print:
             print(issue.format())
+        if self.max_issues > 0 and len(self.issues) > self.max_issues:
+            hidden = len(self.issues) - self.max_issues
+            print(f"- ... {hidden} more issue(s) omitted (--max-issues={self.max_issues})")
         raise SystemExit(2)
 
 
@@ -318,11 +325,20 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
     )
     p.add_argument("summary_json", help="Path to summary.json")
     p.add_argument("--strict", action="store_true", help="Fail on unknown keys and require generated_at")
+    p.add_argument(
+        "--max-issues",
+        type=int,
+        default=0,
+        help="Limit number of printed validation issues (0 = all).",
+    )
     return p.parse_args(argv)
 
 
 def main(argv: Sequence[str]) -> int:
     args = _parse_args(argv)
+    if args.max_issues < 0:
+        print("[FAIL] --max-issues must be >= 0")
+        return 2
 
     path = Path(args.summary_json)
     if not path.exists():
@@ -345,7 +361,7 @@ def main(argv: Sequence[str]) -> int:
         print(f"[FAIL] root must be an object, got {_type_name(data)}")
         return 2
 
-    v = Validator(strict=bool(args.strict))
+    v = Validator(strict=bool(args.strict), max_issues=int(args.max_issues))
     validate_summary(v, data)
     v.fail_if_any()
 
