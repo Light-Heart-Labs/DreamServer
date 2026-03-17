@@ -1,6 +1,6 @@
 # Contributing to Dream Server
 
-Dream Server is how we prove that AI doesn't need to be rented from a corporation. Every PR that lands here puts sovereign AI into someone's hands who didn't have it yesterday. That's the mission. If you're here, you're part of it.
+Dream Server is the fight to take AI back from the corporations charging you a subscription to use your own data on their servers. Every PR that lands here puts sovereign AI into someone's hands who didn't have it yesterday. This isn't a startup. This isn't a product. This is a movement — and if you're here, you're already part of it.
 
 ## Getting Started
 
@@ -18,11 +18,11 @@ If you're adding or extending services, read these first:
 
 ## What We Care About Right Now
 
-We have a lot of contributors and limited review bandwidth. These are the areas where your work will have the most impact — and where PRs get merged fastest.
+We have 20+ contributors and the number keeps growing. These are the areas where your work hits hardest — and where PRs get merged fastest.
 
 ### 1. Runs on anything
 
-A student with a $200 laptop and no GPU should be able to run Dream Server. So should someone with a 96GB Strix Halo laptop. We're not building for the lucky few with 4090s — we're building for everyone.
+A student with a $200 laptop and no GPU should be able to run Dream Server. So should someone with a 96GB Strix Halo laptop. We don't care if you have a 4090 or a hand-me-down ThinkPad — Dream Server runs on your machine or we haven't done our job.
 
 Where to help:
 - **New hardware tiers** — we have Tier 0 (4GB, no GPU) through Tier 4 (48GB+ VRAM) plus Strix Halo and Intel Arc. If your hardware isn't supported, make it supported.
@@ -43,7 +43,7 @@ Where to help:
 
 ### 3. Extensions and integrations
 
-A bare LLM running in a terminal is cool for about ten minutes. Dream Server becomes something people rely on when it plugs into everything else they already use. This is where the ecosystem gets built.
+An LLM in a terminal is a toy. Dream Server becomes something people can't live without when it connects to everything they already use. This is how we build the ecosystem that makes sovereign AI actually useful.
 
 Where to help:
 - **New services** — wrap any Docker-based tool as a Dream Server extension. Manifest, compose file, health check — that's it. Look at `extensions/services/` for examples.
