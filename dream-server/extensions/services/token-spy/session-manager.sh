@@ -41,7 +41,16 @@ REMOTE_FILE_SIZE_LIMIT=200000
 get_agent_char_limit() {
   local agent="$1" port="$2"
   local limit
-  limit=$(curl -sf --max-time 3 "http://${MONITOR_HOST}:${port}/api/session-status?agent=${agent}" 2>/dev/null | python3 -c "import json,sys; print(json.load(sys.stdin).get('session_char_limit', $DEFAULT_CHAR_LIMIT))" 2>/dev/null || echo "$DEFAULT_CHAR_LIMIT")
+
+  local pycmd="python3"
+  if [[ -f "$(dirname "$0")/../../../lib/python-cmd.sh" ]]; then
+    . "$(dirname "$0")/../../../lib/python-cmd.sh"
+    pycmd="$(ds_detect_python_cmd)"
+  elif command -v python >/dev/null 2>&1; then
+    pycmd="python"
+  fi
+
+  limit=$(curl -sf --max-time 3 "http://${MONITOR_HOST}:${port}/api/session-status?agent=${agent}" 2>/dev/null | "$pycmd" -c "import json,sys; print(json.load(sys.stdin).get('session_char_limit', $DEFAULT_CHAR_LIMIT))" 2>/dev/null || echo "$DEFAULT_CHAR_LIMIT")
   echo "$limit"
 }
 
@@ -99,7 +108,15 @@ kill_session() {
 
   if [ -f "$sessions_json" ]; then
     cp "$sessions_json" "${sessions_json}.bak-manager"
-    python3 -c "
+    local pycmd="python3"
+    if [[ -f "$(dirname "$0")/../../../lib/python-cmd.sh" ]]; then
+      . "$(dirname "$0")/../../../lib/python-cmd.sh"
+      pycmd="$(ds_detect_python_cmd)"
+    elif command -v python >/dev/null 2>&1; then
+      pycmd="python"
+    fi
+
+    "$pycmd" -c "
 import json, sys
 with open('$sessions_json', 'r') as f:
     data = json.load(f)
@@ -157,7 +174,7 @@ manage_remote_agent() {
   log "Checking $agent (remote: $host, local model, \$0.00/turn)"
 
   local remote_info
-  remote_info=$(ssh -o ConnectTimeout=5 -o BatchMode=yes "${host}" bash << REMOTESCRIPT 2>/dev/null) || remote_info="SSH_FAILED"
+  remote_info=$(ssh -o ConnectTimeout=5 -o BatchMode=yes "${host}" bash << 'REMOTESCRIPT'
     SESSIONS_DIR="${remote_dir}"
     if [ ! -d "\$SESSIONS_DIR" ]; then
       echo "NO_DIR"
@@ -181,6 +198,7 @@ manage_remote_agent() {
     find "\$SESSIONS_DIR" -name '*.deleted.*' -delete 2>/dev/null || true
     find "\$SESSIONS_DIR" -name '*.bak*' -mmin +60 -delete 2>/dev/null || true
 REMOTESCRIPT
+  ) || remote_info="SSH_FAILED"
 
   if [ "$remote_info" = "SSH_FAILED" ]; then
     log "  [WARN] SSH to $host failed — skipping $agent"
@@ -198,7 +216,7 @@ REMOTESCRIPT
 
   local active_ids=""
   if echo "$remote_info" | grep -q "ACTIVE_IDS_START"; then
-    active_ids=$(echo "$remote_info" | sed -n '/ACTIVE_IDS_START/,/ACTIVE_IDS_END/p' | grep -v '_START\|_END')
+    active_ids=$(echo "$remote_info" | sed -n '/ACTIVE_IDS_START/,/ACTIVE_IDS_END/p' | grep -vE '_START|_END')
   fi
 
   local now
@@ -230,7 +248,7 @@ REMOTESCRIPT
         log "  [WARN] Oversized session $sid ($(( size / 1024 ))KB) but hot (${age_mins}m) — skipping"
       fi
     fi
-  done < <(echo "$remote_info" | sed -n '/SESSION_LIST_START/,/SESSION_LIST_END/p' | grep -v '_START\|_END' | grep '|')
+  done < <(echo "$remote_info" | sed -n '/SESSION_LIST_START/,/SESSION_LIST_END/p' | grep -vE '_START|_END' | grep '|')
 
   log "  Sessions: $session_count total, ${#to_remove[@]} to remove"
 
@@ -262,10 +280,18 @@ for agent_entry in "${AGENTS[@]}"; do
   log "Checking $agent (port $port)"
 
   status_json=$(query_status "$agent" "$port")
-  rec=$(echo "$status_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('recommendation','unknown'))" 2>/dev/null || echo "unknown")
-  history=$(echo "$status_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('current_history_chars',0))" 2>/dev/null || echo "0")
-  turns=$(echo "$status_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('current_session_turns',0))" 2>/dev/null || echo "0")
-  session_cost=$(echo "$status_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('cost_since_last_reset',0))" 2>/dev/null || echo "0")
+  pycmd="python3"
+  if [[ -f "$(dirname "$0")/../../../lib/python-cmd.sh" ]]; then
+    . "$(dirname "$0")/../../../lib/python-cmd.sh"
+    pycmd="$(ds_detect_python_cmd)"
+  elif command -v python >/dev/null 2>&1; then
+    pycmd="python"
+  fi
+
+  rec=$(echo "$status_json" | "$pycmd" -c "import json,sys; print(json.load(sys.stdin).get('recommendation','unknown'))" 2>/dev/null || echo "unknown")
+  history=$(echo "$status_json" | "$pycmd" -c "import json,sys; print(json.load(sys.stdin).get('current_history_chars',0))" 2>/dev/null || echo "0")
+  turns=$(echo "$status_json" | "$pycmd" -c "import json,sys; print(json.load(sys.stdin).get('current_session_turns',0))" 2>/dev/null || echo "0")
+  session_cost=$(echo "$status_json" | "$pycmd" -c "import json,sys; print(json.load(sys.stdin).get('cost_since_last_reset',0))" 2>/dev/null || echo "0")
 
   char_limit=$(get_agent_char_limit "$agent" "$port")
   log "  Status: recommendation=$rec history=${history}ch / ${char_limit}ch limit | turns=$turns cost=\$${session_cost}"

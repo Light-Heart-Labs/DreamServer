@@ -20,6 +20,6 @@ test -f lib/service-registry.sh
 
 echo "[smoke] Linux AMD workflow path contract"
 # dashboard-api resolves canonical config/n8n with legacy workflows/ fallback
-grep -q "config\" / \"n8n" dashboard-api/main.py
+grep -q '"config" / "n8n"' extensions/services/dashboard-api/config.py
 
 echo "[smoke] PASS linux-amd"

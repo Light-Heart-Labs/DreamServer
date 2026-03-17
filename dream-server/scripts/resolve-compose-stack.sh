@@ -36,7 +36,17 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-python3 - "$SCRIPT_DIR" "$TIER" "$GPU_BACKEND" "$PROFILE_OVERLAYS" "$ENV_MODE" <<'PY'
+ROOT_DIR="$SCRIPT_DIR"
+PYTHON_CMD="python3"
+if [[ -f "$ROOT_DIR/lib/python-cmd.sh" ]]; then
+    . "$ROOT_DIR/lib/python-cmd.sh"
+    PYTHON_CMD="$(ds_detect_python_cmd)"
+elif command -v python >/dev/null 2>&1; then
+    PYTHON_CMD="python"
+fi
+
+"$PYTHON_CMD" - "$SCRIPT_DIR" "$TIER" "$GPU_BACKEND" "$PROFILE_OVERLAYS" "$ENV_MODE" <<'PY'
+import os
 import pathlib
 import sys
 import json
@@ -46,6 +56,7 @@ tier = (sys.argv[2] or "1").upper()
 gpu_backend = (sys.argv[3] or "nvidia").lower()
 profile_overlays = [x.strip() for x in (sys.argv[4] or "").split(",") if x.strip()]
 env_mode = (sys.argv[5] or "false").lower() == "true"
+dream_mode = os.environ.get("DREAM_MODE", "local").lower()
 
 def existing(overlays):
     return all((script_dir / f).exists() for f in overlays)
@@ -129,12 +140,22 @@ if ext_dir.exists():
                 compose_path = service_dir / compose_rel
                 if compose_path.exists():
                     resolved.append(str(compose_path.relative_to(script_dir)))
+                elif (service_dir / f"{compose_rel}.disabled").exists():
+                    continue  # Service disabled — skip all overlays
             # GPU-specific overlay (filesystem discovery — not in manifest)
             gpu_overlay = service_dir / f"compose.{gpu_backend}.yaml"
             if gpu_overlay.exists():
                 resolved.append(str(gpu_overlay.relative_to(script_dir)))
-        except Exception:
-            continue
+            # Mode-specific overlay — depends_on for local/hybrid mode only
+            if dream_mode in ("local", "hybrid"):
+                local_mode_overlay = service_dir / "compose.local.yaml"
+                if local_mode_overlay.exists():
+                    resolved.append(str(local_mode_overlay.relative_to(script_dir)))
+        except Exception as e:
+            print(f"ERROR: Failed to parse manifest for {service_dir.name}: {e}", file=sys.stderr)
+            print(f"  Manifest path: {manifest_path}", file=sys.stderr)
+            print(f"  This service will be skipped. Fix the manifest or disable the service.", file=sys.stderr)
+            sys.exit(1)
 
 # Include docker-compose.override.yml if it exists (user customizations)
 override = script_dir / "docker-compose.override.yml"

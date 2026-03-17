@@ -22,17 +22,17 @@ windows_native_supported="$(jq -r '.compatibility.os.windows_native.supported' "
 
 [[ "$linux_supported" == "true" ]] || fail "manifest must mark linux supported"
 [[ "$wsl_supported" == "true" ]] || fail "manifest must mark windows_wsl2 supported"
-[[ "$macos_supported" == "false" ]] || fail "manifest must mark macos unsupported/preview"
+[[ "$macos_supported" == "true" ]] || fail "manifest must mark macos supported (Tier B)"
 [[ "$windows_native_supported" == "false" ]] || fail "manifest must mark windows_native unsupported"
 
 # Support matrix wording expectations
-grep -q "Windows native installer UX.*Tier B" "$MATRIX" || fail "support matrix missing Windows Tier B delegated claim"
-grep -q "macOS (Apple Silicon).*Tier C" "$MATRIX" || fail "support matrix missing macOS Tier C claim"
-grep -q "Windows delegated installer flow is available via WSL2" "$MATRIX" || fail "support matrix missing Windows delegated truth statement"
+grep -q "Windows (Docker Desktop + WSL2).*Supported\|Windows (Docker Desktop + WSL2).*Tier B" "$MATRIX" || fail "support matrix missing Windows Tier B claim"
+grep -q "macOS (Apple Silicon).*Supported\|macOS (Apple Silicon).*Tier B" "$MATRIX" || fail "support matrix missing macOS Tier B claim"
+grep -q "install\.ps1" "$MATRIX" || fail "support matrix missing Windows installer reference"
 
 # Truth table consistency
-grep -q "Windows via WSL2.*Tier B" "$TRUTH" || fail "truth table missing Windows via WSL2 Tier B"
-grep -q "macOS Apple Silicon.*Tier C" "$TRUTH" || fail "truth table missing macOS Tier C"
+grep -q "Windows (Docker Desktop + WSL2).*Tier B" "$TRUTH" || fail "truth table missing Windows Tier B"
+grep -q "macOS Apple Silicon.*Tier B" "$TRUTH" || fail "truth table missing macOS Tier B"
 grep -q "Not safe to claim now" "$TRUTH" || fail "truth table missing launch guardrails section"
 
 pass "release claim gates"

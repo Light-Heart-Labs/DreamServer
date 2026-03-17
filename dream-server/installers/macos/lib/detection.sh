@@ -53,7 +53,7 @@ get_apple_silicon_info() {
     APPLE_GPU_CORES=$(system_profiler SPDisplaysDataType 2>/dev/null | grep -i "Total Number of Cores" | awk '{print $NF}' || echo "unknown")
 
     # Neural Engine presence (all Apple Silicon has NE, but check anyway)
-    if system_profiler SPHardwareDataType 2>/dev/null | grep -qi "Neural Engine\|Apple M"; then
+    if system_profiler SPHardwareDataType 2>/dev/null | grep -qiE "Neural Engine|Apple M"; then
         APPLE_HAS_NEURAL_ENGINE=true
     else
         APPLE_HAS_NEURAL_ENGINE=false

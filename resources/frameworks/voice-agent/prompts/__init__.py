@@ -1,5 +1,5 @@
 # HVAC Grace Multi-Agent Prompts
-# Each specialist has a focused Healthcare-style prompt
+# Each specialist has a focused domain-specific prompt
 # Categories match dashboard/database: service, maintenance, projects, controls, billing, parts, general
 
 from .shared import GRACE_IDENTITY, CONVERSATION_CONTINUITY

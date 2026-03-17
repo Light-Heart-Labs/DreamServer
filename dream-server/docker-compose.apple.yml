@@ -9,13 +9,13 @@
 
 services:
   llama-server:
-    image: ghcr.io/ggml-org/llama.cpp:server
+    image: ghcr.io/ggml-org/llama.cpp:server-b8248
     platform: linux/arm64
     deploy:
       resources:
         limits:
           cpus: '${LLAMA_CPU_LIMIT:-8.0}'
-          memory: ${LLAMA_MEMORY_LIMIT:-32G}
+          memory: ${LLAMA_SERVER_MEMORY_LIMIT:-32G}
         reservations:
           cpus: '2.0'
           memory: 4G

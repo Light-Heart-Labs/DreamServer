@@ -69,7 +69,7 @@ echo -e "${CYAN}-- C2. Setup Wizard Endpoints -------------------------------"
 
 # Test /api/setup/test endpoint
 SETUP_TEST=$(curl -sf -m $TEST_TIMEOUT -X POST "${API_URL}/api/setup/test" 2>/dev/null || echo "")
-if echo "$SETUP_TEST" | grep -q "404\|Not Found"; then
+if echo "$SETUP_TEST" | grep -qE "404|Not Found"; then
     log_fail "Setup wizard calls non-existent endpoint: POST /api/setup/test"
 else
     log_pass "Setup wizard endpoints exist"
@@ -77,7 +77,7 @@ fi
 
 # Test LLM test endpoint
 LLM_TEST=$(curl -sf -m $TEST_TIMEOUT "${API_URL}/api/test/llm" 2>/dev/null || echo "")
-if echo "$LLM_TEST" | grep -q "404\|Not Found"; then
+if echo "$LLM_TEST" | grep -qE "404|Not Found"; then
     log_fail "Missing endpoint: GET /api/test/llm"
 else
     log_pass "LLM test endpoint exists"
@@ -85,7 +85,7 @@ fi
 
 # Test voice test endpoint
 VOICE_TEST=$(curl -sf -m $TEST_TIMEOUT "${API_URL}/api/test/voice" 2>/dev/null || echo "")
-if echo "$VOICE_TEST" | grep -q "404\|Not Found"; then
+if echo "$VOICE_TEST" | grep -qE "404|Not Found"; then
     log_fail "Missing endpoint: GET /api/test/voice"
 else
     log_pass "Voice test endpoint exists"
@@ -93,7 +93,7 @@ fi
 
 # Test RAG test endpoint
 RAG_TEST=$(curl -sf -m $TEST_TIMEOUT "${API_URL}/api/test/rag" 2>/dev/null || echo "")
-if echo "$RAG_TEST" | grep -q "404\|Not Found"; then
+if echo "$RAG_TEST" | grep -qE "404|Not Found"; then
     log_fail "Missing endpoint: GET /api/test/rag"
 else
     log_pass "RAG test endpoint exists"
@@ -101,7 +101,7 @@ fi
 
 # Test workflows test endpoint
 WORKFLOWS_TEST=$(curl -sf -m $TEST_TIMEOUT "${API_URL}/api/test/workflows" 2>/dev/null || echo "")
-if echo "$WORKFLOWS_TEST" | grep -q "404\|Not Found"; then
+if echo "$WORKFLOWS_TEST" | grep -qE "404|Not Found"; then
     log_fail "Missing endpoint: GET /api/test/workflows"
 else
     log_pass "Workflows test endpoint exists"
@@ -175,7 +175,7 @@ echo -e "${CYAN}-- C7. dream-cli TTS Service Alias --------------------------"
 
 DREAM_CLI="${SCRIPT_DIR}/../dream-cli"
 if [ -f "$DREAM_CLI" ]; then
-    if grep -q "piper.*dream-piper\|tts.*dream-piper" "$DREAM_CLI" 2>/dev/null; then
+    if grep -qE "piper.*dream-piper|tts.*dream-piper" "$DREAM_CLI" 2>/dev/null; then
         log_fail "dream-cli maps TTS to wrong container (dream-piper instead of dream-tts)"
     else
         log_pass "dream-cli TTS mapping appears correct"
@@ -190,7 +190,7 @@ echo -e "${CYAN}-- C8. Installer Summary Port Display -----------------------"
 
 INSTALL_SCRIPT="${SCRIPT_DIR}/../install.sh"
 if [ -f "$INSTALL_SCRIPT" ]; then
-    if grep -q "Whisper 9000\|Kokoro 8002" "$INSTALL_SCRIPT" 2>/dev/null; then
+    if grep -qE "Whisper 9000|Kokoro 8002" "$INSTALL_SCRIPT" 2>/dev/null; then
         log_fail "install.sh shows wrong ports in summary (Whisper 9000, Kokoro 8002)"
     else
         log_pass "install.sh summary shows correct ports"

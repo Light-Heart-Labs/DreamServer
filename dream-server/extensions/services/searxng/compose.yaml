@@ -1,6 +1,6 @@
 services:
   searxng:
-    image: searxng/searxng:latest
+    image: searxng/searxng:2026.3.8-a563127a2
     container_name: dream-searxng
     restart: unless-stopped
     security_opt:

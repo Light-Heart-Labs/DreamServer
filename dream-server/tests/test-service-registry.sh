@@ -90,7 +90,15 @@ fi
 # ============================================
 header "2/7" "Manifest Schema Validation"
 
-if ! python3 -c "import yaml" 2>/dev/null; then
+PYTHON_CMD="python3"
+if [[ -f "$PROJECT_DIR/lib/python-cmd.sh" ]]; then
+    . "$PROJECT_DIR/lib/python-cmd.sh"
+    PYTHON_CMD="$(ds_detect_python_cmd)"
+elif command -v python >/dev/null 2>&1; then
+    PYTHON_CMD="python"
+fi
+
+if ! "$PYTHON_CMD" -c "import yaml" 2>/dev/null; then
     skip "PyYAML not installed — cannot validate manifests"
 else
     manifest_count=0
@@ -102,7 +110,7 @@ else
         svc_name="$(basename "$svc_dir")"
 
         # Validate YAML syntax
-        if python3 -c "import yaml; yaml.safe_load(open('$manifest'))" 2>/dev/null; then
+        if "$PYTHON_CMD" -c "import yaml; yaml.safe_load(open('$manifest'))" 2>/dev/null; then
             pass "Valid YAML: $svc_name/manifest.yaml"
         else
             fail "Invalid YAML: $svc_name/manifest.yaml"
@@ -110,7 +118,7 @@ else
         fi
 
         # Validate required fields
-        validation=$(python3 -c "
+        validation=$("$PYTHON_CMD" -c "
 import yaml, sys
 with open(sys.argv[1]) as f:
     m = yaml.safe_load(f)
@@ -170,7 +178,7 @@ for sid in "${expected_core[@]}"; do
     fi
 
     # Verify category is "core"
-    cat_check=$(python3 -c "
+    cat_check=$("$PYTHON_CMD" -c "
 import yaml
 m = yaml.safe_load(open('$manifest'))
 print(m.get('service',{}).get('category',''))
@@ -283,8 +291,16 @@ for sid in "${SERVICE_IDS[@]}"; do
             fail "Core service has compose fragment (unexpected): $sid"
         fi
     else
-        # Extension services should have compose.yaml (enabled) or compose.yaml.disabled
-        if [[ -f "$svc_dir/compose.yaml" || -f "$svc_dir/compose.yaml.disabled" ]]; then
+        # Host-native services (e.g. host-systemd) don't need compose fragments
+        svc_type=$(python3 -c "
+import yaml
+m = yaml.safe_load(open('$svc_dir/manifest.yaml'))
+print(m.get('service',{}).get('type','docker'))
+" 2>/dev/null || echo "docker")
+
+        if [[ "$svc_type" != "docker" ]]; then
+            pass "Non-docker service has no compose fragment (type=$svc_type): $sid"
+        elif [[ -f "$svc_dir/compose.yaml" || -f "$svc_dir/compose.yaml.disabled" ]]; then
             pass "Extension has compose fragment: $sid"
         else
             fail "Extension missing compose fragment: $sid"
@@ -292,7 +308,7 @@ for sid in "${SERVICE_IDS[@]}"; do
 
         # If compose.yaml exists, validate it
         if [[ -f "$svc_dir/compose.yaml" ]]; then
-            if python3 -c "import yaml; yaml.safe_load(open('$svc_dir/compose.yaml'))" 2>/dev/null; then
+            if "$PYTHON_CMD" -c "import yaml; yaml.safe_load(open('$svc_dir/compose.yaml'))" 2>/dev/null; then
                 pass "Valid YAML compose: $sid/compose.yaml"
             else
                 fail "Invalid YAML compose: $sid/compose.yaml"

@@ -13,6 +13,7 @@
 #   Add offline-specific configuration or bundled models here.
 # ============================================================================
 
+dream_progress 65 "offline" "Configuring offline mode"
 if [[ "$OFFLINE_MODE" == "true" ]] && $DRY_RUN; then
     log "[DRY RUN] Would configure offline/air-gapped mode (M1)"
     log "[DRY RUN] Would create offline mode marker, disable cloud features"
@@ -25,9 +26,9 @@ elif [[ "$OFFLINE_MODE" == "true" ]] && ! $DRY_RUN; then
     touch "$INSTALL_DIR/.offline-mode"
 
     # Disable any cloud-dependent features in .env
-    sed -i 's/^BRAVE_API_KEY=.*/BRAVE_API_KEY=/' "$INSTALL_DIR/.env" 2>/dev/null || true
-    sed -i 's/^ANTHROPIC_API_KEY=.*/ANTHROPIC_API_KEY=/' "$INSTALL_DIR/.env" 2>/dev/null || true
-    sed -i 's/^OPENAI_API_KEY=.*/OPENAI_API_KEY=/' "$INSTALL_DIR/.env" 2>/dev/null || true
+    _sed_i 's/^BRAVE_API_KEY=.*/BRAVE_API_KEY=/' "$INSTALL_DIR/.env" 2>/dev/null || true
+    _sed_i 's/^ANTHROPIC_API_KEY=.*/ANTHROPIC_API_KEY=/' "$INSTALL_DIR/.env" 2>/dev/null || true
+    _sed_i 's/^OPENAI_API_KEY=.*/OPENAI_API_KEY=/' "$INSTALL_DIR/.env" 2>/dev/null || true
 
     # Add offline mode config
     cat >> "$INSTALL_DIR/.env" << 'OFFLINE_EOF'
@@ -79,7 +80,7 @@ M1_EOF
     if command -v curl &> /dev/null; then
         EMBED_URL="https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf"
         if ! [[ -f "$INSTALL_DIR/models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf" ]]; then
-            curl -L -o "$INSTALL_DIR/models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf" "$EMBED_URL" 2>/dev/null || \
+            curl -L --max-time 600 -o "$INSTALL_DIR/models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf" "$EMBED_URL" 2>/dev/null || \
                 ai_warn "Could not pre-download embeddings. Memory search will download on first use."
         else
             log "Embeddings already downloaded"

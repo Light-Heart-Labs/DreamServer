@@ -5,10 +5,15 @@
 LLAMA_SERVER_URL="http://localhost:8080"
 MODEL="qwen2.5-32b-instruct"
 
+# Portable millisecond timestamp (macOS BSD date lacks %N)
+_now_ms() {
+    python3 -c 'import time; print(int(time.time() * 1000))' 2>/dev/null || echo "$(date +%s)000"
+}
+
 echo "=== M8 Test: Streaming ==="
 
 # Test streaming endpoint
-START=$(date +%s%N)
+START=$(_now_ms)
 RESPONSE=$(curl -s -N -X POST "$LLAMA_SERVER_URL/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -d "{
@@ -17,8 +22,8 @@ RESPONSE=$(curl -s -N -X POST "$LLAMA_SERVER_URL/v1/chat/completions" \
     \"stream\": true,
     \"max_tokens\": 20
   }" 2>/dev/null | head -c 500)
-END=$(date +%s%N)
-LATENCY=$(( (END - START) / 1000000 ))
+END=$(_now_ms)
+LATENCY=$(( END - START ))
 
 # Check for streaming data prefix (should contain "data:")
 if echo "$RESPONSE" | grep -q "data:"; then

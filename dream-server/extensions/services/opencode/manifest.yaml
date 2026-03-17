@@ -7,6 +7,7 @@ service:
   container_name: ""
   default_host: localhost
   port: 3003
+  external_port_env: OPENCODE_PORT
   external_port_default: 3003
   health: /
   type: host-systemd
