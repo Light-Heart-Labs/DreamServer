@@ -392,6 +392,13 @@ main() {
         case "$arg" in
             --json) json_output=true ;;
             --verbose) verbose=true ;;
+            -h|--help)
+                echo "Usage: $(basename "$0") [--json] [--verbose] [--help]"
+                echo "  --json     Output machine-readable JSON (os, cpu, cores, ram_gb, gpu, tier)"
+                echo "  --verbose  Extra diagnostics"
+                echo "  --help     Show this help"
+                exit 0
+                ;;
         esac
     done
 

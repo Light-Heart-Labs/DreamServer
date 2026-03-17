@@ -21,12 +21,20 @@ fi
 set -euo pipefail
 
 # Parse args
+usage() {
+    echo "Usage: $(basename "$0") [--json] [--quiet] [--help]"
+    echo "  --json   Output machine-readable JSON report"
+    echo "  --quiet  Minimal output; exit 0=healthy, 1=degraded, 2=critical"
+    echo "  --help   Show this help"
+}
+
 JSON_OUTPUT=false
 QUIET=false
 for arg in "$@"; do
     case $arg in
         --json) JSON_OUTPUT=true ;;
         --quiet) QUIET=true ;;
+        -h|--help) usage; exit 0 ;;
     esac
 done
 

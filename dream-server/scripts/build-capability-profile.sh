@@ -6,6 +6,13 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUTPUT_FILE=""
 ENV_MODE="false"
 
+usage() {
+    echo "Usage: $(basename "$0") [--output FILE] [--env] [--help]"
+    echo "  --output FILE   Write capability profile to FILE (default: .capabilities.json)"
+    echo "  --env           Emit env vars instead of JSON file"
+    echo "  --help          Show this help"
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --output)
@@ -15,6 +22,10 @@ while [[ $# -gt 0 ]]; do
         --env)
             ENV_MODE="true"
             shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
             ;;
         *)
             echo "Unknown argument: $1" >&2

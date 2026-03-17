@@ -1,6 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+usage() {
+    echo "Usage: $(basename "$0") [--help]"
+    echo "Validates manifest.json OS support flags and SUPPORT-MATRIX/PLATFORM-TRUTH-TABLE consistency."
+    echo "Exits 0 on pass, 1 on fail. Run from dream-server root."
+}
+
+for arg in "$@"; do
+    case $arg in
+        -h|--help) usage; exit 0 ;;
+    esac
+done
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MANIFEST="${ROOT_DIR}/manifest.json"
 MATRIX="${ROOT_DIR}/docs/SUPPORT-MATRIX.md"

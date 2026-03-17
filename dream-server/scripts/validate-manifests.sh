@@ -20,6 +20,19 @@
 
 set -euo pipefail
 
+usage() {
+    echo "Usage: $(basename "$0") [--help]"
+    echo "Validates extension manifests against schema and Dream Server version compatibility."
+    echo "Requires: manifest.json, extensions/schema/service-manifest.v1.json, extensions/services/*/"
+    echo "Exits 0 on pass, 1 on schema/validation errors."
+}
+
+for arg in "$@"; do
+    case $arg in
+        -h|--help) usage; exit 0 ;;
+    esac
+done
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MANIFEST_FILE="${ROOT_DIR}/manifest.json"
 
