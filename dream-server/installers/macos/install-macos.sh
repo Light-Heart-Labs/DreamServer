@@ -360,43 +360,26 @@ else
 
         if [[ -f "$MODEL_PATH" ]]; then
             # Verify integrity if hash is available
-            if [[ -n "$GGUF_SHA256" ]]; then
-                ai "Verifying model integrity (SHA256)..."
-                ACTUAL_HASH=$(shasum -a 256 "$MODEL_PATH" 2>/dev/null | awk '{print $1}')
-                if [[ "$ACTUAL_HASH" == "$GGUF_SHA256" ]]; then
-                    ai_ok "Model verified: ${GGUF_FILE}"
-                else
-                    ai_warn "Model file is corrupt (hash mismatch)."
-                    ai "  Expected: ${GGUF_SHA256}"
-                    ai "  Got:      ${ACTUAL_HASH}"
-                    ai "Removing corrupt file and re-downloading..."
-                    rm -f "$MODEL_PATH"
-                fi
+            if verify_sha256 "$MODEL_PATH" "$GGUF_SHA256" "Model ${GGUF_FILE}"; then
+                ai_ok "Model already present and verified: ${GGUF_FILE}"
             else
-                ai_ok "Model already downloaded: ${GGUF_FILE}"
+                ai "Removing corrupt file and re-downloading..."
+                rm -f "$MODEL_PATH"
             fi
         fi
 
         if [[ ! -f "$MODEL_PATH" ]]; then
-            download_with_progress "$GGUF_URL" "$MODEL_PATH" "Downloading ${GGUF_FILE}" || {
-                ai_err "Model download failed. Re-run the installer to resume."
+            # Download with retry logic (built into download_with_progress)
+            if ! download_with_progress "$GGUF_URL" "$MODEL_PATH" "Downloading ${GGUF_FILE}"; then
+                ai_err "Model download failed after retries. Re-run the installer to try again."
                 exit 1
-            }
+            fi
 
             # Verify freshly downloaded file
-            if [[ -n "$GGUF_SHA256" ]]; then
-                ai "Verifying download integrity (SHA256)..."
-                ACTUAL_HASH=$(shasum -a 256 "$MODEL_PATH" 2>/dev/null | awk '{print $1}')
-                if [[ "$ACTUAL_HASH" == "$GGUF_SHA256" ]]; then
-                    ai_ok "Download verified OK"
-                else
-                    ai_err "Downloaded file is corrupt (SHA256 mismatch)."
-                    ai "  Expected: ${GGUF_SHA256}"
-                    ai "  Got:      ${ACTUAL_HASH}"
-                    rm -f "$MODEL_PATH"
-                    ai_err "Re-run the installer to download again."
-                    exit 1
-                fi
+            if ! verify_sha256 "$MODEL_PATH" "$GGUF_SHA256" "Downloaded ${GGUF_FILE}"; then
+                rm -f "$MODEL_PATH"
+                ai_err "Downloaded file is corrupt. Re-run the installer to try again."
+                exit 1
             fi
         fi
     fi
