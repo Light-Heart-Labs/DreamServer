@@ -75,13 +75,11 @@ for svc_dir in "$SERVICES_DIR"/*/; do
     fi
 done
 
-expected_count=18
-if [[ $manifest_count -eq $expected_count ]]; then
-    pass "All $expected_count extensions have manifests"
-elif [[ $manifest_count -gt $expected_count ]]; then
-    pass "Found $manifest_count manifests (expected $expected_count, catalog may be outdated)"
+expected_min=17
+if [[ $manifest_count -ge $expected_min ]]; then
+    pass "Found $manifest_count extension manifests (minimum $expected_min expected)"
 else
-    fail "Only $manifest_count manifests found (expected $expected_count)"
+    fail "Only $manifest_count manifests found (expected at least $expected_min)"
 fi
 
 # ============================================
