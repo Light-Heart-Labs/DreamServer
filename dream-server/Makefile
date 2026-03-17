@@ -13,7 +13,7 @@ lint: ## Syntax check all shell scripts + Python compile check
 	@echo "=== Shell syntax ==="
 	@fail=0; for f in $(SHELL_FILES); do bash -n "$$f" || fail=1; done; [ $$fail -eq 0 ]
 	@echo "=== Python compile ==="
-	@python3 -m py_compile dashboard-api/main.py dashboard-api/agent_monitor.py
+	@python3 -m py_compile extensions/services/dashboard-api/main.py extensions/services/dashboard-api/agent_monitor.py
 	@echo "All lint checks passed."
 
 test: ## Run unit and contract tests

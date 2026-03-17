@@ -6,6 +6,12 @@ EXTENSIONS_DIR="${SCRIPT_DIR:-$(pwd)}/extensions/services"
 _SR_LOADED=false
 _SR_CACHE="/tmp/dream-service-registry.$$.sh"
 
+# Caching for compose flags (session-level)
+_SR_COMPOSE_FLAGS_CACHE=""
+_SR_COMPOSE_FLAGS_CACHED=false
+_SR_CACHE_HITS=0
+_SR_CACHE_MISSES=0
+
 # Associative arrays (bash 4+)
 declare -A SERVICE_ALIASES      # alias → service_id
 declare -A SERVICE_CONTAINERS   # service_id → container_name
@@ -22,9 +28,20 @@ declare -a SERVICE_IDS          # ordered list of all service IDs
 sr_load() {
     [[ "$_SR_LOADED" == "true" ]] && return 0
     SERVICE_IDS=()
+    # Invalidate cache when reloading (extensions may have changed)
+    _SR_COMPOSE_FLAGS_CACHED=false
+    _SR_COMPOSE_FLAGS_CACHE=""
 
     # Single Python pass: reads ALL manifests, emits sourceable bash
-    python3 - "$EXTENSIONS_DIR" <<'PYEOF' > "$_SR_CACHE"
+    PYTHON_CMD="python3"
+    if [[ -f "${SCRIPT_DIR:-$(pwd)}/lib/python-cmd.sh" ]]; then
+        . "${SCRIPT_DIR:-$(pwd)}/lib/python-cmd.sh"
+        PYTHON_CMD="$(ds_detect_python_cmd)"
+    elif command -v python >/dev/null 2>&1; then
+        PYTHON_CMD="python"
+    fi
+
+    "$PYTHON_CMD" - "$EXTENSIONS_DIR" <<'PYEOF' > "$_SR_CACHE"
 import yaml, sys, os
 from pathlib import Path
 
@@ -182,10 +199,42 @@ sr_service_names() {
 # Build compose -f flags for all enabled extension services
 sr_compose_flags() {
     sr_load
+
+    # Return cached result if available
+    if [[ "$_SR_COMPOSE_FLAGS_CACHED" == "true" ]]; then
+        ((_SR_CACHE_HITS++))
+        echo "$_SR_COMPOSE_FLAGS_CACHE"
+        return 0
+    fi
+
+    # Cache miss: rebuild flags
+    ((_SR_CACHE_MISSES++))
     local flags=""
     for sid in "${SERVICE_IDS[@]}"; do
         local cf="${SERVICE_COMPOSE[$sid]}"
         [[ -n "$cf" && -f "$cf" ]] && flags="$flags -f $cf"
     done
+
+    # Store in cache
+    _SR_COMPOSE_FLAGS_CACHE="$flags"
+    _SR_COMPOSE_FLAGS_CACHED=true
+
     echo "$flags"
+}
+
+# Invalidate compose flags cache (call when extensions directory changes)
+sr_cache_invalidate() {
+    _SR_COMPOSE_FLAGS_CACHED=false
+    _SR_COMPOSE_FLAGS_CACHE=""
+}
+
+# Get cache statistics for debugging
+sr_cache_stats() {
+    echo "Cache Hits: $_SR_CACHE_HITS"
+    echo "Cache Misses: $_SR_CACHE_MISSES"
+    if [[ $_SR_CACHE_MISSES -gt 0 ]]; then
+        local total=$((_SR_CACHE_HITS + _SR_CACHE_MISSES))
+        local hit_rate=$((_SR_CACHE_HITS * 100 / total))
+        echo "Hit Rate: ${hit_rate}%"
+    fi
 }

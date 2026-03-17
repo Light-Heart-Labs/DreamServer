@@ -146,8 +146,17 @@ if $OLLAMA_RUNNING; then
     fi
 fi
 
-# Port conflict checks
-for port_check in 8080 11434 3000 3001 3003; do
+# Port conflict checks — dynamically read from extension manifests
+_conflict_ports=(8080 11434)  # llama-server (native) + Ollama default (host conflict, no manifest)
+for _manifest in "${SOURCE_ROOT}/extensions/services/"*/manifest.yaml; do
+    [[ -f "$_manifest" ]] || continue
+    _port=$(grep 'external_port_default:' "$_manifest" 2>/dev/null | awk '{print $2}' | tr -d '"') || true
+    if [[ -n "$_port" && "$_port" =~ ^[0-9]+$ && "$_port" -ne 8080 ]]; then
+        _conflict_ports+=("$_port")
+    fi
+done
+
+for port_check in "${_conflict_ports[@]}"; do
     if check_port_conflict "$port_check"; then
         ai_warn "Port ${port_check} is in use by ${PORT_CONFLICT_PROC} (PID ${PORT_CONFLICT_PID})"
     fi
@@ -588,6 +597,12 @@ else
             REL_PATH="${COMPOSE_PATH#"${INSTALL_DIR}/"}"
             COMPOSE_FLAGS+=("-f" "$REL_PATH")
         done
+    fi
+
+    # Layer Tier 0 memory overlay for low-RAM machines
+    if [[ "$SELECTED_TIER" == "0" && -f "${INSTALL_DIR}/docker-compose.tier0.yml" ]]; then
+        COMPOSE_FLAGS+=("-f" "docker-compose.tier0.yml")
+        ai "Applying lightweight memory limits for Tier 0"
     fi
 
     # Docker compose override (user customizations)

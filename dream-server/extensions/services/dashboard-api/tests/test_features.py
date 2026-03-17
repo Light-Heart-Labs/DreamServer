@@ -3,6 +3,29 @@
 import os
 from unittest.mock import patch, AsyncMock
 
+from routers.features import calculate_feature_status
+
+
+class TestCalculateFeatureStatusDefaults:
+    """calculate_feature_status uses .get() defaults for optional feature fields."""
+
+    def test_missing_optional_fields_use_defaults(self):
+        """A feature with only id, name, and requirements should not KeyError."""
+        minimal_feature = {
+            "id": "minimal",
+            "name": "Minimal Feature",
+            "requirements": {"vram_gb": 0, "services": [], "services_any": []},
+        }
+        result = calculate_feature_status(minimal_feature, [], None)
+
+        assert result["id"] == "minimal"
+        assert result["name"] == "Minimal Feature"
+        assert result["description"] == ""
+        assert result["icon"] == "Package"
+        assert result["category"] == "other"
+        assert result["setupTime"] == "Unknown"
+        assert result["priority"] == 99
+
 
 class TestCalculateFeatureStatusAppleFallback:
 

@@ -25,6 +25,65 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 log_step() { echo -e "${CYAN}[STEP]${NC} $*"; }
 
+# Convert bytes to a human-friendly string (best-effort)
+fmt_bytes() {
+    local bytes="${1:-0}"
+    if command -v numfmt >/dev/null 2>&1; then
+        numfmt --to=iec --suffix=B "$bytes" 2>/dev/null || echo "${bytes}B"
+    else
+        local mib=$(( (bytes + 1048575) / 1048576 ))
+        echo "${mib}MiB"
+    fi
+}
+
+# Available bytes on filesystem containing a path
+free_bytes_for_path() {
+    local path="$1"
+    df -Pk "$path" 2>/dev/null | awk 'NR==2 { print $4 * 1024 }'
+}
+
+# Estimate the backup size on disk (uncompressed)
+estimate_restore_bytes_dir() {
+    local backup_dir="$1"
+    du -sk "$backup_dir" 2>/dev/null | awk '{print $1 * 1024}'
+}
+
+# Estimate restore size for a tar.gz (uncompressed file sizes)
+estimate_restore_bytes_tar() {
+    local tar_path="$1"
+    # tar -tv lists size in column 3
+    tar -tvzf "$tar_path" 2>/dev/null | awk '{sum += $3} END {print sum+0}'
+}
+
+ensure_restore_space() {
+    local backup_id="$1"
+
+    local compressed="$BACKUP_ROOT/$backup_id.tar.gz"
+    local uncompressed="$BACKUP_ROOT/$backup_id"
+
+    local need=""
+    if [[ -d "$uncompressed" ]]; then
+        need=$(estimate_restore_bytes_dir "$uncompressed")
+    elif [[ -f "$compressed" ]]; then
+        need=$(estimate_restore_bytes_tar "$compressed")
+    fi
+
+    # Best-effort only
+    [[ -n "$need" && "$need" -gt 0 ]] || return 0
+
+    local free
+    free=$(free_bytes_for_path "$DREAM_DIR")
+
+    if [[ -n "$free" && "$free" -gt 0 && "$free" -lt "$need" ]]; then
+        log_error "Not enough disk space to restore into: $DREAM_DIR"
+        log_error "Need ~$(fmt_bytes "$need"), have ~$(fmt_bytes "$free")."
+        log_error "Free up space or restore to a different location (set DREAM_DIR)."
+        return 1
+    fi
+
+    return 0
+}
+
 # Show usage
 usage() {
     cat << EOF
@@ -199,6 +258,31 @@ validate_backup() {
         sed 's/^[[:space:]]*/  /' | sed 's/"//g' | sed 's/,//'
     echo ""
 
+    # Warn if backup looks partial / missing common paths.
+    # (Informational only; older/minimal backups are still valid.)
+    local -a expected_data=(
+        "data/open-webui"
+        "data/n8n"
+        "data/qdrant"
+        "data/openclaw"
+        "data/litellm"
+        "data/livekit"
+        "data/ollama"
+    )
+
+    local missing_any=false
+    for p in "${expected_data[@]}"; do
+        if [[ ! -d "$backup_dir/$p" ]]; then
+            missing_any=true
+            break
+        fi
+    done
+
+    if [[ "$missing_any" == "true" ]]; then
+        log_warn "This backup does not contain some common data directories."
+        log_warn "That may be normal (services not used), but restore will be partial for missing paths."
+    fi
+
     log_success "Backup validated"
     return 0
 }
@@ -268,15 +352,23 @@ restore_user_data() {
 
     local data_dirs=("data/open-webui" "data/n8n" "data/qdrant" "data/openclaw" "data/litellm" "data/livekit" "data/ollama")
 
+    local restored_any=false
     for dir in "${data_dirs[@]}"; do
         if [[ -d "$backup_dir/$dir" ]]; then
+            restored_any=true
             mkdir -p "$DREAM_DIR/$(dirname "$dir")"
             # Note: Using -a without --delete to preserve any new files created after backup
             # Use --force flag or manually delete target if you need exact restoration
             rsync -a "$backup_dir/$dir" "$DREAM_DIR/$(dirname "$dir")/"
             log_success "Restored: $dir"
+        else
+            log_warn "Skipped (not in backup): $dir"
         fi
     done
+
+    if [[ "$restored_any" == "false" ]]; then
+        log_warn "No user data directories were found in this backup."
+    fi
 }
 
 # Restore configuration
@@ -284,20 +376,30 @@ restore_config() {
     local backup_dir="$1"
     log_step "Restoring configuration..."
 
+    local restored_any=false
+
     # Dynamically discover config files (dotfiles + compose overlays + scripts)
     for file in "$backup_dir"/.env "$backup_dir"/.version "$backup_dir"/docker-compose*.y*ml "$backup_dir"/dream-*.sh; do
         if [[ -f "$file" ]]; then
+            restored_any=true
             cp "$file" "$DREAM_DIR/"
             log_success "Restored: $(basename "$file")"
         fi
     done
 
     if [[ -d "$backup_dir/config" ]]; then
+        restored_any=true
         if [[ -d "$DREAM_DIR/config" ]]; then
             rm -rf "$DREAM_DIR/config"
         fi
         cp -r "$backup_dir/config" "$DREAM_DIR/"
         log_success "Restored: config/"
+    else
+        log_warn "Skipped (not in backup): config/"
+    fi
+
+    if [[ "$restored_any" == "false" ]]; then
+        log_warn "No configuration files were found in this backup."
     fi
 }
 
@@ -342,6 +444,11 @@ do_restore() {
 
     log_info "Starting restore from backup: $backup_id"
 
+    # Disk space preflight (best-effort)
+    if ! ensure_restore_space "$backup_id"; then
+        return 1
+    fi
+
     # Extract if compressed
     local backup_dir
     backup_dir=$(extract_backup "$backup_id")
@@ -361,10 +468,11 @@ do_restore() {
     # Confirmation
     if [[ "$force" != "true" ]]; then
         echo ""
-        log_warn "⚠️  This will OVERWRITE current Dream Server data!"
+        log_warn "This will copy backup data into: $DREAM_DIR"
+        log_warn "Existing files may be overwritten."
         echo ""
-        read -rp "Are you sure you want to continue? [y/N] " confirm
-        if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        read -rp "Type the backup ID ('$backup_id') to continue, or press Enter to cancel: " confirm
+        if [[ "$confirm" != "$backup_id" ]]; then
             log_info "Restore cancelled"
             return 0
         fi

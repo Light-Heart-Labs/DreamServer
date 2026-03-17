@@ -5,6 +5,19 @@
 #
 # Usage: ./health-check.sh [--json] [--quiet]
 
+# ── Bash 4+ guard ─────────────────────────────────────────────────────────────
+# service-registry.sh requires associative arrays (declare -A) which need Bash 4+.
+# macOS ships Bash 3.2; if running there, re-exec under Homebrew bash.
+if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+    for _brew_bash in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+        if [ -x "$_brew_bash" ] && [ "$("$_brew_bash" -c 'echo "${BASH_VERSINFO[0]}"')" -ge 4 ]; then
+            exec "$_brew_bash" "$0" "$@"
+        fi
+    done
+    echo "Error: Bash 4+ required. macOS ships Bash 3.2. Install newer bash: brew install bash" >&2
+    exit 2
+fi
+
 set -euo pipefail
 
 # Parse args
@@ -39,30 +52,60 @@ else
     GREEN='\033[0;32m' RED='\033[0;31m' YELLOW='\033[1;33m' CYAN='\033[0;36m' NC='\033[0m'
 fi
 
-# Track results
-declare -A RESULTS
+# Track results (indexed arrays — Bash 3.2 compatible as defense-in-depth)
+declare -a RESULT_KEYS=()
+declare -a RESULT_VALS=()
 CRITICAL_FAIL=false
 ANY_FAIL=false
 
+# Set a result: result_set key value
+result_set() {
+    local key="$1" val="$2" i
+    for i in "${!RESULT_KEYS[@]}"; do
+        if [[ "${RESULT_KEYS[$i]}" == "$key" ]]; then
+            RESULT_VALS[i]="$val"
+            return
+        fi
+    done
+    RESULT_KEYS+=("$key")
+    RESULT_VALS+=("$val")
+}
+
+# Get a result: result_get key
+result_get() {
+    local key="$1" i
+    for i in "${!RESULT_KEYS[@]}"; do
+        if [[ "${RESULT_KEYS[$i]}" == "$key" ]]; then
+            echo "${RESULT_VALS[$i]}"
+            return
+        fi
+    done
+}
+
 log() { $QUIET || echo -e "$1"; }
+
+# Portable millisecond timestamp (macOS BSD date lacks %N)
+_now_ms() {
+    python3 -c 'import time; print(int(time.time() * 1000))' 2>/dev/null || echo "$(date +%s)000"
+}
 
 # ── Test functions ──────────────────────────────────────────────────────────
 
 # llama-server: critical path — performs an actual inference test
 test_llm() {
-    local start=$(date +%s%3N)
+    local start=$(_now_ms)
     local response=$(curl -sf --max-time $TIMEOUT \
         -H "Content-Type: application/json" \
         -d '{"model":"default","prompt":"Hi","max_tokens":1}' \
         "http://${LLM_HOST}:${LLM_PORT}/v1/completions" 2>/dev/null)
-    local end=$(date +%s%3N)
+    local end=$(_now_ms)
 
     if echo "$response" | grep -q '"text"'; then
-        RESULTS[llm]="ok"
-        RESULTS[llm_latency]=$((end - start))
+        result_set "llm" "ok"
+        result_set "llm_latency" "$((end - start))"
         return 0
     fi
-    RESULTS[llm]="fail"
+    result_set "llm" "fail"
     CRITICAL_FAIL=true
     ANY_FAIL=true
     return 1
@@ -82,10 +125,10 @@ test_service() {
     [[ -z "$health" || "$port" == "0" ]] && return 1
 
     if curl -sf --max-time $TIMEOUT "http://localhost:${port}${health}" >/dev/null 2>&1; then
-        RESULTS[$sid]="ok"
+        result_set "$sid" "ok"
         return 0
     fi
-    RESULTS[$sid]="fail"
+    result_set "$sid" "fail"
     ANY_FAIL=true
     return 1
 }
@@ -96,23 +139,23 @@ test_gpu() {
         local gpu_info=$(nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu,temperature.gpu --format=csv,noheader,nounits 2>/dev/null | head -1)
         if [ -n "$gpu_info" ]; then
             IFS=',' read -r mem_used mem_total gpu_util temp <<< "$gpu_info"
-            RESULTS[gpu]="ok"
-            RESULTS[gpu_mem_used]="${mem_used// /}"
-            RESULTS[gpu_mem_total]="${mem_total// /}"
-            RESULTS[gpu_util]="${gpu_util// /}"
-            RESULTS[gpu_temp]="${temp// /}"
+            result_set "gpu" "ok"
+            result_set "gpu_mem_used" "${mem_used// /}"
+            result_set "gpu_mem_total" "${mem_total// /}"
+            result_set "gpu_util" "${gpu_util// /}"
+            result_set "gpu_temp" "${temp// /}"
 
             # Warn if GPU memory > 95% or temp > 80C
-            if [ "${RESULTS[gpu_util]}" -gt 95 ] 2>/dev/null; then
-                RESULTS[gpu]="warn"
+            if [ "$(result_get "gpu_util")" -gt 95 ] 2>/dev/null; then
+                result_set "gpu" "warn"
             fi
-            if [ "${RESULTS[gpu_temp]}" -gt 80 ] 2>/dev/null; then
-                RESULTS[gpu]="warn"
+            if [ "$(result_get "gpu_temp")" -gt 80 ] 2>/dev/null; then
+                result_set "gpu" "warn"
             fi
             return 0
         fi
     fi
-    RESULTS[gpu]="unavailable"
+    result_set "gpu" "unavailable"
     return 1
 }
 
@@ -120,14 +163,14 @@ test_gpu() {
 test_disk() {
     local usage=$(df -h "$INSTALL_DIR" 2>/dev/null | tail -1 | awk '{print $5}' | tr -d '%')
     if [ -n "$usage" ]; then
-        RESULTS[disk]="ok"
-        RESULTS[disk_usage]="$usage"
+        result_set "disk" "ok"
+        result_set "disk_usage" "$usage"
         if [ "$usage" -gt 90 ]; then
-            RESULTS[disk]="warn"
+            result_set "disk" "warn"
         fi
         return 0
     fi
-    RESULTS[disk]="unavailable"
+    result_set "disk" "unavailable"
     return 1
 }
 
@@ -137,12 +180,29 @@ check_service() {
     local name="${SERVICE_NAMES[$sid]:-$sid}"
     if test_service "$sid" 2>/dev/null; then
         log "  ${GREEN}✓${NC} $name - healthy"
+        return 0
     else
         log "  ${YELLOW}!${NC} $name - not responding"
+        return 1
+    fi
+}
+
+# Helper: run test_service in background and store result in temp file
+check_service_async() {
+    local sid="$1"
+    local result_file="$2"
+    if test_service "$sid" 2>/dev/null; then
+        echo "ok:$sid" > "$result_file"
+    else
+        echo "fail:$sid" > "$result_file"
     fi
 }
 
 # ── Run tests ───────────────────────────────────────────────────────────────
+
+# Create temp dir for parallel results
+TEMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TEMP_DIR"' EXIT
 
 log "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 log "${CYAN}  Dream Server Health Check${NC}"
@@ -153,25 +213,73 @@ log "${CYAN}Core Services:${NC}"
 
 # llama-server (critical — does inference test, not just health)
 if test_llm 2>/dev/null; then
-    log "  ${GREEN}✓${NC} llama-server - inference working (${RESULTS[llm_latency]}ms)"
+    log "  ${GREEN}✓${NC} llama-server - inference working ($(result_get "llm_latency")ms)"
 else
     log "  ${RED}✗${NC} llama-server - CRITICAL: inference failed"
 fi
 
-# All other core services
+# Launch all other core services in parallel
+declare -a CORE_PIDS=()
+declare -a CORE_SIDS=()
 for sid in "${SERVICE_IDS[@]}"; do
     [[ "$sid" == "llama-server" ]] && continue
     [[ "${SERVICE_CATEGORIES[$sid]}" != "core" ]] && continue
-    check_service "$sid"
+    result_file="$TEMP_DIR/core_$sid"
+    check_service_async "$sid" "$result_file" &
+    CORE_PIDS+=($!)
+    CORE_SIDS+=("$sid")
+done
+
+# Wait for all core service checks to complete
+for pid in "${CORE_PIDS[@]}"; do
+    wait "$pid" 2>/dev/null || true
+done
+
+# Display core service results
+for sid in "${CORE_SIDS[@]}"; do
+    result_file="$TEMP_DIR/core_$sid"
+    if [[ -f "$result_file" ]]; then
+        result=$(cat "$result_file")
+        name="${SERVICE_NAMES[$sid]:-$sid}"
+        if [[ "$result" == "ok:$sid" ]]; then
+            log "  ${GREEN}✓${NC} $name - healthy"
+        else
+            log "  ${YELLOW}!${NC} $name - not responding"
+        fi
+    fi
 done
 
 log ""
 log "${CYAN}Extension Services:${NC}"
 
-# All non-core services
+# Launch all extension services in parallel
+declare -a EXT_PIDS=()
+declare -a EXT_SIDS=()
 for sid in "${SERVICE_IDS[@]}"; do
     [[ "${SERVICE_CATEGORIES[$sid]}" == "core" ]] && continue
-    check_service "$sid"
+    result_file="$TEMP_DIR/ext_$sid"
+    check_service_async "$sid" "$result_file" &
+    EXT_PIDS+=($!)
+    EXT_SIDS+=("$sid")
+done
+
+# Wait for all extension service checks to complete
+for pid in "${EXT_PIDS[@]}"; do
+    wait "$pid" 2>/dev/null || true
+done
+
+# Display extension service results
+for sid in "${EXT_SIDS[@]}"; do
+    result_file="$TEMP_DIR/ext_$sid"
+    if [[ -f "$result_file" ]]; then
+        result=$(cat "$result_file")
+        name="${SERVICE_NAMES[$sid]:-$sid}"
+        if [[ "$result" == "ok:$sid" ]]; then
+            log "  ${GREEN}✓${NC} $name - healthy"
+        else
+            log "  ${YELLOW}!${NC} $name - not responding"
+        fi
+    fi
 done
 
 log ""
@@ -180,8 +288,8 @@ log "${CYAN}System Resources:${NC}"
 # GPU
 if test_gpu 2>/dev/null; then
     status_icon="${GREEN}✓${NC}"
-    [ "${RESULTS[gpu]}" = "warn" ] && status_icon="${YELLOW}!${NC}"
-    log "  ${status_icon} GPU - ${RESULTS[gpu_mem_used]}/${RESULTS[gpu_mem_total]} MiB, ${RESULTS[gpu_util]}% util, ${RESULTS[gpu_temp]}°C"
+    [ "$(result_get "gpu")" = "warn" ] && status_icon="${YELLOW}!${NC}"
+    log "  ${status_icon} GPU - $(result_get "gpu_mem_used")/$(result_get "gpu_mem_total") MiB, $(result_get "gpu_util")% util, $(result_get "gpu_temp")°C"
 else
     log "  ${YELLOW}?${NC} GPU - status unavailable"
 fi
@@ -189,8 +297,8 @@ fi
 # Disk
 if test_disk 2>/dev/null; then
     status_icon="${GREEN}✓${NC}"
-    [ "${RESULTS[disk]}" = "warn" ] && status_icon="${YELLOW}!${NC}"
-    log "  ${status_icon} Disk - ${RESULTS[disk_usage]}% used"
+    [ "$(result_get "disk")" = "warn" ] && status_icon="${YELLOW}!${NC}"
+    log "  ${status_icon} Disk - $(result_get "disk_usage")% used"
 else
     log "  ${YELLOW}?${NC} Disk - status unavailable"
 fi
@@ -218,10 +326,10 @@ if $JSON_OUTPUT; then
     echo "  \"status\": \"$([ $EXIT_CODE -eq 0 ] && echo "healthy" || ([ $EXIT_CODE -eq 1 ] && echo "degraded" || echo "critical"))\","
     echo "  \"services\": {"
     first=true
-    for key in "${!RESULTS[@]}"; do
+    for i in "${!RESULT_KEYS[@]}"; do
         $first || echo ","
         first=false
-        echo -n "    \"$key\": \"${RESULTS[$key]}\""
+        echo -n "    \"${RESULT_KEYS[$i]}\": \"${RESULT_VALS[$i]}\""
     done
     echo ""
     echo "  }"

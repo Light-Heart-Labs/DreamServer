@@ -10,7 +10,13 @@ Quick answers to common questions.
 
 ### What hardware do I need?
 
-**Minimum (functional but slow):**
+**Lightweight (runs on anything):**
+- GPU: Any (or CPU-only)
+- RAM: 4GB+
+- Storage: 15GB free
+- Model: Qwen3.5 2B (auto-selected)
+
+**Minimum (comfortable):**
 - GPU: RTX 3060 12GB or RTX 4060 8GB
 - RAM: 32GB
 - Storage: 500GB NVMe SSD

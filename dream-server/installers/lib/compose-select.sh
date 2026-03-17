@@ -80,6 +80,12 @@ resolve_compose_config() {
         load_env_from_output <<< "$COMPOSE_ENV"
     fi
 
+    # Layer Tier 0 memory overlay for low-RAM machines
+    if [[ "$TIER" == "0" && -f "$SCRIPT_DIR/docker-compose.tier0.yml" ]]; then
+        COMPOSE_FLAGS="$COMPOSE_FLAGS -f docker-compose.tier0.yml"
+        log "Including docker-compose.tier0.yml (Tier 0 memory limits)"
+    fi
+
     # Auto-include docker-compose.override.yml if present (standard Docker convention).
     # This lets modders add services without editing core compose files.
     if [[ -f "$SCRIPT_DIR/docker-compose.override.yml" ]]; then

@@ -69,26 +69,38 @@ error() { echo -e "${RED}[ERROR]${NC} $1" >&2; }
 
 check_dependencies() {
     local missing=()
-    
-    if ! command -v python3 &>/dev/null; then
-        missing+=("python3")
+
+    local pycmd="python3"
+    if command -v python3 &>/dev/null && python3 -c "import sys; sys.exit(0)" &>/dev/null; then
+        pycmd="python3"
+    elif command -v python &>/dev/null && python -c "import sys; sys.exit(0)" &>/dev/null; then
+        pycmd="python"
+    else
+        missing+=("python (or python3)")
     fi
-    
-    if ! command -v pip3 &>/dev/null && ! command -v pip &>/dev/null; then
+
+    local pipcmd=""
+    if command -v pip3 &>/dev/null; then
+        pipcmd="pip3"
+    elif command -v pip &>/dev/null; then
+        pipcmd="pip"
+    else
         missing+=("pip")
     fi
-    
+
     if [[ ${#missing[@]} -gt 0 ]]; then
         error "Missing dependencies: ${missing[*]}"
         echo "Please install them first."
         exit 1
     fi
-    
+
     # Ensure huggingface_hub is installed
-    if ! python3 -c "import huggingface_hub" 2>/dev/null; then
+    if ! "$pycmd" -c "import huggingface_hub" 2>/dev/null; then
         log "Installing huggingface_hub..."
-        pip3 install -q huggingface_hub
+        "$pipcmd" install -q huggingface_hub
     fi
+
+    export DREAM_PYTHON_CMD="$pycmd"
 }
 
 #=============================================================================
@@ -138,7 +150,7 @@ download_model() {
     
     log "Downloading $label: $model"
     
-    python3 << EOF
+    "${DREAM_PYTHON_CMD:-python3}" << EOF
 from huggingface_hub import snapshot_download
 import sys
 
@@ -166,7 +178,7 @@ EOF
 verify_model() {
     local model="$1"
     
-    python3 << EOF
+    "${DREAM_PYTHON_CMD:-python3}" << EOF
 from huggingface_hub import try_to_load_from_cache, get_hf_file_metadata
 import sys
 

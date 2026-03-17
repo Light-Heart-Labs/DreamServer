@@ -18,7 +18,7 @@ def run_command(cmd: list[str], timeout: int = 5) -> tuple[bool, str]:
         return result.returncode == 0, result.stdout.strip()
     except subprocess.TimeoutExpired:
         return False, "timeout"
-    except Exception as e:
+    except (subprocess.SubprocessError, OSError) as e:
         return False, str(e)
 
 

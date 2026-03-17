@@ -301,14 +301,22 @@ configure_perplexica() {
     local config_json
     config_json=$(curl -sf "${base_url}/api/config" 2>/dev/null) || return 1
 
+    PYTHON_CMD="python3"
+    if [[ -f "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/lib/python-cmd.sh" ]]; then
+        . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/lib/python-cmd.sh"
+        PYTHON_CMD="$(ds_detect_python_cmd)"
+    elif command -v python >/dev/null 2>&1; then
+        PYTHON_CMD="python"
+    fi
+
     # Check if already configured
-    if echo "$config_json" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('values',{}).get('setupComplete') else 1)" 2>/dev/null; then
+    if echo "$config_json" | "$PYTHON_CMD" -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('values',{}).get('setupComplete') else 1)" 2>/dev/null; then
         return 0
     fi
 
     # Seed the chat model
     local providers
-    providers=$(echo "$config_json" | python3 -c "
+    providers=$(echo "$config_json" | "$PYTHON_CMD" -c "
 import sys, json
 d = json.load(sys.stdin)
 provs = d.get('values',{}).get('modelProviders',[])
@@ -325,7 +333,7 @@ print(json.dumps(provs))
 
     # Set default models
     local openai_id
-    openai_id=$(echo "$config_json" | python3 -c "
+    openai_id=$(echo "$config_json" | "$PYTHON_CMD" -c "
 import sys, json
 d = json.load(sys.stdin)
 provs = d.get('values',{}).get('modelProviders',[])
