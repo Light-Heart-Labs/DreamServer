@@ -9,11 +9,11 @@ COPY . .
 
 RUN mkdir -p /app/data
 
-# Create non-root user for security
-RUN useradd -m -u 1000 tokenspy && \
-    chown -R tokenspy:tokenspy /app
+# Create non-root user and set ownership
+RUN adduser --system --no-create-home --uid 1000 dreamer && \
+    chown -R dreamer:nogroup /app
 
-USER tokenspy
+USER dreamer
 
 EXPOSE 8080
 
