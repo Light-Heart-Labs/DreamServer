@@ -157,30 +157,32 @@ manage_remote_agent() {
   log "Checking $agent (remote: $host, local model, \$0.00/turn)"
 
   local remote_info
-  remote_info=$(ssh -o ConnectTimeout=5 -o BatchMode=yes "${host}" bash << REMOTESCRIPT 2>/dev/null) || remote_info="SSH_FAILED"
-    SESSIONS_DIR="${remote_dir}"
-    if [ ! -d "\$SESSIONS_DIR" ]; then
-      echo "NO_DIR"
-      exit 0
-    fi
-    echo "SESSION_LIST_START"
-    for f in "\$SESSIONS_DIR"/*.jsonl; do
-      [ -f "\$f" ] || continue
-      sid=\$(basename "\$f" .jsonl)
-      sz=\$(stat -c%s "\$f" 2>/dev/null || echo 0)
-      mt=\$(stat -c%Y "\$f" 2>/dev/null || echo 0)
-      echo "\${sid}|\${sz}|\${mt}"
-    done
-    echo "SESSION_LIST_END"
-    if [ -f "\$SESSIONS_DIR/sessions.json" ]; then
-      echo "ACTIVE_IDS_START"
-      grep -oP '"sessionId":\s*"\K[^"]+' "\$SESSIONS_DIR/sessions.json" 2>/dev/null || true
-      echo "ACTIVE_IDS_END"
-    fi
-    echo "TOTAL_SIZE=\$(du -sb "\$SESSIONS_DIR" 2>/dev/null | cut -f1)"
-    find "\$SESSIONS_DIR" -name '*.deleted.*' -delete 2>/dev/null || true
-    find "\$SESSIONS_DIR" -name '*.bak*' -mmin +60 -delete 2>/dev/null || true
+  remote_info="$(
+    ssh -o ConnectTimeout=5 -o BatchMode=yes "${host}" bash -s -- "${remote_dir}" <<'REMOTESCRIPT' 2>/dev/null
+SESSIONS_DIR="$1"
+if [ ! -d "$SESSIONS_DIR" ]; then
+  echo "NO_DIR"
+  exit 0
+fi
+echo "SESSION_LIST_START"
+for f in "$SESSIONS_DIR"/*.jsonl; do
+  [ -f "$f" ] || continue
+  sid=$(basename "$f" .jsonl)
+  sz=$(stat -c%s "$f" 2>/dev/null || echo 0)
+  mt=$(stat -c%Y "$f" 2>/dev/null || echo 0)
+  echo "${sid}|${sz}|${mt}"
+done
+echo "SESSION_LIST_END"
+if [ -f "$SESSIONS_DIR/sessions.json" ]; then
+  echo "ACTIVE_IDS_START"
+  grep -oP '"sessionId":\s*"\K[^"]+' "$SESSIONS_DIR/sessions.json" 2>/dev/null || true
+  echo "ACTIVE_IDS_END"
+fi
+echo "TOTAL_SIZE=$(du -sb "$SESSIONS_DIR" 2>/dev/null | cut -f1)"
+find "$SESSIONS_DIR" -name '*.deleted.*' -delete 2>/dev/null || true
+find "$SESSIONS_DIR" -name '*.bak*' -mmin +60 -delete 2>/dev/null || true
 REMOTESCRIPT
+  )" || remote_info="SSH_FAILED"
 
   if [ "$remote_info" = "SSH_FAILED" ]; then
     log "  [WARN] SSH to $host failed — skipping $agent"
