@@ -718,6 +718,40 @@ PY
     return $?
 }
 
+cmd_audit() {
+    check_install
+    sr_load
+
+    local -a script_args=()
+    local scope="${1:-}"
+    if [[ "$scope" == "extensions" || "$scope" == "extension" ]]; then
+        shift
+    fi
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --json|--strict)
+                script_args+=("$1")
+                shift
+                ;;
+            --help|-h)
+                python3 "$INSTALL_DIR/scripts/audit-extensions.py" --help
+                return 0
+                ;;
+            *)
+                script_args+=("$(resolve_service "$1")")
+                shift
+                ;;
+        esac
+    done
+
+    if [[ ! -f "$INSTALL_DIR/scripts/audit-extensions.py" ]]; then
+        error "audit-extensions.py not found at $INSTALL_DIR/scripts/audit-extensions.py"
+    fi
+
+    python3 "$INSTALL_DIR/scripts/audit-extensions.py" --project-dir "$INSTALL_DIR" "${script_args[@]}"
+}
+
 #=============================================================================
 # Extension Management Commands
 #=============================================================================
@@ -1489,7 +1523,8 @@ ${CYAN}Commands:${NC}
                       View, edit, or validate configuration
   chat "<message>"    Quick chat with the LLM
   benchmark           Run a quick performance test
-  doctor [--json]     Run diagnostics (use --json for raw report)
+  doctor [report]     Run diagnostics and write JSON report
+  audit [extensions]  Audit extension manifests and compose contracts
   help                Show this help
 
 ${CYAN}Preset Commands:${NC}
@@ -1556,7 +1591,8 @@ ${CYAN}Examples:${NC}
   dream restart stt               # Restart Whisper (via alias)
   dream chat "What is 2+2?"      # Quick LLM test
   dream config edit               # Edit .env file
-  dream config validate           # Validate .env and extension manifests
+  dream audit                     # Audit every extension contract
+  dream audit --json whisper      # Audit one service as JSON
 
 ${CYAN}Environment:${NC}
   DREAM_HOME          Installation directory (default: ~/dream-server)
@@ -1589,6 +1625,7 @@ case "${1:-help}" in
     chat|c)      shift; cmd_chat "$@" ;;
     benchmark|bench|b) cmd_benchmark ;;
     doctor|diag|d) shift; cmd_doctor "$@" ;;
+    audit)        shift; cmd_audit "$@" ;;
     help|h|--help|-h) cmd_help ;;
     version|v|--version|-v) echo "dream-cli v${VERSION}" ;;
     *)           error "Unknown command: $1. Run 'dream help' for usage." ;;
