@@ -48,6 +48,14 @@ resolve_tier_config() {
             GGUF_SHA256="9f1a24700a339b09c06009b729b5c809e0b64c213b8af5b711b3dbdfd0c5ba48"
             MAX_CONTEXT=131072
             ;;
+        0)
+            TIER_NAME="Lightweight"
+            LLM_MODEL="qwen3.5-2b"
+            GGUF_FILE="Qwen3.5-2B-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf"
+            GGUF_SHA256=""
+            MAX_CONTEXT=8192
+            ;;
         1)
             TIER_NAME="Entry Level"
             LLM_MODEL="qwen3-8b"
@@ -81,7 +89,7 @@ resolve_tier_config() {
             MAX_CONTEXT=131072
             ;;
         *)
-            error "Invalid tier: $TIER. Valid tiers: 1, 2, 3, 4, CLOUD, NV_ULTRA, SH_LARGE, SH_COMPACT"
+            error "Invalid tier: $TIER. Valid tiers: 0, 1, 2, 3, 4, CLOUD, NV_ULTRA, SH_LARGE, SH_COMPACT"
             # NOTE for modders: add your tier above this line and update this message.
             ;;
     esac
@@ -95,6 +103,7 @@ tier_to_model() {
         NV_ULTRA)   echo "qwen3-coder-next" ;;
         SH_LARGE)   echo "qwen3-coder-next" ;;
         SH_COMPACT|SH) echo "qwen3-30b-a3b" ;;
+        0|T0)       echo "qwen3.5-2b" ;;
         1|T1)       echo "qwen3-8b" ;;
         2|T2)       echo "qwen3-8b" ;;
         3|T3)       echo "qwen3-14b" ;;

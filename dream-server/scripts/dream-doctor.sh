@@ -59,16 +59,16 @@ _WEBUI_PORT="${SERVICE_PORTS[open-webui]:-3000}"
 RAM_GB="$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print int($2/1024/1024)}' || echo 0)"
 DISK_GB="$(df -BG "$HOME" 2>/dev/null | tail -1 | awk '{gsub(/G/,"",$4); print int($4)}' || echo 0)"
 
-if [[ -x "$SCRIPT_DIR/build-capability-profile.sh" ]]; then
-    CAP_ENV="$("$SCRIPT_DIR/build-capability-profile.sh" --output "$CAP_FILE" --env)"
+if [[ -x "$SCRIPT_DIR/scripts/build-capability-profile.sh" ]]; then
+    CAP_ENV="$("$SCRIPT_DIR/scripts/build-capability-profile.sh" --output "$CAP_FILE" --env)"
     load_env_from_output <<< "$CAP_ENV"
 else
-    echo "build-capability-profile.sh not found/executable" >&2
+    echo "scripts/build-capability-profile.sh not found/executable" >&2
     exit 1
 fi
 
-if [[ -x "$SCRIPT_DIR/preflight-engine.sh" ]]; then
-    PREFLIGHT_ENV="$("$SCRIPT_DIR/preflight-engine.sh" \
+if [[ -x "$SCRIPT_DIR/scripts/preflight-engine.sh" ]]; then
+    PREFLIGHT_ENV="$("$SCRIPT_DIR/scripts/preflight-engine.sh" \
         --report "$PREFLIGHT_FILE" \
         --tier "${CAP_RECOMMENDED_TIER:-T1}" \
         --ram-gb "$RAM_GB" \
@@ -82,7 +82,7 @@ if [[ -x "$SCRIPT_DIR/preflight-engine.sh" ]]; then
         --env)"
     load_env_from_output <<< "$PREFLIGHT_ENV"
 else
-    echo "preflight-engine.sh not found/executable" >&2
+    echo "scripts/preflight-engine.sh not found/executable" >&2
     exit 1
 fi
 
@@ -111,7 +111,15 @@ if command -v curl >/dev/null 2>&1; then
     fi
 fi
 
-python3 - "$CAP_FILE" "$PREFLIGHT_FILE" "$REPORT_FILE" "$DOCKER_CLI" "$DOCKER_DAEMON" "$COMPOSE_CLI" "$DASHBOARD_HTTP" "$WEBUI_HTTP" "$_DASHBOARD_PORT" "$_WEBUI_PORT" <<'PY'
+PYTHON_CMD="python3"
+if [[ -f "$ROOT_DIR/lib/python-cmd.sh" ]]; then
+    . "$ROOT_DIR/lib/python-cmd.sh"
+    PYTHON_CMD="$(ds_detect_python_cmd)"
+elif command -v python >/dev/null 2>&1; then
+    PYTHON_CMD="python"
+fi
+
+"$PYTHON_CMD" - "$CAP_FILE" "$PREFLIGHT_FILE" "$REPORT_FILE" "$DOCKER_CLI" "$DOCKER_DAEMON" "$COMPOSE_CLI" "$DASHBOARD_HTTP" "$WEBUI_HTTP" "$_DASHBOARD_PORT" "$_WEBUI_PORT" <<'PY'
 import json
 import pathlib
 import sys
@@ -182,7 +190,7 @@ echo "  Preflight blockers: ${PREFLIGHT_BLOCKERS:-0}"
 echo "  Preflight warnings: ${PREFLIGHT_WARNINGS:-0}"
 echo "  Docker daemon: $DOCKER_DAEMON"
 echo "  Compose CLI:   $COMPOSE_CLI"
-python3 - "$REPORT_FILE" <<'PY'
+"$PYTHON_CMD" - "$REPORT_FILE" <<'PY'
 import json
 import sys
 

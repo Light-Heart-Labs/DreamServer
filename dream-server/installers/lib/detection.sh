@@ -46,6 +46,7 @@ load_capability_profile() {
 
 normalize_profile_tier() {
     case "$1" in
+        T0) echo "0" ;;
         T1) echo "1" ;;
         T2) echo "2" ;;
         T3) echo "3" ;;
@@ -61,6 +62,8 @@ tier_rank() {
         4) echo 4 ;;
         SH_COMPACT|3) echo 3 ;;
         2) echo 2 ;;
+        1) echo 1 ;;
+        0) echo 0 ;;
         *) echo 1 ;;
     esac
 }
