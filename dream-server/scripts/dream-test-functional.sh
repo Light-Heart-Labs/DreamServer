@@ -25,20 +25,8 @@ if [[ -f "$_FT_DIR/lib/service-registry.sh" ]]; then
     export SCRIPT_DIR="$_FT_DIR"
     . "$_FT_DIR/lib/service-registry.sh"
     sr_load
-    if [[ -f "$_FT_DIR/.env" ]]; then
-        set -a
-        while IFS='=' read -r key value; do
-            [[ "$key" =~ ^[[:space:]]*# ]] && continue
-            [[ -z "$key" ]] && continue
-            [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-            value="${value%\"}"
-            value="${value#\"}"
-            value="${value%\'}"
-            value="${value#\'}"
-            export "$key=$value"
-        done < "$_FT_DIR/.env"
-        set +a
-    fi
+    [[ -f "$_FT_DIR/lib/safe-env.sh" ]] && . "$_FT_DIR/lib/safe-env.sh"
+    load_env_file "$_FT_DIR/.env"
 fi
 
 # Service endpoints — resolved from registry

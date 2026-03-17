@@ -14,7 +14,7 @@
 # See each module's header for what it expects and provides.
 # ============================================================================
 
-set -e
+set -euo pipefail
 
 #=============================================================================
 # Cleanup on Failure

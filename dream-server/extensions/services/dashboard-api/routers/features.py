@@ -1,13 +1,17 @@
 """Feature discovery endpoints."""
 
+import logging
+import os
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from config import FEATURES, SERVICES
+from config import FEATURES, GPU_BACKEND, SERVICES
 from gpu import get_gpu_info, get_gpu_tier
 from models import GPUInfo
 from security import verify_api_key
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["features"])
 
@@ -17,6 +21,15 @@ def calculate_feature_status(feature: dict, services: list, gpu_info: Optional[G
     gpu_vram_gb = (gpu_info.memory_total_mb / 1024) if gpu_info else 0
     gpu_vram_used_gb = (gpu_info.memory_used_mb / 1024) if gpu_info else 0
     gpu_vram_free_gb = gpu_vram_gb - gpu_vram_used_gb
+
+    # On Apple Silicon, when HOST_CHIP is missing (get_gpu_info_apple returned None),
+    # fall back to HOST_RAM_GB. Unified memory = VRAM on Apple Silicon.
+    if gpu_vram_gb == 0 and GPU_BACKEND == "apple":
+        try:
+            gpu_vram_gb = float(os.environ.get("HOST_RAM_GB", "0") or "0")
+        except (ValueError, TypeError):
+            pass
+        gpu_vram_free_gb = gpu_vram_gb  # assumes zero current usage; Docker can't measure host memory pressure
 
     req = feature["requirements"]
     vram_ok = gpu_vram_gb >= req.get("vram_gb", 0)
@@ -61,9 +74,9 @@ def calculate_feature_status(feature: dict, services: list, gpu_info: Optional[G
     return {
         "id": feature["id"],
         "name": feature["name"],
-        "description": feature["description"],
-        "icon": feature["icon"],
-        "category": feature["category"],
+        "description": feature.get("description", ""),
+        "icon": feature.get("icon", "Package"),
+        "category": feature.get("category", "other"),
         "status": status,
         "enabled": is_enabled,
         "requirements": {
@@ -77,8 +90,8 @@ def calculate_feature_status(feature: dict, services: list, gpu_info: Optional[G
             "servicesMissing": services_missing,
             "servicesOk": services_ok,
         },
-        "setupTime": feature["setup_time"],
-        "priority": feature["priority"]
+        "setupTime": feature.get("setup_time", "Unknown"),
+        "priority": feature.get("priority", 99)
     }
 
 
@@ -114,6 +127,19 @@ async def api_features(api_key: str = Depends(verify_api_key)):
 
     gpu_vram_gb = (gpu_info.memory_total_mb / 1024) if gpu_info else 0
     memory_type = gpu_info.memory_type if gpu_info else "discrete"
+
+    # Apply Apple Silicon fallback for endpoint-level GPU summary (mirrors calculate_feature_status)
+    if gpu_vram_gb == 0 and GPU_BACKEND == "apple":
+        try:
+            gpu_vram_gb = float(os.environ.get("HOST_RAM_GB", "0") or "0")
+        except (ValueError, TypeError):
+            pass
+        if gpu_vram_gb == 0:
+            logger.warning(
+                "Apple Silicon VRAM fallback: HOST_RAM_GB is 0 or unset; "
+                "all features will show insufficient_vram"
+            )
+        memory_type = "unified"
 
     tier_recommendations = []
     if memory_type == "unified" and gpu_info and gpu_info.gpu_backend == "amd":

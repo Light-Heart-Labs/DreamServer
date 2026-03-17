@@ -18,29 +18,9 @@ export SCRIPT_DIR="$PROJECT_DIR"
 . "$PROJECT_DIR/lib/service-registry.sh"
 sr_load
 
-# Safe .env loading (aligns with dream-cli pattern)
-load_env_safe() {
-    local env_file="$PROJECT_DIR/.env"
-    [[ -f "$env_file" ]] || return 0
-    set -a
-    while IFS='=' read -r key value; do
-        # Skip comments and empty lines
-        [[ "$key" =~ ^[[:space:]]*# ]] && continue
-        [[ -z "$key" ]] && continue
-        # Only allow alphanumeric + underscore in key names
-        [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-        # Strip surrounding quotes from value
-        value="${value%\"}"
-        value="${value#\"}"
-        value="${value%\'}"
-        value="${value#\'}"
-        export "$key=$value"
-    done < "$env_file"
-    set +a
-}
-
-# Load .env for port overrides (if present)
-load_env_safe
+# Safe .env loading (no eval; use lib/safe-env.sh)
+[[ -f "$PROJECT_DIR/lib/safe-env.sh" ]] && . "$PROJECT_DIR/lib/safe-env.sh"
+load_env_file "$PROJECT_DIR/.env"
 
 # Resolve core ports from registry (honoring any env overrides)
 LLM_PORT="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-${SERVICE_PORTS[llama-server]:-8080}}}"
@@ -86,18 +66,18 @@ check "Open WebUI running" "docker compose $COMPOSE_FLAGS ps open-webui 2>/dev/n
 echo ""
 echo "2. Health Endpoints"
 echo "───────────────────"
-check "llama-server health" "curl -sf http://localhost:${LLM_PORT}${LLM_HEALTH}"
-check "llama-server models" "curl -sf http://localhost:${LLM_PORT}/v1/models | grep -q model"
-check "WebUI reachable" "curl -sf http://localhost:${WEBUI_PORT}${WEBUI_HEALTH} -o /dev/null"
+check "llama-server health" "curl -sf --max-time 10 http://localhost:${LLM_PORT}${LLM_HEALTH}"
+check "llama-server models" "curl -sf --max-time 10 http://localhost:${LLM_PORT}/v1/models | grep -q model"
+check "WebUI reachable" "curl -sf --max-time 10 http://localhost:${WEBUI_PORT}${WEBUI_HEALTH} -o /dev/null"
 
 echo ""
 echo "3. Inference Test"
 echo "─────────────────"
 printf "  %-30s " "Chat completion..."
-RESPONSE=$(curl -sf "http://localhost:${LLM_PORT}/v1/chat/completions" \
+RESPONSE=$(curl -sf --max-time 30 "http://localhost:${LLM_PORT}/v1/chat/completions" \
     -H "Content-Type: application/json" \
     -d '{
-        "model": "'"$(curl -sf "http://localhost:${LLM_PORT}/v1/models" | jq -r '.data[0].id // "local"')"'",
+        "model": "'"$(curl -sf --max-time 10 "http://localhost:${LLM_PORT}/v1/models" | jq -r '.data[0].id // "local"')"'",
         "messages": [{"role": "user", "content": "Say OK"}],
         "max_tokens": 10
     }' 2>/dev/null)
@@ -138,7 +118,7 @@ for sid in "${SERVICE_IDS[@]}"; do
 
     # Check if container is running
     if docker compose $COMPOSE_FLAGS ps "$sid" 2>/dev/null | grep -qE "Up|running"; then
-        check "$_name" "curl -sf http://localhost:${_port}${_health}"
+        check "$_name" "curl -sf --max-time 10 http://localhost:${_port}${_health}"
     else
         printf "  %-30s ${YELLOW}○ SKIP (not enabled)${NC}\n" "$_name..."
     fi

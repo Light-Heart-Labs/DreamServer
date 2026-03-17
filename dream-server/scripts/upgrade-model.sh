@@ -160,7 +160,7 @@ save_state() {
 check_llm_health() {
     resolve_inference_runtime
     local response
-    response=$(curl -s -o /dev/null -w "%{http_code}" \
+    response=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
         "http://${LLM_HOST:-localhost}:${INFERENCE_PORT}/health" 2>/dev/null || echo "000")
     [[ "$response" == "200" ]]
 }
@@ -190,9 +190,9 @@ wait_for_llm() {
 test_inference() {
     resolve_inference_runtime
     log "Testing inference..."
-    
+
     local response
-    response=$(curl -s "http://${LLM_HOST:-localhost}:${INFERENCE_PORT}/v1/models" 2>/dev/null || echo "")
+    response=$(curl -s --max-time 10 "http://${LLM_HOST:-localhost}:${INFERENCE_PORT}/v1/models" 2>/dev/null || echo "")
     
     if echo "$response" | grep -q '"data"'; then
         success "Inference test passed"

@@ -14,6 +14,11 @@ CYAN='\033[0;36m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+# Portable millisecond timestamp (macOS BSD date lacks %N)
+_now_ms() {
+    python3 -c 'import time; print(int(time.time() * 1000))' 2>/dev/null || echo "$(date +%s)000"
+}
+
 echo -e "${BLUE}━━━ Dream Status Performance Benchmark ━━━${NC}"
 echo ""
 
@@ -55,21 +60,21 @@ trap cleanup_mock_services EXIT
 
 # Simulate sequential health checks (old implementation)
 benchmark_sequential() {
-    local start=$(date +%s%N)
+    local start=$(_now_ms)
 
     # Simulate 13 sequential curl calls with 1 second timeout each
     for i in {1..13}; do
         curl -sf --max-time 1 http://localhost:8080/health > /dev/null 2>&1 || true
     done
 
-    local end=$(date +%s%N)
-    local duration=$(( (end - start) / 1000000 ))
+    local end=$(_now_ms)
+    local duration=$(( end - start ))
     echo $duration
 }
 
 # Simulate parallel health checks (new implementation)
 benchmark_parallel() {
-    local start=$(date +%s%N)
+    local start=$(_now_ms)
     local tmpdir=$(mktemp -d)
     local -a pids=()
 
@@ -84,8 +89,8 @@ benchmark_parallel() {
         wait "$pid" 2>/dev/null || true
     done
 
-    local end=$(date +%s%N)
-    local duration=$(( (end - start) / 1000000 ))
+    local end=$(_now_ms)
+    local duration=$(( end - start ))
     rm -rf "$tmpdir"
     echo $duration
 }

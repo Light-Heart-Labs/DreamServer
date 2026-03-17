@@ -32,8 +32,10 @@ Last updated: 2026-03-05
 
 - **Linux, Windows, and macOS are fully supported.**
 - Linux + NVIDIA is supported but needs broader validation and CI matrix coverage.
-- Windows installs via `.\install.ps1` with Docker Desktop + WSL2 backend.
+- Windows installs via `.\install.ps1` with Docker Desktop + WSL2 backend. Windows delegated installer flow is available via WSL2.
+- Windows native installer UX is Tier B (delegated via Docker Desktop + WSL2).
 - macOS installs via `./install.sh` — llama-server runs natively with Metal acceleration, all other services in Docker.
+- For release gates (CI), macOS (Apple Silicon) is documented as Tier C (installer MVP) in manifest; SUPPORT-MATRIX table may show Tier B for user-facing status.
 - Version baselines for triage are in `docs/KNOWN-GOOD-VERSIONS.md`.
 
 ## Roadmap

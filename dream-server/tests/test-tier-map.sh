@@ -42,6 +42,14 @@ run_tier() {
 echo "=== Testing resolve_tier_config() ==="
 echo ""
 
+# --- Tier 0: Lightweight ---
+echo "Tier 0 (Lightweight):"
+run_tier 0
+assert_eq "TIER_NAME"   "Lightweight"                          "$TIER_NAME"
+assert_eq "LLM_MODEL"   "qwen3.5-2b"                          "$LLM_MODEL"
+assert_eq "GGUF_FILE"   "Qwen3.5-2B-Q4_K_M.gguf"             "$GGUF_FILE"
+assert_eq "MAX_CONTEXT"  "8192"                                 "$MAX_CONTEXT"
+echo ""
 # --- Tier 1: Entry Level ---
 echo "Tier 1 (Entry Level):"
 run_tier 1
@@ -74,7 +82,7 @@ echo "Tier 4 (Enterprise):"
 run_tier 4
 assert_eq "TIER_NAME"   "Enterprise"                           "$TIER_NAME"
 assert_eq "LLM_MODEL"   "qwen3-30b-a3b"                       "$LLM_MODEL"
-assert_eq "GGUF_FILE"   "qwen3-30b-a3b-Q4_K_M.gguf"          "$GGUF_FILE"
+assert_eq "GGUF_FILE"   "Qwen3-30B-A3B-Q4_K_M.gguf"          "$GGUF_FILE"
 assert_eq "MAX_CONTEXT"  "131072"                               "$MAX_CONTEXT"
 echo ""
 
@@ -101,7 +109,7 @@ echo "SH_COMPACT (Strix Halo Compact):"
 run_tier SH_COMPACT
 assert_eq "TIER_NAME"   "Strix Halo Compact"                  "$TIER_NAME"
 assert_eq "LLM_MODEL"   "qwen3-30b-a3b"                       "$LLM_MODEL"
-assert_eq "GGUF_FILE"   "qwen3-30b-a3b-Q4_K_M.gguf"          "$GGUF_FILE"
+assert_eq "GGUF_FILE"   "Qwen3-30B-A3B-Q4_K_M.gguf"          "$GGUF_FILE"
 assert_eq "MAX_CONTEXT"  "131072"                               "$MAX_CONTEXT"
 echo ""
 
@@ -118,7 +126,7 @@ echo ""
 
 # --- GGUF_URL should be set for all tiers ---
 echo "GGUF_URL populated for all tiers:"
-for t in 1 2 3 4 NV_ULTRA SH_LARGE SH_COMPACT; do
+for t in 0 1 2 3 4 NV_ULTRA SH_LARGE SH_COMPACT; do
     run_tier "$t"
     if [[ -n "$GGUF_URL" && "$GGUF_URL" == https://* ]]; then
         echo "  PASS: Tier $t has valid GGUF_URL"

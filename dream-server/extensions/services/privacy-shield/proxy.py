@@ -7,7 +7,6 @@ FastAPI-based proxy with connection pooling and PII caching.
 import os
 import time
 import httpx
-import logging
 import secrets
 import hashlib
 from fastapi import FastAPI, Request, Response, Depends, HTTPException, Security
@@ -15,17 +14,14 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from functools import lru_cache
 import uvicorn
-import json
 from cachetools import TTLCache
 
 from pii_scrubber import PrivacyShield
+from key_management import resolve_shield_api_key
 
 # Security: API Key Authentication
-SHIELD_API_KEY = os.environ.get("SHIELD_API_KEY")
-if not SHIELD_API_KEY:
-    SHIELD_API_KEY = secrets.token_urlsafe(32)
-    logging.warning("SHIELD_API_KEY not set. Generated temporary key (not logging for security). "
-                   "Set SHIELD_API_KEY in .env for production.")
+DEFAULT_KEY_PATH = os.environ.get("SHIELD_API_KEY_PATH", "/data/shield_api_key")
+SHIELD_API_KEY = resolve_shield_api_key(os.environ.get("SHIELD_API_KEY"), DEFAULT_KEY_PATH)
 
 security_scheme = HTTPBearer()
 
@@ -61,16 +57,16 @@ sessions = TTLCache(maxsize=SESSION_MAXSIZE, ttl=SESSION_TTL)
 
 class CachedPrivacyShield(PrivacyShield):
     """PrivacyShield with LRU cache for PII patterns."""
-    
+
     def __init__(self, backend_client=None):
         super().__init__(backend_client)
         if CACHE_ENABLED:
             self._scrub_cached = lru_cache(maxsize=CACHE_SIZE)(self._scrub_impl)
-    
+
     def _scrub_impl(self, text: str) -> str:
         """Internal scrub implementation."""
         return self.detector.scrub(text)
-    
+
     def scrub(self, text: str) -> str:
         """Scrub with optional caching."""
         if CACHE_ENABLED and len(text) < 1000:  # Only cache small texts
@@ -88,7 +84,7 @@ def get_session(request: Request) -> CachedPrivacyShield:
     else:
         client_info = str(request.client.host if request.client else "default")
         session_key = hashlib.sha256(client_info.encode()).hexdigest()
-    
+
     if session_key not in sessions:
         sessions[session_key] = CachedPrivacyShield()
 
@@ -131,26 +127,26 @@ async def proxy(request: Request, path: str):
     """
     start_time = time.time()
     shield = get_session(request)
-    
+
     # Read and process request body
     body = await request.body()
     body_str = body.decode('utf-8') if body else ""
-    
+
     # Scrub PII from request
     scrubbed_body, metadata = shield.process_request(body_str)
-    
+
     # Forward to target API
     target_url = f"{TARGET_API_BASE}/{path}"
     headers = {k: v for k, v in request.headers.items() if k.lower() not in ('host', 'content-length')}
-    
+
     # Set host header for target
     host = TARGET_API_BASE.split("//")[-1].split("/")[0]
     headers["host"] = host
-    
+
     # Use target API key if configured
     if TARGET_API_KEY and TARGET_API_KEY != "not-needed":
         headers["Authorization"] = f"Bearer {TARGET_API_KEY}"
-    
+
     try:
         if request.method == "POST":
             resp = await http_client.post(
@@ -163,16 +159,16 @@ async def proxy(request: Request, path: str):
                 target_url,
                 headers=headers
             )
-        
+
         # Read response
         response_body = resp.content.decode('utf-8')
-        
+
         # Restore PII in response
         restored_body = shield.process_response(response_body)
-        
+
         # Calculate overhead
         overhead_ms = (time.time() - start_time) * 1000
-        
+
         # Add privacy headers
         response_headers = {
             "X-Privacy-Shield": "active",
@@ -180,13 +176,13 @@ async def proxy(request: Request, path: str):
             "X-Processing-Time-Ms": f"{overhead_ms:.2f}",
             "Content-Type": resp.headers.get("Content-Type", "application/json")
         }
-        
+
         return Response(
             content=restored_body,
             status_code=resp.status_code,
             headers=response_headers
         )
-        
+
     except httpx.TimeoutException:
         return JSONResponse(
             status_code=504,

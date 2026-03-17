@@ -3,7 +3,81 @@
 # Detects GPU, CPU, RAM and recommends tier
 # Supports: NVIDIA (nvidia-smi), AMD APU/dGPU (sysfs), Apple Silicon
 
-set -e
+set -euo pipefail
+
+# Note: this script is used by installers/tests. Keep it deterministic and safe:
+# - never rely on uninitialized vars
+# - avoid pipeline masking failures
+# - do not hang on missing system tools
+
+# Print errors with context
+err() {
+    echo -e "${RED}Error:${NC} $*" >&2
+}
+
+# Require a dependency for a given feature
+require_cmd() {
+    local cmd="$1"
+    local hint="${2:-}"
+    if ! command -v "$cmd" &>/dev/null; then
+        err "Missing required command: $cmd${hint:+ ($hint)}"
+        return 1
+    fi
+    return 0
+}
+
+# Safe command execution: returns empty string on failure
+try() {
+    "$@" 2>/dev/null || true
+}
+
+# Safer head -1 that doesn't error under pipefail
+first_line() {
+    awk 'NR==1{print; exit 0}'
+}
+
+# JSON string escape (minimal, sufficient for our fields)
+json_escape() {
+    local s="$1"
+    s=${s//\\/\\\\}
+    s=${s//\"/\\\"}
+    s=${s//$'\n'/\\n}
+    s=${s//$'\r'/\\r}
+    s=${s//$'\t'/\\t}
+    printf '%s' "$s"
+}
+
+# Normalize integer (digits only) else 0
+as_int() {
+    local v="${1:-}"
+    [[ "$v" =~ ^[0-9]+$ ]] && echo "$v" || echo "0"
+}
+
+# Clamp integer between min/max
+clamp_int() {
+    local v min max
+    v=$(as_int "${1:-0}")
+    min=$(as_int "${2:-0}")
+    max=$(as_int "${3:-0}")
+    (( v < min )) && v=$min
+    (( v > max )) && v=$max
+    echo "$v"
+}
+
+# Detect if running inside a container
+in_container() {
+    [[ -f /.dockerenv ]] && return 0
+    [[ -f /run/.containerenv ]] && return 0
+    if [[ -f /proc/1/cgroup ]] && grep -qiE '(docker|containerd|kubepods|lxc)' /proc/1/cgroup 2>/dev/null; then
+        return 0
+    fi
+    return 1
+}
+
+# Detect if inside WSL2
+is_wsl() {
+    [[ -f /proc/version ]] && grep -qi microsoft /proc/version 2>/dev/null
+}
 
 # Colors
 RED='\033[0;31m'
@@ -15,22 +89,64 @@ NC='\033[0m'
 
 # Detect OS and environment
 detect_os() {
-    if [[ -f /proc/version ]] && grep -qi microsoft /proc/version 2>/dev/null; then
+    # Explicit WSL detection first
+    if is_wsl; then
         echo "wsl"
-    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        return 0
+    fi
+
+    # OSTYPE is set in bash, but keep a fallback in case it's missing
+    local os_type="${OSTYPE:-}"
+    if [[ "$os_type" == "darwin"* ]]; then
         echo "macos"
-    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    elif [[ "$os_type" == "linux-gnu"* || -f /proc/version ]]; then
         echo "linux"
     else
         echo "unknown"
     fi
 }
 
+# Detect platform quirks that impact Docker/GPU detection
+# Returns: "native" | "wsl2" | "container"
+detect_platform() {
+    if in_container; then
+        echo "container"
+    elif is_wsl; then
+        echo "wsl2"
+    else
+        echo "native"
+    fi
+}
+
 # Detect NVIDIA GPU
 detect_nvidia() {
+    # Works on bare metal Linux; on WSL2 it may be present via Docker Desktop GPU integration.
     if command -v nvidia-smi &>/dev/null; then
-        nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits 2>/dev/null | head -1
+        nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits 2>/dev/null | first_line
     fi
+}
+
+# Parse PCI device id from nvidia-smi output, normalize to 0x1234
+nvidia_device_id() {
+    if command -v nvidia-smi &>/dev/null; then
+        local pci_id
+        pci_id=$(nvidia-smi --query-gpu=pci.device_id --format=csv,noheader 2>/dev/null | first_line | xargs || true)
+        # Example: 0x26B110DE => device part is first 6 chars => 0x26B1
+        if [[ -n "$pci_id" && "$pci_id" == 0x* && ${#pci_id} -ge 6 ]]; then
+            echo "${pci_id:0:6}"
+            return 0
+        fi
+    fi
+    echo ""
+    return 1
+}
+
+# Parse nvidia-smi memory.total robustly (MB)
+parse_nvidia_vram_mb() {
+    local output="$1"
+    local mb
+    mb=$(echo "$output" | awk -F',' '{gsub(/^[ \t]+|[ \t]+$/,"",$2); print $2}' | xargs || true)
+    as_int "$mb"
 }
 
 # Detect AMD GPU via sysfs (works without ROCm installed)
@@ -190,9 +306,9 @@ detect_ram() {
 }
 
 # Parse VRAM from nvidia-smi output (in MB)
+# Kept for backwards compatibility with older callers; prefer parse_nvidia_vram_mb.
 parse_nvidia_vram() {
-    local output="$1"
-    echo "$output" | awk -F',' '{gsub(/^ +| +$/,"",$2); print int($2)}'
+    parse_nvidia_vram_mb "$1"
 }
 
 # Determine tier based on VRAM (discrete GPU)
@@ -270,12 +386,24 @@ tier_model() {
 # Main detection
 main() {
     local json_output=false
-    [[ "$1" == "--json" ]] && json_output=true
+    local verbose=false
 
-    local os=$(detect_os)
-    local cpu=$(detect_cpu)
-    local cores=$(detect_cores)
-    local ram=$(detect_ram)
+    for arg in "$@"; do
+        case "$arg" in
+            --json) json_output=true ;;
+            --verbose) verbose=true ;;
+        esac
+    done
+
+    local os platform
+    os=$(detect_os)
+    platform=$(detect_platform)
+
+    local cpu cores ram
+    cpu=$(detect_cpu)
+    cores=$(as_int "$(detect_cores)")
+    ram=$(as_int "$(detect_ram)")
+
     local gpu_name=""
     local gpu_vram_mb=0
     local gpu_type="none"
@@ -291,42 +419,44 @@ main() {
     local subsystem_device=""
     local revision=""
 
+    # Guardrails: avoid nonsense values
+    cores=$(clamp_int "$cores" 1 1024)
+    ram=$(clamp_int "$ram" 1 4096)
+
     # Try NVIDIA first
-    local nvidia_out=$(detect_nvidia)
+    local nvidia_out=""
+    nvidia_out=$(detect_nvidia || true)
     if [[ -n "$nvidia_out" ]]; then
-        gpu_name=$(echo "$nvidia_out" | awk -F',' '{gsub(/^ +| +$/,"",$1); print $1}')
-        gpu_vram_mb=$(parse_nvidia_vram "$nvidia_out")
+        gpu_name=$(echo "$nvidia_out" | awk -F',' '{gsub(/^[ \t]+|[ \t]+$/,"",$1); print $1}' | xargs || true)
+        gpu_vram_mb=$(parse_nvidia_vram_mb "$nvidia_out")
         gpu_type="nvidia"
         gpu_architecture="cuda"
         memory_type="discrete"
-        # Extract PCI device ID from nvidia-smi
-        if command -v nvidia-smi &>/dev/null; then
-            local pci_id
-            pci_id=$(nvidia-smi --query-gpu=pci.device_id --format=csv,noheader 2>/dev/null | head -1 | xargs)
-            # nvidia-smi returns e.g. "0x26B110DE" — extract device portion (first 6 chars)
-            [[ -n "$pci_id" ]] && device_id="${pci_id:0:6}"
-        fi
+        device_id="$(nvidia_device_id || true)"
     fi
 
     # Try AMD if no NVIDIA
     if [[ -z "$gpu_name" ]]; then
-        local amd_out
+        local amd_out=""
         if amd_out=$(detect_amd_sysfs 2>/dev/null); then
             # Parse pipe-delimited output from detect_amd_sysfs
+            local vram_bytes gtt_bytes is_apu busy temp power vulkan rocm driver dev_id subsys_dev rev
             IFS='|' read -r gpu_name vram_bytes gtt_bytes is_apu busy temp power vulkan rocm driver dev_id subsys_dev rev <<< "$amd_out"
 
-            local vram_gb=$(( vram_bytes / 1073741824 ))
+            vram_bytes=$(as_int "$vram_bytes")
+            gtt_bytes=$(as_int "$gtt_bytes")
+
             gpu_vram_mb=$(( vram_bytes / 1048576 ))
             gpu_type="amd"
-            gpu_temp=$temp
-            gpu_power=$power
-            gpu_busy=$busy
-            vulkan_available=$vulkan
-            rocm_available=$rocm
-            driver_loaded=$driver
-            device_id=$dev_id
-            subsystem_device=$subsys_dev
-            revision=$rev
+            gpu_temp=$(as_int "$temp")
+            gpu_power=$(as_int "$power")
+            gpu_busy=$(as_int "$busy")
+            vulkan_available="$vulkan"
+            rocm_available="$rocm"
+            driver_loaded="$driver"
+            device_id="$dev_id"
+            subsystem_device="$subsys_dev"
+            revision="$rev"
 
             if [[ "$is_apu" == "true" ]]; then
                 gpu_architecture="apu-unified"
@@ -335,12 +465,18 @@ main() {
                 gpu_architecture="rdna"
                 memory_type="discrete"
             fi
+
+            # Sanity clamp for telemetry
+            gpu_temp=$(clamp_int "$gpu_temp" 0 130)
+            gpu_power=$(clamp_int "$gpu_power" 0 2000)
+            gpu_busy=$(clamp_int "$gpu_busy" 0 100)
         fi
     fi
 
     # Try Apple Silicon if macOS
     if [[ -z "$gpu_name" && "$os" == "macos" ]]; then
-        local apple_out=$(detect_apple)
+        local apple_out
+        apple_out=$(detect_apple || true)
         if [[ -n "$apple_out" ]]; then
             gpu_name="Apple Silicon (Unified Memory)"
             gpu_vram_mb=$((ram * 1024))
@@ -351,37 +487,44 @@ main() {
     fi
 
     # Determine tier
-    # For unified memory AMD APUs, use system RAM — VRAM reports only GTT (unreliable)
+    # For unified memory AMD APUs, use system RAM — VRAM reports only carve-out, not usable UMA.
     local tier tier_desc recommended_model
     if [[ "$memory_type" == "unified" && "$gpu_type" == "amd" ]]; then
         tier=$(get_strix_halo_tier "$ram")
     elif [[ "$gpu_type" == "apple" ]]; then
         local unified_gb=$((gpu_vram_mb / 1024))
-        tier=$(get_apple_tier $unified_gb)
+        tier=$(get_apple_tier "$unified_gb")
     else
-        tier=$(get_tier $gpu_vram_mb)
+        tier=$(get_tier "$gpu_vram_mb")
     fi
-    tier_desc=$(tier_description $tier)
-    recommended_model=$(tier_model $tier)
+    tier_desc=$(tier_description "$tier")
+    recommended_model=$(tier_model "$tier")
+
     local gpu_vram_gb=$((gpu_vram_mb / 1024))
 
     if $json_output; then
+        # Emit JSON with escaping to avoid breaking downstream parsers.
+        local esc_cpu esc_gpu esc_os
+        esc_os=$(json_escape "$os")
+        esc_cpu=$(json_escape "$cpu")
+        esc_gpu=$(json_escape "$gpu_name")
         cat <<EOF
 {
-  "os": "$os",
-  "cpu": "$cpu",
+  "os": "$esc_os",
+  "platform": "$(json_escape "$platform")",
+  "cpu": "$esc_cpu",
   "cores": $cores,
   "ram_gb": $ram,
   "gpu": {
-    "type": "$gpu_type",
-    "name": "$gpu_name",
-    "architecture": "$gpu_architecture",
-    "memory_type": "$memory_type",
+    "type": "$(json_escape "$gpu_type")",
+    "name": "$esc_gpu",
+    "architecture": "$(json_escape "$gpu_architecture")",
+    "memory_type": "$(json_escape "$memory_type")",
     "vram_mb": $gpu_vram_mb,
     "vram_gb": $gpu_vram_gb,
-    "device_id": "$device_id",
-    "subsystem_device": "$subsystem_device",
-    "revision": "$revision",
+    "device_id": "$(json_escape "$device_id")",
+    "subsystem_device": "$(json_escape "$subsystem_device")",
+    "revision": "$(json_escape "$revision")",
     "utilization": $gpu_busy,
     "temperature_c": $gpu_temp,
     "power_w": $gpu_power,
@@ -389,9 +532,9 @@ main() {
     "rocm": $rocm_available,
     "driver_loaded": $driver_loaded
   },
-  "tier": "$tier",
-  "tier_description": "$tier_desc",
-  "recommended_model": "$recommended_model"
+  "tier": "$(json_escape "$tier")",
+  "tier_description": "$(json_escape "$tier_desc")",
+  "recommended_model": "$(json_escape "$recommended_model")"
 }
 EOF
     else
@@ -401,6 +544,7 @@ EOF
         echo ""
         echo -e "${GREEN}System:${NC}"
         echo "  OS:       $os"
+        echo "  Platform: $platform"
         echo "  CPU:      $cpu"
         echo "  Cores:    $cores"
         echo "  RAM:      ${ram}GB"
@@ -414,6 +558,13 @@ EOF
             else
                 echo "  VRAM:     ${gpu_vram_gb}GB"
             fi
+
+            if $verbose; then
+                [[ -n "$device_id" ]] && echo "  Device:   $device_id"
+                [[ -n "$subsystem_device" && "$subsystem_device" != "unknown" ]] && echo "  Subsys:   $subsystem_device"
+                [[ -n "$revision" && "$revision" != "unknown" ]] && echo "  Rev:      $revision"
+            fi
+
             if [[ "$gpu_type" == "amd" ]]; then
                 echo "  Arch:     $gpu_architecture"
                 [[ $gpu_temp -gt 0 ]] && echo "  Temp:     ${gpu_temp}C"
@@ -425,6 +576,11 @@ EOF
             fi
         else
             echo "  No GPU detected (CPU-only mode)"
+            if [[ "$platform" == "container" ]]; then
+                echo "  Hint: running inside a container; GPU device nodes may not be exposed."
+            elif [[ "$platform" == "wsl2" ]]; then
+                echo "  Hint: on WSL2, GPU detection depends on the host + Docker Desktop GPU integration."
+            fi
         fi
         echo ""
         echo -e "${YELLOW}Recommended Tier: ${tier}${NC}"
@@ -434,4 +590,6 @@ EOF
     fi
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

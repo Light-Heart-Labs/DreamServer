@@ -1,5 +1,8 @@
 schema_version: dream.services.v1
 
+compatibility:
+  dream_min: "2.0.0"
+
 service:
   id: llama-server
   name: llama-server (LLM Inference)

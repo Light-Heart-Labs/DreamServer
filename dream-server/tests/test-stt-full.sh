@@ -4,6 +4,11 @@
 
 WHISPER_URL="http://localhost:9000"
 
+# Portable millisecond timestamp (macOS BSD date lacks %N)
+_now_ms() {
+    python3 -c 'import time; print(int(time.time() * 1000))' 2>/dev/null || echo "$(date +%s)000"
+}
+
 echo "=== M8 Test: STT Full (Whisper Inference) ==="
 
 # Create a small test audio file (silence + tone)
@@ -22,13 +27,13 @@ TEST_AUDIO="/tmp/test_audio.wav"
 ffmpeg -f lavfi -i anullsrc=r=16000:cl=mono -t 1 -acodec pcm_s16le "$TEST_AUDIO" -y 2>/dev/null
 
 # Test STT endpoint
-START=$(date +%s%N)
+START=$(_now_ms)
 RESPONSE=$(curl -s -X POST "$WHISPER_URL/v1/audio/transcriptions" \
   -H "Content-Type: multipart/form-data" \
   -F "file=@$TEST_AUDIO" \
   -F "model=whisper-1" 2>/dev/null)
-END=$(date +%s%N)
-LATENCY=$(( (END - START) / 1000000 ))
+END=$(_now_ms)
+LATENCY=$(( END - START ))
 
 # Cleanup
 rm -f "$TEST_AUDIO"

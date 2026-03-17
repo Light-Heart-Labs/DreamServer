@@ -114,7 +114,7 @@ get_native_llama_status() {
         NATIVE_LLAMA_PID="$saved_pid"
 
         # Health check
-        if curl -sf http://localhost:8080/health >/dev/null 2>&1; then
+        if curl -sf --max-time 10 http://localhost:8080/health >/dev/null 2>&1; then
             NATIVE_LLAMA_HEALTHY=true
         fi
     else
@@ -166,7 +166,7 @@ start_native_llama() {
     while [[ "$waited" -lt "$max_wait" ]]; do
         sleep 2
         waited=$((waited + 2))
-        if curl -sf http://localhost:8080/health >/dev/null 2>&1; then
+        if curl -sf --max-time 10 http://localhost:8080/health >/dev/null 2>&1; then
             ai_ok "Native llama-server healthy"
             return
         fi
@@ -240,7 +240,7 @@ cmd_status() {
         local name="${ep_names[$i]}"
         local url="${ep_urls[$i]}"
         local code
-        code=$(curl -s -o /dev/null -w "%{http_code}" "$url" 2>/dev/null || echo "000")
+        code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$url" 2>/dev/null || echo "000")
         if [[ "$code" -ge 200 ]] && [[ "$code" -lt 400 ]]; then
             ai_ok "${name}: healthy"
         elif [[ "$code" == "401" ]] || [[ "$code" == "403" ]]; then

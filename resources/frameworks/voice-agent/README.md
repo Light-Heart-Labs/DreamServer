@@ -3,6 +3,7 @@
 **Origin:** [GLO (Grace Local Ocean)](https://github.com/Light-Heart-Labs/GLO) — Multi-Voice Agent Framework for Local Systems
 
 **Status:** Production (Silver Build, Feb 2026)
+n**Requirements:** Python >= 3.9, LiveKit account (cloud or self-hosted)
 
 A complete multi-agent voice system built on LiveKit, designed for commercial HVAC customer service but easily adaptable to any domain. Uses DreamServer's own services (Whisper STT, Kokoro TTS, local LLM) as the AI backbone.
 
