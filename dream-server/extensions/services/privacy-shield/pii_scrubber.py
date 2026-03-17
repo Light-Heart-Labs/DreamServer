@@ -30,7 +30,7 @@ class PIIDetector:
     PATTERNS = {
         'email': re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'),
         'phone': re.compile(r'\b(?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}\b'),
-        'ssn': re.compile(r'\b\d{3}[-.\s]?\d{2}[-.\s]?\d{4}\b'),
+        'ssn': re.compile(r'\b(?!(?:19|20)\d{2}[-.\s]?\d{2}[-.\s]?\d{4}\b)\d{3}[-.\s]?\d{2}[-.\s]?\d{4}\b'),
         'ip_address': re.compile(
             r'\b(?:\d{1,3}\.){3}\d{1,3}\b'  # IPv4
             r'|'
@@ -45,6 +45,21 @@ class PIIDetector:
         'api_key': re.compile(r'\b(?:api[_-]?key|apikey|token)[\s]*[=:]\s*["\']?[a-zA-Z0-9_\-]{16,}["\']?\b', re.IGNORECASE),
         'credit_card': re.compile(r'\b(?:\d{4}[-\s]?){3}\d{4}\b'),
     }
+
+    @staticmethod
+    def _luhn_check(number_str: str) -> bool:
+        """Validate a credit card number using the Luhn algorithm."""
+        digits = [int(d) for d in number_str if d.isdigit()]
+        if len(digits) != 16:
+            return False
+        checksum = 0
+        for i, d in enumerate(reversed(digits)):
+            if i % 2 == 1:
+                d *= 2
+                if d > 9:
+                    d -= 9
+            checksum += d
+        return checksum % 10 == 0
 
     def _generate_token(self, pii_type: str, original: str) -> str:
         """Generate a unique token for PII."""
@@ -66,6 +81,10 @@ class PIIDetector:
             for match in matches:
                 if isinstance(match, tuple):
                     match = match[0]  # Handle groups
+
+                # Credit card: validate with Luhn to reduce false positives
+                if pii_type == 'credit_card' and not self._luhn_check(match):
+                    continue
 
                 # Check if we've seen this PII before
                 existing_token = None

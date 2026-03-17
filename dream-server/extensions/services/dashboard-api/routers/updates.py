@@ -41,7 +41,7 @@ async def get_version():
                 current_parts += [0] * (3 - len(current_parts))
                 latest_parts += [0] * (3 - len(latest_parts))
                 result["update_available"] = latest_parts > current_parts
-    except Exception:
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError, json.JSONDecodeError, ValueError):
         pass
 
     return result
@@ -64,7 +64,7 @@ async def get_release_manifest():
                 ],
                 "checked_at": datetime.now(timezone.utc).isoformat() + "Z"
             }
-    except Exception:
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError, json.JSONDecodeError):
         version_file = Path(INSTALL_DIR) / ".version"
         current = version_file.read_text().strip() if version_file.exists() else "0.0.0"
         return {
@@ -95,7 +95,7 @@ async def trigger_update(action: UpdateAction, background_tasks: BackgroundTasks
             return {"success": True, "update_available": result.returncode == 2, "output": result.stdout + result.stderr}
         except subprocess.TimeoutExpired:
             raise HTTPException(status_code=504, detail="Update check timed out")
-        except Exception:
+        except (subprocess.SubprocessError, OSError):
             logger.exception("Update check failed")
             raise HTTPException(status_code=500, detail="Check failed")
     elif action.action == "backup":
@@ -104,7 +104,7 @@ async def trigger_update(action: UpdateAction, background_tasks: BackgroundTasks
             return {"success": result.returncode == 0, "output": result.stdout + result.stderr}
         except subprocess.TimeoutExpired:
             raise HTTPException(status_code=504, detail="Backup timed out")
-        except Exception:
+        except (subprocess.SubprocessError, OSError):
             logger.exception("Backup failed")
             raise HTTPException(status_code=500, detail="Backup failed")
     elif action.action == "update":

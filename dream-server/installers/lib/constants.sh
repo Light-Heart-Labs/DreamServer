@@ -8,7 +8,7 @@
 # Expects: (nothing — first file sourced)
 # Provides: VERSION, SCRIPT_DIR, INSTALL_DIR, LOG_FILE, color codes,
 #           SYSTEM_TZ, CAPABILITY_PROFILE_FILE, PREFLIGHT_REPORT_FILE,
-#           INSTALL_START_EPOCH
+#           INSTALL_START_EPOCH, _sed_i()
 #
 # Modder notes:
 #   Change VERSION for custom builds. Add new color codes here.
@@ -16,7 +16,16 @@
 
 VERSION="2.0.0-strix-halo"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-INSTALL_DIR="${INSTALL_DIR:-$HOME/dream-server}"
+
+# Source path utilities for cross-platform path resolution
+if [[ -f "$SCRIPT_DIR/installers/lib/path-utils.sh" ]]; then
+    . "$SCRIPT_DIR/installers/lib/path-utils.sh"
+    INSTALL_DIR="$(resolve_install_dir)"
+else
+    # Fallback if path-utils.sh not available
+    INSTALL_DIR="${INSTALL_DIR:-$HOME/dream-server}"
+fi
+
 LOG_FILE="${LOG_FILE:-/tmp/dream-server-install.log}"
 CAPABILITY_PROFILE_FILE="${CAPABILITY_PROFILE_FILE:-/tmp/dream-server-capabilities.json}"
 PREFLIGHT_REPORT_FILE="${PREFLIGHT_REPORT_FILE:-/tmp/dream-server-preflight-report.json}"
@@ -42,3 +51,17 @@ AMB='\033[0;33m'         # Amber — warnings, ETA labels
 WHT='\033[1;37m'         # White — key URLs
 NC='\033[0m'             # Reset
 CURSOR='█'               # Block cursor for typing
+
+#=============================================================================
+# Cross-platform helpers
+#=============================================================================
+
+# BSD sed (macOS) requires `sed -i ''` while GNU sed uses `sed -i`.
+# Usage: _sed_i "s/old/new/g" file
+_sed_i() {
+    if sed --version 2>/dev/null | grep -q GNU; then
+        sed -i "$@"
+    else
+        sed -i '' "$@"
+    fi
+}

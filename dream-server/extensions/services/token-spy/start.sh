@@ -62,7 +62,14 @@ echo "  Anthropic → ${ANTHROPIC_UPSTREAM}"
 echo "  OpenAI    → ${OPENAI_UPSTREAM:-<not set>}"
 echo "  Local     → ${LOCAL_MODEL_AGENTS:-<none>}"
 
-AGENT_NAME="${AGENT_NAME}" python3 -m uvicorn main:app --host 0.0.0.0 --port "${PORT}" --log-level warning
+PYTHON_CMD="python3"
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(0)' >/dev/null 2>&1; then
+    PYTHON_CMD="python3"
+elif command -v python >/dev/null 2>&1 && python -c 'import sys; sys.exit(0)' >/dev/null 2>&1; then
+    PYTHON_CMD="python"
+fi
+
+AGENT_NAME="${AGENT_NAME}" "$PYTHON_CMD" -m uvicorn main:app --host 0.0.0.0 --port "${PORT}" --log-level warning
 
 # ── Multi-Agent Example ──────────────────────────────────────────────────────
 # Uncomment and customize for multiple agents:

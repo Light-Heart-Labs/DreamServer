@@ -2,7 +2,7 @@
 # Dream Server Interactive Showcase
 # Demonstrates all capabilities in an interactive menu
 
-set -e
+set -euo pipefail
 
 # Colors
 RED='\033[0;31m'

@@ -6,6 +6,7 @@ import logging
 import os
 import platform
 import shutil
+import subprocess
 import time
 from pathlib import Path
 from typing import Optional
@@ -109,7 +110,7 @@ async def get_llama_metrics(model_hint: Optional[str] = None) -> dict:
 
         lifetime = _update_lifetime_tokens(curr)
         return {"tokens_per_second": _prev_tokens["tps"], "lifetime_tokens": lifetime}
-    except Exception as e:
+    except (httpx.HTTPError, httpx.TimeoutException, OSError) as e:
         logger.warning(f"get_llama_metrics failed: {e}")
         return {"tokens_per_second": 0, "lifetime_tokens": _get_lifetime_tokens()}
 
@@ -128,7 +129,7 @@ async def get_loaded_model() -> Optional[str]:
                 return m.get("id")
         if models:
             return models[0].get("id")
-    except Exception as e:
+    except (httpx.HTTPError, httpx.TimeoutException) as e:
         logger.debug("get_loaded_model failed: %s", e)
     return None
 
@@ -150,7 +151,7 @@ async def get_llama_context_size(model_hint: Optional[str] = None) -> Optional[i
             resp = await client.get(url)
         n_ctx = resp.json().get("default_generation_settings", {}).get("n_ctx")
         return int(n_ctx) if n_ctx else None
-    except Exception as e:
+    except (httpx.HTTPError, httpx.TimeoutException, ValueError) as e:
         logger.debug("get_llama_context_size failed: %s", e)
         return None
 
@@ -172,7 +173,7 @@ async def check_service_health(service_id: str, config: dict) -> ServiceStatus:
         start = asyncio.get_event_loop().time()
         async with session.get(url) as resp:
             response_time = (asyncio.get_event_loop().time() - start) * 1000
-            status = "healthy" if resp.status < 500 else "unhealthy"
+            status = "healthy" if resp.status < 400 else "unhealthy"
     except asyncio.TimeoutError:
         # Service is reachable but slow — report degraded rather than down
         # to avoid false "offline" flashes during startup or heavy load.
@@ -182,7 +183,7 @@ async def check_service_health(service_id: str, config: dict) -> ServiceStatus:
             status = "not_deployed"
         else:
             status = "down"
-    except Exception as e:
+    except (aiohttp.ClientError, OSError) as e:
         logger.debug(f"Health check failed for {service_id} at {url}: {e}")
         status = "down"
 
@@ -205,10 +206,10 @@ async def _check_host_service_health(service_id: str, config: dict) -> ServiceSt
         start = asyncio.get_event_loop().time()
         async with session.get(url) as resp:
             response_time = (asyncio.get_event_loop().time() - start) * 1000
-            status = "healthy" if resp.status < 500 else "unhealthy"
+            status = "healthy" if resp.status < 400 else "unhealthy"
     except aiohttp.ClientConnectorError:
         status = "down"
-    except Exception as e:
+    except (aiohttp.ClientError, OSError) as e:
         logger.debug(f"Host health check failed for {service_id} at {url}: {e}")
         status = "down"
     return ServiceStatus(
@@ -350,7 +351,7 @@ def get_uptime() -> int:
         elif _system == "Windows":
             import ctypes
             return ctypes.windll.kernel32.GetTickCount64() // 1000
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, ValueError, AttributeError) as e:
         logger.debug("get_uptime failed on %s: %s", _system, e)
     return 0
 
@@ -411,7 +412,7 @@ def _get_cpu_metrics_darwin() -> dict:
             match = re.search(r"CPU usage:\s+([\d.]+)%\s+user.*?([\d.]+)%\s+sys", out.stdout)
             if match:
                 result["percent"] = round(float(match.group(1)) + float(match.group(2)), 1)
-    except Exception as e:
+    except (subprocess.SubprocessError, OSError, ValueError) as e:
         logger.debug("macOS CPU metrics failed: %s", e)
     return result
 
@@ -494,7 +495,7 @@ def _get_ram_metrics_sysctl() -> dict:
                 result["used_gb"] = round(used_bytes / (1024 ** 3), 1)
                 if total_bytes > 0:
                     result["percent"] = round(used_bytes / total_bytes * 100, 1)
-    except Exception as e:
+    except (subprocess.SubprocessError, OSError, ValueError) as e:
         logger.debug("macOS RAM metrics failed: %s", e)
     return result
 

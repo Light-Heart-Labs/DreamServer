@@ -7,7 +7,6 @@ FastAPI-based proxy with connection pooling and PII caching.
 import os
 import time
 import httpx
-import logging
 import secrets
 import hashlib
 from fastapi import FastAPI, Request, Response, Depends, HTTPException, Security
@@ -18,13 +17,11 @@ import uvicorn
 from cachetools import TTLCache
 
 from pii_scrubber import PrivacyShield
+from key_management import resolve_shield_api_key
 
 # Security: API Key Authentication
-SHIELD_API_KEY = os.environ.get("SHIELD_API_KEY")
-if not SHIELD_API_KEY:
-    SHIELD_API_KEY = secrets.token_urlsafe(32)
-    logging.warning("SHIELD_API_KEY not set. Generated temporary key (not logging for security). "
-                   "Set SHIELD_API_KEY in .env for production.")
+DEFAULT_KEY_PATH = os.environ.get("SHIELD_API_KEY_PATH", "/data/shield_api_key")
+SHIELD_API_KEY = resolve_shield_api_key(os.environ.get("SHIELD_API_KEY"), DEFAULT_KEY_PATH)
 
 security_scheme = HTTPBearer()
 

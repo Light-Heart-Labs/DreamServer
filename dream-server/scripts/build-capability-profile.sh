@@ -35,15 +35,24 @@ fi
 [[ -f "$ROOT_DIR/lib/safe-env.sh" ]] && . "$ROOT_DIR/lib/safe-env.sh"
 
 HARDWARE_JSON="$("${SCRIPT_DIR}/detect-hardware.sh" --json)"
+
+PYTHON_CMD="python3"
+if [[ -f "$ROOT_DIR/lib/python-cmd.sh" ]]; then
+    . "$ROOT_DIR/lib/python-cmd.sh"
+    PYTHON_CMD="$(ds_detect_python_cmd)"
+elif command -v python >/dev/null 2>&1; then
+    PYTHON_CMD="python"
+fi
+
 CLASS_ENV="$("${SCRIPT_DIR}/classify-hardware.sh" \
-    --platform-id "$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('os','unknown'))" "$HARDWARE_JSON")" \
-    --gpu-vendor "$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('gpu',{}).get('type','unknown'))" "$HARDWARE_JSON")" \
-    --memory-type "$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('gpu',{}).get('memory_type','unknown'))" "$HARDWARE_JSON")" \
-    --vram-mb "$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('gpu',{}).get('vram_mb',0))" "$HARDWARE_JSON")" \
-    --device-id "$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('gpu',{}).get('device_id',''))" "$HARDWARE_JSON")" \
-    --gpu-name "$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('gpu',{}).get('name',''))" "$HARDWARE_JSON")" \
-    --cpu-name "$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('cpu',''))" "$HARDWARE_JSON")" \
-    --ram-mb "$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('ram_gb',0) * 1024)" "$HARDWARE_JSON")" \
+    --platform-id "$("$PYTHON_CMD" -c "import json,sys; print(json.loads(sys.argv[1]).get('os','unknown'))" "$HARDWARE_JSON")" \
+    --gpu-vendor "$("$PYTHON_CMD" -c "import json,sys; print(json.loads(sys.argv[1]).get('gpu',{}).get('type','unknown'))" "$HARDWARE_JSON")" \
+    --memory-type "$("$PYTHON_CMD" -c "import json,sys; print(json.loads(sys.argv[1]).get('gpu',{}).get('memory_type','unknown'))" "$HARDWARE_JSON")" \
+    --vram-mb "$("$PYTHON_CMD" -c "import json,sys; print(json.loads(sys.argv[1]).get('gpu',{}).get('vram_mb',0))" "$HARDWARE_JSON")" \
+    --device-id "$("$PYTHON_CMD" -c "import json,sys; print(json.loads(sys.argv[1]).get('gpu',{}).get('device_id',''))" "$HARDWARE_JSON")" \
+    --gpu-name "$("$PYTHON_CMD" -c "import json,sys; print(json.loads(sys.argv[1]).get('gpu',{}).get('name',''))" "$HARDWARE_JSON")" \
+    --cpu-name "$("$PYTHON_CMD" -c "import json,sys; print(json.loads(sys.argv[1]).get('cpu',''))" "$HARDWARE_JSON")" \
+    --ram-mb "$("$PYTHON_CMD" -c "import json,sys; print(json.loads(sys.argv[1]).get('ram_gb',0) * 1024)" "$HARDWARE_JSON")" \
     --env)"
 load_env_from_output <<< "$CLASS_ENV"
 
@@ -56,7 +65,7 @@ fi
 _LLM_PORT="${SERVICE_PORTS[llama-server]:-8080}"
 _LLM_HEALTH="${SERVICE_HEALTH[llama-server]:-/health}"
 
-python3 - "$HARDWARE_JSON" "$OUTPUT_FILE" "$ENV_MODE" "${HW_CLASS_ID:-unknown}" "${HW_CLASS_LABEL:-Unknown}" "${HW_REC_BACKEND:-cpu}" "${HW_REC_TIER:-T1}" "${HW_REC_COMPOSE_OVERLAYS:-}" "$_LLM_PORT" "$_LLM_HEALTH" <<'PY'
+"$PYTHON_CMD" - "$HARDWARE_JSON" "$OUTPUT_FILE" "$ENV_MODE" "${HW_CLASS_ID:-unknown}" "${HW_CLASS_LABEL:-Unknown}" "${HW_REC_BACKEND:-cpu}" "${HW_REC_TIER:-T1}" "${HW_REC_COMPOSE_OVERLAYS:-}" "$_LLM_PORT" "$_LLM_HEALTH" <<'PY'
 import json
 import pathlib
 import sys

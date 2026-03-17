@@ -94,6 +94,11 @@ log() {
     [[ "$VERBOSE" == "true" ]] && echo "$@" >&2
 }
 
+# Portable millisecond timestamp (macOS BSD date lacks %N)
+_now_ms() {
+    python3 -c 'import time; print(int(time.time() * 1000))' 2>/dev/null || echo "$(date +%s)000"
+}
+
 print_header() {
     if [[ "$JSON_OUTPUT" != "true" ]]; then
         echo ""
@@ -156,8 +161,8 @@ test_http() {
     local response_code
     local start_time end_time duration_ms
     
-    start_time=$(date +%s%N)
-    
+    start_time=$(_now_ms)
+
     if [[ -n "$payload" && "$method" == "POST" ]]; then
         response_code=$(curl -s -o /dev/null -w "%{http_code}" \
             --max-time "$custom_timeout" \
@@ -170,9 +175,9 @@ test_http() {
             "$url" 2>/dev/null || echo "000")
     fi
     
-    end_time=$(date +%s%N)
-    duration_ms=$(( (end_time - start_time) / 1000000 ))
-    
+    end_time=$(_now_ms)
+    duration_ms=$(( end_time - start_time ))
+
     if [[ "$response_code" == "$expected" ]]; then
         record_result "$name" "pass" "${duration_ms}ms"
         print_test "$name" "pass" "${duration_ms}ms"
@@ -437,8 +442,8 @@ test_voice_roundtrip() {
     fi
     
     local start_time end_time duration_ms
-    start_time=$(date +%s%N)
-    
+    start_time=$(_now_ms)
+
     local llm_payload='{"model": "Qwen/Qwen2.5-32B-Instruct-AWQ", "messages": [{"role": "user", "content": "What is the weather today?"}], "max_tokens": 50}'
     local llm_response
     llm_response=$(curl -s --max-time 15 \
@@ -460,9 +465,9 @@ test_voice_roundtrip() {
         -H "Content-Type: application/json" \
         -d "$tts_payload" 2>/dev/null)
     
-    end_time=$(date +%s%N)
-    duration_ms=$(( (end_time - start_time) / 1000000 ))
-    
+    end_time=$(_now_ms)
+    duration_ms=$(( end_time - start_time ))
+
     if [[ -n "$tts_response" ]] && [[ ${#tts_response} -gt 100 ]]; then
         record_result "Voice Round-Trip" "pass" "${duration_ms}ms"
         print_test "Voice Round-Trip" "pass" "${duration_ms}ms"

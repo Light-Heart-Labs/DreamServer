@@ -22,9 +22,9 @@
 
 **Required:**
 - Windows 10 (version 2004 or newer) OR Windows 11
-- NVIDIA graphics card (GPU) with 8GB+ memory
-- 16GB+ system RAM (32GB recommended)
-- 50GB free disk space
+- NVIDIA graphics card (GPU) recommended (CPU-only works with smaller models)
+- 4GB+ system RAM (16GB+ recommended, 32GB ideal)
+- 15GB+ free disk space (50GB recommended)
 - Internet connection
 
 **Not Required (Common Confusion):**

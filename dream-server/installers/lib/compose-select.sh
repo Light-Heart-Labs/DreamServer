@@ -56,6 +56,11 @@ resolve_compose_config() {
                 COMPOSE_FLAGS="-f docker-compose.base.yml -f docker-compose.amd.yml"
                 COMPOSE_FILE="docker-compose.amd.yml"
             fi
+        elif [[ "$TIER" == "ARC" || "$TIER" == "ARC_LITE" || "$GPU_BACKEND" == "intel" || "$GPU_BACKEND" == "sycl" ]]; then
+            if [[ -f "$SCRIPT_DIR/docker-compose.base.yml" && -f "$SCRIPT_DIR/docker-compose.intel.yml" ]]; then
+                COMPOSE_FLAGS="-f docker-compose.base.yml -f docker-compose.intel.yml"
+                COMPOSE_FILE="docker-compose.intel.yml"
+            fi
         else
             if [[ -f "$SCRIPT_DIR/docker-compose.base.yml" && -f "$SCRIPT_DIR/docker-compose.nvidia.yml" ]]; then
                 COMPOSE_FLAGS="-f docker-compose.base.yml -f docker-compose.nvidia.yml"
@@ -78,6 +83,12 @@ resolve_compose_config() {
             --profile-overlays "${CAP_COMPOSE_OVERLAYS:-}" \
             --env 2>>"$LOG_FILE")"
         load_env_from_output <<< "$COMPOSE_ENV"
+    fi
+
+    # Layer Tier 0 memory overlay for low-RAM machines
+    if [[ "$TIER" == "0" && -f "$SCRIPT_DIR/docker-compose.tier0.yml" ]]; then
+        COMPOSE_FLAGS="$COMPOSE_FLAGS -f docker-compose.tier0.yml"
+        log "Including docker-compose.tier0.yml (Tier 0 memory limits)"
     fi
 
     # Auto-include docker-compose.override.yml if present (standard Docker convention).

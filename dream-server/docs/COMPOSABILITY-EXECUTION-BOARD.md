@@ -92,7 +92,7 @@ Status: `DONE`
 Owner: Infra  
 Effort: 2-4 days  
 Files:
-- [`docker-compose.strix-halo.yml`](../docker-compose.strix-halo.yml)
+- `docker-compose.strix-halo.yml` (historical; removed/renamed)
 - `docker-compose.base.yml` (new)
 - `docker-compose.nvidia.yml` (new)
 - `docker-compose.amd.yml` (new)
@@ -134,7 +134,7 @@ Effort: 3-5 days
 Files:
 - `extensions/schema/service-manifest.v1.json` (new)
 - `extensions/services/*.yaml` (new examples)
-- [`dashboard-api/main.py`](../dashboard-api/main.py)
+- [`dashboard-api/main.py`](../extensions/services/dashboard-api/main.py)
 Acceptance:
 - API can load service definitions from manifests.
 - Health checks and feature cards reference manifest data, not hardcoded lists.
@@ -171,8 +171,8 @@ Status: `DONE`
 Owner: Frontend  
 Effort: 3-4 days  
 Files:
-- [`dashboard/src/App.jsx`](../dashboard/src/App.jsx)
-- [`dashboard/src/components/Sidebar.jsx`](../dashboard/src/components/Sidebar.jsx)
+- [`dashboard/src/App.jsx`](../extensions/services/dashboard/src/App.jsx)
+- [`dashboard/src/components/Sidebar.jsx`](../extensions/services/dashboard/src/components/Sidebar.jsx)
 - `dashboard/src/plugins/registry.js` (new)
 - `dashboard/src/plugins/core.js` (new)
 Acceptance:
@@ -188,8 +188,8 @@ Status: `DONE`
 Owner: Frontend + API  
 Effort: 2-3 days  
 Files:
-- [`dashboard/src/pages/Dashboard.jsx`](../dashboard/src/pages/Dashboard.jsx)
-- [`dashboard-api/main.py`](../dashboard-api/main.py)
+- [`dashboard/src/pages/Dashboard.jsx`](../extensions/services/dashboard/src/pages/Dashboard.jsx)
+- [`dashboard-api/main.py`](../extensions/services/dashboard-api/main.py)
 Acceptance:
 - Feature tiles derive from API metadata.
 - Ports/URLs are not hardcoded in JSX.
@@ -207,7 +207,7 @@ Owner: API + Docs
 Effort: 1-2 days  
 Files:
 - `config/n8n/catalog.json` (planned; not yet created)
-- [`dashboard-api/main.py`](../dashboard-api/main.py)
+- [`dashboard-api/main.py`](../extensions/services/dashboard-api/main.py)
 - [`docs/INTEGRATION-GUIDE.md`](../docs/INTEGRATION-GUIDE.md)
 Acceptance:
 - One canonical workflow path in code/docs.
@@ -285,7 +285,7 @@ Owner: Release
 Effort: 2-3 days  
 Files:
 - `manifest.json` (new)
-- [`dashboard-api/main.py`](../dashboard-api/main.py)
+- [`dashboard-api/main.py`](../extensions/services/dashboard-api/main.py)
 - [`dream-update.sh`](../dream-update.sh)
 Acceptance:
 - Update path validates version compatibility and rollback point.
