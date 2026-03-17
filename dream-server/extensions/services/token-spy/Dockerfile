@@ -9,6 +9,11 @@ COPY . .
 
 RUN mkdir -p /app/data
 
+# Create non-root user
+RUN useradd -m -u 1000 dreamer && chown -R dreamer:dreamer /app
+
+USER dreamer
+
 EXPOSE 8080
 
 CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${UVICORN_PORT:-8080} --log-level info"]
