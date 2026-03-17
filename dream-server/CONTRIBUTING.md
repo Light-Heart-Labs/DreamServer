@@ -1,156 +1,138 @@
 # Contributing to Dream Server
 
-Thanks for building with us.
+Dream Server is how we prove that AI doesn't need to be rented from a corporation. Every PR that lands here puts sovereign AI into someone's hands who didn't have it yesterday. That's the mission. If you're here, you're part of it.
 
-## Fast Path
+## Getting Started
 
-If you want to add or extend services, start here:
-- [docs/EXTENSIONS.md](docs/EXTENSIONS.md) — extending services (Docker containers, dashboards)
-- [docs/INSTALLER-ARCHITECTURE.md](docs/INSTALLER-ARCHITECTURE.md) — modding the installer itself
+Fork, branch, build, PR. That's it.
 
-That guide includes a practical "add a service in 30 minutes" path with templates and checks.
+```bash
+git checkout -b my-change
+```
 
-## Reporting Issues
+No CLA. No committee. No waiting for permission. If it makes Dream Server better, send it.
 
-Open an issue with:
-- hardware details (GPU, RAM, OS)
-- expected behavior
-- actual behavior
-- relevant logs (`docker compose logs`)
+If you're adding or extending services, read these first:
+- [docs/EXTENSIONS.md](docs/EXTENSIONS.md) — how to add a new service in 30 minutes
+- [docs/INSTALLER-ARCHITECTURE.md](docs/INSTALLER-ARCHITECTURE.md) — how the installer works under the hood
 
-## Pull Requests
+## What We Care About Right Now
 
-1. Fork and create a branch (`git checkout -b feature/my-change`)
-2. Keep PR scope focused (one milestone-sized change)
-3. Run validation locally
-4. Submit PR with clear description, impact, and test evidence
+We have a lot of contributors and limited review bandwidth. These are the areas where your work will have the most impact — and where PRs get merged fastest.
 
-## Contributor Validation Checklist
+### 1. Runs on anything
 
-The fastest way to validate everything:
+A student with a $200 laptop and no GPU should be able to run Dream Server. So should someone with a 96GB Strix Halo laptop. We're not building for the lucky few with 4090s — we're building for everyone.
+
+Where to help:
+- **New hardware tiers** — we have Tier 0 (4GB, no GPU) through Tier 4 (48GB+ VRAM) plus Strix Halo and Intel Arc. If your hardware isn't supported, make it supported.
+- **CPU-only inference** — llama.cpp does the heavy lifting, but the installer, memory limits, and model selection all need to work without a GPU.
+- **Low-RAM environments** — compose overlays that reduce memory reservations so services fit on constrained machines. See `docker-compose.tier0.yml` for how we did it.
+- **ARM, Chromebooks, older GPUs** — if it runs Docker and has 4GB of RAM, we want to support it.
+
+### 2. Clean installs
+
+If someone runs the installer and it doesn't work first try, we failed. Not them — us. Every install failure is a person who might not come back.
+
+Where to help:
+- **Idempotent re-runs** — running the installer twice shouldn't break anything. Secrets, configs, and data should survive.
+- **Error messages that actually help** — "what went wrong" and "what to do about it." No stack traces. No silent failures.
+- **Preflight checks** — catch bad Docker versions, insufficient disk, port conflicts *before* the install starts.
+- **The weird edge cases** — WSL2 memory limits, macOS Homebrew paths, Windows Defender, Secure Boot blocking NVIDIA. These are what actually break installs in the real world.
+- **Offline installs** — pre-downloaded models, air-gapped environments, corporate firewalls. Real people deal with this.
+
+### 3. Extensions and integrations
+
+A bare LLM running in a terminal is cool for about ten minutes. Dream Server becomes something people rely on when it plugs into everything else they already use. This is where the ecosystem gets built.
+
+Where to help:
+- **New services** — wrap any Docker-based tool as a Dream Server extension. Manifest, compose file, health check — that's it. Look at `extensions/services/` for examples.
+- **API bridges** — connect Dream Server to Slack, Discord, email, calendars, CRMs. n8n workflows are the fastest path.
+- **Workflow templates** — pre-built n8n workflows that solve actual problems people have.
+- **Manifest quality** — health checks, dependency declarations, port contracts, GPU compatibility. Run `dream audit` to validate yours.
+- **Reliability between services** — correct startup ordering, graceful handling of dependencies being temporarily down. The `compose.local.yaml` pattern handles this.
+
+### 4. Tests that catch real bugs
+
+We want tests for code that exists. Not tests for features we haven't built. Not test suites that skip() everything and report "all passed."
+
+Where to help:
+- **Installer integration tests** — actually run installer phases in a container and verify the output.
+- **Tier map validation** — every tier resolves to the right model, GGUF, URL, and context. See `tests/test-tier-map.sh`.
+- **Health checks that verify real behavior** — not just "is a port open" but "does the service actually respond correctly."
+- **Extension contract tests** — manifests parse, compose files are valid, ports don't conflict.
+- **Platform smoke tests** — scripts parse and core functions work on Linux, macOS, Windows, and WSL2.
+
+### 5. Installer portability
+
+macOS, Linux (Ubuntu, Debian, Arch, Fedora, NixOS), Windows (PowerShell + WSL2). Every platform bug you fix unblocks hundreds of people you'll never meet.
+
+Where to help:
+- **POSIX compliance** — BSD sed is not GNU sed. BSD date is not GNU date. If it runs on macOS, don't use GNU-only flags. Use `_sed_i` and `_now_ms`.
+- **Package managers** — apt, dnf, pacman, brew, xbps. If your distro isn't supported, add it.
+- **Bash compatibility** — macOS ships Bash 3.2. No associative arrays unless you guard for Bash 4+.
+- **Path handling** — Windows vs Unix, spaces, symlinks, external drives. Use `path-utils.sh`.
+- **Docker flavors** — Docker Desktop, Docker Engine, Podman, Colima. Different sockets, different compose plugins, different permission models.
+
+## Before You Submit
+
+Run validation locally:
+
 ```bash
 make gate    # lint + test + smoke + simulate
 ```
 
-Or run individual steps:
+Or individual steps:
+
 ```bash
-make lint    # Shell syntax + Python compile checks
-make test    # Tier map unit tests + installer contracts
-make smoke   # Platform smoke tests
+make lint    # shell syntax + Python compile
+make test    # tier map + installer contracts
+make smoke   # platform smoke tests
 ```
 
-Full manual checklist:
+If you touched the dashboard:
 ```bash
-# Shell/API checks
-bash -n install.sh install-core.sh installers/lib/*.sh installers/phases/*.sh scripts/*.sh tests/*.sh 2>/dev/null || true
-python3 -m py_compile dashboard-api/main.py dashboard-api/agent_monitor.py
-
-# Unit tests
-bash tests/test-tier-map.sh
-
-# Integration/smoke checks
-bash tests/integration-test.sh
-bash tests/smoke/linux-amd.sh
-bash tests/smoke/linux-nvidia.sh
-bash tests/smoke/wsl-logic.sh
-bash tests/smoke/macos-dispatch.sh
+cd dashboard && npm install && npm run lint && npm run build
 ```
 
-If your change touches dashboard frontend and Node is available:
-```bash
-cd dashboard
-npm install
-npm run lint
-npm run build
-```
+## What Gets Merged Fast
 
-## Current Priorities
+- Bug fixes with clear reproduction
+- Tests for existing untested code
+- Focused PRs that do one thing well
+- New platform or hardware support
+- Security fixes with a clear explanation
 
-These are the things we most need help with, in order of impact:
+## What Gets Sent Back
 
-### 1. Runs on anything
+We review a lot of PRs. These patterns waste everyone's time — yours and ours:
 
-Dream Server should work on every machine a developer might have. A student with a 4GB laptop and no GPU should be able to run it. So should someone with a 90GB Strix Halo workstation.
-
-What this looks like:
-- **New hardware tiers** — we have Tier 0 (4GB, no GPU) through Tier 4 (48GB+ VRAM) plus specialty tiers for Strix Halo and Intel Arc. If there's hardware we don't support, add a tier.
-- **CPU-only inference** — llama.cpp handles this, but the installer flow, memory limits, and model selection all need to account for machines with no usable GPU.
-- **Memory-constrained environments** — Docker compose overlays that reduce service reservations for low-RAM machines (see `docker-compose.tier0.yml` for the pattern).
-- **ARM, Chromebooks, older GPUs** — anything people actually have. If it runs Docker and has 4GB of RAM, it should be on the table.
-
-### 2. Clean installs
-
-The installer should work first try. No manual fixups, no Googling error messages, no "just run it again." If someone hits a wall during install, that's a bug.
-
-What this looks like:
-- **Idempotent re-runs** — running the installer twice should not break anything. Existing secrets, configs, and data should be preserved.
-- **Clear error messages** — when something fails, tell the user exactly what went wrong and what to do about it. No stack traces, no silent failures.
-- **Preflight validation** — catch problems (wrong Docker version, insufficient disk, port conflicts) before the install starts, not halfway through.
-- **Platform-specific edge cases** — WSL2 memory limits, macOS Homebrew paths, Windows Defender interference, Secure Boot blocking NVIDIA drivers. These are the things that make real installs fail.
-- **Offline support** — pre-downloaded models, air-gapped environments, corporate firewalls. Not everyone has unrestricted internet.
-
-### 3. Extensions and integrations
-
-Dream Server is only as useful as what it connects to. A bare LLM server is a demo. An LLM server that plugs into your workflow tools, observability stack, and creative apps — that's a product.
-
-What this looks like:
-- **New service integrations** — wrap any Docker-based tool as a Dream Server extension with a manifest, compose file, and health check. See `extensions/services/` for examples.
-- **API bridges** — connect Dream Server to external services (Slack, Discord, email, calendars, CRMs). n8n workflows are the easiest path.
-- **Workflow templates** — pre-built n8n workflows that solve real problems (summarize emails, generate images from prompts, monitor RSS feeds).
-- **Manifest quality** — every extension needs a valid manifest with health checks, dependency declarations, port contracts, and GPU backend compatibility. Run `dream audit` to validate.
-- **Inter-service reliability** — services need to start in the right order, handle dependencies being temporarily down, and recover gracefully. The `compose.local.yaml` overlay pattern handles startup ordering.
-
-### 4. Test coverage for real code paths
-
-Tests should exercise code that exists and catch regressions that would break real users. We do not want tests for features that haven't been built yet.
-
-What this looks like:
-- **Installer integration tests** — run the actual installer phases in a container and verify the output. Not mocking the installer, actually running it.
-- **Tier map validation** — every tier resolves to the correct model, GGUF file, URL, and context window. `tests/test-tier-map.sh` is the pattern.
-- **Health check coverage** — every service has a health check and the health check actually verifies the service is working, not just that a port is open.
-- **Extension contract tests** — manifests are valid, compose files parse, declared ports don't conflict, dependencies exist.
-- **Platform smoke tests** — the installer doesn't crash on Linux, macOS, Windows, or WSL2. Even if we can't test full installs in CI, we can test that scripts parse and core functions return expected values.
-
-### 5. Installer portability
-
-macOS, Linux (Ubuntu, Debian, Arch, Fedora, NixOS), Windows (native PowerShell + WSL2). Every platform-specific bug fixed unblocks hundreds of users.
-
-What this looks like:
-- **POSIX compliance** — no GNU-only flags in scripts that run on macOS (BSD sed, BSD date, BSD grep all behave differently). Use the `_sed_i` helper and `_now_ms` for portable timestamps.
-- **Package manager abstraction** — apt, dnf, pacman, brew, xbps are all supported. New distros need a case in the package manager detection.
-- **Shell compatibility** — Bash 3.2 (macOS default) through Bash 5.x. No associative arrays in code that runs on macOS unless guarded by a Bash 4+ check.
-- **Path handling** — Windows paths vs Unix paths, spaces in paths, symlinks, external drives. Use the `path-utils.sh` library.
-- **Docker variations** — Docker Desktop, Docker Engine, Podman, Colima. Different socket paths, different compose plugin locations, different permission models.
-
-If you want to tackle any of these, open an issue first so we can align on approach.
-
-## What We'll Merge Fast
-
-- Bug fixes with reproduction steps
-- Tests for existing untested code paths
-- Focused, single-concern PRs that do one thing well
-- Platform support (new OS, new GPU vendor, new hardware tier)
-- Security fixes with clear explanation of the vulnerability
-
-## What Will Get Bounced Back
-
-We've learned these patterns the hard way. Save yourself a review cycle:
-
-- **Mega-PRs that bundle unrelated changes.** One PR = one concern. A bug fix + a feature + a refactor = three PRs.
-- **Code that wasn't run.** If your function is called but never defined, or your shell variable won't expand in that context, we'll catch it. Run your code locally before submitting.
-- **Breaking changes without migration.** Changing port defaults, tightening schemas, broadening volume mounts — these all need migration notes and maintainer discussion first. Open an issue before the PR.
-- **Tests for features that don't exist.** A test suite that skip()'s every check because the underlying feature isn't implemented gives false confidence. Write the tests alongside the feature.
-- **Formatting-only PRs.** We appreciate clean code, but a PR that only runs black/prettier across the codebase creates merge conflicts for everyone else and adds no functionality.
-- **Over-engineering.** If the problem is simple, the solution should be simple. Don't add configuration, abstraction layers, or feature flags for one-time operations.
+- **Bundled PRs.** One PR, one concern. A bug fix + a feature + a refactor = three PRs. Every time.
+- **Code that was never run.** If your function is referenced but never defined, or your shell variable won't expand in exec form — we'll catch it. Please catch it first.
+- **Breaking changes with no migration path.** Changing port defaults, tightening schemas, broadening volume mounts — these need an issue and a discussion *before* the PR. Existing installs matter.
+- **Tests for imaginary features.** A test suite that skip()'s every assertion because the feature doesn't exist yet is worse than no tests — it creates false confidence.
+- **Formatting-only PRs.** Running black or prettier across the whole codebase creates merge conflicts for every other contributor and ships zero functionality.
+- **Over-engineering.** If the fix is three lines, don't build a framework. We value simple code that works over clever code that impresses.
 
 ## Style
 
-- Bash: `set -euo pipefail`, quote your variables, use `shellcheck`
-- Python: match the style of the file you're editing, no reformatting unrelated code
-- YAML/JSON: stable keys, minimal noise, no tabs
-- Docs: concrete commands and compatibility notes
-- Commits: short imperative subject line, explain *why* not *what* in the body
+- Bash: `set -euo pipefail`, quote your variables, `shellcheck` your scripts
+- Python: match the file you're editing, don't reformat code you didn't change
+- YAML/JSON: stable keys, no tabs, minimal noise
+- Commits: imperative subject line, explain *why* in the body
 
-## Questions
+## Questions?
 
-Open an issue or start a [GitHub Discussion](https://github.com/Light-Heart-Labs/DreamServer/discussions). Include enough context to reproduce the problem quickly. We're happy to help you figure out the right approach before you write code — it's much faster than reviewing a PR that needs a redesign.
+Open an issue or start a [GitHub Discussion](https://github.com/Light-Heart-Labs/DreamServer/discussions). We'd rather help you get the approach right before you write code than review a PR that needs a redesign.
+
+## Reporting Bugs
+
+Open an issue with:
+- Hardware (GPU, RAM, OS)
+- What you expected
+- What actually happened
+- Logs (`docker compose logs`)
+
+## License
+
+By contributing, your work is licensed under [Apache 2.0](LICENSE) — same as the rest of the project.
