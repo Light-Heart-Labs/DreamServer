@@ -25,6 +25,8 @@ Utility scripts for diagnostics, testing, validation, and operations.
 | `release-gate.sh` | Full pre-release checklist | No |
 | `check-compatibility.sh` | Manifest compatibility checks | No |
 | `check-release-claims.sh` | Verify release claim accuracy | No |
+| `audit-extensions.py` | Audit extension manifests and compose contracts | No |
+| `extension-catalog.py` | Export extension inventory as JSON or Markdown | No |
 
 ## Operations
 

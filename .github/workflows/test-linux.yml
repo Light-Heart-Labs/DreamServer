@@ -20,6 +20,12 @@ jobs:
       - name: Integration Smoke
         run: bash tests/integration-test.sh
 
+      - name: Extension Tooling Smoke
+        run: |
+          python3 scripts/audit-extensions.py --project-dir .
+          bash tests/test-extension-audit.sh
+          python3 scripts/extension-catalog.py --project-dir . | python3 -c "import json,sys; data=json.load(sys.stdin); assert data['summary']['service_count'] > 0"
+
       - name: Phase C P1 Static Checks
         run: bash tests/test-phase-c-p1.sh
 

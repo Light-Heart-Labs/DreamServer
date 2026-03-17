@@ -431,6 +431,30 @@ cmd_audit() {
     python3 "$INSTALL_DIR/scripts/audit-extensions.py" --project-dir "$INSTALL_DIR" "${script_args[@]}"
 }
 
+cmd_catalog() {
+    check_install
+
+    local format="json"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --format)
+                format="${2:-json}"
+                shift
+                ;;
+            --help|-h)
+                python3 "$INSTALL_DIR/scripts/extension-catalog.py" --help
+                return 0
+                ;;
+            *)
+                error "Unknown catalog option: $1"
+                ;;
+        esac
+        shift
+    done
+
+    python3 "$INSTALL_DIR/scripts/extension-catalog.py" --project-dir "$INSTALL_DIR" --format "$format"
+}
+
 #=============================================================================
 # Extension Management Commands
 #=============================================================================
@@ -936,6 +960,7 @@ ${CYAN}Commands:${NC}
   benchmark           Run a quick performance test
   doctor [report]     Run diagnostics and write JSON report
   audit [service]     Audit extension manifests and feature contracts
+  catalog             Export extension inventory as JSON or Markdown
   help                Show this help
 
 ${CYAN}Preset Commands:${NC}
@@ -1000,6 +1025,7 @@ ${CYAN}Examples:${NC}
   dream chat "What is 2+2?"      # Quick LLM test
   dream config edit               # Edit .env file
   dream audit --json whisper      # Audit one extension as JSON
+  dream catalog --format markdown # Export extension inventory table
 
 ${CYAN}Environment:${NC}
   DREAM_HOME          Installation directory (default: ~/dream-server)
@@ -1031,6 +1057,7 @@ case "${1:-help}" in
     benchmark|bench|b) cmd_benchmark ;;
     doctor|diag|d) shift; cmd_doctor "$@" ;;
     audit)        shift; cmd_audit "$@" ;;
+    catalog)      shift; cmd_catalog "$@" ;;
     help|h|--help|-h) cmd_help ;;
     version|v|--version|-v) echo "dream-cli v${VERSION}" ;;
     *)           error "Unknown command: $1. Run 'dream help' for usage." ;;
