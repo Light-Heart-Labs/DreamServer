@@ -165,7 +165,8 @@ ROOT_A=$(make_fixture_root)
 ROOT_B=$(make_fixture_root)
 ROOT_C=$(make_fixture_root)
 ROOT_D=$(make_fixture_root)
-trap 'rm -rf "$ROOT_A" "$ROOT_B" "$ROOT_C" "$ROOT_D"' EXIT
+ROOT_E=$(make_fixture_root)
+trap 'rm -rf "$ROOT_A" "$ROOT_B" "$ROOT_C" "$ROOT_D" "$ROOT_E"' EXIT
 
 create_valid_project "$ROOT_A"
 if run_audit "$ROOT_A" --json > /tmp/ext-audit-a.json; then
@@ -213,6 +214,21 @@ else
     pass "port mismatch fails"
 fi
 assert_json_expr /tmp/ext-audit-d.json "any(issue['code'] == 'compose-port-mismatch' for svc in payload['services'] for issue in svc['issues'])" && pass "port mismatch is reported" || fail "port mismatch is reported"
+
+create_valid_project "$ROOT_E"
+python3 - "$ROOT_E/extensions/services/image-gen/manifest.yaml" <<'PY'
+import yaml, sys
+path = sys.argv[1]
+doc = yaml.safe_load(open(path, encoding="utf-8"))
+doc["service"]["aliases"] = ["search-ui"]
+yaml.safe_dump(doc, open(path, "w", encoding="utf-8"), sort_keys=False)
+PY
+if run_audit "$ROOT_E" --json > /tmp/ext-audit-e.json 2>/dev/null; then
+    fail "alias collision should fail"
+else
+    pass "alias collision fails"
+fi
+assert_json_expr /tmp/ext-audit-e.json "any(issue['code'] == 'alias-collision' for svc in payload['services'] for issue in svc['issues'])" && pass "alias collision is reported" || fail "alias collision is reported"
 
 echo "Result: $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]]
