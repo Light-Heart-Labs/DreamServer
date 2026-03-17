@@ -1,0 +1,92 @@
+#!/bin/bash
+# validate-dependencies.sh - Service dependency validation
+# Part of: lib/
+# Purpose: Validate service dependencies before compose up
+#
+# Expects: SERVICE_IDS, SERVICE_DEPENDS, SERVICE_COMPOSE (from service-registry.sh)
+# Provides: validate_service_dependencies()
+
+# Validate that all service dependencies are satisfied
+# Returns 0 if all dependencies are met, 1 if any are missing
+validate_service_dependencies() {
+    local errors=0
+    local warnings=0
+
+    # Build list of enabled services (have compose files)
+    local -A enabled_services
+    for sid in "${SERVICE_IDS[@]}"; do
+        local cf="${SERVICE_COMPOSE[$sid]}"
+        if [[ -n "$cf" && -f "$cf" ]]; then
+            enabled_services[$sid]=1
+        fi
+    done
+
+    # Check each enabled service's dependencies
+    for sid in "${SERVICE_IDS[@]}"; do
+        [[ -z "${enabled_services[$sid]:-}" ]] && continue
+
+        local deps="${SERVICE_DEPENDS[$sid]:-}"
+        [[ -z "$deps" ]] && continue
+
+        # Parse space-separated dependency list
+        for dep in $deps; do
+            if [[ -z "${enabled_services[$dep]:-}" ]]; then
+                echo "ERROR: Service '$sid' depends on '$dep', but '$dep' is not enabled" >&2
+                errors=$((errors + 1))
+            fi
+        done
+    done
+
+    if [[ $errors -gt 0 ]]; then
+        echo "" >&2
+        echo "Dependency validation failed: $errors missing dependencies" >&2
+        echo "Fix by enabling required services or disabling dependent services" >&2
+        return 1
+    fi
+
+    return 0
+}
+
+# Validate dependencies and print detailed report
+validate_dependencies_verbose() {
+    echo "Validating service dependencies..."
+
+    # Build dependency graph
+    local -A enabled_services
+    local -A service_deps
+    for sid in "${SERVICE_IDS[@]}"; do
+        local cf="${SERVICE_COMPOSE[$sid]}"
+        if [[ -n "$cf" && -f "$cf" ]]; then
+            enabled_services[$sid]=1
+            service_deps[$sid]="${SERVICE_DEPENDS[$sid]:-}"
+        fi
+    done
+
+    local total_enabled=${#enabled_services[@]}
+    echo "  Enabled services: $total_enabled"
+
+    # Check for missing dependencies
+    local errors=0
+    for sid in "${!enabled_services[@]}"; do
+        local deps="${service_deps[$sid]}"
+        [[ -z "$deps" ]] && continue
+
+        for dep in $deps; do
+            if [[ -z "${enabled_services[$dep]:-}" ]]; then
+                echo "  ✗ $sid → $dep (MISSING)" >&2
+                errors=$((errors + 1))
+            else
+                echo "  ✓ $sid → $dep"
+            fi
+        done
+    done
+
+    if [[ $errors -gt 0 ]]; then
+        echo "" >&2
+        echo "Dependency validation FAILED: $errors missing dependencies" >&2
+        return 1
+    fi
+
+    echo "  All dependencies satisfied"
+    return 0
+}

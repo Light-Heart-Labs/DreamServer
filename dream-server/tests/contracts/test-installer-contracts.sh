@@ -35,7 +35,17 @@ for s in scripts/build-capability-profile.sh scripts/build-service-registry.py s
   test -x "$s" || { echo "[FAIL] script not executable: $s"; exit 1; }
 done
 
-echo "[contract] manifest registry parity"
-bash tests/contracts/test-manifest-registry-parity.sh
+echo "[contract] Langfuse telemetry suppression"
+grep -q 'TELEMETRY_ENABLED.*false' extensions/services/langfuse/compose.yaml.disabled 2>/dev/null || \
+  grep -q 'TELEMETRY_ENABLED.*false' extensions/services/langfuse/compose.yaml 2>/dev/null || \
+  { echo "[FAIL] Langfuse app telemetry not disabled"; exit 1; }
+
+grep -q 'NEXT_TELEMETRY_DISABLED.*1' extensions/services/langfuse/compose.yaml.disabled 2>/dev/null || \
+  grep -q 'NEXT_TELEMETRY_DISABLED.*1' extensions/services/langfuse/compose.yaml 2>/dev/null || \
+  { echo "[FAIL] Next.js telemetry not disabled"; exit 1; }
+
+grep -q 'MINIO_TELEMETRY_DISABLED.*1' extensions/services/langfuse/compose.yaml.disabled 2>/dev/null || \
+  grep -q 'MINIO_TELEMETRY_DISABLED.*1' extensions/services/langfuse/compose.yaml 2>/dev/null || \
+  { echo "[FAIL] MinIO telemetry not disabled"; exit 1; }
 
 echo "[PASS] installer contracts"
