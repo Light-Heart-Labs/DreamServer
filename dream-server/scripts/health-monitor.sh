@@ -188,20 +188,15 @@ restart_service() {
     fi
 }
 
-# Get compose flags function (simplified version)
+# Get compose flags by calling dream-cli's internal function
 get_compose_flags() {
-    local flags=""
-
-    # Add GPU overlay if available
-    if [[ -f "$INSTALL_DIR/docker-compose.nvidia.yml" ]] && command -v nvidia-smi >/dev/null 2>&1; then
-        flags="$flags -f docker-compose.nvidia.yml"
-    elif [[ -f "$INSTALL_DIR/docker-compose.amd.yml" ]] && command -v rocm-smi >/dev/null 2>&1; then
-        flags="$flags -f docker-compose.amd.yml"
-    elif [[ -f "$INSTALL_DIR/docker-compose.apple.yml" ]] && [[ "$(uname)" == "Darwin" ]]; then
-        flags="$flags -f docker-compose.apple.yml"
+    # Source the compose flags from dream-cli to avoid duplication
+    if [[ -f "$INSTALL_DIR/dream-cli" ]]; then
+        # Extract get_compose_flags function from dream-cli and execute it
+        bash -c "source '$INSTALL_DIR/dream-cli' 2>/dev/null && get_compose_flags" 2>/dev/null || echo ""
+    else
+        echo ""
     fi
-
-    echo "$flags"
 }
 
 # Main monitoring loop
