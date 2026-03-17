@@ -9,6 +9,12 @@ COPY . .
 
 RUN mkdir -p /app/data
 
+# Create non-root user for security
+RUN useradd -m -u 1000 tokenspy && \
+    chown -R tokenspy:tokenspy /app
+
+USER tokenspy
+
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
