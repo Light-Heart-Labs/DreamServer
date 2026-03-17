@@ -48,15 +48,21 @@ else
             warn "Docker installed! Group membership requires re-login."
             warn "Option 1: Log out and back in, then re-run this script with --skip-docker"
             warn "Option 2: Run 'newgrp docker' in a new terminal, then re-run"
-            echo ""
-            read -p "  Try to continue with 'sudo docker' for now? [Y/n] " -r
-            if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-                # Use sudo for remaining docker commands in this session
+            if [[ "${INTERACTIVE:-true}" == "false" ]]; then
+                warn "Non-interactive mode: automatically using sudo docker for this run."
                 DOCKER_CMD="sudo docker"
                 DOCKER_COMPOSE_CMD="sudo docker compose"
             else
-                log "Please re-run after logging out and back in."
-                exit 0
+                echo ""
+                read -p "  Try to continue with 'sudo docker' for now? [Y/n] " -r
+                if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+                    # Use sudo for remaining docker commands in this session
+                    DOCKER_CMD="sudo docker"
+                    DOCKER_COMPOSE_CMD="sudo docker compose"
+                else
+                    log "Please re-run after logging out and back in."
+                    exit 0
+                fi
             fi
         fi
     fi
