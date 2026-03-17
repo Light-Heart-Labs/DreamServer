@@ -127,19 +127,6 @@ dream disable my-service   # Stops container, renames compose.yaml → compose.y
 dream list                 # Shows all services with status
 ```
 
-## Extension Tooling
-
-Dream Server includes two lightweight maintainer tools for extension libraries:
-
-```bash
-dream audit
-dream audit --json whisper
-dream catalog --format markdown
-```
-
-- `dream audit` validates manifest and compose contracts
-- `dream catalog` exports a live inventory of extensions, categories, aliases, and dependencies
-
 ## Manifest Contract (v1)
 
 Required root field:
