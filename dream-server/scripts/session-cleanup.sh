@@ -33,11 +33,13 @@ fi
 
 # ── Extract active session IDs ─────────────────────────────────
 ACTIVE_IDS=$(grep -oP '"sessionId":\s*"\K[^"]+' "$SESSIONS_JSON" 2>/dev/null || true)
+ACTIVE_IDS_ARR=()
+[[ -n "${ACTIVE_IDS:-}" ]] && IFS=$' \n\t' read -r -a ACTIVE_IDS_ARR <<< "$ACTIVE_IDS"
 
 echo "[$(date)] Session cleanup starting"
 echo "[$(date)] Sessions dir: $SESSIONS_DIR"
 echo "[$(date)] Max size threshold: $MAX_SIZE bytes"
-echo "[$(date)] Active sessions found: $(echo "$ACTIVE_IDS" | wc -w)"
+echo "[$(date)] Active sessions found: ${#ACTIVE_IDS_ARR[@]}"
 
 # ── Clean up debris ────────────────────────────────────────────
 DELETED_COUNT=$(find "$SESSIONS_DIR" -name '*.deleted.*' -delete -print 2>/dev/null | wc -l)
@@ -47,7 +49,7 @@ if [ "$DELETED_COUNT" -gt 0 ] || [ "$BAK_COUNT" -gt 0 ]; then
 fi
 
 # ── Process session files ──────────────────────────────────────
-WIPE_IDS=""
+WIPE_IDS_ARR=()
 REMOVED_INACTIVE=0
 REMOVED_BLOATED=0
 
@@ -57,7 +59,7 @@ for f in "$SESSIONS_DIR"/*.jsonl; do
 
     # Check if this session is active
     IS_ACTIVE=false
-    for ID in $ACTIVE_IDS; do
+    for ID in "${ACTIVE_IDS_ARR[@]}"; do
         if [ "$BASENAME" = "$ID" ]; then
             IS_ACTIVE=true
             break
@@ -75,18 +77,18 @@ for f in "$SESSIONS_DIR"/*.jsonl; do
             SIZE=$(du -h "$f" | cut -f1)
             echo "[$(date)] Session $BASENAME is bloated ($SIZE > $(numfmt --to=iec $MAX_SIZE 2>/dev/null || echo "${MAX_SIZE}B")), deleting to force fresh session"
             rm -f "$f"
-            WIPE_IDS="$WIPE_IDS $BASENAME"
+            WIPE_IDS_ARR+=("$BASENAME")
             REMOVED_BLOATED=$((REMOVED_BLOATED + 1))
         fi
     fi
 done
 
 # ── Remove wiped session references from sessions.json ─────────
-if [ -n "$WIPE_IDS" ]; then
-    echo "[$(date)] Clearing session references from sessions.json for:$WIPE_IDS"
+if [ ${#WIPE_IDS_ARR[@]} -gt 0 ]; then
+    echo "[$(date)] Clearing session references from sessions.json for: ${WIPE_IDS_ARR[*]}"
     cp "$SESSIONS_JSON" "$SESSIONS_JSON.bak-cleanup"
 
-    for ID in $WIPE_IDS; do
+    for ID in "${WIPE_IDS_ARR[@]}"; do
         PYTHON_CMD="python3"
         if [[ -f "$(dirname "$0")/../lib/python-cmd.sh" ]]; then
             . "$(dirname "$0")/../lib/python-cmd.sh"
