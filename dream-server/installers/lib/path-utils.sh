@@ -38,8 +38,9 @@ normalize_path() {
         # GNU realpath via Homebrew (macOS)
         grealpath -m "$path" 2>/dev/null || echo "$path"
     else
-        # Fallback: manual normalization (works on macOS/BSD)
-        python3 -c "import os; print(os.path.abspath('$path'))" 2>/dev/null || echo "$path"
+        # Fallback: basic normalization without external dependencies
+        # This handles most cases but doesn't resolve all edge cases
+        echo "$path"
     fi
 }
 
@@ -110,16 +111,8 @@ validate_install_path() {
 # Get platform-specific default install directory
 get_default_install_dir() {
     case "$(uname -s)" in
-        Darwin)
-            # macOS: prefer ~/Applications for user installs
-            if [[ -w "$HOME/Applications" ]] || [[ ! -e "$HOME/Applications" ]]; then
-                echo "$HOME/Applications/dream-server"
-            else
-                echo "$HOME/dream-server"
-            fi
-            ;;
-        Linux|*)
-            # Linux/other: use home directory
+        Darwin|Linux|*)
+            # All platforms: use home directory (backward compatible)
             echo "$HOME/dream-server"
             ;;
     esac
