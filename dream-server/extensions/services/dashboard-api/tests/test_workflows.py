@@ -74,7 +74,7 @@ def test_workflow_enable_with_spaces(test_client):
         "/api/workflows/test workflow/enable",
         headers=test_client.auth_headers,
     )
-    assert resp.status_code in (400, 404, 422)
+    assert resp.status_code == 400
 
 
 def test_workflow_enable_with_newline(test_client):
@@ -83,7 +83,7 @@ def test_workflow_enable_with_newline(test_client):
         "/api/workflows/test\nworkflow/enable",
         headers=test_client.auth_headers,
     )
-    assert resp.status_code in (400, 404, 422)
+    assert resp.status_code == 400
 
 
 def test_workflow_enable_with_tab(test_client):
@@ -92,7 +92,7 @@ def test_workflow_enable_with_tab(test_client):
         "/api/workflows/test\tworkflow/enable",
         headers=test_client.auth_headers,
     )
-    assert resp.status_code in (400, 404, 422)
+    assert resp.status_code == 400
 
 
 def test_workflow_disable_path_traversal(test_client):
@@ -101,7 +101,7 @@ def test_workflow_disable_path_traversal(test_client):
         "/api/workflows/../../../etc/passwd/disable",
         headers=test_client.auth_headers,
     )
-    assert resp.status_code in (400, 404, 422)
+    assert resp.status_code == 400
 
 
 def test_workflow_disable_command_injection(test_client):
@@ -110,4 +110,4 @@ def test_workflow_disable_command_injection(test_client):
         "/api/workflows/test;rm -rf //disable",
         headers=test_client.auth_headers,
     )
-    assert resp.status_code in (400, 404, 422)
+    assert resp.status_code == 400

@@ -18,7 +18,7 @@ def test_workflow_id_sql_injection_single_quote(test_client):
         "/api/workflows/test' OR '1'='1/enable",
         headers=test_client.auth_headers,
     )
-    assert resp.status_code in (400, 404, 422)
+    assert resp.status_code == 400
 
 
 def test_workflow_id_sql_injection_union(test_client):
@@ -27,7 +27,7 @@ def test_workflow_id_sql_injection_union(test_client):
         "/api/workflows/test' UNION SELECT * FROM users--/enable",
         headers=test_client.auth_headers,
     )
-    assert resp.status_code in (400, 404, 422)
+    assert resp.status_code == 400
 
 
 def test_workflow_id_command_injection_semicolon(test_client):
@@ -36,7 +36,7 @@ def test_workflow_id_command_injection_semicolon(test_client):
         "/api/workflows/test;rm -rf //enable",
         headers=test_client.auth_headers,
     )
-    assert resp.status_code in (400, 404, 422)
+    assert resp.status_code == 400
 
 
 def test_workflow_id_command_injection_pipe(test_client):
@@ -45,7 +45,7 @@ def test_workflow_id_command_injection_pipe(test_client):
         "/api/workflows/test|cat /etc/passwd/enable",
         headers=test_client.auth_headers,
     )
-    assert resp.status_code in (400, 404, 422)
+    assert resp.status_code == 400
 
 
 def test_workflow_id_command_injection_backtick(test_client):
@@ -54,7 +54,7 @@ def test_workflow_id_command_injection_backtick(test_client):
         "/api/workflows/test`whoami`/enable",
         headers=test_client.auth_headers,
     )
-    assert resp.status_code in (400, 404, 422)
+    assert resp.status_code == 400
 
 
 def test_workflow_id_null_byte_injection(test_client):
@@ -63,7 +63,7 @@ def test_workflow_id_null_byte_injection(test_client):
         "/api/workflows/test\x00malicious/enable",
         headers=test_client.auth_headers,
     )
-    assert resp.status_code in (400, 404, 422)
+    assert resp.status_code == 400
 
 
 def test_workflow_id_url_encoded_traversal(test_client):
@@ -72,7 +72,7 @@ def test_workflow_id_url_encoded_traversal(test_client):
         "/api/workflows/..%2F..%2Fetc%2Fpasswd/enable",
         headers=test_client.auth_headers,
     )
-    assert resp.status_code in (400, 404, 422)
+    assert resp.status_code == 400
 
 
 def test_workflow_id_double_encoded_traversal(test_client):
@@ -81,7 +81,7 @@ def test_workflow_id_double_encoded_traversal(test_client):
         "/api/workflows/..%252F..%252Fetc%252Fpasswd/enable",
         headers=test_client.auth_headers,
     )
-    assert resp.status_code in (400, 404, 422)
+    assert resp.status_code == 400
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +95,7 @@ def test_workflow_id_absolute_path(test_client):
         "/api/workflows//etc/passwd/enable",
         headers=test_client.auth_headers,
     )
-    assert resp.status_code in (400, 404, 422)
+    assert resp.status_code == 400
 
 
 def test_workflow_id_windows_path(test_client):
@@ -104,7 +104,7 @@ def test_workflow_id_windows_path(test_client):
         "/api/workflows/..\\..\\windows\\system32/enable",
         headers=test_client.auth_headers,
     )
-    assert resp.status_code in (400, 404, 422)
+    assert resp.status_code == 400
 
 
 def test_workflow_id_mixed_separators(test_client):
@@ -113,7 +113,7 @@ def test_workflow_id_mixed_separators(test_client):
         "/api/workflows/../..\\/etc/passwd/enable",
         headers=test_client.auth_headers,
     )
-    assert resp.status_code in (400, 404, 422)
+    assert resp.status_code == 400
 
 
 def test_workflow_id_unicode_traversal(test_client):
@@ -122,7 +122,7 @@ def test_workflow_id_unicode_traversal(test_client):
         "/api/workflows/\u2024\u2024/\u2024\u2024/etc/passwd/enable",
         headers=test_client.auth_headers,
     )
-    assert resp.status_code in (400, 404, 422)
+    assert resp.status_code == 400
 
 
 # ---------------------------------------------------------------------------
@@ -212,12 +212,16 @@ def test_preflight_ports_string_injection(test_client):
 
 def test_backup_name_command_injection(test_client):
     """Backup action with command injection in name → safe (validated by script path)."""
-    # The backup name is passed as an argument to subprocess.run with list args,
+    # The backup name is passed as an argument to asyncio.create_subprocess_exec with list args,
     # so command injection should not be possible. This test verifies the pattern.
-    with patch("subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
+        mock_process = AsyncMock()
+        mock_process.returncode = 0
+        mock_process.stdout.read.return_value = b""
+        mock_process.stderr.read.return_value = b""
+        mock_exec.return_value = mock_process
 
-        # Even with malicious input, subprocess.run with list args is safe
+        # Even with malicious input, asyncio.create_subprocess_exec with list args is safe
         resp = test_client.post(
             "/api/update",
             json={"action": "backup"},
@@ -225,11 +229,13 @@ def test_backup_name_command_injection(test_client):
         )
 
         # Should succeed (or fail for other reasons, but not execute injection)
-        # The key is that subprocess.run was called with list args, not shell=True
-        if mock_run.called:
-            call_args = mock_run.call_args
-            # Verify shell=True was NOT used
-            assert call_args[1].get("shell") is not True
+        # The key is that asyncio.create_subprocess_exec was called with list args, not shell=True
+        if mock_exec.called:
+            call_args = mock_exec.call_args
+            # Verify the first argument is the script path, not a shell command
+            assert len(call_args[0]) >= 1  # At least script path
+            # Verify no shell=True was used (asyncio.create_subprocess_exec doesn't support shell=True anyway)
+            assert "shell" not in call_args[1]
 
 
 def test_update_action_invalid_action(test_client):
@@ -250,5 +256,5 @@ def test_update_script_path_validation(test_client):
         json={"action": "check"},
         headers=test_client.auth_headers,
     )
-    # Should fail with 501 if script doesn't exist (not 500 or command injection)
-    assert resp.status_code in (501, 500)  # 501 = not installed, 500 = other error
+    # Should fail with 501 if script doesn't exist (not 500 crash)
+    assert resp.status_code == 501
