@@ -47,7 +47,8 @@ test_tier_map_has_sha256() {
     fi
 
     # Check that at least some tiers have non-empty checksums
-    local checksum_count=$(grep 'GGUF_SHA256="[a-f0-9]\{64\}"' "$tier_map" | wc -l)
+    local checksum_count
+    checksum_count=$(grep 'GGUF_SHA256="[a-f0-9]\{64\}"' "$tier_map" | wc -l)
     if [[ $checksum_count -lt 2 ]]; then
         fail "tier-map.sh has too few valid SHA256 checksums (found: $checksum_count)"
         return
@@ -112,18 +113,21 @@ test_corrupt_file_handling() {
 test_checksum_verification() {
     info "Testing checksum verification with test data..."
 
-    local tmpdir=$(mktemp -d)
-    trap "rm -rf $tmpdir" RETURN
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    trap 'rm -rf "$tmpdir"' RETURN
 
     # Create test file with known content
     echo "test content" > "$tmpdir/test.gguf"
 
     # Calculate actual hash
-    local actual_hash=$(sha256sum "$tmpdir/test.gguf" | awk '{print $1}')
+    local actual_hash
+    actual_hash=$(sha256sum "$tmpdir/test.gguf" | awk '{print $1}')
 
     # Test matching hash
     local test_hash="$actual_hash"
-    local result=$(sha256sum "$tmpdir/test.gguf" | awk '{print $1}')
+    local result
+    result=$(sha256sum "$tmpdir/test.gguf" | awk '{print $1}')
 
     if [[ "$result" != "$test_hash" ]]; then
         fail "sha256sum verification failed for matching hash"
@@ -166,7 +170,8 @@ test_dual_verification() {
     local phase11="$ROOT_DIR/installers/phases/11-services.sh"
 
     # Count verification blocks
-    local verify_count=$(grep -c "Verifying.*integrity" "$phase11" || echo "0")
+    local verify_count
+    verify_count=$(grep -c "Verifying.*integrity" "$phase11" || echo "0")
 
     if [[ $verify_count -lt 2 ]]; then
         fail "phase 11 should verify integrity before and after download (found: $verify_count)"

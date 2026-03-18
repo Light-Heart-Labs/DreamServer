@@ -16,7 +16,16 @@
 
 VERSION="2.0.0-strix-halo"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-INSTALL_DIR="${INSTALL_DIR:-$HOME/dream-server}"
+
+# Source path utilities for cross-platform path resolution
+if [[ -f "$SCRIPT_DIR/installers/lib/path-utils.sh" ]]; then
+    . "$SCRIPT_DIR/installers/lib/path-utils.sh"
+    INSTALL_DIR="$(resolve_install_dir)"
+else
+    # Fallback if path-utils.sh not available
+    INSTALL_DIR="${INSTALL_DIR:-$HOME/dream-server}"
+fi
+
 LOG_FILE="${LOG_FILE:-/tmp/dream-server-install.log}"
 CAPABILITY_PROFILE_FILE="${CAPABILITY_PROFILE_FILE:-/tmp/dream-server-capabilities.json}"
 PREFLIGHT_REPORT_FILE="${PREFLIGHT_REPORT_FILE:-/tmp/dream-server-preflight-report.json}"

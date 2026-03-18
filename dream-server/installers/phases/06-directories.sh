@@ -23,6 +23,7 @@
 #   or change directory layout here.
 # ============================================================================
 
+dream_progress 38 "directories" "Preparing installation directory"
 chapter "SETTING UP INSTALLATION"
 
 if $DRY_RUN; then
@@ -34,11 +35,14 @@ if $DRY_RUN; then
     log "[DRY RUN] Would validate .env against schema"
 else
     # Create directories
+    dream_progress 38 "directories" "Creating directory structure"
     mkdir -p "$INSTALL_DIR"/{config,data,models}
     mkdir -p "$INSTALL_DIR"/data/{open-webui,whisper,tts,n8n,qdrant,models}
+    mkdir -p "$INSTALL_DIR"/data/langfuse/{postgres,clickhouse,redis,minio}
     mkdir -p "$INSTALL_DIR"/config/{n8n,litellm,openclaw,searxng}
 
     # Copy entire source tree to install dir (skip if same directory)
+    dream_progress 39 "directories" "Copying source files"
     if [[ "$SCRIPT_DIR" != "$INSTALL_DIR" ]]; then
         ai "Copying source files to $INSTALL_DIR..."
         if command -v rsync &>/dev/null; then
@@ -211,6 +215,7 @@ MODELS_EOF
     fi
 
     # ── .env merge logic: preserve user-configured values on re-install ──
+    dream_progress 40 "directories" "Generating secrets and configuration"
     # If an existing .env exists, read user-editable values so we don't
     # destroy API keys, custom ports, or manually-set secrets.
     _env_existing=""
@@ -246,6 +251,23 @@ MODELS_EOF
     QDRANT_API_KEY=$(_env_get QDRANT_API_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
     OPENCODE_SERVER_PASSWORD=$(_env_get OPENCODE_SERVER_PASSWORD "$(openssl rand -base64 16 2>/dev/null || head -c 16 /dev/urandom | base64)")
 
+    # Langfuse (LLM Observability)
+    LANGFUSE_PORT=$(_env_get LANGFUSE_PORT "3006")
+    LANGFUSE_ENABLED=$(_env_get LANGFUSE_ENABLED "false")
+    LANGFUSE_NEXTAUTH_SECRET=$(_env_get LANGFUSE_NEXTAUTH_SECRET "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p | tr -d '\n')")
+    LANGFUSE_SALT=$(_env_get LANGFUSE_SALT "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p | tr -d '\n')")
+    LANGFUSE_ENCRYPTION_KEY=$(_env_get LANGFUSE_ENCRYPTION_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p | tr -d '\n')")
+    LANGFUSE_DB_PASSWORD=$(_env_get LANGFUSE_DB_PASSWORD "$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
+    LANGFUSE_CLICKHOUSE_PASSWORD=$(_env_get LANGFUSE_CLICKHOUSE_PASSWORD "$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
+    LANGFUSE_REDIS_PASSWORD=$(_env_get LANGFUSE_REDIS_PASSWORD "$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
+    LANGFUSE_MINIO_ACCESS_KEY=$(_env_get LANGFUSE_MINIO_ACCESS_KEY "$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
+    LANGFUSE_MINIO_SECRET_KEY=$(_env_get LANGFUSE_MINIO_SECRET_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p | tr -d '\n')")
+    LANGFUSE_PROJECT_PUBLIC_KEY=$(_env_get LANGFUSE_PROJECT_PUBLIC_KEY "pk-lf-dream-$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
+    LANGFUSE_PROJECT_SECRET_KEY=$(_env_get LANGFUSE_PROJECT_SECRET_KEY "sk-lf-dream-$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
+    LANGFUSE_INIT_PROJECT_ID=$(_env_get LANGFUSE_INIT_PROJECT_ID "$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
+    LANGFUSE_INIT_USER_EMAIL=$(_env_get LANGFUSE_INIT_USER_EMAIL "admin@dreamserver.local")
+    LANGFUSE_INIT_USER_PASSWORD=$(_env_get LANGFUSE_INIT_USER_PASSWORD "$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
+
     # Preserve user-supplied cloud API keys
     ANTHROPIC_API_KEY=$(_env_get ANTHROPIC_API_KEY "${ANTHROPIC_API_KEY:-}")
     OPENAI_API_KEY=$(_env_get OPENAI_API_KEY "${OPENAI_API_KEY:-}")
@@ -272,6 +294,7 @@ GGUF_FILE=${GGUF_FILE}
 MAX_CONTEXT=${MAX_CONTEXT}
 CTX_SIZE=${MAX_CONTEXT}
 GPU_BACKEND=${GPU_BACKEND}
+N_GPU_LAYERS=${N_GPU_LAYERS:-99}
 
 $(if [[ "$GPU_BACKEND" == "amd" ]]; then cat << AMD_ENV
 #=== GPU Group IDs (for container device access) ===
@@ -283,18 +306,33 @@ HSA_OVERRIDE_GFX_VERSION=11.5.1
 ROCBLAS_USE_HIPBLASLT=0
 AMD_ENV
 fi)
+$(if [[ "$GPU_BACKEND" == "sycl" ]]; then cat << INTEL_ENV
+#=== GPU Group IDs (for container device access) ===
+VIDEO_GID=$(getent group video 2>/dev/null | cut -d: -f3 || echo 44)
+RENDER_GID=$(getent group render 2>/dev/null | cut -d: -f3 || echo 992)
+
+#=== Intel Arc / oneAPI SYCL Settings ===
+ONEAPI_DEVICE_SELECTOR=level_zero:gpu
+SYCL_CACHE_PERSISTENT=1
+ZES_ENABLE_SYSMAN=1
+INTEL_ENV
+fi)
 
 #=== Ports ===
 OLLAMA_PORT=8080
 WEBUI_PORT=3000
+SEARXNG_PORT=8888
+PERPLEXICA_PORT=3004
 WHISPER_PORT=9000
 TTS_PORT=8880
 N8N_PORT=5678
 QDRANT_PORT=6333
 QDRANT_GRPC_PORT=6334
+EMBEDDINGS_PORT=8090
 LITELLM_PORT=4000
 OPENCLAW_PORT=7860
 SEARXNG_PORT=8888
+LANGFUSE_PORT=${LANGFUSE_PORT}
 
 #=== Security (auto-generated, keep secret!) ===
 WEBUI_SECRET=${WEBUI_SECRET}
@@ -307,7 +345,6 @@ LIVEKIT_API_SECRET=${LIVEKIT_SECRET}
 OPENCLAW_TOKEN=${OPENCLAW_TOKEN:-$(openssl rand -hex 24 2>/dev/null || head -c 24 /dev/urandom | xxd -p)}
 QDRANT_API_KEY=${QDRANT_API_KEY}
 OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD}
-OPENCODE_PORT=3003
 DIFY_SECRET_KEY=${DIFY_SECRET_KEY}
 
 #=== Voice Settings ===
@@ -324,6 +361,22 @@ N8N_AUTH=true
 N8N_HOST=localhost
 N8N_WEBHOOK_URL=http://localhost:5678
 TIMEZONE=${SYSTEM_TZ:-UTC}
+
+#=== Langfuse (LLM Observability) ===
+LANGFUSE_ENABLED=${LANGFUSE_ENABLED}
+LANGFUSE_NEXTAUTH_SECRET=${LANGFUSE_NEXTAUTH_SECRET}
+LANGFUSE_SALT=${LANGFUSE_SALT}
+LANGFUSE_ENCRYPTION_KEY=${LANGFUSE_ENCRYPTION_KEY}
+LANGFUSE_DB_PASSWORD=${LANGFUSE_DB_PASSWORD}
+LANGFUSE_CLICKHOUSE_PASSWORD=${LANGFUSE_CLICKHOUSE_PASSWORD}
+LANGFUSE_REDIS_PASSWORD=${LANGFUSE_REDIS_PASSWORD}
+LANGFUSE_MINIO_ACCESS_KEY=${LANGFUSE_MINIO_ACCESS_KEY}
+LANGFUSE_MINIO_SECRET_KEY=${LANGFUSE_MINIO_SECRET_KEY}
+LANGFUSE_PROJECT_PUBLIC_KEY=${LANGFUSE_PROJECT_PUBLIC_KEY}
+LANGFUSE_PROJECT_SECRET_KEY=${LANGFUSE_PROJECT_SECRET_KEY}
+LANGFUSE_INIT_PROJECT_ID=${LANGFUSE_INIT_PROJECT_ID}
+LANGFUSE_INIT_USER_EMAIL=${LANGFUSE_INIT_USER_EMAIL}
+LANGFUSE_INIT_USER_PASSWORD=${LANGFUSE_INIT_USER_PASSWORD}
 ENV_EOF
 
     chmod 600 "$INSTALL_DIR/.env"  # Secure secrets file
@@ -331,6 +384,7 @@ ENV_EOF
     ai_ok "Generated secure secrets in .env (permissions: 600)"
 
     # Validate generated .env against schema (fails fast on missing/unknown keys).
+    dream_progress 41 "directories" "Validating configuration"
     if [[ -f "$SCRIPT_DIR/scripts/validate-env.sh" && -f "$SCRIPT_DIR/.env.schema.json" ]]; then
         if bash "$SCRIPT_DIR/scripts/validate-env.sh" "$INSTALL_DIR/.env" "$SCRIPT_DIR/.env.schema.json" >> "$LOG_FILE" 2>&1; then
             ai_ok "Validated .env against .env.schema.json"

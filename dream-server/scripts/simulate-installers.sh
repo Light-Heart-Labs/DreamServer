@@ -57,7 +57,15 @@ if ! scripts/dream-doctor.sh "$DOCTOR_JSON" >/dev/null 2>&1; then
   DOCTOR_EXIT=$?
 fi
 
-python3 - "$SUMMARY_JSON" "$SUMMARY_MD" "$LINUX_LOG" "$MACOS_LOG" "$WINDOWS_SIM_JSON" "$MACOS_PREFLIGHT_JSON" "$MACOS_DOCTOR_JSON" "$DOCTOR_JSON" "$LINUX_SUMMARY_JSON" "$LINUX_EXIT" "$MACOS_EXIT" "$DOCTOR_EXIT" <<'PY'
+PYTHON_CMD="python3"
+if [[ -f "$ROOT_DIR/lib/python-cmd.sh" ]]; then
+  . "$ROOT_DIR/lib/python-cmd.sh"
+  PYTHON_CMD="$(ds_detect_python_cmd)"
+elif command -v python >/dev/null 2>&1; then
+  PYTHON_CMD="python"
+fi
+
+"$PYTHON_CMD" - "$SUMMARY_JSON" "$SUMMARY_MD" "$LINUX_LOG" "$MACOS_LOG" "$WINDOWS_SIM_JSON" "$MACOS_PREFLIGHT_JSON" "$MACOS_DOCTOR_JSON" "$DOCTOR_JSON" "$LINUX_SUMMARY_JSON" "$LINUX_EXIT" "$MACOS_EXIT" "$DOCTOR_EXIT" <<'PY'
 import json
 import pathlib
 import re

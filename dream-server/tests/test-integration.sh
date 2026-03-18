@@ -55,7 +55,7 @@ test_http() {
     local method="${4:-GET}"
     local data="${5:-}"
     
-    local args=(-s -o /dev/null -w "%{http_code}" --max-time $TIMEOUT)
+    local args=(-s -o /dev/null -w "%{http_code}" --max-time "$TIMEOUT")
     [[ -n "$data" ]] && args+=(-X "$method" -H "Content-Type: application/json" -d "$data")
     
     local code

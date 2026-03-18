@@ -75,19 +75,39 @@ if [[ ! -x "$PROJECT_DIR/scripts/detect-hardware.sh" ]]; then
 else
     pass "detect-hardware.sh exists and is executable"
 
+    PYTHON_CMD="python3"
+    if [[ -f "$PROJECT_DIR/lib/python-cmd.sh" ]]; then
+        . "$PROJECT_DIR/lib/python-cmd.sh"
+        PYTHON_CMD="$(ds_detect_python_cmd)"
+    elif command -v python >/dev/null 2>&1; then
+        PYTHON_CMD="python"
+    fi
+
     # Test JSON output mode
     json_output=$("$PROJECT_DIR/scripts/detect-hardware.sh" --json 2>/dev/null) || true
-    if echo "$json_output" | python3 -m json.tool > /dev/null 2>&1; then
+    if echo "$json_output" | "$PYTHON_CMD" -m json.tool > /dev/null 2>&1; then
         pass "detect-hardware.sh --json produces valid JSON"
 
         # Verify required fields
         for field in os cpu cores ram_gb gpu tier; do
-            if echo "$json_output" | python3 -c "import sys,json; d=json.load(sys.stdin); assert '$field' in d" 2>/dev/null; then
+            if echo "$json_output" | "$PYTHON_CMD" -c "import sys,json; d=json.load(sys.stdin); assert '$field' in d" 2>/dev/null; then
                 pass "JSON contains required field: $field"
             else
                 fail "JSON missing required field: $field"
             fi
         done
+
+        # Regression test: json_escape must handle quoted GPU names correctly
+        escaped_output=$(bash -lc '
+            . "'"$PROJECT_DIR"'/scripts/detect-hardware.sh"
+            escaped=$(json_escape '\''NVIDIA "GeForce" RTX 4090'\'')
+            printf "{\"gpu_name\":\"%s\"}\n" "$escaped"
+        ' 2>/dev/null) || true
+        if echo "$escaped_output" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['gpu_name'] == 'NVIDIA \"GeForce\" RTX 4090'" 2>/dev/null; then
+            pass "json_escape handles embedded double quotes"
+        else
+            fail "json_escape does not escape embedded double quotes correctly" "$escaped_output"
+        fi
     else
         fail "detect-hardware.sh --json does not produce valid JSON" "$json_output"
     fi
@@ -171,9 +191,9 @@ else
         basename_profile=$(basename "$profile")
 
         # YAML validation using python (skip if PyYAML not installed)
-        if ! python3 -c "import yaml" 2>/dev/null; then
+        if ! "$PYTHON_CMD" -c "import yaml" 2>/dev/null; then
             skip "PyYAML not installed — cannot validate: $basename_profile"
-        elif python3 -c "
+        elif "$PYTHON_CMD" -c "
 import yaml, sys
 with open('$profile') as f:
     yaml.safe_load(f)
@@ -271,7 +291,7 @@ else
         basename_wf=$(basename "$wf")
 
         # JSON syntax validation
-        if python3 -m json.tool "$wf" > /dev/null 2>&1; then
+        if "$PYTHON_CMD" -m json.tool "$wf" > /dev/null 2>&1; then
             pass "Valid JSON: $basename_wf"
         else
             fail "Invalid JSON: $basename_wf"
@@ -279,14 +299,14 @@ else
 
         # Check for n8n workflow structure.
         # Some JSON files (like catalog.json) are metadata manifests, not workflow exports.
-        if python3 -c "
+        if "$PYTHON_CMD" -c "
 import json, sys
 with open('$wf') as f:
     d = json.load(f)
 assert 'nodes' in d, 'missing nodes key'
 " 2>/dev/null; then
             pass "Has n8n structure (nodes): $basename_wf"
-        elif python3 -c "
+        elif "$PYTHON_CMD" -c "
 import json, sys
 with open('$wf') as f:
     d = json.load(f)

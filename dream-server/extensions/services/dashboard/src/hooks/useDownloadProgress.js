@@ -42,13 +42,13 @@ export function useDownloadProgress(pollIntervalMs = 1000) {
   }, [])
 
   useEffect(() => {
-    // Initial fetch
     fetchProgress()
-    
-    // Poll while downloading
-    const interval = setInterval(fetchProgress, pollIntervalMs)
+
+    // Poll frequently only while downloading; otherwise check every 10s
+    const activeInterval = isDownloading ? pollIntervalMs : 10000
+    const interval = setInterval(fetchProgress, activeInterval)
     return () => clearInterval(interval)
-  }, [fetchProgress, pollIntervalMs])
+  }, [fetchProgress, pollIntervalMs, isDownloading])
 
   // Format helpers
   const formatBytes = (bytes) => {

@@ -282,6 +282,10 @@ else
     mkdir -p "${INSTALL_DIR}/data/n8n"
     mkdir -p "${INSTALL_DIR}/data/qdrant"
     mkdir -p "${INSTALL_DIR}/data/models"
+    mkdir -p "${INSTALL_DIR}/data/langfuse/postgres"
+    mkdir -p "${INSTALL_DIR}/data/langfuse/clickhouse"
+    mkdir -p "${INSTALL_DIR}/data/langfuse/redis"
+    mkdir -p "${INSTALL_DIR}/data/langfuse/minio"
     mkdir -p "${INSTALL_DIR}/bin"
     ai_ok "Created directory structure"
 
@@ -318,19 +322,37 @@ else
         ai_ok "Installed dream-macos.sh CLI"
     fi
 
-    # Generate .env
-    generate_dream_env "$INSTALL_DIR" "$SELECTED_TIER"
-    ai_ok "Generated .env with secure secrets"
+    # Generate .env (idempotent unless --force)
+    env_existed=false
+    [[ -f "${INSTALL_DIR}/.env" ]] && env_existed=true
+    generate_dream_env "$INSTALL_DIR" "$SELECTED_TIER" "$FORCE"
+    if $env_existed && ! $FORCE; then
+        ai_ok "Preserved existing .env (use --force to regenerate secrets)"
+    else
+        ai_ok "Generated .env with secure secrets"
+    fi
 
     # Generate SearXNG config
-    generate_searxng_config "$INSTALL_DIR" "$ENV_SEARXNG_SECRET"
-    ai_ok "Generated SearXNG config"
+    searx_existed=false
+    [[ -f "${INSTALL_DIR}/config/searxng/settings.yml" ]] && searx_existed=true
+    generate_searxng_config "$INSTALL_DIR" "$ENV_SEARXNG_SECRET" "$FORCE"
+    if $searx_existed && ! $FORCE; then
+        ai_ok "Preserved existing SearXNG config (use --force to regenerate)"
+    else
+        ai_ok "Generated SearXNG config"
+    fi
 
     # Generate OpenClaw configs (if enabled)
     if $ENABLE_OPENCLAW; then
+        openclaw_existed=false
+        [[ -f "${INSTALL_DIR}/data/openclaw/home/openclaw.json" ]] && openclaw_existed=true
         generate_openclaw_config "$INSTALL_DIR" "$LLM_MODEL" "$MAX_CONTEXT" \
-            "$ENV_OPENCLAW_TOKEN" "http://host.docker.internal:8080"
-        ai_ok "Generated OpenClaw configs"
+            "$ENV_OPENCLAW_TOKEN" "http://host.docker.internal:8080" "$FORCE"
+        if $openclaw_existed && ! $FORCE; then
+            ai_ok "Preserved existing OpenClaw config (use --force to regenerate)"
+        else
+            ai_ok "Generated OpenClaw configs"
+        fi
     fi
 
     # Create llama-server models.ini (empty -- populated later)
@@ -360,43 +382,26 @@ else
 
         if [[ -f "$MODEL_PATH" ]]; then
             # Verify integrity if hash is available
-            if [[ -n "$GGUF_SHA256" ]]; then
-                ai "Verifying model integrity (SHA256)..."
-                ACTUAL_HASH=$(shasum -a 256 "$MODEL_PATH" 2>/dev/null | awk '{print $1}')
-                if [[ "$ACTUAL_HASH" == "$GGUF_SHA256" ]]; then
-                    ai_ok "Model verified: ${GGUF_FILE}"
-                else
-                    ai_warn "Model file is corrupt (hash mismatch)."
-                    ai "  Expected: ${GGUF_SHA256}"
-                    ai "  Got:      ${ACTUAL_HASH}"
-                    ai "Removing corrupt file and re-downloading..."
-                    rm -f "$MODEL_PATH"
-                fi
+            if verify_sha256 "$MODEL_PATH" "$GGUF_SHA256" "Model ${GGUF_FILE}"; then
+                ai_ok "Model already present and verified: ${GGUF_FILE}"
             else
-                ai_ok "Model already downloaded: ${GGUF_FILE}"
+                ai "Removing corrupt file and re-downloading..."
+                rm -f "$MODEL_PATH"
             fi
         fi
 
         if [[ ! -f "$MODEL_PATH" ]]; then
-            download_with_progress "$GGUF_URL" "$MODEL_PATH" "Downloading ${GGUF_FILE}" || {
-                ai_err "Model download failed. Re-run the installer to resume."
+            # Download with retry logic (built into download_with_progress)
+            if ! download_with_progress "$GGUF_URL" "$MODEL_PATH" "Downloading ${GGUF_FILE}"; then
+                ai_err "Model download failed after retries. Re-run the installer to try again."
                 exit 1
-            }
+            fi
 
             # Verify freshly downloaded file
-            if [[ -n "$GGUF_SHA256" ]]; then
-                ai "Verifying download integrity (SHA256)..."
-                ACTUAL_HASH=$(shasum -a 256 "$MODEL_PATH" 2>/dev/null | awk '{print $1}')
-                if [[ "$ACTUAL_HASH" == "$GGUF_SHA256" ]]; then
-                    ai_ok "Download verified OK"
-                else
-                    ai_err "Downloaded file is corrupt (SHA256 mismatch)."
-                    ai "  Expected: ${GGUF_SHA256}"
-                    ai "  Got:      ${ACTUAL_HASH}"
-                    rm -f "$MODEL_PATH"
-                    ai_err "Re-run the installer to download again."
-                    exit 1
-                fi
+            if ! verify_sha256 "$MODEL_PATH" "$GGUF_SHA256" "Downloaded ${GGUF_FILE}"; then
+                rm -f "$MODEL_PATH"
+                ai_err "Downloaded file is corrupt. Re-run the installer to try again."
+                exit 1
             fi
         fi
     fi
@@ -597,6 +602,12 @@ else
             REL_PATH="${COMPOSE_PATH#"${INSTALL_DIR}/"}"
             COMPOSE_FLAGS+=("-f" "$REL_PATH")
         done
+    fi
+
+    # Layer Tier 0 memory overlay for low-RAM machines
+    if [[ "$SELECTED_TIER" == "0" && -f "${INSTALL_DIR}/docker-compose.tier0.yml" ]]; then
+        COMPOSE_FLAGS+=("-f" "docker-compose.tier0.yml")
+        ai "Applying lightweight memory limits for Tier 0"
     fi
 
     # Docker compose override (user customizations)

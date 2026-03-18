@@ -168,6 +168,41 @@ def test_preflight_required_ports_no_auth(test_client):
     assert isinstance(data["ports"], list)
 
 
+def test_preflight_docker_authenticated(test_client):
+    """GET /api/preflight/docker with auth → 200, returns docker availability."""
+    resp = test_client.get("/api/preflight/docker", headers=test_client.auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "available" in data
+    if data["available"]:
+        assert "version" in data
+
+
+def test_preflight_gpu_authenticated(test_client):
+    """GET /api/preflight/gpu with auth → 200, returns GPU info or error."""
+    resp = test_client.get("/api/preflight/gpu", headers=test_client.auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "available" in data
+    if data["available"]:
+        assert "name" in data
+        assert "vram" in data
+        assert "backend" in data
+    else:
+        assert "error" in data
+
+
+def test_preflight_disk_authenticated(test_client):
+    """GET /api/preflight/disk with auth → 200, returns disk space info."""
+    resp = test_client.get("/api/preflight/disk", headers=test_client.auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "free" in data
+    assert "total" in data
+    assert "used" in data
+    assert "path" in data
+
+
 # ---------------------------------------------------------------------------
 # Workflow path-traversal and catalog miss
 # ---------------------------------------------------------------------------
@@ -218,3 +253,59 @@ def test_privacy_shield_status_with_mock(test_client):
     assert "enabled" in data
     assert "container_running" in data
     assert "port" in data
+
+
+# ---------------------------------------------------------------------------
+# Core API Endpoints
+# ---------------------------------------------------------------------------
+
+
+def test_api_status_authenticated(test_client):
+    """GET /api/status with auth → 200, returns full system status."""
+    resp = test_client.get("/api/status", headers=test_client.auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "gpu" in data
+    assert "services" in data
+    assert "model" in data
+    assert "bootstrap" in data
+    assert "uptime" in data
+    assert "version" in data
+    assert "tier" in data
+    assert "cpu" in data
+    assert "ram" in data
+    assert "inference" in data
+
+
+def test_api_storage_authenticated(test_client):
+    """GET /api/storage with auth → 200, returns storage breakdown."""
+    resp = test_client.get("/api/storage", headers=test_client.auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "models" in data
+    assert "vector_db" in data
+    assert "total_data" in data
+    assert "disk" in data
+    assert "gb" in data["models"]
+    assert "percent" in data["models"]
+
+
+def test_api_external_links_authenticated(test_client):
+    """GET /api/external-links with auth → 200, returns sidebar links."""
+    resp = test_client.get("/api/external-links", headers=test_client.auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data, list)
+    for link in data:
+        assert "id" in link
+        assert "label" in link
+        assert "port" in link
+        assert "icon" in link
+
+
+def test_api_service_tokens_authenticated(test_client):
+    """GET /api/service-tokens with auth → 200, returns service tokens."""
+    resp = test_client.get("/api/service-tokens", headers=test_client.auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data, dict)

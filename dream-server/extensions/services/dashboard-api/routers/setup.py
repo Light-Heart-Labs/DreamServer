@@ -1,9 +1,9 @@
 """Setup wizard, persona management, and chat endpoints."""
 
+import asyncio
 import json
 import logging
 import os
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -137,26 +137,23 @@ async def run_setup_diagnostics(api_key: str = Depends(verify_api_key)):
             yield "\nSetup complete!\n"
         return StreamingResponse(error_stream(), media_type="text/plain")
 
-    def run_tests():
-        process = subprocess.Popen(
-            ["bash", str(script_path)],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, bufsize=1, universal_newlines=True
+    async def run_tests():
+        process = await asyncio.create_subprocess_exec(
+            "bash", str(script_path),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         )
         try:
-            for line in process.stdout:
-                yield line
-            process.wait()
+            async for line in process.stdout:
+                yield line.decode()
+            await process.wait()
             yield f"\n{'All tests passed!' if process.returncode == 0 else 'Some tests failed.'}\n"
         finally:
-            if process.stdout:
-                process.stdout.close()
-            if process.poll() is None:
+            if process.returncode is None:
                 try:
                     process.kill()
                 except OSError:
                     pass
-                process.wait()
+                await process.wait()
 
     return StreamingResponse(run_tests(), media_type="text/plain")
 

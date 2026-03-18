@@ -149,7 +149,8 @@ cmd_status() {
         # Launch health check in background
         (
             url="http://localhost:${port}${health}"
-            if curl -sf --max-time 5 "$url" > /dev/null 2>&1; then
+            timeout="${SERVICE_HEALTH_TIMEOUTS[$sid]:-5}"
+            if curl -sf --max-time "$timeout" "$url" > /dev/null 2>&1; then
                 echo "healthy|$name" > "$tmpdir/$sid"
             else
                 echo "unhealthy|$name" > "$tmpdir/$sid"
@@ -383,16 +384,61 @@ cmd_update() {
     local -a flags
     read -ra flags <<< "$flags_str"
 
+    # Create automatic backup before update
+    log "Creating pre-update backup..."
+    local backup_id
+    if backup_id=$("$INSTALL_DIR/dream-backup.sh" --type config --description "Pre-update backup $(date)" 2>&1 | grep -o '[0-9]\{8\}-[0-9]\{6\}' | tail -1); then
+        log "Pre-update backup created: $backup_id"
+        echo "$backup_id" > "$INSTALL_DIR/.last-backup-id"
+    else
+        log_warn "Failed to create pre-update backup, continuing anyway..."
+    fi
+
     log "Pulling latest images..."
-    docker compose "${flags[@]}" pull
+    if ! docker compose "${flags[@]}" pull; then
+        error "Failed to pull latest images"
+    fi
 
     log "Recreating containers with new images..."
-    docker compose "${flags[@]}" up -d --force-recreate
+    if ! docker compose "${flags[@]}" up -d --force-recreate; then
+        error "Failed to recreate containers. Run 'dream rollback' to restore previous state."
+    fi
 
-    success "Update complete"
+    log "Waiting for services to stabilize..."
+    sleep 10
 
-    log "Checking health..."
-    sleep 5
+    # Verify update was successful
+    log "Verifying update..."
+    local failed_services=0
+    local total_services=0
+
+    # Check each service health
+    while IFS= read -r service; do
+        [[ -z "$service" ]] && continue
+        ((total_services++))
+
+        local container
+        container=$(sr_container "$service" 2>/dev/null || echo "")
+        if [[ -n "$container" ]]; then
+            if ! docker ps --filter "name=$container" --filter "status=running" --format "{{.Names}}" | grep -q "^$container$"; then
+                log_warn "Service $service ($container) is not running"
+                ((failed_services++))
+            fi
+        fi
+    done < <(sr_list_enabled)
+
+    if [[ $failed_services -gt 0 ]]; then
+        log_error "Update verification failed: $failed_services/$total_services services are not running"
+        log_error "Run 'dream rollback' to restore previous state"
+        log_error "Or run 'dream status' to check service health"
+        exit 1
+    fi
+
+    success "Update complete and verified ($total_services services running)"
+
+    # Clean up backup ID file on successful update
+    rm -f "$INSTALL_DIR/.last-backup-id"
+
     cmd_status
 }
 
@@ -670,6 +716,40 @@ else:
 PY
 
     return $?
+}
+
+cmd_audit() {
+    check_install
+    sr_load
+
+    local -a script_args=()
+    local scope="${1:-}"
+    if [[ "$scope" == "extensions" || "$scope" == "extension" ]]; then
+        shift
+    fi
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --json|--strict)
+                script_args+=("$1")
+                shift
+                ;;
+            --help|-h)
+                python3 "$INSTALL_DIR/scripts/audit-extensions.py" --help
+                return 0
+                ;;
+            *)
+                script_args+=("$(resolve_service "$1")")
+                shift
+                ;;
+        esac
+    done
+
+    if [[ ! -f "$INSTALL_DIR/scripts/audit-extensions.py" ]]; then
+        error "audit-extensions.py not found at $INSTALL_DIR/scripts/audit-extensions.py"
+    fi
+
+    python3 "$INSTALL_DIR/scripts/audit-extensions.py" --project-dir "$INSTALL_DIR" "${script_args[@]}"
 }
 
 #=============================================================================
@@ -1284,10 +1364,11 @@ cmd_model() {
             ;;
         list)
             echo -e "${BLUE}━━━ Available Tiers ━━━${NC}"
-            echo "  T1         — qwen2.5-7b-instruct (<12GB VRAM)"
-            echo "  T2         — qwen2.5-14b-instruct (12-19GB)"
-            echo "  T3         — qwen2.5-32b-instruct (20-47GB)"
-            echo "  T4         — qwen2.5-72b-instruct (48GB+)"
+            echo "  T0         — qwen3.5-2b (< 8GB RAM, any GPU)"
+            echo "  T1         — qwen3-8b (<12GB VRAM)"
+            echo "  T2         — qwen3-8b (12-19GB, larger context)"
+            echo "  T3         — qwen3-14b (20-47GB)"
+            echo "  T4         — qwen3-30b-a3b (48GB+)"
             echo "  SH         — qwen3-30b-a3b (Strix Halo unified)"
             echo "  SH_LARGE   — qwen3-coder-next (90GB+ unified)"
             echo "  NV_ULTRA   — qwen3-coder-next (90GB+ NVIDIA)"
@@ -1296,16 +1377,25 @@ cmd_model() {
             ;;
         swap)
             local tier="${2:-}"
-            [[ -z "$tier" ]] && error "Usage: dream model swap <T1|T2|T3|T4|SH|SH_LARGE|NV_ULTRA>"
+            [[ -z "$tier" ]] && error "Usage: dream model swap <T0|T1|T2|T3|T4|SH|SH_LARGE|NV_ULTRA>"
             tier=$(echo "$tier" | tr '[:lower:]' '[:upper:]')
-            # Source tier-map for model lookup
+            # Source tier-map and resolve full config (model, GGUF, context)
             . "$INSTALL_DIR/installers/lib/tier-map.sh"
             local model
             model=$(tier_to_model "$tier")
             [[ -z "$model" ]] && error "Unknown tier: $tier"
+            # Normalize aliases for resolve_tier_config (T0→0, T1→1, SH→SH_COMPACT)
+            TIER="$tier"
+            [[ "$TIER" =~ ^T([0-9]+)$ ]] && TIER="${BASH_REMATCH[1]}"
+            [[ "$TIER" == "SH" ]] && TIER="SH_COMPACT"
+            resolve_tier_config
             _env_set "LLM_MODEL" "$model"
-            _env_set "TIER" "$tier"
-            success "Model set to $model (tier $tier). Run 'dream restart llama-server' to apply."
+            _env_set "TIER" "$TIER"
+            _env_set "GGUF_FILE" "$GGUF_FILE"
+            _env_set "GGUF_URL" "$GGUF_URL"
+            _env_set "CTX_SIZE" "$MAX_CONTEXT"
+            _env_set "MAX_CONTEXT" "$MAX_CONTEXT"
+            success "Model set to $model (tier $tier, ctx=$MAX_CONTEXT). Run 'dream restart llama-server' to apply."
             ;;
         *)
             error "Usage: dream model <current|list|swap>"
@@ -1346,6 +1436,61 @@ cmd_restore() {
     "$INSTALL_DIR/dream-restore.sh" "$@"
 }
 
+cmd_rollback() {
+    check_install
+    cd "$INSTALL_DIR"
+
+    if [[ ! -f "$INSTALL_DIR/.last-backup-id" ]]; then
+        error "No rollback point found. Rollback is only available after a failed update."
+    fi
+
+    local backup_id
+    backup_id=$(cat "$INSTALL_DIR/.last-backup-id")
+
+    if [[ -z "$backup_id" ]]; then
+        error "Invalid rollback point (empty backup ID)"
+    fi
+
+    log "Rolling back to pre-update state (backup: $backup_id)..."
+    echo ""
+    log_warn "This will restore configuration from before the last update."
+    read -p "Continue with rollback? [y/N] " -n 1 -r
+    echo ""
+
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        log "Rollback cancelled"
+        return 0
+    fi
+
+    # Stop services before rollback
+    log "Stopping services..."
+    local flags_str
+    flags_str=$(get_compose_flags)
+    local -a flags
+    read -ra flags <<< "$flags_str"
+    docker compose "${flags[@]}" down 2>/dev/null || true
+
+    # Restore from backup
+    if "$INSTALL_DIR/dream-restore.sh" "$backup_id"; then
+        success "Configuration restored from backup: $backup_id"
+
+        # Restart services with restored configuration
+        log "Restarting services with restored configuration..."
+        if docker compose "${flags[@]}" up -d; then
+            success "Rollback complete"
+            rm -f "$INSTALL_DIR/.last-backup-id"
+
+            log "Checking service health..."
+            sleep 5
+            cmd_status
+        else
+            error "Failed to restart services after rollback. Check 'docker compose logs' for details."
+        fi
+    else
+        error "Failed to restore from backup. Your system may be in an inconsistent state."
+    fi
+}
+
 cmd_help() {
     sr_load
     cat << EOF
@@ -1367,6 +1512,7 @@ ${CYAN}Commands:${NC}
   backup [options]    Create a backup of user data and config
   backup verify <id>   Verify checksum integrity for a backup
   restore [backup_id] Restore from a backup
+  rollback            Rollback to pre-update state (after failed update)
   logs <service>      Tail logs for a service
   restart [service]   Restart services (all if no service specified)
   start [service]     Start services
@@ -1377,7 +1523,8 @@ ${CYAN}Commands:${NC}
                       View, edit, or validate configuration
   chat "<message>"    Quick chat with the LLM
   benchmark           Run a quick performance test
-  doctor [--json]     Run diagnostics (use --json for raw report)
+  doctor [report]     Run diagnostics and write JSON report
+  audit [extensions]  Audit extension manifests and compose contracts
   help                Show this help
 
 ${CYAN}Preset Commands:${NC}
@@ -1439,11 +1586,13 @@ ${CYAN}Examples:${NC}
   dream backup verify <id>        # Verify backup integrity
   dream restore                   # Interactive restore
   dream restore 20260309-120000   # Restore specific backup
+  dream rollback                  # Rollback after failed update
   dream logs llm                  # Watch llama-server logs (via alias)
   dream restart stt               # Restart Whisper (via alias)
   dream chat "What is 2+2?"      # Quick LLM test
   dream config edit               # Edit .env file
-  dream config validate           # Validate .env and extension manifests
+  dream audit                     # Audit every extension contract
+  dream audit --json whisper      # Audit one service as JSON
 
 ${CYAN}Environment:${NC}
   DREAM_HOME          Installation directory (default: ~/dream-server)
@@ -1465,6 +1614,7 @@ case "${1:-help}" in
     model)       shift; cmd_model "$@" ;;
     backup)      shift; cmd_backup "$@" ;;
     restore)     shift; cmd_restore "$@" ;;
+    rollback)    cmd_rollback ;;
     logs|log|l)  shift; cmd_logs "$@" ;;
     restart|r)   shift; cmd_restart "$@" ;;
     start)       shift; cmd_start "$@" ;;
@@ -1475,6 +1625,7 @@ case "${1:-help}" in
     chat|c)      shift; cmd_chat "$@" ;;
     benchmark|bench|b) cmd_benchmark ;;
     doctor|diag|d) shift; cmd_doctor "$@" ;;
+    audit)        shift; cmd_audit "$@" ;;
     help|h|--help|-h) cmd_help ;;
     version|v|--version|-v) echo "dream-cli v${VERSION}" ;;
     *)           error "Unknown command: $1. Run 'dream help' for usage." ;;

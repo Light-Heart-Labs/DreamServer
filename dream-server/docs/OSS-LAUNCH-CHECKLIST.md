@@ -10,25 +10,25 @@ Scope: `/home/user/dream-server` (Strix Halo variant)
 - [x] Add installer capability profile contract and loader wiring:
   - [`config/capability-profile.schema.json`](../config/capability-profile.schema.json)
   - [`scripts/build-capability-profile.sh`](../scripts/build-capability-profile.sh)
-  - [`docs/CAPABILITY-PROFILE.md`](../docs/CAPABILITY-PROFILE.md)
+  - [CAPABILITY-PROFILE.md](CAPABILITY-PROFILE.md)
 - [x] Add capability-aware preflight and machine-readable reporting:
   - [`scripts/preflight-engine.sh`](../scripts/preflight-engine.sh)
-  - [`docs/PREFLIGHT-ENGINE.md`](../docs/PREFLIGHT-ENGINE.md)
+  - [PREFLIGHT-ENGINE.md](PREFLIGHT-ENGINE.md)
 - [x] Add backend runtime contracts and loader:
   - [`config/backends/`](../config/backends)
   - [`scripts/load-backend-contract.sh`](../scripts/load-backend-contract.sh)
-  - [`docs/BACKEND-CONTRACT.md`](../docs/BACKEND-CONTRACT.md)
+  - [BACKEND-CONTRACT.md](BACKEND-CONTRACT.md)
 - [x] Upgrade Windows/macOS installer stubs to MVP flows:
   - [`installers/windows.ps1`](../installers/windows.ps1) (WSL delegation)
   - [`installers/macos.sh`](../installers/macos.sh) (doctor/preflight)
 - [x] Add Dream Doctor diagnostics report:
   - [`scripts/dream-doctor.sh`](../scripts/dream-doctor.sh)
-  - [`docs/DREAM-DOCTOR.md`](../docs/DREAM-DOCTOR.md)
+  - [DREAM-DOCTOR.md](DREAM-DOCTOR.md)
 - [x] Add one-command installer simulation harness:
   - [`scripts/simulate-installers.sh`](../scripts/simulate-installers.sh)
   - Outputs: `artifacts/installer-sim/summary.json`, `artifacts/installer-sim/SUMMARY.md`
 - [x] Add launch-claim truth table:
-  - [`docs/PLATFORM-TRUTH-TABLE.md`](../docs/PLATFORM-TRUTH-TABLE.md)
+  - [PLATFORM-TRUTH-TABLE.md](PLATFORM-TRUTH-TABLE.md)
 
 ## P0: Must Fix Before OSS Launch
 
@@ -77,14 +77,14 @@ Scope: `/home/user/dream-server` (Strix Halo variant)
 1. **Split NVIDIA vs Strix docs or add clear command matrix**
 - Why: mixed instructions (legacy llama-server and current `llama-server:8080`) create operator confusion.
 - Evidence:
-  - [`README.md`](../README.md), [`FAQ.md`](../FAQ.md), [`docs/TROUBLESHOOTING.md`](../docs/TROUBLESHOOTING.md)
+  - [`README.md`](../README.md), [`FAQ.md`](../FAQ.md), [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 - Owner: Docs Maintainer
 - Effort: M (0.5-1 day)
 
 2. **Modernize old `docker-compose` command style in docs**
 - Why: docs mix `docker-compose` and `docker compose`; standardizing reduces support friction.
 - Evidence:
-  - [`docs/PROFILES.md`](../docs/PROFILES.md)
+  - [PROFILES.md](PROFILES.md)
 - Owner: Docs Maintainer
 - Effort: S (1-2 hours)
 

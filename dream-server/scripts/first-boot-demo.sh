@@ -5,7 +5,7 @@
 # Usage: ./first-boot-demo.sh [--all] [--quick]
 # Mission: M5 (Clonable Dream Setup Server)
 
-set -e
+set -euo pipefail
 
 #=============================================================================
 # Colors

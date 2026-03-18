@@ -19,6 +19,7 @@ import logging
 import os
 import socket
 import shutil
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -27,7 +28,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 # --- Local modules ---
-from config import SERVICES, DATA_DIR, SIDEBAR_ICONS
+from config import SERVICES, DATA_DIR, SIDEBAR_ICONS, MANIFEST_ERRORS
 from models import (
     GPUInfo, ServiceStatus, DiskUsage, ModelInfo, BootstrapStatus,
     FullStatus, PortCheckRequest,
@@ -41,6 +42,38 @@ from helpers import (
     get_llama_metrics, get_loaded_model, get_llama_context_size,
 )
 from agent_monitor import collect_metrics
+
+
+# ================================================================
+# TTL Cache — avoids redundant subprocess/IO calls every poll cycle
+# ================================================================
+
+class TTLCache:
+    """Simple in-memory cache with per-key TTL (seconds)."""
+
+    def __init__(self):
+        self._store: dict[str, tuple[float, object]] = {}
+
+    def get(self, key: str) -> object | None:
+        entry = self._store.get(key)
+        if entry is None:
+            return None
+        expires_at, value = entry
+        if time.monotonic() > expires_at:
+            del self._store[key]
+            return None
+        return value
+
+    def set(self, key: str, value: object, ttl: float):
+        self._store[key] = (time.monotonic() + ttl, value)
+
+
+_cache = TTLCache()
+
+# Cache TTLs (seconds)
+_GPU_CACHE_TTL = 3.0
+_STATUS_CACHE_TTL = 2.0
+_STORAGE_CACHE_TTL = 30.0
 
 # --- Router imports ---
 from routers import workflows, features, setup, updates, agents, privacy
@@ -109,20 +142,24 @@ async def health():
 @app.get("/api/preflight/docker", dependencies=[Depends(verify_api_key)])
 async def preflight_docker():
     """Check if Docker is available."""
-    import subprocess
     if os.path.exists("/.dockerenv"):
         return {"available": True, "version": "available (host)"}
     try:
-        result = subprocess.run(["docker", "--version"], capture_output=True, text=True, timeout=5)
-        if result.returncode == 0:
-            version = result.stdout.strip().split()[2].rstrip(",") if len(result.stdout.strip().split()) > 2 else "unknown"
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "--version",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+        if proc.returncode == 0:
+            parts = stdout.decode().strip().split()
+            version = parts[2].rstrip(",") if len(parts) > 2 else "unknown"
             return {"available": True, "version": version}
         return {"available": False, "error": "Docker command failed"}
     except FileNotFoundError:
         return {"available": False, "error": "Docker not installed"}
-    except subprocess.TimeoutExpired:
+    except asyncio.TimeoutError:
         return {"available": False, "error": "Docker check timed out"}
-    except (subprocess.SubprocessError, OSError):
+    except OSError:
         logger.exception("Docker preflight check failed")
         return {"available": False, "error": "Docker check failed"}
 
@@ -130,7 +167,7 @@ async def preflight_docker():
 @app.get("/api/preflight/gpu", dependencies=[Depends(verify_api_key)])
 async def preflight_gpu():
     """Check GPU availability."""
-    gpu_info = get_gpu_info()
+    gpu_info = await asyncio.to_thread(get_gpu_info)
     if gpu_info:
         vram_gb = round(gpu_info.memory_total_mb / 1024, 1)
         result = {"available": True, "name": gpu_info.name, "vram": vram_gb, "backend": gpu_info.gpu_backend, "memory_type": gpu_info.memory_type}
@@ -191,8 +228,14 @@ async def preflight_disk():
 
 @app.get("/gpu", response_model=Optional[GPUInfo])
 async def gpu(api_key: str = Depends(verify_api_key)):
-    """Get GPU metrics."""
-    info = get_gpu_info()
+    """Get GPU metrics (cached for a few seconds to avoid nvidia-smi spam)."""
+    cached = _cache.get("gpu_info")
+    if cached is not None:
+        if not cached:
+            raise HTTPException(status_code=503, detail="GPU not available")
+        return cached
+    info = await asyncio.to_thread(get_gpu_info)
+    _cache.set("gpu_info", info, _GPU_CACHE_TTL)
     if not info:
         raise HTTPException(status_code=503, detail="GPU not available")
     return info
@@ -206,28 +249,35 @@ async def services(api_key: str = Depends(verify_api_key)):
 
 @app.get("/disk", response_model=DiskUsage)
 async def disk(api_key: str = Depends(verify_api_key)):
-    return get_disk_usage()
+    return await asyncio.to_thread(get_disk_usage)
 
 
 @app.get("/model", response_model=Optional[ModelInfo])
 async def model(api_key: str = Depends(verify_api_key)):
-    return get_model_info()
+    return await asyncio.to_thread(get_model_info)
 
 
 @app.get("/bootstrap", response_model=BootstrapStatus)
 async def bootstrap(api_key: str = Depends(verify_api_key)):
-    return get_bootstrap_status()
+    return await asyncio.to_thread(get_bootstrap_status)
 
 
 @app.get("/status", response_model=FullStatus)
 async def status(api_key: str = Depends(verify_api_key)):
-    """Get full system status."""
-    service_statuses = await get_all_services()
+    """Get full system status. Runs sync helpers in thread pool concurrently."""
+    service_statuses, gpu_info, disk_info, model_info, bootstrap_info, uptime = await asyncio.gather(
+        get_all_services(),
+        asyncio.to_thread(get_gpu_info),
+        asyncio.to_thread(get_disk_usage),
+        asyncio.to_thread(get_model_info),
+        asyncio.to_thread(get_bootstrap_status),
+        asyncio.to_thread(get_uptime),
+    )
     return FullStatus(
         timestamp=datetime.now(timezone.utc).isoformat(),
-        gpu=get_gpu_info(), services=service_statuses,
-        disk=get_disk_usage(), model=get_model_info(),
-        bootstrap=get_bootstrap_status(), uptime_seconds=get_uptime()
+        gpu=gpu_info, services=service_statuses,
+        disk=disk_info, model=model_info,
+        bootstrap=bootstrap_info, uptime_seconds=uptime
     )
 
 
@@ -251,23 +301,34 @@ async def api_status(api_key: str = Depends(verify_api_key)):
             "ram": {"used_gb": 0, "total_gb": 0, "percent": 0},
             "inference": {"tokensPerSecond": 0, "lifetimeTokens": 0,
                           "loadedModel": None, "contextSize": None},
+            "manifest_errors": MANIFEST_ERRORS,
         }
 
 
 async def _build_api_status() -> dict:
     """Build the full status payload.
 
-    Resolves the loaded model name *once* and threads it through the
-    metrics and context-size helpers to avoid redundant HTTP round-trips
-    to llama-server (previously 5 sequential calls, now 3 parallel).
+    Runs ALL sync helpers (GPU, disk, CPU, RAM, model, bootstrap)
+    concurrently in the thread pool while async health checks and
+    llama-server queries run on the event loop — no serial blocking.
     """
-    gpu_info = get_gpu_info()
-    service_statuses = await get_all_services()
-    model_info = get_model_info()
-    bootstrap_info = get_bootstrap_status()
+    # Fan out: sync helpers in threads + async health checks simultaneously
+    (
+        gpu_info, model_info, bootstrap_info, uptime,
+        cpu_metrics, ram_metrics,
+        service_statuses, loaded_model,
+    ) = await asyncio.gather(
+        asyncio.to_thread(get_gpu_info),
+        asyncio.to_thread(get_model_info),
+        asyncio.to_thread(get_bootstrap_status),
+        asyncio.to_thread(get_uptime),
+        asyncio.to_thread(get_cpu_metrics),
+        asyncio.to_thread(get_ram_metrics),
+        get_all_services(),
+        get_loaded_model(),
+    )
 
-    # Resolve the loaded model name once, then fan it out.
-    loaded_model = await get_loaded_model()
+    # Second fan-out: llama metrics + context size (need loaded_model)
     llama_metrics_data, context_size = await asyncio.gather(
         get_llama_metrics(model_hint=loaded_model),
         get_llama_context_size(model_hint=loaded_model),
@@ -315,18 +376,20 @@ async def _build_api_status() -> dict:
         elif vram_gb >= 8: tier = "Entry"
         else: tier = "Minimal"
 
-    return {
+    result = {
         "gpu": gpu_data, "services": services_data, "model": model_data,
-        "bootstrap": bootstrap_data, "uptime": get_uptime(),
+        "bootstrap": bootstrap_data, "uptime": uptime,
         "version": app.version, "tier": tier,
-        "cpu": get_cpu_metrics(), "ram": get_ram_metrics(),
+        "cpu": cpu_metrics, "ram": ram_metrics,
         "inference": {
             "tokensPerSecond": llama_metrics_data.get("tokens_per_second", 0),
             "lifetimeTokens": llama_metrics_data.get("lifetime_tokens", 0),
             "loadedModel": loaded_model or (model_data["name"] if model_data else None),
             "contextSize": context_size or (model_data["contextLength"] if model_data else None),
         },
+        "manifest_errors": MANIFEST_ERRORS,
     }
+    return result
 
 
 # --- Settings ---
@@ -334,25 +397,28 @@ async def _build_api_status() -> dict:
 @app.get("/api/service-tokens", dependencies=[Depends(verify_api_key)])
 async def service_tokens():
     """Return connection tokens for services that need browser-side auth."""
-    tokens = {}
-    oc_token = os.environ.get("OPENCLAW_TOKEN", "")
-    if not oc_token:
-        for path in [Path("/data/openclaw/home/gateway-token"), Path("/dream-server/.env")]:
-            try:
-                if path.suffix == ".env":
-                    for line in path.read_text().splitlines():
-                        if line.startswith("OPENCLAW_TOKEN="):
-                            oc_token = line.split("=", 1)[1].strip()
-                            break
-                else:
-                    oc_token = path.read_text().strip()
-            except (OSError, ValueError):
-                continue
-            if oc_token:
-                break
-    if oc_token:
-        tokens["openclaw"] = oc_token
-    return tokens
+    def _read_tokens():
+        tokens = {}
+        oc_token = os.environ.get("OPENCLAW_TOKEN", "")
+        if not oc_token:
+            for path in [Path("/data/openclaw/home/gateway-token"), Path("/dream-server/.env")]:
+                try:
+                    if path.suffix == ".env":
+                        for line in path.read_text().splitlines():
+                            if line.startswith("OPENCLAW_TOKEN="):
+                                oc_token = line.split("=", 1)[1].strip()
+                                break
+                    else:
+                        oc_token = path.read_text().strip()
+                except (OSError, ValueError):
+                    continue
+                if oc_token:
+                    break
+        if oc_token:
+            tokens["openclaw"] = oc_token
+        return tokens
+
+    return await asyncio.to_thread(_read_tokens)
 
 
 @app.get("/api/external-links")
@@ -373,34 +439,47 @@ async def get_external_links(api_key: str = Depends(verify_api_key)):
 
 @app.get("/api/storage")
 async def api_storage(api_key: str = Depends(verify_api_key)):
-    """Get storage breakdown for Settings page."""
-    models_dir = Path(DATA_DIR) / "models"
-    vector_dir = Path(DATA_DIR) / "qdrant"
-    data_dir = Path(DATA_DIR)
+    """Get storage breakdown for Settings page (cached, runs in thread pool)."""
+    cached = _cache.get("storage")
+    if cached is not None:
+        return cached
 
-    def dir_size_gb(path: Path) -> float:
-        if not path.exists():
-            return 0.0
-        total = 0
-        try:
-            for f in path.rglob("*"):
-                if f.is_file():
-                    total += f.stat().st_size
-        except (PermissionError, OSError):
-            pass
-        return round(total / (1024**3), 2)
+    def _compute_storage():
+        models_dir = Path(DATA_DIR) / "models"
+        vector_dir = Path(DATA_DIR) / "qdrant"
+        data_dir = Path(DATA_DIR)
 
-    disk_info = get_disk_usage()
-    models_gb = dir_size_gb(models_dir)
-    vector_gb = dir_size_gb(vector_dir)
-    total_data_gb = dir_size_gb(data_dir)
+        def dir_size_gb(path: Path) -> float:
+            if not path.exists():
+                return 0.0
+            total = 0
+            try:
+                for f in path.rglob("*"):
+                    if f.is_file():
+                        try:
+                            total += f.stat().st_size
+                        except OSError:
+                            pass
+            except (PermissionError, OSError):
+                pass
+            return round(total / (1024**3), 2)
 
-    return {
-        "models": {"formatted": f"{models_gb:.1f} GB", "gb": models_gb, "percent": round(models_gb / disk_info.total_gb * 100, 1) if disk_info.total_gb else 0},
-        "vector_db": {"formatted": f"{vector_gb:.1f} GB", "gb": vector_gb, "percent": round(vector_gb / disk_info.total_gb * 100, 1) if disk_info.total_gb else 0},
-        "total_data": {"formatted": f"{total_data_gb:.1f} GB", "gb": total_data_gb, "percent": round(total_data_gb / disk_info.total_gb * 100, 1) if disk_info.total_gb else 0},
-        "disk": {"used_gb": disk_info.used_gb, "total_gb": disk_info.total_gb, "percent": disk_info.percent}
-    }
+        disk_info = get_disk_usage()
+        models_gb = dir_size_gb(models_dir)
+        vector_gb = dir_size_gb(vector_dir)
+        other_gb = dir_size_gb(data_dir) - models_gb - vector_gb
+        total_data_gb = models_gb + vector_gb + max(other_gb, 0)
+
+        return {
+            "models": {"formatted": f"{models_gb:.1f} GB", "gb": models_gb, "percent": round(models_gb / disk_info.total_gb * 100, 1) if disk_info.total_gb else 0},
+            "vector_db": {"formatted": f"{vector_gb:.1f} GB", "gb": vector_gb, "percent": round(vector_gb / disk_info.total_gb * 100, 1) if disk_info.total_gb else 0},
+            "total_data": {"formatted": f"{total_data_gb:.1f} GB", "gb": total_data_gb, "percent": round(total_data_gb / disk_info.total_gb * 100, 1) if disk_info.total_gb else 0},
+            "disk": {"used_gb": disk_info.used_gb, "total_gb": disk_info.total_gb, "percent": disk_info.percent}
+        }
+
+    result = await asyncio.to_thread(_compute_storage)
+    _cache.set("storage", result, _STORAGE_CACHE_TTL)
+    return result
 
 
 # --- Startup ---

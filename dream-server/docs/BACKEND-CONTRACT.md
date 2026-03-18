@@ -34,4 +34,4 @@ The modular installer loads backend contracts in `installers/lib/detection.sh` v
 - OpenClaw provider wiring (`installers/phases/06-directories.sh`)
 - LLM API summary endpoint (`installers/phases/13-summary.sh`)
 
-See [docs/INSTALLER-ARCHITECTURE.md](INSTALLER-ARCHITECTURE.md) for the full module map.
+See [INSTALLER-ARCHITECTURE.md](INSTALLER-ARCHITECTURE.md) for the full module map.

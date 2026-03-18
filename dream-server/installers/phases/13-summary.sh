@@ -21,6 +21,8 @@
 #   shortcut here.
 # ============================================================================
 
+dream_progress 98 "summary" "Finishing up"
+
 # Source service registry for port resolution
 . "$SCRIPT_DIR/lib/service-registry.sh"
 sr_load
@@ -181,6 +183,26 @@ DESKTOP_EOF
     ai_ok "Desktop shortcut created: Dream Server"
 fi
 
+#=============================================================================
+# Bash Completion Setup
+#=============================================================================
+if ! $DRY_RUN; then
+    COMPLETION_FILE="$INSTALL_DIR/completions/dream-cli.bash"
+    if [[ -f "$COMPLETION_FILE" ]]; then
+        # Add completion sourcing to .bashrc if not already present
+        if ! grep -q "dream-cli.bash" "$HOME/.bashrc" 2>/dev/null; then
+            cat >> "$HOME/.bashrc" << 'BASHRC_EOF'
+
+# Dream Server CLI bash completion
+if [[ -f "$HOME/dream-server/completions/dream-cli.bash" ]]; then
+    . "$HOME/dream-server/completions/dream-cli.bash"
+fi
+BASHRC_EOF
+            ai_ok "Bash completion enabled for dream-cli"
+        fi
+    fi
+fi
+
 echo ""
 signal "Broadcast stable. You're free now."
 echo ""
@@ -210,7 +232,15 @@ echo -e "${GRN}─────────────────────�
 echo ""
 
 if [[ -n "$SUMMARY_JSON_FILE" ]]; then
-    python3 - "$SUMMARY_JSON_FILE" "$VERSION" "$INSTALL_DIR" "$TIER" "$TIER_NAME" "$GPU_BACKEND" "${BACKEND_SERVICE_NAME:-llama-server}" "$LLM_MODEL" "$COMPOSE_FLAGS" "$DRY_RUN" "$PREFLIGHT_REPORT_FILE" "${CAP_HARDWARE_CLASS_ID:-unknown}" "${CAP_HARDWARE_CLASS_LABEL:-Unknown}" <<'PY'
+    PYTHON_CMD="python3"
+    if [[ -f "$SCRIPT_DIR/lib/python-cmd.sh" ]]; then
+        . "$SCRIPT_DIR/lib/python-cmd.sh"
+        PYTHON_CMD="$(ds_detect_python_cmd)"
+    elif command -v python >/dev/null 2>&1; then
+        PYTHON_CMD="python"
+    fi
+
+    "$PYTHON_CMD" - "$SUMMARY_JSON_FILE" "$VERSION" "$INSTALL_DIR" "$TIER" "$TIER_NAME" "$GPU_BACKEND" "${BACKEND_SERVICE_NAME:-llama-server}" "$LLM_MODEL" "$COMPOSE_FLAGS" "$DRY_RUN" "$PREFLIGHT_REPORT_FILE" "${CAP_HARDWARE_CLASS_ID:-unknown}" "${CAP_HARDWARE_CLASS_LABEL:-Unknown}" <<'PY'
 import json
 import pathlib
 import sys
