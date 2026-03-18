@@ -12,6 +12,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+MONO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -29,17 +30,17 @@ echo "║   validate-sim-summary.py Test Suite              ║"
 echo "╚════════════════════════════════════════════════════╝"
 echo ""
 
-if [[ ! -f "$ROOT_DIR/scripts/validate-sim-summary.py" ]]; then
+if [[ ! -f "$MONO_ROOT/scripts/validate-sim-summary.py" ]]; then
     fail "scripts/validate-sim-summary.py not found"
     echo ""; echo "Result: $PASSED passed, $FAILED failed"; exit 1
 fi
 pass "validate-sim-summary.py exists"
 
-python3 -m py_compile "$ROOT_DIR/scripts/validate-sim-summary.py"
+python3 -m py_compile "$MONO_ROOT/scripts/validate-sim-summary.py"
 pass "validate-sim-summary.py compiles"
 
 set +e
-python3 "$ROOT_DIR/scripts/validate-sim-summary.py" --help >/dev/null 2>&1
+python3 "$MONO_ROOT/scripts/validate-sim-summary.py" --help >/dev/null 2>&1
 r=$?
 set -e
 if [[ $r -eq 0 ]]; then
@@ -52,7 +53,7 @@ TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 set +e
-python3 "$ROOT_DIR/scripts/validate-sim-summary.py" "$TMP_DIR/missing.json" >/dev/null 2>&1
+python3 "$MONO_ROOT/scripts/validate-sim-summary.py" "$TMP_DIR/missing.json" >/dev/null 2>&1
 r=$?
 set -e
 if [[ $r -eq 2 ]]; then
@@ -63,7 +64,7 @@ fi
 
 printf '{invalid json' > "$TMP_DIR/bad.json"
 set +e
-python3 "$ROOT_DIR/scripts/validate-sim-summary.py" "$TMP_DIR/bad.json" >/dev/null 2>&1
+python3 "$MONO_ROOT/scripts/validate-sim-summary.py" "$TMP_DIR/bad.json" >/dev/null 2>&1
 r=$?
 set -e
 if [[ $r -eq 3 ]]; then
@@ -117,7 +118,7 @@ cat > "$TMP_DIR/valid.json" <<'EOF'
 EOF
 
 set +e
-out=$(python3 "$ROOT_DIR/scripts/validate-sim-summary.py" "$TMP_DIR/valid.json" 2>&1)
+out=$(python3 "$MONO_ROOT/scripts/validate-sim-summary.py" "$TMP_DIR/valid.json" 2>&1)
 r=$?
 set -e
 if [[ $r -eq 0 ]]; then
@@ -143,7 +144,7 @@ with open(dest, "w", encoding="utf-8") as f:
 PY
 
 set +e
-out=$(python3 "$ROOT_DIR/scripts/validate-sim-summary.py" "$TMP_DIR/missing-signal.json" 2>&1)
+out=$(python3 "$MONO_ROOT/scripts/validate-sim-summary.py" "$TMP_DIR/missing-signal.json" 2>&1)
 r=$?
 set -e
 if [[ $r -eq 2 ]]; then
@@ -169,7 +170,7 @@ with open(dest, "w", encoding="utf-8") as f:
 PY
 
 set +e
-python3 "$ROOT_DIR/scripts/validate-sim-summary.py" --strict "$TMP_DIR/no-generated-at.json" >/dev/null 2>&1
+python3 "$MONO_ROOT/scripts/validate-sim-summary.py" --strict "$TMP_DIR/no-generated-at.json" >/dev/null 2>&1
 r=$?
 set -e
 if [[ $r -eq 2 ]]; then
