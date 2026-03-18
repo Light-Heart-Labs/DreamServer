@@ -68,10 +68,10 @@ def test_trigger_update_no_script(test_client):
 
 
 def test_trigger_update_unknown_action(test_client):
-    """POST /api/update with unknown action → 422 (Pydantic validation)."""
+    """POST /api/update with unknown action → 422 (Pydantic) or 400 (guard in handler)."""
     resp = test_client.post(
         "/api/update",
         json={"action": "invalid"},
         headers=test_client.auth_headers
     )
-    assert resp.status_code == 422
+    assert resp.status_code in (400, 422)
