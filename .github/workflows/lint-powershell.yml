@@ -34,7 +34,7 @@ jobs:
           $failed = $false
           foreach ($script in $scripts) {
             Write-Host "Analyzing $($script.FullName)"
-            $results = Invoke-ScriptAnalyzer -Path $script.FullName -Settings ./PSScriptAnalyzerSettings.psd1 -Severity Error,Warning
+            $results = Invoke-ScriptAnalyzer -Path $script.FullName -Settings ../PSScriptAnalyzerSettings.psd1 -Severity Error,Warning
             if ($results) {
               $results | Format-Table RuleName, Severity, Message, ScriptName, Line -AutoSize
               $failed = $true
