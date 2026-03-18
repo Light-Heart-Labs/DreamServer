@@ -792,6 +792,11 @@ async def proxy_chat_completions(request: Request):
     tools = body.get("tools", [])
     is_streaming = body.get("stream", False)
 
+    # Ensure streaming responses include token usage (needed for local LLM accounting)
+    if is_streaming and "stream_options" not in body:
+        body["stream_options"] = {"include_usage": True}
+        raw_body = json.dumps(body, separators=(",", ":")).encode()
+
     # Moonshot/Kimi doesn't support the "developer" role (OpenAI-specific).
     # Rewrite to "system" before forwarding.
     rewritten = False
