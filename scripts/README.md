@@ -29,6 +29,21 @@ Makefile (repo root)
 └── make lint / test / smoke ──→ dream-server/tests/
 ```
 
+## Prerequisites
+
+- **jq** — required by compatibility and release-claims checks
+- **Python 3.6+** — required by `validate-sim-summary.py` and `preflight-engine.sh` (heredoc f-strings)
+
+If your system Python is older, use [pyenv](https://github.com/pyenv/pyenv) to install a recent version:
+
+```bash
+export PYENV_ROOT="$HOME/.pyenv"
+export PATH="$PYENV_ROOT/bin:$PATH"
+eval "$(pyenv init -)"
+```
+
+> **WSL note:** Scripts that invoke `preflight-engine.sh` (e.g. `release-gate.sh`, `simulate-installers.sh`) can be slow on Windows-mounted filesystems (`/mnt/…`). In CI this runs on native Linux and is fast.
+
 ## Running Locally
 
 ```bash
