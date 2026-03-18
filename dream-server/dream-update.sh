@@ -793,7 +793,7 @@ cmd_health() {
     fi
     
     # Check llama-server health
-    local llama_server_port="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-8080}}"
+    local llama_server_port="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-11434}}"
     if curl -sf "http://localhost:${llama_server_port}/v1/models" &>/dev/null; then
         log_ok "llama-server: healthy"
     else

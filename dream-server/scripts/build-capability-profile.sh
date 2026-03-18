@@ -62,7 +62,7 @@ if [[ -f "$ROOT_DIR/lib/service-registry.sh" ]]; then
     . "$ROOT_DIR/lib/service-registry.sh"
     sr_load
 fi
-_LLM_PORT="${SERVICE_PORTS[llama-server]:-8080}"
+_LLM_PORT="${SERVICE_PORTS[llama-server]:-11434}"
 _LLM_HEALTH="${SERVICE_HEALTH[llama-server]:-/health}"
 
 "$PYTHON_CMD" - "$HARDWARE_JSON" "$OUTPUT_FILE" "$ENV_MODE" "${HW_CLASS_ID:-unknown}" "${HW_CLASS_LABEL:-Unknown}" "${HW_REC_BACKEND:-cpu}" "${HW_REC_TIER:-T1}" "${HW_REC_COMPOSE_OVERLAYS:-}" "$_LLM_PORT" "$_LLM_HEALTH" <<'PY'
@@ -78,7 +78,7 @@ hw_class_label = sys.argv[5]
 hw_rec_backend = sys.argv[6]
 hw_rec_tier = sys.argv[7]
 hw_rec_overlays = [x for x in sys.argv[8].split(",") if x]
-llm_port = int(sys.argv[9]) if len(sys.argv) > 9 else 8080
+llm_port = int(sys.argv[9]) if len(sys.argv) > 9 else 11434
 llm_health = sys.argv[10] if len(sys.argv) > 10 else "/health"
 
 os_name = (hardware.get("os") or "unknown").lower()

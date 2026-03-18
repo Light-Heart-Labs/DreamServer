@@ -42,7 +42,7 @@ fi
 
 # Service endpoints — resolved from registry
 LLM_HOST="${LLM_HOST:-localhost}"
-LLM_PORT="${LLM_PORT:-${SERVICE_PORTS[llama-server]:-8080}}"
+LLM_PORT="${LLM_PORT:-${SERVICE_PORTS[llama-server]:-11434}}"
 LLM_URL="http://${LLM_HOST}:${LLM_PORT}"
 WHISPER_HOST="${WHISPER_HOST:-localhost}"
 WHISPER_PORT="${WHISPER_PORT:-${SERVICE_PORTS[whisper]:-9000}}"

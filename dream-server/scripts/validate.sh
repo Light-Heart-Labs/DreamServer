@@ -23,7 +23,7 @@ sr_load
 load_env_file "$PROJECT_DIR/.env"
 
 # Resolve core ports from registry (honoring any env overrides)
-LLM_PORT="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-${SERVICE_PORTS[llama-server]:-8080}}}"
+LLM_PORT="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-${SERVICE_PORTS[llama-server]:-11434}}}"
 LLM_HEALTH="${SERVICE_HEALTH[llama-server]:-/health}"
 WEBUI_PORT="${WEBUI_PORT:-${SERVICE_PORTS[open-webui]:-3000}}"
 WEBUI_HEALTH="${WEBUI_HEALTH:-${SERVICE_HEALTH[open-webui]:-/}}"
