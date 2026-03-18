@@ -49,6 +49,12 @@ def test_workflows_requires_auth(test_client):
     assert resp.status_code == 401
 
 
+def test_voice_status_requires_auth(test_client):
+    """GET /api/voice/status without auth header → 401."""
+    resp = test_client.get("/api/voice/status")
+    assert resp.status_code == 401
+
+
 # ---------------------------------------------------------------------------
 # Setup router
 # ---------------------------------------------------------------------------
@@ -139,6 +145,71 @@ def test_get_persona_info_nonexistent(test_client):
     """GET /api/setup/persona/nonexistent → 404."""
     resp = test_client.get("/api/setup/persona/nonexistent", headers=test_client.auth_headers)
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Voice router
+# ---------------------------------------------------------------------------
+
+
+def test_voice_status_authenticated(test_client, monkeypatch):
+    """GET /api/voice/status with auth → 200 and structured service payload."""
+    import routers.voice as voice_router
+
+    async def fake_status():
+        return {
+            "available": True,
+            "message": "Voice services ready",
+            "services": {
+                "stt": {"status": "healthy", "name": "Whisper (STT)", "port": 9000},
+                "tts": {"status": "healthy", "name": "Kokoro (TTS)", "port": 8880},
+                "livekit": {"status": "healthy", "name": "LiveKit", "port": 7880},
+            },
+        }
+
+    monkeypatch.setattr(voice_router, "get_voice_status_payload", fake_status)
+
+    resp = test_client.get("/api/voice/status", headers=test_client.auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["available"] is True
+    assert "services" in data
+    assert data["services"]["stt"]["status"] == "healthy"
+
+
+def test_voice_settings_round_trip(test_client, tmp_path, monkeypatch):
+    """Voice settings can be loaded, saved, and loaded again."""
+    import routers.voice as voice_router
+    monkeypatch.setattr(voice_router, "SETUP_CONFIG_DIR", tmp_path)
+
+    resp = test_client.get("/api/voice/settings", headers=test_client.auth_headers)
+    assert resp.status_code == 200
+    defaults = resp.json()
+    assert "voice" in defaults
+    assert "speed" in defaults
+    assert "wakeWord" in defaults
+
+    resp = test_client.post(
+        "/api/voice/settings",
+        json={"voice": "af_bella", "speed": 1.2, "wakeWord": True},
+        headers=test_client.auth_headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["voice"] == "af_bella"
+
+    resp = test_client.get("/api/voice/settings", headers=test_client.auth_headers)
+    assert resp.status_code == 200
+    saved = resp.json()
+    assert saved["voice"] == "af_bella"
+    assert saved["speed"] == 1.2
+    assert saved["wakeWord"] is True
+
+
+def test_voice_token_stub(test_client):
+    """POST /api/voice/token returns a clear stub response instead of 404."""
+    resp = test_client.post("/api/voice/token", headers=test_client.auth_headers)
+    assert resp.status_code == 501
+    assert "not configured" in resp.json()["detail"].lower()
 
 
 # ---------------------------------------------------------------------------
@@ -309,3 +380,41 @@ def test_api_service_tokens_authenticated(test_client):
     assert resp.status_code == 200
     data = resp.json()
     assert isinstance(data, dict)
+
+
+def test_api_test_llm_authenticated(test_client, monkeypatch):
+    """GET /api/test/llm with auth → 200 and returns a setup-validation payload."""
+    import routers.diagnostics as diagnostics_router
+
+    async def fake_probe(*args, **kwargs):
+        return {"success": True, "service": "llama-server", "error": None}
+
+    monkeypatch.setattr(diagnostics_router, "_probe_service", fake_probe)
+    monkeypatch.setattr(diagnostics_router, "get_loaded_model", AsyncMock(return_value="qwen3-8b"))
+
+    resp = test_client.get("/api/test/llm", headers=test_client.auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert data["model"] == "qwen3-8b"
+
+
+def test_api_test_voice_authenticated(test_client, monkeypatch):
+    """GET /api/test/voice with auth → 200 and returns voice validation details."""
+    import routers.diagnostics as diagnostics_router
+
+    async def fake_status():
+        return {
+            "available": False,
+            "message": "Voice services unavailable: LiveKit",
+            "services": {"livekit": {"status": "down"}},
+        }
+
+    monkeypatch.setattr(diagnostics_router, "get_voice_status_payload", fake_status)
+
+    resp = test_client.get("/api/test/voice", headers=test_client.auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is False
+    assert "services" in data
+    assert data["error"]

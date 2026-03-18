@@ -43,7 +43,10 @@ export function useVoiceAgent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ identity: `dashboard-${Date.now()}` })
       })
-      if (!response.ok) throw new Error('Failed to get token')
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}))
+        throw new Error(error.detail || 'Failed to get token')
+      }
       const data = await response.json()
       return data.token
     } catch (err) {

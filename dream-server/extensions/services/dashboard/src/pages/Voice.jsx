@@ -204,22 +204,78 @@ function VolumeSlider({ volume, onChange, muted, onToggleMute }) {
 // Settings panel component
 function VoiceSettings({ isOpen, onClose }) {
   // Load from localStorage or use defaults
-  const [voice, setVoice] = useState(() => localStorage.getItem('voice-setting') || 'default')
+  const [voice, setVoice] = useState(() => localStorage.getItem('voice-setting') || 'af_heart')
   const [speed, setSpeed] = useState(() => parseFloat(localStorage.getItem('voice-speed')) || 1.0)
   const [wakeWord, setWakeWord] = useState(() => localStorage.getItem('voice-wake') === 'true')
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState(null)
 
-  const handleSave = () => {
-    localStorage.setItem('voice-setting', voice)
-    localStorage.setItem('voice-speed', speed.toString())
-    localStorage.setItem('voice-wake', wakeWord.toString())
-    onClose()
+  useEffect(() => {
+    if (!isOpen) return
+
+    let active = true
+    const loadSettings = async () => {
+      try {
+        setLoading(true)
+        setSaveError(null)
+        const response = await fetch(`${API_BASE}/api/voice/settings`)
+        if (!response.ok) {
+          throw new Error('Failed to load voice settings')
+        }
+        const data = await response.json()
+        if (!active) return
+        setVoice(data.voice || 'af_heart')
+        setSpeed(typeof data.speed === 'number' ? data.speed : 1.0)
+        setWakeWord(Boolean(data.wakeWord))
+      } catch (err) {
+        if (active) {
+          setSaveError(err.message)
+        }
+      } finally {
+        if (active) {
+          setLoading(false)
+        }
+      }
+    }
+
+    loadSettings()
+    return () => {
+      active = false
+    }
+  }, [isOpen])
+
+  const handleSave = async () => {
+    try {
+      setSaving(true)
+      setSaveError(null)
+      const response = await fetch(`${API_BASE}/api/voice/settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ voice, speed, wakeWord })
+      })
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}))
+        throw new Error(error.detail || 'Failed to save voice settings')
+      }
+
+      localStorage.setItem('voice-setting', voice)
+      localStorage.setItem('voice-speed', speed.toString())
+      localStorage.setItem('voice-wake', wakeWord.toString())
+      onClose()
+    } catch (err) {
+      setSaveError(err.message)
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleCancel = () => {
     // Reset to saved values
-    setVoice(localStorage.getItem('voice-setting') || 'default')
+    setVoice(localStorage.getItem('voice-setting') || 'af_heart')
     setSpeed(parseFloat(localStorage.getItem('voice-speed')) || 1.0)
     setWakeWord(localStorage.getItem('voice-wake') === 'true')
+    setSaveError(null)
     onClose()
   }
 
@@ -229,7 +285,13 @@ function VoiceSettings({ isOpen, onClose }) {
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 w-full max-w-md">
         <h3 className="text-lg font-semibold text-white mb-4">Voice Settings</h3>
-        
+
+        {saveError && (
+          <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-200">
+            {saveError}
+          </div>
+        )}
+
         <div className="space-y-4">
           {/* Voice Selection */}
           <div>
@@ -237,12 +299,13 @@ function VoiceSettings({ isOpen, onClose }) {
             <select 
               value={voice}
               onChange={(e) => setVoice(e.target.value)}
+              disabled={loading || saving}
               className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white"
             >
-              <option value="default">Default (LJSpeech)</option>
-              <option value="jenny">Jenny (Female)</option>
-              <option value="alan">Alan (Male)</option>
-              <option value="amy">Amy (British)</option>
+              <option value="af_heart">af_heart</option>
+              <option value="af_bella">af_bella</option>
+              <option value="am_adam">am_adam</option>
+              <option value="bm_george">bm_george</option>
             </select>
           </div>
 
@@ -258,6 +321,7 @@ function VoiceSettings({ isOpen, onClose }) {
               step="0.1"
               value={speed}
               onChange={(e) => setSpeed(parseFloat(e.target.value))}
+              disabled={loading || saving}
               className="w-full accent-indigo-500"
             />
           </div>
@@ -270,6 +334,7 @@ function VoiceSettings({ isOpen, onClose }) {
             </div>
             <button
               onClick={() => setWakeWord(!wakeWord)}
+              disabled={loading || saving}
               className={`w-12 h-6 rounded-full transition-colors ${
                 wakeWord ? 'bg-indigo-600' : 'bg-zinc-700'
               }`}
@@ -286,15 +351,17 @@ function VoiceSettings({ isOpen, onClose }) {
         <div className="flex justify-end gap-3 mt-6">
           <button
             onClick={handleCancel}
-            className="px-4 py-2 text-zinc-400 hover:text-white transition-colors"
+            disabled={saving}
+            className="px-4 py-2 text-zinc-400 hover:text-white disabled:opacity-60 transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
+            disabled={loading || saving}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-lg transition-colors"
           >
-            Save
+            {saving ? 'Saving...' : 'Save'}
           </button>
         </div>
       </div>
