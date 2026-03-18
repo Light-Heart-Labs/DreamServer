@@ -6,7 +6,7 @@ Dream Server is built to run on a wide range of hardware: from high-end servers 
 
 1. **Rock-solid installs** — Same install path works reliably across supported combinations.
 2. **Broad compatibility** — From a 12k+ server to a consumer machine or older hardware.
-3. **App integration library** — Extensions that work for the Dream Server version you are on (see [EXTENSIONS.md](EXTENSIONS.md) and [extensions/CATALOG.md](../extensions/CATALOG.md)).
+3. **App integration library** — Extensions that work for the Dream Server version you are on (see [EXTENSIONS.md](EXTENSIONS.md) and [extensions/CATALOG.md](../dream-server/extensions/CATALOG.md)).
 
 ---
 
@@ -48,7 +48,7 @@ The Linux installer detects the distro via `/etc/os-release` and chooses the rig
 
 **CPU-only path:** Supported. The installer detects no GPU (or no supported GPU), assigns a tier, and selects the CPU backend. Performance is lower but install and run work. Good for older PCs, headless servers, or testing.
 
-**Old PCs (e.g. 2015):** If the machine runs a supported Linux distro and can run Docker, the installer can run. Use a lower tier and smaller model; see tier mapping in [HARDWARE-GUIDE.md](HARDWARE-GUIDE.md) and [installers/lib/tier-map.sh](../installers/lib/tier-map.sh).
+**Old PCs (e.g. 2015):** If the machine runs a supported Linux distro and can run Docker, the installer can run. Use a lower tier and smaller model; see tier mapping in [HARDWARE-GUIDE.md](HARDWARE-GUIDE.md) and [installers/lib/tier-map.sh](../dream-server/installers/lib/tier-map.sh).
 
 ---
 
@@ -84,7 +84,7 @@ See [WINDOWS-QUICKSTART.md](WINDOWS-QUICKSTART.md) and [WSL2-GPU-PASSTHROUGH.md]
 | Disk     | 30 GB free          | 50 GB+      | For base images + model + optional services. |
 | GPU VRAM | 0 (CPU) or 6 GB+    | 8 GB+       | More VRAM allows larger models and ComfyUI. |
 
-The installer checks RAM and disk in phase 04 and can warn or block depending on configuration. See [installers/phases/04-requirements.sh](../installers/phases/04-requirements.sh).
+The installer checks RAM and disk in phase 04 and can warn or block depending on configuration. See [installers/phases/04-requirements.sh](../dream-server/installers/phases/04-requirements.sh).
 
 ---
 
@@ -106,7 +106,7 @@ The installer can install Docker on Linux (phase 05) or prompt you to install it
 Extensions declare compatibility with Dream Server versions via `compatibility.dream_min` (and optional `dream_max`) in their manifest. The script `scripts/validate-manifests.sh` and `dream config validate` check that enabled extensions are compatible with the current core version.
 
 - **All bundled extensions** in `extensions/services/` declare `dream_min: "2.0.0"` for the current release.
-- Adding a new extension: set `compatibility.dream_min` so the validator can warn on version mismatch. See [EXTENSIONS.md](EXTENSIONS.md) and [extensions/schema/README.md](../extensions/schema/README.md).
+- Adding a new extension: set `compatibility.dream_min` so the validator can warn on version mismatch. See [EXTENSIONS.md](EXTENSIONS.md) and [extensions/schema/README.md](../dream-server/extensions/schema/README.md).
 
 ---
 

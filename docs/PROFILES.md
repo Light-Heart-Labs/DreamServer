@@ -44,7 +44,7 @@ Dream Server previously used Docker Compose profiles (`voice`, `workflows`, `rag
 
 - [EXTENSIONS.md](EXTENSIONS.md) — Adding new services
 - [../QUICKSTART.md](../QUICKSTART.md) — Installation guide
-- [../.env.example](../.env.example) — Configuration reference
+- [../.env.example](../dream-server/.env.example) — Configuration reference
 
 ---
 

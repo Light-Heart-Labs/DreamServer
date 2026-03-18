@@ -10,7 +10,7 @@ Links from this directory use `../` for the repo root (e.g. `../README.md`, `../
 | [../README.md](../README.md) | Everyone | Project overview, quickstart, architecture |
 | [../QUICKSTART.md](../QUICKSTART.md) | Operators | Step-by-step first install |
 | [../EDGE-QUICKSTART.md](../EDGE-QUICKSTART.md) | Operators | Edge devices (planned — do not follow yet; use cloud mode for CPU-only today) |
-| [../.env.example](../.env.example) | Operators | All environment variables with defaults |
+| [../.env.example](../dream-server/.env.example) | Operators | All environment variables with defaults |
 
 ## Building & Extending
 

@@ -6,23 +6,23 @@ Scope: `/home/user/dream-server` (Strix Halo variant)
 ## Completed This Session
 
 - [x] Fix FLUX background download shell block in [`install.sh`](../install.sh) (robust env/quoting for `nohup bash -c`).
-- [x] Fix Phase C test parser error in [`tests/test-phase-c-p1.sh`](../tests/test-phase-c-p1.sh) (quote-safe regex).
+- [x] Fix Phase C test parser error in [`tests/test-phase-c-p1.sh`](../dream-server/tests/test-phase-c-p1.sh) (quote-safe regex).
 - [x] Add installer capability profile contract and loader wiring:
-  - [`config/capability-profile.schema.json`](../config/capability-profile.schema.json)
-  - [`scripts/build-capability-profile.sh`](../scripts/build-capability-profile.sh)
+  - [`config/capability-profile.schema.json`](../dream-server/config/capability-profile.schema.json)
+  - [`scripts/build-capability-profile.sh`](../dream-server/scripts/build-capability-profile.sh)
   - [CAPABILITY-PROFILE.md](CAPABILITY-PROFILE.md)
 - [x] Add capability-aware preflight and machine-readable reporting:
-  - [`scripts/preflight-engine.sh`](../scripts/preflight-engine.sh)
+  - [`scripts/preflight-engine.sh`](../dream-server/scripts/preflight-engine.sh)
   - [PREFLIGHT-ENGINE.md](PREFLIGHT-ENGINE.md)
 - [x] Add backend runtime contracts and loader:
-  - [`config/backends/`](../config/backends)
-  - [`scripts/load-backend-contract.sh`](../scripts/load-backend-contract.sh)
+  - [`config/backends/`](../dream-server/config/backends)
+  - [`scripts/load-backend-contract.sh`](../dream-server/scripts/load-backend-contract.sh)
   - [BACKEND-CONTRACT.md](BACKEND-CONTRACT.md)
 - [x] Upgrade Windows/macOS installer stubs to MVP flows:
-  - [`installers/windows.ps1`](../installers/windows.ps1) (WSL delegation)
-  - [`installers/macos.sh`](../installers/macos.sh) (doctor/preflight)
+  - [`installers/windows.ps1`](../dream-server/installers/windows.ps1) (WSL delegation)
+  - [`installers/macos.sh`](../dream-server/installers/macos.sh) (doctor/preflight)
 - [x] Add Dream Doctor diagnostics report:
-  - [`scripts/dream-doctor.sh`](../scripts/dream-doctor.sh)
+  - [`scripts/dream-doctor.sh`](../dream-server/scripts/dream-doctor.sh)
   - [DREAM-DOCTOR.md](DREAM-DOCTOR.md)
 - [x] Add one-command installer simulation harness:
   - [`scripts/simulate-installers.sh`](../scripts/simulate-installers.sh)
@@ -35,9 +35,9 @@ Scope: `/home/user/dream-server` (Strix Halo variant)
 1. **Unify compose expectations across tests/scripts/docs** ✅ Completed (2026-03-02)
 - Why: This repo uses `docker-compose.base.yml` + GPU overlays, but some tests/scripts had stale fallbacks.
 - Evidence:
-  - [`tests/integration-test.sh:92`](../tests/integration-test.sh)
-  - [`tests/test-bootstrap-mode.sh:27`](../tests/test-bootstrap-mode.sh)
-  - [`scripts/upgrade-model.sh:202`](../scripts/upgrade-model.sh)
+  - [`tests/integration-test.sh:92`](../dream-server/tests/integration-test.sh)
+  - [`tests/test-bootstrap-mode.sh:27`](../dream-server/tests/test-bootstrap-mode.sh)
+  - [`scripts/upgrade-model.sh:202`](../dream-server/scripts/upgrade-model.sh)
 - Owner: Core Maintainer
 - Effort: M (0.5-1.5 days)
 - Exit criteria: CI/test scripts pass against Strix compose or support both compose files.
@@ -45,8 +45,8 @@ Scope: `/home/user/dream-server` (Strix Halo variant)
 2. **Add and validate `.env.example` for reproducible installs** ✅ Completed (2026-03-02)
 - Why: Tests expect it; migration script references it; file is currently missing.
 - Evidence:
-  - [`tests/integration-test.sh:297`](../tests/integration-test.sh)
-  - [`scripts/migrate-config.sh:116`](../scripts/migrate-config.sh)
+  - [`tests/integration-test.sh:297`](../dream-server/tests/integration-test.sh)
+  - [`scripts/migrate-config.sh:116`](../dream-server/scripts/migrate-config.sh)
 - Owner: Core Maintainer
 - Effort: S (1-3 hours)
 - Exit criteria: `.env.example` committed and referenced variables validated by tests.
@@ -91,8 +91,8 @@ Scope: `/home/user/dream-server` (Strix Halo variant)
 3. **Refactor tests to mode-aware compose selection**
 - Why: tests are currently tuned for legacy `docker-compose.yml` layouts.
 - Evidence:
-  - [`tests/integration-test.sh`](../tests/integration-test.sh)
-  - [`tests/test-bootstrap-mode.sh`](../tests/test-bootstrap-mode.sh)
+  - [`tests/integration-test.sh`](../dream-server/tests/integration-test.sh)
+  - [`tests/test-bootstrap-mode.sh`](../dream-server/tests/test-bootstrap-mode.sh)
 - Owner: QA/Infra
 - Effort: M-L (1-2 days)
 

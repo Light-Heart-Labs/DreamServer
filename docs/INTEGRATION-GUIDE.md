@@ -203,7 +203,7 @@ for chunk in stream:
 
 ## 7. Environment Variables
 
-Key variables in `.env` (see [.env.example](../.env.example) for the full list):
+Key variables in `.env` (see [.env.example](../dream-server/.env.example) for the full list):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
