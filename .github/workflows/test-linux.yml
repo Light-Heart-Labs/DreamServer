@@ -55,7 +55,7 @@ jobs:
         run: bash tests/test-validate-env.sh
 
       - name: Validate Simulation Summary Tests
-        run: bash tests/test-validate-sim-summary.sh
+        run: bash ../scripts/test-validate-sim-summary.sh
 
       - name: CPU-Only Path Tests
         run: bash tests/test-cpu-only-path.sh
