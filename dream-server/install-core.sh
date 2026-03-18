@@ -189,7 +189,7 @@ fi
 [[ $START_PHASE -le 3 ]] && { INSTALL_PHASE="03-features";     source "$SCRIPT_DIR/installers/phases/03-features.sh"; checkpoint_save 3; }
 [[ $START_PHASE -le 4 ]] && { INSTALL_PHASE="04-requirements"; source "$SCRIPT_DIR/installers/phases/04-requirements.sh"; checkpoint_save 4; }
 [[ $START_PHASE -le 5 ]] && { INSTALL_PHASE="05-docker";       source "$SCRIPT_DIR/installers/phases/05-docker.sh"; checkpoint_save 5; }
-[[ $START_PHASE -le 6 ]] && { INSTALL_PHASE="06-directories";  source "$SCRIPT_DIR/installers/phases/06-directories.sh"; checkpoint_save 6; checkpoint_migrate; }
+[[ $START_PHASE -le 6 ]] && { INSTALL_PHASE="06-directories";  source "$SCRIPT_DIR/installers/phases/06-directories.sh"; checkpoint_migrate; checkpoint_save 6; }
 [[ $START_PHASE -le 7 ]] && { INSTALL_PHASE="07-devtools";     source "$SCRIPT_DIR/installers/phases/07-devtools.sh"; checkpoint_save 7; }
 [[ $START_PHASE -le 8 ]] && { INSTALL_PHASE="08-images";       source "$SCRIPT_DIR/installers/phases/08-images.sh"; checkpoint_save 8; }
 [[ $START_PHASE -le 9 ]] && { INSTALL_PHASE="09-offline";      source "$SCRIPT_DIR/installers/phases/09-offline.sh"; checkpoint_save 9; }
