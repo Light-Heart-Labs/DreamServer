@@ -27,7 +27,12 @@ sudo chown -R 1000:1000 ~/dream-server/data/dashboard
 
 ### Automated Migration
 
-The installer will automatically fix permissions during updates. Manual intervention is only needed if you encounter permission errors after updating.
+The installer will automatically fix permissions during updates via the `migrate-v0.3.0.sh` migration script. This script:
+- Detects existing data directories
+- Fixes ownership to UID 1000 (with sudo if needed)
+- Runs automatically when you update Dream Server
+
+Manual intervention is only needed if you encounter permission errors after updating or if the migration script cannot obtain sudo access.
 
 ### Verification
 
