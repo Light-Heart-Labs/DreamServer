@@ -34,6 +34,11 @@ _checkpoint_path() {
 
 # Save checkpoint after successful phase
 checkpoint_save() {
+    # Skip checkpoint in dry-run mode (no state should be written)
+    if [[ "${DRY_RUN:-false}" == "true" ]]; then
+        return 0
+    fi
+
     local phase="$1"
     local timestamp
     timestamp=$(date +%s)
