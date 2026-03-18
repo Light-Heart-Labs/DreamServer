@@ -10,14 +10,6 @@ This directory contains the core Dream Server runtime — installers, Docker Com
 
 👉 **[github.com/Light-Heart-Labs/DreamServer](https://github.com/Light-Heart-Labs/DreamServer)**
 
-## Quick Links
-
-- [Installation Guide](../QUICKSTART.md)
-- [Hardware Guide](../docs/HARDWARE-GUIDE.md)
-- [Extensions](../docs/EXTENSIONS.md)
-- [Troubleshooting](../docs/TROUBLESHOOTING.md)
-- [Contributing](../CONTRIBUTING.md)
-
 ## License
 
-[Apache 2.0](../LICENSE)
+[Apache 2.0](LICENSE)
