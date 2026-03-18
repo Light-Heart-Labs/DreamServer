@@ -108,6 +108,15 @@ try {
 
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8');
   console.log('[inject-token] patched runtime config:', CONFIG_PATH);
+
+  // Log the browser-accessible URL with token for Docker users
+  // (Control UI requires #token= in URL hash for Docker bridge connections)
+  if (token) {
+    console.log(`[inject-token] ┌─────────────────────────────────────────────┐`);
+    console.log(`[inject-token] │ OpenClaw Control UI:                        │`);
+    console.log(`[inject-token] │ http://localhost:${EXTERNAL_PORT}/#token=${token}`);
+    console.log(`[inject-token] └─────────────────────────────────────────────┘`);
+  }
 } catch (err) {
   console.error('[inject-token] config patch warning:', err.message);
 }
