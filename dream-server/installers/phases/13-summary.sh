@@ -28,7 +28,9 @@ dream_progress 98 "summary" "Finishing up"
 sr_load
 
 # Get local IP for LAN access
-LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "")
+hostname_exit=0
+LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}') || hostname_exit=$?
+[[ $hostname_exit -ne 0 ]] && LOCAL_IP=""
 
 # Mode is now stored in .env as DREAM_MODE (set by phase 06)
 if ! $DRY_RUN; then
@@ -48,13 +50,15 @@ if [[ -f "$SCRIPT_DIR/installers/lib/background-tasks.sh" ]]; then
     if [[ -f "$BG_TASK_REGISTRY" ]]; then
         echo ""
         ai "Checking background tasks..."
-        bg_task_summary >> "$LOG_FILE" 2>&1
+        bg_summary_exit=0
+        bg_task_summary >> "$LOG_FILE" 2>&1 || bg_summary_exit=$?
+        [[ $bg_summary_exit -ne 0 ]] && log "bg_task_summary failed (exit $bg_summary_exit)"
 
         # Check FLUX download specifically
-        bg_task_status "flux-download" &>/dev/null
-        flux_status=$?
-        if [[ $flux_status -ne 3 ]]; then
-            case $flux_status in
+        flux_status_exit=0
+        bg_task_status "flux-download" >> "$LOG_FILE" 2>&1 || flux_status_exit=$?
+        if [[ $flux_status_exit -ne 3 ]]; then
+            case $flux_status_exit in
                 0)  # Still running
                     ai_warn "FLUX model download still in progress"
                     ai "ComfyUI image generation will be available once download completes"
@@ -83,7 +87,9 @@ echo "  • Perplexica:    http://localhost:${SERVICE_PORTS[perplexica]:-3004}"
 echo "  • ComfyUI:       http://localhost:${SERVICE_PORTS[comfyui]:-8188}"
 echo "  • LLM API:       http://localhost:${SERVICE_PORTS[llama-server]:-11434}/v1  (llama-server)"
 [[ "$ENABLE_OPENCLAW" == "true" ]] && echo "  • OpenClaw:      http://localhost:${SERVICE_PORTS[openclaw]:-7860}"
-systemctl --user is-active opencode-web &>/dev/null && echo "  • OpenCode:      http://localhost:3003"
+systemctl_opencode_check_exit=0
+systemctl --user is-active opencode-web >> "$LOG_FILE" 2>&1 || systemctl_opencode_check_exit=$?
+[[ $systemctl_opencode_check_exit -eq 0 ]] && echo "  • OpenCode:      http://localhost:3003"
 [[ "$ENABLE_VOICE" == "true" ]] && echo "  • Whisper STT:   http://localhost:${SERVICE_PORTS[whisper]:-9000}"
 [[ "$ENABLE_VOICE" == "true" ]] && echo "  • TTS (Kokoro):  http://localhost:${SERVICE_PORTS[tts]:-8880}"
 [[ "$ENABLE_WORKFLOWS" == "true" ]] && echo "  • n8n:           http://localhost:${SERVICE_PORTS[n8n]:-5678}"
@@ -130,7 +136,9 @@ echo ""
 if [[ -f "$SCRIPT_DIR/dream-preflight.sh" ]]; then
     # Wait a moment for services to stabilize
     sleep 2
-    bash "$SCRIPT_DIR/dream-preflight.sh" || true
+    preflight_exit=0
+    bash "$SCRIPT_DIR/dream-preflight.sh" || preflight_exit=$?
+    [[ $preflight_exit -ne 0 ]] && log "dream-preflight.sh exited with code $preflight_exit"
 else
     log "Preflight script not found — skipping validation"
 fi
@@ -172,11 +180,19 @@ DESKTOP_EOF
 
     # Pin to GNOME sidebar (favorites) if gsettings is available
     if command -v gsettings &> /dev/null; then
-        CURRENT_FAVS=$(gsettings get org.gnome.shell favorite-apps 2>/dev/null || echo "[]")
-        if [[ "$CURRENT_FAVS" != *"dream-server.desktop"* ]]; then
+        gsettings_get_exit=0
+        CURRENT_FAVS=$(gsettings get org.gnome.shell favorite-apps 2>/dev/null) || gsettings_get_exit=$?
+        if [[ $gsettings_get_exit -ne 0 ]]; then
+            CURRENT_FAVS="[]"
+        fi
+        grep_favs_exit=0
+        echo "$CURRENT_FAVS" | grep -q "dream-server.desktop" || grep_favs_exit=$?
+        if [[ $grep_favs_exit -ne 0 ]]; then
             NEW_FAVS=$(echo "$CURRENT_FAVS" | sed "s/]$/, 'dream-server.desktop']/" | sed "s/\[, /[/")
-            gsettings set org.gnome.shell favorite-apps "$NEW_FAVS" 2>/dev/null || true
-            ai_ok "Dashboard pinned to sidebar"
+            gsettings_set_exit=0
+            gsettings set org.gnome.shell favorite-apps "$NEW_FAVS" 2>/dev/null || gsettings_set_exit=$?
+            [[ $gsettings_set_exit -ne 0 ]] && log "gsettings set favorite-apps failed (exit $gsettings_set_exit)"
+            [[ $gsettings_set_exit -eq 0 ]] && ai_ok "Dashboard pinned to sidebar"
         fi
     fi
 
@@ -190,7 +206,9 @@ if ! $DRY_RUN; then
     COMPLETION_FILE="$INSTALL_DIR/completions/dream-cli.bash"
     if [[ -f "$COMPLETION_FILE" ]]; then
         # Add completion sourcing to .bashrc if not already present
-        if ! grep -q "dream-cli.bash" "$HOME/.bashrc" 2>/dev/null; then
+        grep_completion_exit=0
+        grep -q "dream-cli.bash" "$HOME/.bashrc" 2>/dev/null || grep_completion_exit=$?
+        if [[ $grep_completion_exit -ne 0 ]]; then
             cat >> "$HOME/.bashrc" << 'BASHRC_EOF'
 
 # Dream Server CLI bash completion
@@ -209,7 +227,9 @@ echo ""
 DASHBOARD_PORT="${SERVICE_PORTS[dashboard]:-3001}"
 WEBUI_PORT="${SERVICE_PORTS[open-webui]:-3000}"
 OPENCLAW_PORT="${SERVICE_PORTS[openclaw]:-7860}"
-LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+hostname_ip_exit=0
+LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}') || hostname_ip_exit=$?
+[[ $hostname_ip_exit -ne 0 ]] && LOCAL_IP=""
 echo -e "${GRN}──────────────────────────────────────────────────────────────────────────────${NC}"
 echo -e "${BGRN}  YOUR DREAM SERVER IS LIVE${NC}"
 echo -e "${GRN}──────────────────────────────────────────────────────────────────────────────${NC}"
@@ -218,7 +238,9 @@ echo -e "  ${BGRN}Dashboard${NC}    ${WHT}http://localhost:${DASHBOARD_PORT}${NC
 echo -e "  ${BGRN}Chat${NC}         ${WHT}http://localhost:${WEBUI_PORT}${NC}"
 [[ "$ENABLE_OPENCLAW" == "true" ]] && \
 echo -e "  ${BGRN}OpenClaw${NC}     ${WHT}http://localhost:${OPENCLAW_PORT}${NC}"
-systemctl --user is-active opencode-web &>/dev/null && \
+systemctl_opencode_final_exit=0
+systemctl --user is-active opencode-web >> "$LOG_FILE" 2>&1 || systemctl_opencode_final_exit=$?
+[[ $systemctl_opencode_final_exit -eq 0 ]] && \
 echo -e "  ${BGRN}OpenCode${NC}     ${WHT}http://localhost:3003${NC}"
 echo ""
 if [[ -n "$LOCAL_IP" ]]; then

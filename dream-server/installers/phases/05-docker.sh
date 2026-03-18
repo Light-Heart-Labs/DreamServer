@@ -48,8 +48,10 @@ DOCKER_NEEDS_SUDO=false
 
 if [[ "$SKIP_DOCKER" == "true" ]]; then
     log "Skipping Docker installation (--skip-docker)"
-elif command -v docker &> /dev/null; then
-    ai_ok "Docker already installed: $(docker --version)"
+elif command -v docker >/dev/null 2>&1; then
+    docker_ver_exit=0
+    docker_version=$(docker --version 2>&1) || docker_ver_exit=$?
+    [[ $docker_ver_exit -eq 0 ]] && ai_ok "Docker already installed: $docker_version" || ai_ok "Docker already installed"
 else
     dream_progress 31 "docker" "Installing Docker engine"
     ai "Installing Docker..."
@@ -69,7 +71,9 @@ else
         sudo usermod -aG docker "$target_user"
 
         # In most cases group membership won't take effect until a new login shell.
-        if ! id -nG "$target_user" 2>/dev/null | tr ' ' '\n' | grep -qx docker; then
+        id_exit=0
+        id -nG "$target_user" 2>/dev/null | tr ' ' '\n' | grep -qx docker || id_exit=$?
+        if [[ $id_exit -ne 0 ]]; then
             DOCKER_NEEDS_SUDO=true
         fi
     fi
@@ -100,9 +104,11 @@ DOCKER_COMPOSE_CMD="${DOCKER_COMPOSE_CMD:-docker compose}"
 
 # Docker Compose check (v2 preferred, v1 fallback)
 dream_progress 33 "docker" "Checking Docker Compose"
-if docker_compose_run version &> /dev/null 2>&1; then
+compose_v2_exit=0
+docker_compose_run version >/dev/null 2>&1 || compose_v2_exit=$?
+if [[ $compose_v2_exit -eq 0 ]]; then
     ai_ok "Docker Compose v2 available"
-elif command -v docker-compose &> /dev/null; then
+elif command -v docker-compose >/dev/null 2>&1; then
     if [[ "$DOCKER_CMD" == "sudo docker" ]]; then
         DOCKER_COMPOSE_CMD="sudo docker-compose"
     else
@@ -133,14 +139,18 @@ fi
 
 _docker_try_with_optional_sudo() {
     # If DOCKER_CMD isn't already sudo docker, try docker first and fall back to sudo docker.
-    if docker_run "$@" &>/dev/null; then
+    docker_try_exit=0
+    docker_run "$@" >/dev/null 2>&1 || docker_try_exit=$?
+    if [[ $docker_try_exit -eq 0 ]]; then
         return 0
     fi
 
-    if [[ "$DOCKER_CMD" != "sudo docker" ]] && command -v sudo &>/dev/null; then
+    if [[ "$DOCKER_CMD" != "sudo docker" ]] && command -v sudo >/dev/null 2>&1; then
         DOCKER_CMD="sudo docker"
         DOCKER_COMPOSE_CMD="sudo docker compose"
-        if docker_run "$@" &>/dev/null; then
+        sudo_docker_try_exit=0
+        docker_run "$@" >/dev/null 2>&1 || sudo_docker_try_exit=$?
+        if [[ $sudo_docker_try_exit -eq 0 ]]; then
             return 0
         fi
     fi
@@ -165,10 +175,12 @@ _docker_ensure_daemon() {
     fi
 
     # Try to start docker service if systemd is present
-    if command -v systemctl &>/dev/null; then
+    if command -v systemctl >/dev/null 2>&1; then
         ai_warn "Docker not responding; attempting to start docker service..."
         if ! $DRY_RUN; then
-            sudo systemctl start docker 2>>"$LOG_FILE" || true
+            systemctl_exit=0
+            sudo systemctl start docker 2>>"$LOG_FILE" || systemctl_exit=$?
+            [[ $systemctl_exit -ne 0 ]] && log "systemctl start docker failed (exit $systemctl_exit)"
         fi
         if _docker_try_with_optional_sudo info; then
             return 0
@@ -181,13 +193,15 @@ _docker_ensure_daemon() {
 
 _docker_compose_detect_cmd() {
     # Prefer v2 (docker compose). If docker requires sudo, wrapper will handle it.
-    if docker_compose_run version &>/dev/null 2>&1; then
+    compose_detect_exit=0
+    docker_compose_run version >/dev/null 2>&1 || compose_detect_exit=$?
+    if [[ $compose_detect_exit -eq 0 ]]; then
         echo "docker compose"
         return 0
     fi
 
     # v1 fallback
-    if command -v docker-compose &>/dev/null; then
+    if command -v docker-compose >/dev/null 2>&1; then
         echo "docker-compose"
         return 0
     fi
@@ -198,9 +212,10 @@ _docker_compose_detect_cmd() {
 
 _docker_compose_verify() {
     local detected
-    detected="$(_docker_compose_detect_cmd || true)"
+    compose_verify_exit=0
+    detected="$(_docker_compose_detect_cmd)" || compose_verify_exit=$?
 
-    if [[ -n "$detected" ]]; then
+    if [[ $compose_verify_exit -eq 0 && -n "$detected" ]]; then
         ai_ok "Compose detected: $detected"
         return 0
     fi
@@ -233,16 +248,22 @@ _docker_post_install_checks() {
         ai_warn "Docker Compose not detected; attempting install of compose plugin..."
         pkg_update
         # shellcheck disable=SC2046
-        pkg_install $(pkg_resolve docker-compose-plugin) || true
+        pkg_install_exit=0
+        pkg_install $(pkg_resolve docker-compose-plugin) || pkg_install_exit=$?
+        [[ $pkg_install_exit -ne 0 ]] && log "pkg_install docker-compose-plugin failed (exit $pkg_install_exit)"
 
-        if ! _docker_compose_verify; then
+        compose_verify2_exit=0
+        _docker_compose_verify || compose_verify2_exit=$?
+        if [[ $compose_verify2_exit -ne 0 ]]; then
             warn "Compose still not detected after install attempt."
             warn "You may need to install Docker Compose manually for your distro."
         fi
     fi
 
     # Basic engine health
-    if docker_run version &>/dev/null 2>&1; then
+    docker_version_exit=0
+    docker_run version >/dev/null 2>&1 || docker_version_exit=$?
+    if [[ $docker_version_exit -eq 0 ]]; then
         ai_ok "Docker engine responding"
     else
         warn "Docker engine did not respond to 'docker version'"
@@ -261,17 +282,21 @@ _docker_post_install_checks
 # NVIDIA Container Toolkit (skip for AMD — uses /dev/dri + /dev/kfd passthrough)
 if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "nvidia" ]]; then
     dream_progress 36 "docker" "Checking NVIDIA Container Toolkit"
-    if command -v nvidia-container-cli &> /dev/null 2>&1; then
+    if command -v nvidia-container-cli >/dev/null 2>&1; then
         ai_ok "NVIDIA Container Toolkit installed"
         # Always regenerate CDI spec — driver version may have changed since last run
-        if command -v nvidia-ctk &>/dev/null && ! $DRY_RUN; then
-            sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml 2>>"$LOG_FILE" || true
+        if command -v nvidia-ctk >/dev/null 2>&1 && ! $DRY_RUN; then
+            cdi_exit=0
+            sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml 2>>"$LOG_FILE" || cdi_exit=$?
+            [[ $cdi_exit -ne 0 ]] && log "nvidia-ctk cdi generate failed (exit $cdi_exit)"
         fi
     else
         ai "Installing NVIDIA Container Toolkit..."
         if ! $DRY_RUN; then
             # Add NVIDIA GPG key (used by apt and as trust anchor)
-            curl -fsSL --max-time 60 https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg 2>/dev/null || true
+            gpg_exit=0
+            curl -fsSL --max-time 60 https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg 2>>"$LOG_FILE" || gpg_exit=$?
+            [[ $gpg_exit -ne 0 ]] && log "NVIDIA GPG key import failed (exit $gpg_exit)"
 
             # Distro-aware repo setup + install
             case "$PKG_MANAGER" in
@@ -280,7 +305,9 @@ if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "nvidia" ]]; then
                         sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
                         sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list > /dev/null
                     # Verify we got a valid repo file, not an HTML 404
-                    if grep -q '<html' /etc/apt/sources.list.d/nvidia-container-toolkit.list 2>/dev/null; then
+                    grep_html_exit=0
+                    grep -q '<html' /etc/apt/sources.list.d/nvidia-container-toolkit.list 2>/dev/null || grep_html_exit=$?
+                    if [[ $grep_html_exit -eq 0 ]]; then
                         warn "Failed to download NVIDIA Container Toolkit repo list. Trying fallback..."
                         echo "deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://nvidia.github.io/libnvidia-container/stable/deb/\$(ARCH) /" | \
                             sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list > /dev/null
@@ -299,12 +326,14 @@ if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "nvidia" ]]; then
                     ;;
                 pacman)
                     # nvidia-container-toolkit is in AUR; check for common AUR helpers
-                    if command -v yay &>/dev/null; then
-                        yay -S --noconfirm nvidia-container-toolkit 2>>"$LOG_FILE" || \
-                            error "Failed to install nvidia-container-toolkit via yay."
-                    elif command -v paru &>/dev/null; then
-                        paru -S --noconfirm nvidia-container-toolkit 2>>"$LOG_FILE" || \
-                            error "Failed to install nvidia-container-toolkit via paru."
+                    if command -v yay >/dev/null 2>&1; then
+                        yay_exit=0
+                        yay -S --noconfirm nvidia-container-toolkit 2>>"$LOG_FILE" || yay_exit=$?
+                        [[ $yay_exit -ne 0 ]] && error "Failed to install nvidia-container-toolkit via yay."
+                    elif command -v paru >/dev/null 2>&1; then
+                        paru_exit=0
+                        paru -S --noconfirm nvidia-container-toolkit 2>>"$LOG_FILE" || paru_exit=$?
+                        [[ $paru_exit -ne 0 ]] && error "Failed to install nvidia-container-toolkit via paru."
                     else
                         warn "nvidia-container-toolkit requires an AUR helper (yay or paru)."
                         warn "Install one, then run: yay -S nvidia-container-toolkit"
@@ -312,7 +341,9 @@ if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "nvidia" ]]; then
                     fi
                     ;;
                 zypper)
-                    sudo zypper addrepo https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo 2>/dev/null || true
+                    zypper_add_exit=0
+                    sudo zypper addrepo https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo 2>>"$LOG_FILE" || zypper_add_exit=$?
+                    [[ $zypper_add_exit -ne 0 ]] && log "zypper addrepo failed (exit $zypper_add_exit)"
                     sudo zypper --non-interactive --gpg-auto-import-keys refresh 2>>"$LOG_FILE"
                     if ! sudo zypper --non-interactive install nvidia-container-toolkit 2>>"$LOG_FILE"; then
                         error "Failed to install NVIDIA Container Toolkit."
@@ -324,10 +355,12 @@ if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "nvidia" ]]; then
             esac
 
             sudo nvidia-ctk runtime configure --runtime=docker
-            sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml 2>>"$LOG_FILE" || true
+            cdi_gen_exit=0
+            sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml 2>>"$LOG_FILE" || cdi_gen_exit=$?
+            [[ $cdi_gen_exit -ne 0 ]] && log "nvidia-ctk cdi generate failed (exit $cdi_gen_exit)"
             sudo systemctl restart docker
         fi
-        if command -v nvidia-container-cli &> /dev/null 2>&1; then
+        if command -v nvidia-container-cli >/dev/null 2>&1; then
             ai_ok "NVIDIA Container Toolkit installed"
         else
             $DRY_RUN && ai_ok "[DRY RUN] Would install NVIDIA Container Toolkit" || error "NVIDIA Container Toolkit installation failed — nvidia-container-cli not found after install."

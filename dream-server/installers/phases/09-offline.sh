@@ -26,9 +26,17 @@ elif [[ "$OFFLINE_MODE" == "true" ]] && ! $DRY_RUN; then
     touch "$INSTALL_DIR/.offline-mode"
 
     # Disable any cloud-dependent features in .env
-    _sed_i 's/^BRAVE_API_KEY=.*/BRAVE_API_KEY=/' "$INSTALL_DIR/.env" 2>/dev/null || true
-    _sed_i 's/^ANTHROPIC_API_KEY=.*/ANTHROPIC_API_KEY=/' "$INSTALL_DIR/.env" 2>/dev/null || true
-    _sed_i 's/^OPENAI_API_KEY=.*/OPENAI_API_KEY=/' "$INSTALL_DIR/.env" 2>/dev/null || true
+    sed_brave_exit=0
+    _sed_i 's/^BRAVE_API_KEY=.*/BRAVE_API_KEY=/' "$INSTALL_DIR/.env" 2>/dev/null || sed_brave_exit=$?
+    [[ $sed_brave_exit -ne 0 ]] && log "sed BRAVE_API_KEY failed (exit $sed_brave_exit)"
+
+    sed_anthropic_exit=0
+    _sed_i 's/^ANTHROPIC_API_KEY=.*/ANTHROPIC_API_KEY=/' "$INSTALL_DIR/.env" 2>/dev/null || sed_anthropic_exit=$?
+    [[ $sed_anthropic_exit -ne 0 ]] && log "sed ANTHROPIC_API_KEY failed (exit $sed_anthropic_exit)"
+
+    sed_openai_exit=0
+    _sed_i 's/^OPENAI_API_KEY=.*/OPENAI_API_KEY=/' "$INSTALL_DIR/.env" 2>/dev/null || sed_openai_exit=$?
+    [[ $sed_openai_exit -ne 0 ]] && log "sed OPENAI_API_KEY failed (exit $sed_openai_exit)"
 
     # Add offline mode config
     cat >> "$INSTALL_DIR/.env" << 'OFFLINE_EOF'
@@ -80,8 +88,11 @@ M1_EOF
     if command -v curl &> /dev/null; then
         EMBED_URL="https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf"
         if ! [[ -f "$INSTALL_DIR/models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf" ]]; then
-            curl -L --max-time 600 -o "$INSTALL_DIR/models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf" "$EMBED_URL" 2>/dev/null || \
+            curl_embed_exit=0
+            curl -L --max-time 600 -o "$INSTALL_DIR/models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf" "$EMBED_URL" 2>/dev/null || curl_embed_exit=$?
+            if [[ $curl_embed_exit -ne 0 ]]; then
                 ai_warn "Could not pre-download embeddings. Memory search will download on first use."
+            fi
         else
             log "Embeddings already downloaded"
         fi

@@ -50,10 +50,11 @@ else
         # Check if model exists and verify integrity
         if [[ -f "$GGUF_DIR/$GGUF_FILE" ]]; then
             if [[ -n "$GGUF_SHA256" ]]; then
-                if command -v sha256sum &>/dev/null; then
+                if command -v sha256sum >/dev/null 2>&1; then
                     ai "Verifying model integrity (SHA256)..."
-                    ACTUAL_HASH=$(sha256sum "$GGUF_DIR/$GGUF_FILE" 2>/dev/null | awk '{print $1}')
-                    if [[ -n "$ACTUAL_HASH" && "$ACTUAL_HASH" == "$GGUF_SHA256" ]]; then
+                    sha256_exit=0
+                    ACTUAL_HASH=$(sha256sum "$GGUF_DIR/$GGUF_FILE" 2>/dev/null | awk '{print $1}') || sha256_exit=$?
+                    if [[ $sha256_exit -eq 0 && -n "$ACTUAL_HASH" && "$ACTUAL_HASH" == "$GGUF_SHA256" ]]; then
                         ai_ok "Model verified: $GGUF_FILE"
                     elif [[ -z "$ACTUAL_HASH" ]]; then
                         ai_warn "Could not compute checksum for existing model file"
@@ -105,10 +106,11 @@ else
             else
                 # Verify freshly downloaded file
                 if [[ -n "$GGUF_SHA256" ]]; then
-                    if command -v sha256sum &>/dev/null; then
+                    if command -v sha256sum >/dev/null 2>&1; then
                         ai "Verifying download integrity (SHA256)..."
-                        ACTUAL_HASH=$(sha256sum "$GGUF_DIR/$GGUF_FILE" 2>/dev/null | awk '{print $1}')
-                        if [[ -n "$ACTUAL_HASH" && "$ACTUAL_HASH" == "$GGUF_SHA256" ]]; then
+                        verify_exit=0
+                        ACTUAL_HASH=$(sha256sum "$GGUF_DIR/$GGUF_FILE" 2>/dev/null | awk '{print $1}') || verify_exit=$?
+                        if [[ $verify_exit -eq 0 && -n "$ACTUAL_HASH" && "$ACTUAL_HASH" == "$GGUF_SHA256" ]]; then
                             ai_ok "Download verified OK"
                         elif [[ -z "$ACTUAL_HASH" ]]; then
                             ai_warn "Could not compute checksum for downloaded file"
@@ -223,7 +225,7 @@ else
             flux_pid=$!
 
             # Register background task
-            if command -v bg_task_start &>/dev/null; then
+            if command -v bg_task_start >/dev/null 2>&1; then
                 bg_task_start "flux-download" "$flux_pid" "FLUX.1-schnell model downloads" "$INSTALL_DIR/logs/flux-download.log"
             fi
 
@@ -292,11 +294,17 @@ MODELS_INI_EOF
     # starting other containers. Some end up in "Created", others never got
     # past "Creating" because their dependencies weren't ready yet.
     # Step 1: start any containers already in Created state
-    docker start $(docker ps -a --filter status=created -q) 2>/dev/null || true
+    start_exit=0
+    docker start $(docker ps -a --filter status=created -q) || start_exit=$?
+    [[ $start_exit -ne 0 ]] && log "docker start (step 1) failed (exit $start_exit)"
     # Step 2: second compose pass picks up services whose deps are now healthy
-    $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up -d --no-build >> "$LOG_FILE" 2>&1 || true
+    compose_pass2_exit=0
+    $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up -d --no-build >> "$LOG_FILE" 2>&1 || compose_pass2_exit=$?
+    [[ $compose_pass2_exit -ne 0 ]] && log "docker compose up -d --no-build (step 2) failed (exit $compose_pass2_exit)"
     # Step 3: catch any stragglers from the second pass
-    docker start $(docker ps -a --filter status=created -q) 2>/dev/null || true
+    start_final_exit=0
+    docker start $(docker ps -a --filter status=created -q) || start_final_exit=$?
+    [[ $start_final_exit -ne 0 ]] && log "docker start (step 3) failed (exit $start_final_exit)"
 
     if $compose_ok; then
         printf "\r  ${BGRN}✓${NC} %-60s\n" "All containers launched"
@@ -327,6 +335,6 @@ MODELS_INI_EOF
                 ai_warn "Setup hook for $sid exited with error (non-fatal)"
             fi
         done
-        [[ $_hook_count -gt 0 ]] && ai_ok "Ran $_hook_count extension setup hook(s)" || true
+        [[ $_hook_count -gt 0 ]] && ai_ok "Ran $_hook_count extension setup hook(s)"
     fi
 fi

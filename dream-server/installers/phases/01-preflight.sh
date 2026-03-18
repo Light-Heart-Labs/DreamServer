@@ -40,7 +40,13 @@ if ! command -v curl &> /dev/null; then
         *)      error "curl is required but not installed. Install with: sudo apt install curl" ;;
     esac
 fi
-log "curl: $(curl --version 2>/dev/null | sed -n '1p')"
+curl_version_exit=0
+curl_version=$(curl --version 2>&1 | sed -n '1p') || curl_version_exit=$?
+if [[ $curl_version_exit -eq 0 && -n "$curl_version" ]]; then
+    log "curl: $curl_version"
+else
+    log "curl: version check failed"
+fi
 
 # Check optional tools (warn but don't fail)
 OPTIONAL_TOOLS_MISSING=""

@@ -27,22 +27,40 @@ else
         case "$PKG_MANAGER" in
             apt)
                 tmpfile=$(mktemp /tmp/nodesource-setup.XXXXXX.sh)
-                if curl -fsSL --max-time 300 https://deb.nodesource.com/setup_22.x -o "$tmpfile" 2>/dev/null; then
-                    sudo -E bash "$tmpfile" 2>&1 | tee -a "$LOG_FILE" || true
+                curl_node_exit=0
+                curl -fsSL --max-time 300 https://deb.nodesource.com/setup_22.x -o "$tmpfile" 2>/dev/null || curl_node_exit=$?
+                if [[ $curl_node_exit -eq 0 ]]; then
+                    bash_node_exit=0
+                    sudo -E bash "$tmpfile" 2>&1 | tee -a "$LOG_FILE" || bash_node_exit=$?
+                    [[ $bash_node_exit -ne 0 ]] && log "NodeSource setup failed (exit $bash_node_exit)"
                 fi
                 rm -f "$tmpfile"
-                sudo apt-get install -y nodejs 2>&1 | tee -a "$LOG_FILE" || true
+                apt_node_exit=0
+                sudo apt-get install -y nodejs 2>&1 | tee -a "$LOG_FILE" || apt_node_exit=$?
+                [[ $apt_node_exit -ne 0 ]] && log "apt install nodejs failed (exit $apt_node_exit)"
                 ;;
             dnf)
-                sudo dnf module install -y nodejs:22 2>&1 | tee -a "$LOG_FILE" || \
-                    sudo dnf install -y nodejs 2>&1 | tee -a "$LOG_FILE" || true
+                dnf_node_exit=0
+                sudo dnf module install -y nodejs:22 2>&1 | tee -a "$LOG_FILE" || dnf_node_exit=$?
+                if [[ $dnf_node_exit -ne 0 ]]; then
+                    dnf_fallback_exit=0
+                    sudo dnf install -y nodejs 2>&1 | tee -a "$LOG_FILE" || dnf_fallback_exit=$?
+                    [[ $dnf_fallback_exit -ne 0 ]] && log "dnf install nodejs failed (exit $dnf_fallback_exit)"
+                fi
                 ;;
             pacman)
-                sudo pacman -S --noconfirm --needed nodejs npm 2>&1 | tee -a "$LOG_FILE" || true
+                pacman_node_exit=0
+                sudo pacman -S --noconfirm --needed nodejs npm 2>&1 | tee -a "$LOG_FILE" || pacman_node_exit=$?
+                [[ $pacman_node_exit -ne 0 ]] && log "pacman install nodejs failed (exit $pacman_node_exit)"
                 ;;
             zypper)
-                sudo zypper --non-interactive install nodejs22 2>&1 | tee -a "$LOG_FILE" || \
-                    sudo zypper --non-interactive install nodejs 2>&1 | tee -a "$LOG_FILE" || true
+                zypper_node_exit=0
+                sudo zypper --non-interactive install nodejs22 2>&1 | tee -a "$LOG_FILE" || zypper_node_exit=$?
+                if [[ $zypper_node_exit -ne 0 ]]; then
+                    zypper_fallback_exit=0
+                    sudo zypper --non-interactive install nodejs 2>&1 | tee -a "$LOG_FILE" || zypper_fallback_exit=$?
+                    [[ $zypper_fallback_exit -ne 0 ]] && log "zypper install nodejs failed (exit $zypper_fallback_exit)"
+                fi
                 ;;
             *)
                 ai_warn "Unknown package manager — cannot install Node.js automatically"
@@ -55,7 +73,9 @@ else
         NPM_GLOBAL_DIR="$HOME/.npm-global"
         if [[ ! -d "$NPM_GLOBAL_DIR" ]]; then
             mkdir -p "$NPM_GLOBAL_DIR"
-            npm config set prefix "$NPM_GLOBAL_DIR" 2>/dev/null || true
+            npm_config_exit=0
+            npm config set prefix "$NPM_GLOBAL_DIR" 2>/dev/null || npm_config_exit=$?
+            [[ $npm_config_exit -ne 0 ]] && log "npm config set prefix failed (exit $npm_config_exit)"
         fi
         # Ensure user-level bin is on PATH for this session
         export PATH="$NPM_GLOBAL_DIR/bin:$PATH"
@@ -92,8 +112,16 @@ else
     if ! command -v opencode &> /dev/null && [[ ! -x "$HOME/.opencode/bin/opencode" ]]; then
         ai "Installing OpenCode..."
         tmpfile=$(mktemp /tmp/opencode-install.XXXXXX.sh)
-        if curl -fsSL --max-time 300 https://opencode.ai/install -o "$tmpfile" 2>/dev/null && bash "$tmpfile" >> "$LOG_FILE" 2>&1; then
-            ai_ok "OpenCode installed (~/.opencode/bin/opencode)"
+        curl_opencode_exit=0
+        curl -fsSL --max-time 300 https://opencode.ai/install -o "$tmpfile" 2>/dev/null || curl_opencode_exit=$?
+        if [[ $curl_opencode_exit -eq 0 ]]; then
+            bash_opencode_exit=0
+            bash "$tmpfile" >> "$LOG_FILE" 2>&1 || bash_opencode_exit=$?
+            if [[ $bash_opencode_exit -eq 0 ]]; then
+                ai_ok "OpenCode installed (~/.opencode/bin/opencode)"
+            else
+                ai_warn "OpenCode install failed — install later with: curl -fsSL https://opencode.ai/install | bash"
+            fi
         else
             ai_warn "OpenCode install failed — install later with: curl -fsSL https://opencode.ai/install | bash"
         fi
@@ -163,15 +191,28 @@ OPENCODE_EOF
             cp "$svc_tmp" "$SYSTEMD_USER_DIR/opencode-web.service"
             rm -f "$svc_tmp"
 
-            systemctl --user daemon-reload 2>/dev/null || true
-            systemctl --user enable --now opencode-web.service >> "$LOG_FILE" 2>&1 && \
-                ai_ok "OpenCode Web UI service installed (user-level, port 3003)" || \
+            systemctl_reload_exit=0
+            systemctl --user daemon-reload 2>/dev/null || systemctl_reload_exit=$?
+            [[ $systemctl_reload_exit -ne 0 ]] && log "systemctl --user daemon-reload failed (exit $systemctl_reload_exit)"
+
+            systemctl_enable_exit=0
+            systemctl --user enable --now opencode-web.service >> "$LOG_FILE" 2>&1 || systemctl_enable_exit=$?
+            if [[ $systemctl_enable_exit -eq 0 ]]; then
+                ai_ok "OpenCode Web UI service installed (user-level, port 3003)"
+            else
                 ai_warn "OpenCode Web UI service failed to start"
+            fi
 
             # Enable lingering so service survives logout
-            loginctl enable-linger "$(whoami)" 2>/dev/null || \
-                sudo -n loginctl enable-linger "$(whoami)" 2>/dev/null || \
-                ai_warn "Could not enable linger. OpenCode may stop after logout. Run: loginctl enable-linger $(whoami)"
+            linger_exit=0
+            loginctl enable-linger "$(whoami)" 2>/dev/null || linger_exit=$?
+            if [[ $linger_exit -ne 0 ]]; then
+                sudo_linger_exit=0
+                sudo -n loginctl enable-linger "$(whoami)" 2>/dev/null || sudo_linger_exit=$?
+                if [[ $sudo_linger_exit -ne 0 ]]; then
+                    ai_warn "Could not enable linger. OpenCode may stop after logout. Run: loginctl enable-linger $(whoami)"
+                fi
+            fi
         fi
     fi
 fi

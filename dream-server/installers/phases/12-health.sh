@@ -35,7 +35,7 @@ if $DRY_RUN; then
     echo ""
     signal "All systems nominal. (dry run)"
     ai_ok "Sovereign intelligence is online. (dry run)"
-    return 0 2>/dev/null || true
+    return 0 2>/dev/null || exit 0
 fi
 
 ai "Linking services... standby."
@@ -69,7 +69,9 @@ _check_health "ComfyUI" "http://localhost:${SERVICE_PORTS[comfyui]:-8188}${SERVI
 # Perplexica auto-config: seed chat model + embedding model on first boot.
 # The slim-latest image stores config in a database, not just config.json.
 # We use the /api/config HTTP endpoint to set values after the service starts.
-if docker inspect dream-perplexica &>/dev/null; then
+docker_inspect_exit=0
+docker inspect dream-perplexica >> "$LOG_FILE" 2>&1 || docker_inspect_exit=$?
+if [[ $docker_inspect_exit -eq 0 ]]; then
     PERPLEXICA_URL="http://localhost:${SERVICE_PORTS[perplexica]:-3004}"
     PYTHON_CMD="python3"
     if [[ -f "$SCRIPT_DIR/lib/python-cmd.sh" ]]; then
@@ -79,12 +81,15 @@ if docker inspect dream-perplexica &>/dev/null; then
         PYTHON_CMD="python"
     fi
 
+    perplexica_config_exit=0
     PERPLEXICA_SETUP=$(curl -sf "${PERPLEXICA_URL}/api/config" 2>/dev/null | \
-        "$PYTHON_CMD" -c "import sys,json;d=json.load(sys.stdin);print('done' if d['values']['setupComplete'] else 'needed')" 2>/dev/null || echo "skip")
+        "$PYTHON_CMD" -c "import sys,json;d=json.load(sys.stdin);print('done' if d['values']['setupComplete'] else 'needed')" 2>/dev/null) || perplexica_config_exit=$?
+    [[ $perplexica_config_exit -ne 0 ]] && PERPLEXICA_SETUP="skip"
 
     if [[ "$PERPLEXICA_SETUP" == "needed" ]]; then
         ai "Configuring Perplexica for ${LLM_MODEL}..."
         # Query current config to get provider UUIDs, then set model + preferences via API
+        perplexica_curl_exit=0
         curl -sf "${PERPLEXICA_URL}/api/config" 2>/dev/null | \
         "$PYTHON_CMD" -c "
 import sys, json, urllib.request
@@ -121,16 +126,21 @@ post('preferences', {
 # Mark setup complete to bypass the wizard
 post('setupComplete', True)
 print('ok')
-" >> "$LOG_FILE" 2>&1 && \
-            printf "\r  ${BGRN}✓${NC} %-60s\n" "Perplexica configured (model: ${LLM_MODEL})" || \
+" >> "$LOG_FILE" 2>&1 || perplexica_curl_exit=$?
+        if [[ $perplexica_curl_exit -eq 0 ]]; then
+            printf "\r  ${BGRN}✓${NC} %-60s\n" "Perplexica configured (model: ${LLM_MODEL})"
+        else
             printf "\r  ${AMB}⚠${NC} %-60s\n" "Perplexica config — complete setup at :${PERPLEXICA_PORT:-3004}"
+        fi
     fi
 fi
 
 # Extension service health checks with adaptive timeouts
 dream_progress 94 "health" "Checking extension services"
 [[ "$ENABLE_OPENCLAW" == "true" ]] && _check_health "OpenClaw" "http://localhost:${SERVICE_PORTS[openclaw]:-7860}${SERVICE_HEALTH[openclaw]:-/}" 20 10
-systemctl --user is-active opencode-web &>/dev/null && _check_health "OpenCode Web" "http://localhost:3003/" 10 5
+systemctl_opencode_exit=0
+systemctl --user is-active opencode-web >> "$LOG_FILE" 2>&1 || systemctl_opencode_exit=$?
+[[ $systemctl_opencode_exit -eq 0 ]] && _check_health "OpenCode Web" "http://localhost:3003/" 10 5
 # Whisper: 40 attempts * adaptive backoff = up to 3 minutes (model download on first start)
 dream_progress 95 "health" "Checking voice services"
 [[ "$ENABLE_VOICE" == "true" ]] && _check_health "Whisper (STT)" "http://localhost:${SERVICE_PORTS[whisper]:-9000}${SERVICE_HEALTH[whisper]:-/health}" 40 10
@@ -148,11 +158,17 @@ if [[ "$ENABLE_VOICE" == "true" ]]; then
     STT_MODEL_ENCODED="${STT_MODEL//\//%2F}"
     WHISPER_URL="http://localhost:${SERVICE_PORTS[whisper]:-9000}"
     # Only download if model isn't already loaded
-    if ! curl -sf --max-time 10 "${WHISPER_URL}/v1/models/${STT_MODEL_ENCODED}" &>/dev/null; then
+    stt_check_exit=0
+    curl -sf --max-time 10 "${WHISPER_URL}/v1/models/${STT_MODEL_ENCODED}" >> "$LOG_FILE" 2>&1 || stt_check_exit=$?
+    if [[ $stt_check_exit -ne 0 ]]; then
         ai "Downloading STT model (${STT_MODEL})..."
-        curl -sf --max-time 120 -X POST "${WHISPER_URL}/v1/models/${STT_MODEL_ENCODED}" >> "$LOG_FILE" 2>&1 && \
-            printf "\r  ${BGRN}✓${NC} %-60s\n" "STT model cached (${STT_MODEL})" || \
+        stt_download_exit=0
+        curl -sf --max-time 120 -X POST "${WHISPER_URL}/v1/models/${STT_MODEL_ENCODED}" >> "$LOG_FILE" 2>&1 || stt_download_exit=$?
+        if [[ $stt_download_exit -eq 0 ]]; then
+            printf "\r  ${BGRN}✓${NC} %-60s\n" "STT model cached (${STT_MODEL})"
+        else
             printf "\r  ${AMB}⚠${NC} %-60s\n" "STT model will download on first use"
+        fi
     else
         printf "\r  ${BGRN}✓${NC} %-60s\n" "STT model already cached (${STT_MODEL})"
     fi

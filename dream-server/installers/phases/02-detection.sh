@@ -34,11 +34,15 @@ if [[ "${DREAM_MODE:-local}" == "cloud" ]]; then
     GPU_COUNT=0
     GPU_MEMORY_TYPE="none"
     TIER="CLOUD"
-    if grep -qi microsoft /proc/version 2>/dev/null; then
+    grep_exit=0
+    grep -qi microsoft /proc/version 2>/dev/null || grep_exit=$?
+    if [[ $grep_exit -eq 0 ]]; then
         _wsl_ram_bytes=""
-        if command -v powershell.exe &>/dev/null; then
+        if command -v powershell.exe >/dev/null 2>&1; then
+            ps_exit=0
             _wsl_ram_bytes=$(powershell.exe -NoProfile -Command \
-                "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory" 2>/dev/null | tr -d '\r')
+                "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory" 2>/dev/null | tr -d '\r') || ps_exit=$?
+            [[ $ps_exit -ne 0 ]] && _wsl_ram_bytes=""
         fi
         if [[ -n "$_wsl_ram_bytes" && "$_wsl_ram_bytes" =~ ^[0-9]+$ ]]; then
             RAM_KB=$((_wsl_ram_bytes / 1024))
@@ -62,26 +66,34 @@ if [[ "${DREAM_MODE:-local}" == "cloud" ]]; then
         log "  RAM: ${RAM_GB}GB, Disk: ${DISK_AVAIL}GB"
     fi
     # Skip rest of detection phase
-    return 0 2>/dev/null || true
+    return 0
 fi
 
 ai "Reading hardware telemetry..."
 
-load_capability_profile || true
+cap_exit=0
+load_capability_profile || cap_exit=$?
+[[ $cap_exit -ne 0 ]] && log "Capability profile not loaded (exit $cap_exit)"
 
 # RAM Detection (WSL2-aware: query Windows host RAM if available)
-if grep -qi microsoft /proc/version 2>/dev/null; then
+wsl_check_exit=0
+grep -qi microsoft /proc/version 2>/dev/null || wsl_check_exit=$?
+if [[ $wsl_check_exit -eq 0 ]]; then
     _wsl_ram_kb=""
-    if command -v powershell.exe &>/dev/null; then
+    if command -v powershell.exe >/dev/null 2>&1; then
+        ps_ram_exit=0
         _wsl_ram_bytes=$(powershell.exe -NoProfile -Command \
-            "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory" 2>/dev/null | tr -d '\r')
+            "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory" 2>/dev/null | tr -d '\r') || ps_ram_exit=$?
+        [[ $ps_ram_exit -ne 0 ]] && _wsl_ram_bytes=""
         if [[ -n "$_wsl_ram_bytes" && "$_wsl_ram_bytes" =~ ^[0-9]+$ ]]; then
             _wsl_ram_kb=$((_wsl_ram_bytes / 1024))
         fi
     fi
-    if [[ -z "$_wsl_ram_kb" ]] && command -v wmic.exe &>/dev/null; then
+    if [[ -z "$_wsl_ram_kb" ]] && command -v wmic.exe >/dev/null 2>&1; then
+        wmic_exit=0
         _wsl_ram_kb=$(wmic.exe OS get TotalVisibleMemorySize /value 2>/dev/null \
-            | grep -oE '[0-9]+' | sed -n '1p')
+            | grep -oE '[0-9]+' | sed -n '1p') || wmic_exit=$?
+        [[ $wmic_exit -ne 0 ]] && _wsl_ram_kb=""
     fi
     if [[ -n "$_wsl_ram_kb" && "$_wsl_ram_kb" =~ ^[0-9]+$ ]]; then
         RAM_KB="$_wsl_ram_kb"
@@ -107,7 +119,9 @@ log "Available disk: ${DISK_AVAIL}GB"
 
 # GPU Detection
 ai "Detecting GPU..."
-detect_gpu || true
+gpu_detect_exit=0
+detect_gpu || gpu_detect_exit=$?
+[[ $gpu_detect_exit -ne 0 ]] && log "GPU detection returned exit code $gpu_detect_exit"
 
 if [[ "${CAP_PROFILE_LOADED:-false}" == "true" ]]; then
     case "${CAP_LLM_BACKEND:-}" in
@@ -126,7 +140,9 @@ BACKEND_ID="$GPU_BACKEND"
 if [[ "${CAP_LLM_BACKEND:-}" == "cpu" || "${CAP_LLM_BACKEND:-}" == "apple" ]]; then
     BACKEND_ID="${CAP_LLM_BACKEND}"
 fi
-load_backend_contract "$BACKEND_ID" || true
+backend_exit=0
+load_backend_contract "$BACKEND_ID" || backend_exit=$?
+[[ $backend_exit -ne 0 ]] && log "Backend contract load failed (exit $backend_exit)"
 LLM_HEALTHCHECK_URL="${BACKEND_PUBLIC_HEALTH_URL:-http://localhost:8080/health}"
 LLM_PUBLIC_API_PORT="${BACKEND_PUBLIC_API_PORT:-8080}"
 OPENCLAW_PROVIDER_NAME_DEFAULT="${BACKEND_PROVIDER_NAME:-local-llama}"
@@ -138,14 +154,18 @@ OPENCLAW_PROVIDER_URL_DEFAULT="${BACKEND_PROVIDER_URL:-http://llama-server:8080/
 # If detect_gpu found no working GPU, check if it's a fixable driver/Secure Boot issue
 # (Only for NVIDIA — AMD APU is handled above)
 if [[ $GPU_COUNT -eq 0 && "$GPU_BACKEND" != "amd" ]] && ! $DRY_RUN; then
-    fix_nvidia_secure_boot || true
+    secure_boot_exit=0
+    fix_nvidia_secure_boot || secure_boot_exit=$?
+    [[ $secure_boot_exit -ne 0 ]] && log "Secure boot fix returned exit code $secure_boot_exit"
 fi
 
 # NVIDIA Driver Compatibility Check
 # llama-server (CUDA) requires driver >= 570
 if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "nvidia" ]]; then
     DRIVER_VERSION=""
-    if raw_driver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null); then
+    driver_exit=0
+    raw_driver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null) || driver_exit=$?
+    if [[ $driver_exit -eq 0 && -n "$raw_driver" ]]; then
         DRIVER_VERSION=$(echo "$raw_driver" | head -1 | cut -d. -f1)
     fi
     if [[ -n "$DRIVER_VERSION" && "$DRIVER_VERSION" =~ ^[0-9]+$ ]]; then
@@ -156,12 +176,18 @@ if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "nvidia" ]]; then
             if ! $DRY_RUN; then
                 if command -v ubuntu-drivers &> /dev/null; then
                     sudo ubuntu-drivers install nvidia:${MIN_DRIVER_VERSION}-server 2>>"$LOG_FILE" || \
-                    sudo apt-get install -y nvidia-driver-${MIN_DRIVER_VERSION} 2>>"$LOG_FILE" || true
+                    install_exit=0
+                    sudo apt-get install -y nvidia-driver-${MIN_DRIVER_VERSION} 2>>"$LOG_FILE" || install_exit=$?
+                    [[ $install_exit -ne 0 ]] && log "nvidia-driver install attempt failed (exit $install_exit)"
                 else
-                    sudo apt-get install -y nvidia-driver-${MIN_DRIVER_VERSION} 2>>"$LOG_FILE" || true
+                    install_exit=0
+                    sudo apt-get install -y nvidia-driver-${MIN_DRIVER_VERSION} 2>>"$LOG_FILE" || install_exit=$?
+                    [[ $install_exit -ne 0 ]] && log "nvidia-driver install attempt failed (exit $install_exit)"
                 fi
                 # Check if upgrade succeeded
-                if dpkg -l "nvidia-driver-${MIN_DRIVER_VERSION}"* 2>/dev/null | grep -q "^ii"; then
+                dpkg_exit=0
+                dpkg -l "nvidia-driver-${MIN_DRIVER_VERSION}"* 2>/dev/null | grep -q "^ii" || dpkg_exit=$?
+                if [[ $dpkg_exit -eq 0 ]]; then
                     ai_ok "NVIDIA driver ${MIN_DRIVER_VERSION} installed."
                     ai_warn "A REBOOT is required before continuing."
                     ai "After rebooting, re-run this installer. It will pick up where it left off."
@@ -197,22 +223,24 @@ if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "intel" ]]; then
     # 1. Cross-validate with lspci — confirm the Arc card is visible to the PCI bus
     #    detect_gpu() already confirmed it via sysfs; this adds a human-readable log line.
     _arc_pci_name=""
-    if command -v lspci &>/dev/null; then
+    if command -v lspci >/dev/null 2>&1; then
+        lspci_exit=0
         _arc_pci_name=$(lspci 2>/dev/null \
             | grep -i 'VGA\|Display\|3D' \
             | grep -i 'Intel.*Arc\|Arc.*Intel\|Intel.*A[0-9][0-9][0-9]\|Intel.*B[0-9][0-9][0-9]' \
             | head -1 \
-            | sed 's/.*: //')
-        if [[ -n "$_arc_pci_name" ]]; then
+            | sed 's/.*: //') || lspci_exit=$?
+        if [[ $lspci_exit -eq 0 && -n "$_arc_pci_name" ]]; then
             ai_ok "lspci: $_arc_pci_name"
         else
             # Broader fallback: any Intel VGA/3D controller (covers cards lspci names without "Arc")
+            lspci_fallback_exit=0
             _arc_pci_name=$(lspci 2>/dev/null \
                 | grep -i 'VGA\|Display\|3D' \
                 | grep -i 'Intel' \
                 | head -1 \
-                | sed 's/.*: //')
-            [[ -n "$_arc_pci_name" ]] && ai_ok "lspci: $_arc_pci_name (Intel GPU)" \
+                | sed 's/.*: //') || lspci_fallback_exit=$?
+            [[ $lspci_fallback_exit -eq 0 && -n "$_arc_pci_name" ]] && ai_ok "lspci: $_arc_pci_name (Intel GPU)" \
                 || ai_warn "lspci: Intel Arc sysfs entry found but lspci VGA entry not visible — IOMMU or PCIe bridge may obscure it"
         fi
     else
@@ -222,17 +250,23 @@ if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "intel" ]]; then
     # 2. Check Level Zero runtime — required for SYCL inference
     #    level-zero-loader provides /usr/lib/libze_loader.so.1 or the ze_info binary.
     _level_zero_ok=false
-    if command -v ze_info &>/dev/null; then
+    if command -v ze_info >/dev/null 2>&1; then
         _level_zero_ok=true
-        _ze_version=$(ze_info 2>/dev/null | grep -i 'driver version\|Driver Version' | head -1 | xargs || true)
+        ze_exit=0
+        _ze_version=$(ze_info 2>/dev/null | grep -i 'driver version\|Driver Version' | head -1 | xargs) || ze_exit=$?
+        [[ $ze_exit -ne 0 ]] && _ze_version=""
         ai_ok "Level Zero: available${_ze_version:+ — $_ze_version}"
-    elif ldconfig -p 2>/dev/null | grep -q 'libze_loader'; then
-        _level_zero_ok=true
-        ai_ok "Level Zero: libze_loader found"
-    elif [[ -f /usr/lib/x86_64-linux-gnu/libze_loader.so.1 || \
-            -f /usr/lib/libze_loader.so.1 ]]; then
-        _level_zero_ok=true
-        ai_ok "Level Zero: libze_loader.so.1 present"
+    else
+        ldconfig_exit=0
+        ldconfig -p 2>/dev/null | grep -q 'libze_loader' || ldconfig_exit=$?
+        if [[ $ldconfig_exit -eq 0 ]]; then
+            _level_zero_ok=true
+            ai_ok "Level Zero: libze_loader found"
+        elif [[ -f /usr/lib/x86_64-linux-gnu/libze_loader.so.1 || \
+                -f /usr/lib/libze_loader.so.1 ]]; then
+            _level_zero_ok=true
+            ai_ok "Level Zero: libze_loader.so.1 present"
+        fi
     fi
     if [[ "$_level_zero_ok" == "false" ]]; then
         ai_warn "Level Zero runtime not detected."
@@ -243,7 +277,9 @@ if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "intel" ]]; then
 
     # 3. Check /dev/dri — device node needed for Docker passthrough
     if [[ -c /dev/dri/renderD128 || -d /dev/dri ]]; then
-        _render_node=$(ls /dev/dri/renderD* 2>/dev/null | head -1 || true)
+        ls_exit=0
+        _render_node=$(ls /dev/dri/renderD* 2>/dev/null | head -1) || ls_exit=$?
+        [[ $ls_exit -ne 0 ]] && _render_node=""
         ai_ok "/dev/dri: ${_render_node:-/dev/dri present} (GPU device pass-through available)"
     else
         ai_warn "/dev/dri not found — Docker GPU device pass-through may fail."
@@ -251,8 +287,10 @@ if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "intel" ]]; then
     fi
 
     # 4. Check intel_gpu_top (from intel-gpu-tools) — non-fatal, used for monitoring
-    if command -v intel_gpu_top &>/dev/null; then
-        _igt_ver=$(intel_gpu_top --version 2>/dev/null | head -1 || true)
+    if command -v intel_gpu_top >/dev/null 2>&1; then
+        igt_exit=0
+        _igt_ver=$(intel_gpu_top --version 2>/dev/null | head -1) || igt_exit=$?
+        [[ $igt_exit -ne 0 ]] && _igt_ver=""
         ai_ok "intel_gpu_top: available${_igt_ver:+ ($_igt_ver)}"
     else
         log "intel_gpu_top not found (optional — used for GPU utilisation monitoring)"
@@ -262,7 +300,9 @@ if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "intel" ]]; then
     # 5. Check video/render group membership (needed for rootless Docker device access)
     _missing_groups=()
     for _grp in video render; do
-        if ! id -nG 2>/dev/null | grep -qw "$_grp"; then
+        id_exit=0
+        id -nG 2>/dev/null | grep -qw "$_grp" || id_exit=$?
+        if [[ $id_exit -ne 0 ]]; then
             _missing_groups+=("$_grp")
         fi
     done
@@ -343,7 +383,9 @@ fi
 resolve_tier_config
 
 # Display hardware summary with nice formatting
-CPU_INFO=$(grep "model name" /proc/cpuinfo 2>/dev/null | head -1 | cut -d: -f2 | xargs || echo "Unknown")
+cpu_info_exit=0
+CPU_INFO=$(grep "model name" /proc/cpuinfo 2>/dev/null | head -1 | cut -d: -f2 | xargs) || cpu_info_exit=$?
+[[ $cpu_info_exit -ne 0 || -z "$CPU_INFO" ]] && CPU_INFO="Unknown"
 if [[ "$INTERACTIVE" == "true" ]]; then
     show_hardware_summary "$GPU_NAME" "$((GPU_VRAM / 1024))" "$CPU_INFO" "$RAM_GB" "$DISK_AVAIL"
 

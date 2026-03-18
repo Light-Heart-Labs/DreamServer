@@ -146,22 +146,35 @@ check_port_conflict() {
     PORT_CONFLICT_PROC=""
 
     # Try lsof first (most reliable for getting process info)
-    if command -v lsof &> /dev/null; then
-        if lsof -i ":${port}" -sTCP:LISTEN >/dev/null 2>&1; then
-            PORT_CONFLICT_PID=$(lsof -t -i ":${port}" -sTCP:LISTEN 2>/dev/null | head -1)
-            PORT_CONFLICT_PROC=$(ps -p "$PORT_CONFLICT_PID" -o comm= 2>/dev/null || echo "unknown")
+    if command -v lsof >/dev/null 2>&1; then
+        lsof_check_exit=0
+        lsof -i ":${port}" -sTCP:LISTEN >/dev/null 2>&1 || lsof_check_exit=$?
+        if [[ $lsof_check_exit -eq 0 ]]; then
+            lsof_pid_exit=0
+            PORT_CONFLICT_PID=$(lsof -t -i ":${port}" -sTCP:LISTEN 2>/dev/null | head -1) || lsof_pid_exit=$?
+            [[ $lsof_pid_exit -ne 0 ]] && PORT_CONFLICT_PID=""
+
+            ps_exit=0
+            PORT_CONFLICT_PROC=$(ps -p "$PORT_CONFLICT_PID" -o comm= 2>/dev/null) || ps_exit=$?
+            [[ $ps_exit -ne 0 ]] && PORT_CONFLICT_PROC="unknown"
             PORT_CONFLICT=true
             return 0
         fi
     # Fallback to ss (faster but less detailed)
-    elif command -v ss &> /dev/null; then
-        if ss -tln 2>/dev/null | grep -qE ":${port}(\s|$)"; then
+    elif command -v ss >/dev/null 2>&1; then
+        ss_check_exit=0
+        ss -tln 2>/dev/null | grep -qE ":${port}(\s|$)" || ss_check_exit=$?
+        if [[ $ss_check_exit -eq 0 ]]; then
             # Try to extract PID from ss output (format: users:(("process",pid=1234,fd=5)))
             local ss_line
-            ss_line=$(ss -tlnp 2>/dev/null | grep -E ":${port}(\s|$)" | head -1)
+            ss_line_exit=0
+            ss_line=$(ss -tlnp 2>/dev/null | grep -E ":${port}(\s|$)" | head -1) || ss_line_exit=$?
+            [[ $ss_line_exit -ne 0 ]] && ss_line=""
             if [[ "$ss_line" =~ pid=([0-9]+) ]]; then
                 PORT_CONFLICT_PID="${BASH_REMATCH[1]}"
-                PORT_CONFLICT_PROC=$(ps -p "$PORT_CONFLICT_PID" -o comm= 2>/dev/null || echo "unknown")
+                ps_ss_exit=0
+                PORT_CONFLICT_PROC=$(ps -p "$PORT_CONFLICT_PID" -o comm= 2>/dev/null) || ps_ss_exit=$?
+                [[ $ps_ss_exit -ne 0 ]] && PORT_CONFLICT_PROC="unknown"
             else
                 PORT_CONFLICT_PROC="unknown"
             fi
@@ -169,11 +182,15 @@ check_port_conflict() {
             return 0
         fi
     # Fallback to netstat
-    elif command -v netstat &> /dev/null; then
-        if netstat -tln 2>/dev/null | grep -qE ":${port}(\s|$)"; then
+    elif command -v netstat >/dev/null 2>&1; then
+        netstat_check_exit=0
+        netstat -tln 2>/dev/null | grep -qE ":${port}(\s|$)" || netstat_check_exit=$?
+        if [[ $netstat_check_exit -eq 0 ]]; then
             # netstat -tlnp requires root, so we may not get PID
             local netstat_line
-            netstat_line=$(netstat -tlnp 2>/dev/null | grep -E ":${port}(\s|$)" | head -1)
+            netstat_line_exit=0
+            netstat_line=$(netstat -tlnp 2>/dev/null | grep -E ":${port}(\s|$)" | head -1) || netstat_line_exit=$?
+            [[ $netstat_line_exit -ne 0 ]] && netstat_line=""
             if [[ "$netstat_line" =~ ([0-9]+)/([^ ]+) ]]; then
                 PORT_CONFLICT_PID="${BASH_REMATCH[1]}"
                 PORT_CONFLICT_PROC="${BASH_REMATCH[2]}"
@@ -215,7 +232,13 @@ if $OLLAMA_RUNNING; then
     if $INTERACTIVE && ! $DRY_RUN; then
         read -r -p "  Stop Ollama for this session? [Y/n] " ollama_choice
         if [[ ! "$ollama_choice" =~ ^[nN] ]]; then
-            kill "$OLLAMA_PID" 2>/dev/null || sudo kill "$OLLAMA_PID" 2>/dev/null || true
+            kill_exit=0
+            kill "$OLLAMA_PID" 2>/dev/null || kill_exit=$?
+            if [[ $kill_exit -ne 0 ]]; then
+                sudo_kill_exit=0
+                sudo kill "$OLLAMA_PID" 2>/dev/null || sudo_kill_exit=$?
+                [[ $sudo_kill_exit -ne 0 ]] && log "Failed to kill Ollama (PID $OLLAMA_PID)"
+            fi
             sleep 2
             if pgrep -x ollama >/dev/null 2>&1; then
                 ai_warn "Ollama restarted automatically. Stop it manually: sudo systemctl stop ollama"

@@ -58,7 +58,7 @@ else
     dream_progress 39 "directories" "Copying source files"
     if [[ "$SCRIPT_DIR" != "$INSTALL_DIR" ]]; then
         ai "Copying source files to $INSTALL_DIR..."
-        if command -v rsync &>/dev/null; then
+        if command -v rsync >/dev/null 2>&1; then
             rsync -a \
                 --exclude='.git' \
                 --exclude='data/' \
@@ -76,12 +76,22 @@ else
                 "$SCRIPT_DIR/" "$INSTALL_DIR/"
         else
             # Fallback: cp -r everything, then remove runtime artifacts
-            cp -r "$SCRIPT_DIR"/* "$INSTALL_DIR/" 2>/dev/null || true
-            cp "$SCRIPT_DIR"/.gitignore "$INSTALL_DIR/" 2>/dev/null || true
-            rm -rf "$INSTALL_DIR/.git" 2>/dev/null || true
+            cp_exit=0
+            cp -r "$SCRIPT_DIR"/* "$INSTALL_DIR/" 2>/dev/null || cp_exit=$?
+            [[ $cp_exit -ne 0 ]] && log "cp source files failed (exit $cp_exit)"
+
+            cp_gitignore_exit=0
+            cp "$SCRIPT_DIR"/.gitignore "$INSTALL_DIR/" 2>/dev/null || cp_gitignore_exit=$?
+            [[ $cp_gitignore_exit -ne 0 ]] && log "cp .gitignore failed (exit $cp_gitignore_exit)"
+
+            rm_git_exit=0
+            rm -rf "$INSTALL_DIR/.git" 2>/dev/null || rm_git_exit=$?
+            [[ $rm_git_exit -ne 0 ]] && log "rm .git failed (exit $rm_git_exit)"
         fi
         # Ensure scripts are executable
-        chmod +x "$INSTALL_DIR"/*.sh "$INSTALL_DIR"/scripts/*.sh "$INSTALL_DIR"/dream-cli 2>/dev/null || true
+        chmod_exit=0
+        chmod +x "$INSTALL_DIR"/*.sh "$INSTALL_DIR"/scripts/*.sh "$INSTALL_DIR"/dream-cli 2>/dev/null || chmod_exit=$?
+        [[ $chmod_exit -ne 0 ]] && log "chmod +x failed (exit $chmod_exit)"
         ai_ok "Source files installed"
     else
         log "Running in-place (source == install dir), skipping file copy"
@@ -98,7 +108,9 @@ else
             cp "$SCRIPT_DIR/config/openclaw/$OPENCLAW_CONFIG" "$INSTALL_DIR/config/openclaw/openclaw.json"
         else
             warn "OpenClaw config $OPENCLAW_CONFIG not found, using default"
-            cp "$SCRIPT_DIR/config/openclaw/openclaw.json.example" "$INSTALL_DIR/config/openclaw/openclaw.json" 2>/dev/null || true
+            cp_openclaw_exit=0
+            cp "$SCRIPT_DIR/config/openclaw/openclaw.json.example" "$INSTALL_DIR/config/openclaw/openclaw.json" 2>/dev/null || cp_openclaw_exit=$?
+            [[ $cp_openclaw_exit -ne 0 ]] && log "cp openclaw.json.example failed (exit $cp_openclaw_exit)"
         fi
         # Resolve provider name/URL before any sed replacements that depend on them
         OPENCLAW_PROVIDER_NAME="${OPENCLAW_PROVIDER_NAME_DEFAULT}"
@@ -115,7 +127,13 @@ else
         log "Installed OpenClaw config: $OPENCLAW_CONFIG -> openclaw.json (model: $OPENCLAW_MODEL)"
         mkdir -p "$INSTALL_DIR/data/openclaw/home/agents/main/sessions"
         # Generate OpenClaw home config with local llama-server provider
-        OPENCLAW_TOKEN=$(openssl rand -hex 24 2>/dev/null || head -c 24 /dev/urandom | xxd -p)
+        openssl_exit=0
+        OPENCLAW_TOKEN=$(openssl rand -hex 24 2>/dev/null) || openssl_exit=$?
+        if [[ $openssl_exit -ne 0 ]]; then
+            urandom_exit=0
+            OPENCLAW_TOKEN=$(head -c 24 /dev/urandom | xxd -p) || urandom_exit=$?
+            [[ $urandom_exit -ne 0 ]] && OPENCLAW_TOKEN="fallback-token-$(date +%s)"
+        fi
 
         cat > "$INSTALL_DIR/data/openclaw/home/openclaw.json" << OCLAW_EOF
 {
@@ -213,18 +231,28 @@ MODELS_EOF
         # Copy workspace personality files (Todd identity, system knowledge, etc.)
         # Exclude .git and .openclaw dirs — those are runtime/dev artifacts
         if [[ -d "$SCRIPT_DIR/config/openclaw/workspace" ]]; then
-            if command -v rsync &>/dev/null; then
+            if command -v rsync >/dev/null 2>&1; then
                 rsync -a --exclude='.git' --exclude='.openclaw' --exclude='.gitkeep' \
                     "$SCRIPT_DIR/config/openclaw/workspace/" "$INSTALL_DIR/config/openclaw/workspace/"
             else
-                cp -r "$SCRIPT_DIR/config/openclaw/workspace"/* "$INSTALL_DIR/config/openclaw/workspace/" 2>/dev/null || true
-                rm -rf "$INSTALL_DIR/config/openclaw/workspace/.git" 2>/dev/null || true
-                rm -rf "$INSTALL_DIR/config/openclaw/workspace/.openclaw" 2>/dev/null || true
+                cp_workspace_exit=0
+                cp -r "$SCRIPT_DIR/config/openclaw/workspace"/* "$INSTALL_DIR/config/openclaw/workspace/" 2>/dev/null || cp_workspace_exit=$?
+                [[ $cp_workspace_exit -ne 0 ]] && log "cp workspace files failed (exit $cp_workspace_exit)"
+
+                rm_workspace_git_exit=0
+                rm -rf "$INSTALL_DIR/config/openclaw/workspace/.git" 2>/dev/null || rm_workspace_git_exit=$?
+                [[ $rm_workspace_git_exit -ne 0 ]] && log "rm workspace .git failed (exit $rm_workspace_git_exit)"
+
+                rm_workspace_openclaw_exit=0
+                rm -rf "$INSTALL_DIR/config/openclaw/workspace/.openclaw" 2>/dev/null || rm_workspace_openclaw_exit=$?
+                [[ $rm_workspace_openclaw_exit -ne 0 ]] && log "rm workspace .openclaw failed (exit $rm_workspace_openclaw_exit)"
             fi
             log "Installed OpenClaw workspace files (agent personality)"
         fi
         # OpenClaw container runs as node (uid 1000) — fix ownership
-        chown -R 1000:1000 "$INSTALL_DIR/data/openclaw" "$INSTALL_DIR/config/openclaw/workspace" 2>/dev/null || true
+        chown_exit=0
+        chown -R 1000:1000 "$INSTALL_DIR/data/openclaw" "$INSTALL_DIR/config/openclaw/workspace" 2>/dev/null || chown_exit=$?
+        [[ $chown_exit -ne 0 ]] && log "chown openclaw dirs failed (exit $chown_exit)"
     fi
 
     # ── .env merge logic: preserve user-configured values on re-install ──
@@ -242,7 +270,9 @@ MODELS_EOF
         local key="$1" default="${2:-}"
         if [[ -n "$_env_existing" ]]; then
             local val
-            val=$(grep -m1 "^${key}=" "$_env_existing" 2>/dev/null | cut -d= -f2- || true)
+            grep_val_exit=0
+            val=$(grep -m1 "^${key}=" "$_env_existing" 2>/dev/null | cut -d= -f2-) || grep_val_exit=$?
+            [[ $grep_val_exit -ne 0 ]] && val=""
             # Strip surrounding quotes
             val="${val%\"}" && val="${val#\"}"
             val="${val%\'}" && val="${val#\'}"
@@ -255,31 +285,116 @@ MODELS_EOF
     }
 
     # Secrets: reuse existing values, generate only if missing
-    WEBUI_SECRET=$(_env_get WEBUI_SECRET "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
-    N8N_PASS=$(_env_get N8N_PASS "$(openssl rand -base64 16 2>/dev/null || head -c 16 /dev/urandom | base64)")
-    LITELLM_KEY=$(_env_get LITELLM_KEY "sk-dream-$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
-    LIVEKIT_SECRET=$(_env_get LIVEKIT_API_SECRET "$(openssl rand -base64 32 2>/dev/null || head -c 32 /dev/urandom | base64)")
-    DASHBOARD_API_KEY=$(_env_get DASHBOARD_API_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
-    DIFY_SECRET_KEY=$(_env_get DIFY_SECRET_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
-    QDRANT_API_KEY=$(_env_get QDRANT_API_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
-    OPENCODE_SERVER_PASSWORD=$(_env_get OPENCODE_SERVER_PASSWORD "$(openssl rand -base64 16 2>/dev/null || head -c 16 /dev/urandom | base64)")
+    _gen_secret_hex32() {
+        openssl_hex32_exit=0
+        local secret
+        secret=$(openssl rand -hex 32 2>/dev/null) || openssl_hex32_exit=$?
+        if [[ $openssl_hex32_exit -eq 0 && -n "$secret" ]]; then
+            echo "$secret"
+        else
+            urandom_hex32_exit=0
+            secret=$(head -c 32 /dev/urandom | xxd -p) || urandom_hex32_exit=$?
+            [[ $urandom_hex32_exit -ne 0 ]] && secret="fallback-hex32-$(date +%s)"
+            echo "$secret"
+        fi
+    }
+
+    _gen_secret_hex16() {
+        openssl_hex16_exit=0
+        local secret
+        secret=$(openssl rand -hex 16 2>/dev/null) || openssl_hex16_exit=$?
+        if [[ $openssl_hex16_exit -eq 0 && -n "$secret" ]]; then
+            echo "$secret"
+        else
+            urandom_hex16_exit=0
+            secret=$(head -c 16 /dev/urandom | xxd -p) || urandom_hex16_exit=$?
+            [[ $urandom_hex16_exit -ne 0 ]] && secret="fallback-hex16-$(date +%s)"
+            echo "$secret"
+        fi
+    }
+
+    _gen_secret_base64_16() {
+        openssl_b64_16_exit=0
+        local secret
+        secret=$(openssl rand -base64 16 2>/dev/null) || openssl_b64_16_exit=$?
+        if [[ $openssl_b64_16_exit -eq 0 && -n "$secret" ]]; then
+            echo "$secret"
+        else
+            urandom_b64_16_exit=0
+            secret=$(head -c 16 /dev/urandom | base64) || urandom_b64_16_exit=$?
+            [[ $urandom_b64_16_exit -ne 0 ]] && secret="fallback-b64-16-$(date +%s)"
+            echo "$secret"
+        fi
+    }
+
+    _gen_secret_base64_32() {
+        openssl_b64_32_exit=0
+        local secret
+        secret=$(openssl rand -base64 32 2>/dev/null) || openssl_b64_32_exit=$?
+        if [[ $openssl_b64_32_exit -eq 0 && -n "$secret" ]]; then
+            echo "$secret"
+        else
+            urandom_b64_32_exit=0
+            secret=$(head -c 32 /dev/urandom | base64) || urandom_b64_32_exit=$?
+            [[ $urandom_b64_32_exit -ne 0 ]] && secret="fallback-b64-32-$(date +%s)"
+            echo "$secret"
+        fi
+    }
+
+    WEBUI_SECRET=$(_env_get WEBUI_SECRET "$(_gen_secret_hex32)")
+    N8N_PASS=$(_env_get N8N_PASS "$(_gen_secret_base64_16)")
+    LITELLM_KEY=$(_env_get LITELLM_KEY "sk-dream-$(_gen_secret_hex16)")
+    LIVEKIT_SECRET=$(_env_get LIVEKIT_API_SECRET "$(_gen_secret_base64_32)")
+    DASHBOARD_API_KEY=$(_env_get DASHBOARD_API_KEY "$(_gen_secret_hex32)")
+    DIFY_SECRET_KEY=$(_env_get DIFY_SECRET_KEY "$(_gen_secret_hex32)")
+    QDRANT_API_KEY=$(_env_get QDRANT_API_KEY "$(_gen_secret_hex32)")
+    OPENCODE_SERVER_PASSWORD=$(_env_get OPENCODE_SERVER_PASSWORD "$(_gen_secret_base64_16)")
 
     # Langfuse (LLM Observability)
     LANGFUSE_PORT=$(_env_get LANGFUSE_PORT "3006")
     LANGFUSE_ENABLED=$(_env_get LANGFUSE_ENABLED "false")
-    LANGFUSE_NEXTAUTH_SECRET=$(_env_get LANGFUSE_NEXTAUTH_SECRET "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p | tr -d '\n')")
-    LANGFUSE_SALT=$(_env_get LANGFUSE_SALT "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p | tr -d '\n')")
-    LANGFUSE_ENCRYPTION_KEY=$(_env_get LANGFUSE_ENCRYPTION_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p | tr -d '\n')")
-    LANGFUSE_DB_PASSWORD=$(_env_get LANGFUSE_DB_PASSWORD "$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
-    LANGFUSE_CLICKHOUSE_PASSWORD=$(_env_get LANGFUSE_CLICKHOUSE_PASSWORD "$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
-    LANGFUSE_REDIS_PASSWORD=$(_env_get LANGFUSE_REDIS_PASSWORD "$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
-    LANGFUSE_MINIO_ACCESS_KEY=$(_env_get LANGFUSE_MINIO_ACCESS_KEY "$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
-    LANGFUSE_MINIO_SECRET_KEY=$(_env_get LANGFUSE_MINIO_SECRET_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p | tr -d '\n')")
-    LANGFUSE_PROJECT_PUBLIC_KEY=$(_env_get LANGFUSE_PROJECT_PUBLIC_KEY "pk-lf-dream-$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
-    LANGFUSE_PROJECT_SECRET_KEY=$(_env_get LANGFUSE_PROJECT_SECRET_KEY "sk-lf-dream-$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
-    LANGFUSE_INIT_PROJECT_ID=$(_env_get LANGFUSE_INIT_PROJECT_ID "$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
+
+    _gen_secret_hex32_noln() {
+        openssl_hex32_noln_exit=0
+        local secret
+        secret=$(openssl rand -hex 32 2>/dev/null | tr -d '\n') || openssl_hex32_noln_exit=$?
+        if [[ $openssl_hex32_noln_exit -eq 0 && -n "$secret" ]]; then
+            echo "$secret"
+        else
+            urandom_hex32_noln_exit=0
+            secret=$(head -c 32 /dev/urandom | xxd -p | tr -d '\n') || urandom_hex32_noln_exit=$?
+            [[ $urandom_hex32_noln_exit -ne 0 ]] && secret="fallback-hex32-noln-$(date +%s)"
+            echo "$secret"
+        fi
+    }
+
+    _gen_secret_hex16_noln() {
+        openssl_hex16_noln_exit=0
+        local secret
+        secret=$(openssl rand -hex 16 2>/dev/null | tr -d '\n') || openssl_hex16_noln_exit=$?
+        if [[ $openssl_hex16_noln_exit -eq 0 && -n "$secret" ]]; then
+            echo "$secret"
+        else
+            urandom_hex16_noln_exit=0
+            secret=$(head -c 16 /dev/urandom | xxd -p | tr -d '\n') || urandom_hex16_noln_exit=$?
+            [[ $urandom_hex16_noln_exit -ne 0 ]] && secret="fallback-hex16-noln-$(date +%s)"
+            echo "$secret"
+        fi
+    }
+
+    LANGFUSE_NEXTAUTH_SECRET=$(_env_get LANGFUSE_NEXTAUTH_SECRET "$(_gen_secret_hex32_noln)")
+    LANGFUSE_SALT=$(_env_get LANGFUSE_SALT "$(_gen_secret_hex32_noln)")
+    LANGFUSE_ENCRYPTION_KEY=$(_env_get LANGFUSE_ENCRYPTION_KEY "$(_gen_secret_hex32_noln)")
+    LANGFUSE_DB_PASSWORD=$(_env_get LANGFUSE_DB_PASSWORD "$(_gen_secret_hex16)")
+    LANGFUSE_CLICKHOUSE_PASSWORD=$(_env_get LANGFUSE_CLICKHOUSE_PASSWORD "$(_gen_secret_hex16)")
+    LANGFUSE_REDIS_PASSWORD=$(_env_get LANGFUSE_REDIS_PASSWORD "$(_gen_secret_hex16)")
+    LANGFUSE_MINIO_ACCESS_KEY=$(_env_get LANGFUSE_MINIO_ACCESS_KEY "$(_gen_secret_hex16)")
+    LANGFUSE_MINIO_SECRET_KEY=$(_env_get LANGFUSE_MINIO_SECRET_KEY "$(_gen_secret_hex32_noln)")
+    LANGFUSE_PROJECT_PUBLIC_KEY=$(_env_get LANGFUSE_PROJECT_PUBLIC_KEY "pk-lf-dream-$(_gen_secret_hex16)")
+    LANGFUSE_PROJECT_SECRET_KEY=$(_env_get LANGFUSE_PROJECT_SECRET_KEY "sk-lf-dream-$(_gen_secret_hex16)")
+    LANGFUSE_INIT_PROJECT_ID=$(_env_get LANGFUSE_INIT_PROJECT_ID "$(_gen_secret_hex16)")
     LANGFUSE_INIT_USER_EMAIL=$(_env_get LANGFUSE_INIT_USER_EMAIL "admin@dreamserver.local")
-    LANGFUSE_INIT_USER_PASSWORD=$(_env_get LANGFUSE_INIT_USER_PASSWORD "$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
+    LANGFUSE_INIT_USER_PASSWORD=$(_env_get LANGFUSE_INIT_USER_PASSWORD "$(_gen_secret_hex16)")
 
     # Preserve user-supplied cloud API keys
     ANTHROPIC_API_KEY=$(_env_get ANTHROPIC_API_KEY "${ANTHROPIC_API_KEY:-}")
@@ -312,20 +427,38 @@ CTX_SIZE=${MAX_CONTEXT}
 GPU_BACKEND=${GPU_BACKEND}
 N_GPU_LAYERS=${N_GPU_LAYERS:-99}
 
-$(if [[ "$GPU_BACKEND" == "amd" ]]; then cat << AMD_ENV
+$(if [[ "$GPU_BACKEND" == "amd" ]]; then
+    amd_video_gid_exit=0
+    amd_video_gid=$(getent group video 2>/dev/null | cut -d: -f3) || amd_video_gid_exit=$?
+    [[ $amd_video_gid_exit -ne 0 || -z "$amd_video_gid" ]] && amd_video_gid=44
+
+    amd_render_gid_exit=0
+    amd_render_gid=$(getent group render 2>/dev/null | cut -d: -f3) || amd_render_gid_exit=$?
+    [[ $amd_render_gid_exit -ne 0 || -z "$amd_render_gid" ]] && amd_render_gid=992
+
+    cat << AMD_ENV
 #=== GPU Group IDs (for container device access) ===
-VIDEO_GID=$(getent group video 2>/dev/null | cut -d: -f3 || echo 44)
-RENDER_GID=$(getent group render 2>/dev/null | cut -d: -f3 || echo 992)
+VIDEO_GID=$amd_video_gid
+RENDER_GID=$amd_render_gid
 
 #=== AMD ROCm Settings ===
 HSA_OVERRIDE_GFX_VERSION=11.5.1
 ROCBLAS_USE_HIPBLASLT=0
 AMD_ENV
 fi)
-$(if [[ "$GPU_BACKEND" == "sycl" ]]; then cat << INTEL_ENV
+$(if [[ "$GPU_BACKEND" == "sycl" ]]; then
+    video_gid_exit=0
+    video_gid=$(getent group video 2>/dev/null | cut -d: -f3) || video_gid_exit=$?
+    [[ $video_gid_exit -ne 0 || -z "$video_gid" ]] && video_gid=44
+
+    render_gid_exit=0
+    render_gid=$(getent group render 2>/dev/null | cut -d: -f3) || render_gid_exit=$?
+    [[ $render_gid_exit -ne 0 || -z "$render_gid" ]] && render_gid=992
+
+    cat << INTEL_ENV
 #=== GPU Group IDs (for container device access) ===
-VIDEO_GID=$(getent group video 2>/dev/null | cut -d: -f3 || echo 44)
-RENDER_GID=$(getent group render 2>/dev/null | cut -d: -f3 || echo 992)
+VIDEO_GID=$video_gid
+RENDER_GID=$render_gid
 
 #=== Intel Arc / oneAPI SYCL Settings ===
 ONEAPI_DEVICE_SELECTOR=level_zero:gpu
@@ -355,9 +488,9 @@ DASHBOARD_API_KEY=${DASHBOARD_API_KEY}
 N8N_USER=admin
 N8N_PASS=${N8N_PASS}
 LITELLM_KEY=${LITELLM_KEY}
-LIVEKIT_API_KEY=$(_env_get LIVEKIT_API_KEY "$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
+LIVEKIT_API_KEY=$(_env_get LIVEKIT_API_KEY "$(_gen_secret_hex16)")
 LIVEKIT_API_SECRET=${LIVEKIT_SECRET}
-OPENCLAW_TOKEN=${OPENCLAW_TOKEN:-$(openssl rand -hex 24 2>/dev/null || head -c 24 /dev/urandom | xxd -p)}
+OPENCLAW_TOKEN=${OPENCLAW_TOKEN:-$(_gen_secret_hex16)}
 QDRANT_API_KEY=${QDRANT_API_KEY}
 OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD}
 DIFY_SECRET_KEY=${DIFY_SECRET_KEY}
@@ -414,9 +547,11 @@ ENV_EOF
     # Fix ownership from previous container runs (SearXNG writes as uid 977)
     mkdir -p "$INSTALL_DIR/config/searxng"
     if [[ -f "$INSTALL_DIR/config/searxng/settings.yml" ]] && ! [[ -w "$INSTALL_DIR/config/searxng/settings.yml" ]]; then
-        sudo chown "$(id -u):$(id -g)" "$INSTALL_DIR/config/searxng/settings.yml" 2>/dev/null || true
+        chown_searxng_exit=0
+        sudo chown "$(id -u):$(id -g)" "$INSTALL_DIR/config/searxng/settings.yml" 2>/dev/null || chown_searxng_exit=$?
+        [[ $chown_searxng_exit -ne 0 ]] && log "chown searxng settings.yml failed (exit $chown_searxng_exit)"
     fi
-    SEARXNG_SECRET=$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)
+    SEARXNG_SECRET=$(_gen_secret_hex32)
     cat > "$INSTALL_DIR/config/searxng/settings.yml" << SEARXNG_EOF
 use_default_settings: true
 server:
