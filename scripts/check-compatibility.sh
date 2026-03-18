@@ -40,8 +40,8 @@ pass "extension schema contract"
 
 # Port contract
 ports_path="$(jq -r '.contracts.ports.canonicalPath' "$MANIFEST_FILE")"
-test -f "${ROOT_DIR}/${ports_path}" || fail "missing canonical ports contract: ${ports_path}"
-jq -e '.version and (.ports | type=="array" and length>0)' "${ROOT_DIR}/${ports_path}" >/dev/null \
+test -f "${ROOT_DIR}/dream-server/${ports_path}" || fail "missing canonical ports contract: ${ports_path}"
+jq -e '.version and (.ports | type=="array" and length>0)' "${ROOT_DIR}/dream-server/${ports_path}" >/dev/null \
   || fail "invalid ports contract structure: ${ports_path}"
 pass "ports contract"
 
