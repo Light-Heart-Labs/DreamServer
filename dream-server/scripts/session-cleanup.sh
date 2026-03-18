@@ -54,7 +54,11 @@ if [ ! -d "$SESSIONS_DIR" ]; then
 fi
 
 # ── Extract active session IDs (portable: no grep -P) ─────────
-ACTIVE_IDS=$(grep -oE '"sessionId"[[:space:]]*:[[:space:]]*"[^"]+"' "$SESSIONS_JSON" 2>/dev/null | sed -E 's/.*"sessionId"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/' || true)
+ACTIVE_IDS_EXIT=0
+ACTIVE_IDS=$(grep -oE '"sessionId"[[:space:]]*:[[:space:]]*"[^"]+"' "$SESSIONS_JSON" 2>&1 | sed -E 's/.*"sessionId"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/') || ACTIVE_IDS_EXIT=$?
+if [[ $ACTIVE_IDS_EXIT -ne 0 ]]; then
+    ACTIVE_IDS=""
+fi
 
 echo "[$(date)] Session cleanup starting"
 echo "[$(date)] Sessions dir: $SESSIONS_DIR"
@@ -62,8 +66,18 @@ echo "[$(date)] Max size threshold: $MAX_SIZE bytes"
 echo "[$(date)] Active sessions found: $(echo "$ACTIVE_IDS" | wc -w)"
 
 # ── Clean up debris ────────────────────────────────────────────
-DELETED_COUNT=$(find "$SESSIONS_DIR" -name '*.deleted.*' -delete -print 2>/dev/null | wc -l)
-BAK_COUNT=$(find "$SESSIONS_DIR" -name '*.bak*' -not -name '*.bak-cleanup' -delete -print 2>/dev/null | wc -l)
+DELETED_EXIT=0
+DELETED_COUNT=$(find "$SESSIONS_DIR" -name '*.deleted.*' -delete -print 2>&1 | wc -l) || DELETED_EXIT=$?
+if [[ $DELETED_EXIT -ne 0 ]]; then
+    DELETED_COUNT=0
+fi
+
+BAK_EXIT=0
+BAK_COUNT=$(find "$SESSIONS_DIR" -name '*.bak*' -not -name '*.bak-cleanup' -delete -print 2>&1 | wc -l) || BAK_EXIT=$?
+if [[ $BAK_EXIT -ne 0 ]]; then
+    BAK_COUNT=0
+fi
+
 if [ "$DELETED_COUNT" -gt 0 ] || [ "$BAK_COUNT" -gt 0 ]; then
     echo "[$(date)] Cleaned up $DELETED_COUNT .deleted files, $BAK_COUNT .bak files"
 fi
@@ -93,10 +107,14 @@ for f in "$SESSIONS_DIR"/*.jsonl; do
         REMOVED_INACTIVE=$((REMOVED_INACTIVE + 1))
     else
         # Portable stat: Linux uses -c%s, macOS uses -f%z
+        local stat_exit=0
         if [ "$(uname -s)" = "Darwin" ]; then
-            SIZE_BYTES=$(stat -f%z "$f" 2>/dev/null || echo 0)
+            SIZE_BYTES=$(stat -f%z "$f" 2>&1) || stat_exit=$?
         else
-            SIZE_BYTES=$(stat -c%s "$f" 2>/dev/null || echo 0)
+            SIZE_BYTES=$(stat -c%s "$f" 2>&1) || stat_exit=$?
+        fi
+        if [[ $stat_exit -ne 0 ]]; then
+            SIZE_BYTES=0
         fi
         if [ "$SIZE_BYTES" -gt "$MAX_SIZE" ]; then
             SIZE=$(du -h "$f" | cut -f1)
@@ -142,10 +160,15 @@ fi
 
 # ── Summary ────────────────────────────────────────────────────
 echo "[$(date)] Cleanup complete: removed $REMOVED_INACTIVE inactive, $REMOVED_BLOATED bloated"
-REMAINING=$(find "$SESSIONS_DIR" -maxdepth 1 -name '*.jsonl' 2>/dev/null | wc -l)
+REMAINING_EXIT=0
+REMAINING=$(find "$SESSIONS_DIR" -maxdepth 1 -name '*.jsonl' 2>&1 | wc -l) || REMAINING_EXIT=$?
+if [[ $REMAINING_EXIT -ne 0 ]]; then
+    REMAINING=0
+fi
 echo "[$(date)] Remaining session files: $REMAINING"
 if [ "$REMAINING" -gt 0 ]; then
-    ls -lhS "$SESSIONS_DIR"/*.jsonl 2>/dev/null | while read -r line; do
+    ls_exit=0
+    ls -lhS "$SESSIONS_DIR"/*.jsonl 2>&1 | while read -r line; do
         echo "  $line"
-    done
+    done || ls_exit=$?
 fi
