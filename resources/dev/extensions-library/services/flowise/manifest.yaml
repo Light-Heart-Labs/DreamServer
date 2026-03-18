@@ -12,29 +12,49 @@ service:
   external_port_default: 7801
   health: /api/v1/health
   type: docker
-  gpu_backends: [none]
+  gpu_backends: [amd, nvidia, apple]
   category: optional
   depends_on: []
+  compose_file: compose.yaml
   description: |
     Visual LLM workflow builder with drag-and-drop interface.
     Build AI agents, chatbots, and automation flows without code.
     Integrates with OpenAI, Anthropic, local models, and 100+ tools.
-  
-  features:
-    workflow:
-      description: Visual drag-and-drop workflow builder
-      vram_required_mb: 0
-    agents:
-      description: Build AI agents with tools and memory
-      vram_required_mb: 0
-    integration:
-      description: 100+ integrations (databases, APIs, LLMs)
-      vram_required_mb: 0
-    
-  tags:
-    - workflow
-    - visual
-    - nocode
-    - agents
-    - automation
-    - lowcode
+
+features:
+  - id: workflow
+    name: Visual Workflow Builder
+    description: Visual drag-and-drop workflow builder
+    icon: Workflow
+    category: ai
+    requirements:
+      services: [flowise]
+      vram_gb: 0
+    enabled_services_all: [flowise]
+    setup_time: ~1 minute
+    priority: 7
+    gpu_backends: [amd, nvidia, apple]
+  - id: agents
+    name: AI Agent Builder
+    description: Build AI agents with tools and memory
+    icon: Bot
+    category: ai
+    requirements:
+      services: [flowise]
+      vram_gb: 0
+    enabled_services_all: [flowise]
+    setup_time: ~1 minute
+    priority: 8
+    gpu_backends: [amd, nvidia, apple]
+  - id: integration
+    name: 100+ Integrations
+    description: 100+ integrations (databases, APIs, LLMs)
+    icon: Plug
+    category: ai
+    requirements:
+      services: [flowise]
+      vram_gb: 0
+    enabled_services_all: [flowise]
+    setup_time: ~1 minute
+    priority: 9
+    gpu_backends: [amd, nvidia, apple]

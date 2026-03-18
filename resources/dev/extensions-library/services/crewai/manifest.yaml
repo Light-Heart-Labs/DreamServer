@@ -12,7 +12,7 @@ service:
   external_port_default: 8501
   health: /
   type: docker
-  gpu_backends: [none]
+  gpu_backends: [amd, nvidia, apple]
   category: optional
   depends_on: []
   env_vars: []
@@ -23,27 +23,64 @@ service:
     complex problems. Perfect for building agent teams that simulate real-world
     collaboration and decision-making.
 
-  features:
-    multi-agent:
-      description: Teams of autonomous AI agents working together
-      vram_required_mb: 0
-    task-delegation:
-      description: Automatic task distribution between agents
-      vram_required_mb: 0
-    sequential-process:
-      description: Step-by-step task execution with defined order
-      vram_required_mb: 0
-    hierarchical-process:
-      description: Manager-led coordination with validation
-      vram_required_mb: 0
-    flows:
-      description: Event-driven workflows for complex automations
-      vram_required_mb: 0
-
-  tags:
-    - multi-agent
-    - orchestration
-    - automation
-    - autonomous-agents
-    - workflow
-    - python
+features:
+  - id: multi-agent
+    name: Multi-Agent Teams
+    description: Teams of autonomous AI agents working together
+    icon: Users
+    category: ai
+    requirements:
+      services: [crewai]
+      vram_gb: 0
+    enabled_services_all: [crewai]
+    setup_time: ~1 minute
+    priority: 8
+    gpu_backends: [amd, nvidia, apple]
+  - id: task-delegation
+    name: Automatic Task Delegation
+    description: Automatic task distribution between agents
+    icon: GitBranch
+    category: ai
+    requirements:
+      services: [crewai]
+      vram_gb: 0
+    enabled_services_all: [crewai]
+    setup_time: ~1 minute
+    priority: 9
+    gpu_backends: [amd, nvidia, apple]
+  - id: sequential-process
+    name: Sequential Process
+    description: Step-by-step task execution with defined order
+    icon: ListOrdered
+    category: ai
+    requirements:
+      services: [crewai]
+      vram_gb: 0
+    enabled_services_all: [crewai]
+    setup_time: ~1 minute
+    priority: 10
+    gpu_backends: [amd, nvidia, apple]
+  - id: hierarchical-process
+    name: Hierarchical Process
+    description: Manager-led coordination with validation
+    icon: Network
+    category: ai
+    requirements:
+      services: [crewai]
+      vram_gb: 0
+    enabled_services_all: [crewai]
+    setup_time: ~1 minute
+    priority: 11
+    gpu_backends: [amd, nvidia, apple]
+  - id: flows
+    name: Event-Driven Flows
+    description: Event-driven workflows for complex automations
+    icon: Workflow
+    category: ai
+    requirements:
+      services: [crewai]
+      vram_gb: 0
+    enabled_services_all: [crewai]
+    setup_time: ~1 minute
+    priority: 12
+    gpu_backends: [amd, nvidia, apple]
