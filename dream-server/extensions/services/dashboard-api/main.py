@@ -76,7 +76,7 @@ _STATUS_CACHE_TTL = 2.0
 _STORAGE_CACHE_TTL = 30.0
 
 # --- Router imports ---
-from routers import workflows, features, setup, updates, agents, privacy
+from routers import workflows, features, setup, updates, agents, privacy, voice, diagnostics
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +125,8 @@ app.include_router(setup.router)
 app.include_router(updates.router)
 app.include_router(agents.router)
 app.include_router(privacy.router)
+app.include_router(voice.router)
+app.include_router(diagnostics.router)
 
 
 # ================================================================

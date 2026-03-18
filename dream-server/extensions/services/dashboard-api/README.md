@@ -98,6 +98,24 @@ Environment variables (set in `.env`):
 | `POST` | `/api/setup/test` | Yes | Run diagnostic tests (streaming) |
 | `POST` | `/api/chat` | Yes | Quick chat for setup wizard |
 
+### Voice
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/voice/status` | Yes | Voice dependency health for Whisper, Kokoro, and LiveKit |
+| `GET` | `/api/voice/settings` | Yes | Load persisted dashboard voice preferences |
+| `POST` | `/api/voice/settings` | Yes | Save dashboard voice preferences |
+| `POST` | `/api/voice/token` | Yes | Voice session token endpoint stub |
+
+### Diagnostics
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/test/llm` | Yes | Quick setup validation for llama-server |
+| `GET` | `/api/test/voice` | Yes | Quick setup validation for voice dependencies |
+| `GET` | `/api/test/rag` | Yes | Quick setup validation for Qdrant |
+| `GET` | `/api/test/workflows` | Yes | Quick setup validation for n8n |
+
 ### Agent Monitoring
 
 | Method | Path | Auth | Description |
