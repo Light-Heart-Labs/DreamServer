@@ -92,7 +92,10 @@ save_state() {
         echo "last_restart_${service}=${LAST_RESTART[$service]}" >> "$temp_file"
     done
 
-    mv "$temp_file" "$STATE_FILE" 2>/dev/null || true
+    if ! mv "$temp_file" "$STATE_FILE"; then
+        log_error "Failed to save state file: $STATE_FILE"
+        rm -f "$temp_file"
+    fi
 }
 
 # Check if service is healthy
@@ -155,7 +158,11 @@ restart_service() {
     # Get compose flags
     cd "$INSTALL_DIR"
     local flags_str
-    flags_str=$(get_compose_flags 2>/dev/null || echo "")
+    flags_str=$(get_compose_flags)
+    if [[ -z "$flags_str" ]]; then
+        log_error "Failed to get compose flags for restart"
+        return 1
+    fi
     local -a flags
     read -ra flags <<< "$flags_str"
 
@@ -188,12 +195,12 @@ restart_service() {
     fi
 }
 
-# Get compose flags by calling dream-cli's internal function
+# Get compose flags by calling shared library
 get_compose_flags() {
-    # Source the compose flags from dream-cli to avoid duplication
-    if [[ -f "$INSTALL_DIR/dream-cli" ]]; then
-        # Extract get_compose_flags function from dream-cli and execute it
-        bash -c "source '$INSTALL_DIR/dream-cli' 2>/dev/null && get_compose_flags" 2>/dev/null || echo ""
+    # Source shared compose-flags library
+    if [[ -f "$ROOT_DIR/lib/compose-flags.sh" ]]; then
+        . "$ROOT_DIR/lib/compose-flags.sh"
+        get_compose_flags
     else
         echo ""
     fi
@@ -226,7 +233,9 @@ monitor_services() {
 
         # Restart unhealthy services
         for service in "${unhealthy_services[@]}"; do
-            restart_service "$service" || true
+            if ! restart_service "$service"; then
+                log_error "Failed to restart service: $service"
+            fi
         done
 
         # Log summary

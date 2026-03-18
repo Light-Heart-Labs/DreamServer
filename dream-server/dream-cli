@@ -258,18 +258,25 @@ resolve_service() {
 
 # Build full compose flags: base + GPU overlay + enabled extensions
 get_compose_flags() {
-    local base_flags
-    if [[ -x "$INSTALL_DIR/scripts/resolve-compose-stack.sh" ]]; then
-        base_flags=$("$INSTALL_DIR/scripts/resolve-compose-stack.sh" \
-            --script-dir "$INSTALL_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}")
-    elif [[ -f "$INSTALL_DIR/docker-compose.base.yml" ]]; then
-        base_flags="-f docker-compose.base.yml"
+    # Delegate to shared library
+    if [[ -f "$INSTALL_DIR/lib/compose-flags.sh" ]]; then
+        . "$INSTALL_DIR/lib/compose-flags.sh"
+        get_compose_flags
     else
-        base_flags="-f docker-compose.yml"
+        # Fallback for backwards compatibility
+        local base_flags
+        if [[ -x "$INSTALL_DIR/scripts/resolve-compose-stack.sh" ]]; then
+            base_flags=$("$INSTALL_DIR/scripts/resolve-compose-stack.sh" \
+                --script-dir "$INSTALL_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}")
+        elif [[ -f "$INSTALL_DIR/docker-compose.base.yml" ]]; then
+            base_flags="-f docker-compose.base.yml"
+        else
+            base_flags="-f docker-compose.yml"
+        fi
+        local ext_flags
+        ext_flags=$(sr_compose_flags)
+        echo "$base_flags $ext_flags"
     fi
-    local ext_flags
-    ext_flags=$(sr_compose_flags)
-    echo "$base_flags $ext_flags"
 }
 
 #=============================================================================
@@ -965,6 +972,72 @@ cmd_audit() {
     fi
 
     python3 "$INSTALL_DIR/scripts/audit-extensions.py" --project-dir "$INSTALL_DIR" "${script_args[@]}"
+}
+
+cmd_monitor() {
+    check_install
+    cd "$INSTALL_DIR"
+
+    local action="${1:-check}"
+    shift || true
+
+    # Validate action
+    case "$action" in
+        start|stop|status|reset|check)
+            ;;
+        *)
+            error "Unknown monitor action: $action"
+            echo "Usage: dream monitor <start|stop|status|reset|check> [args...]"
+            return 1
+            ;;
+    esac
+
+    # Handle daemon lifecycle
+    local pid_file="$INSTALL_DIR/.health-monitor.pid"
+
+    case "$action" in
+        start)
+            if [[ -f "$pid_file" ]] && kill -0 "$(cat "$pid_file")" 2>/dev/null; then
+                success "Health monitor is already running (PID: $(cat "$pid_file"))"
+                return 0
+            fi
+
+            log "Starting health monitor daemon..."
+            if [[ -x "$INSTALL_DIR/scripts/health-monitor.sh" ]]; then
+                nohup "$INSTALL_DIR/scripts/health-monitor.sh" daemon > "$INSTALL_DIR/logs/health-monitor-daemon.log" 2>&1 &
+                local daemon_pid=$!
+                echo "$daemon_pid" > "$pid_file"
+                success "Health monitor started (PID: $daemon_pid)"
+            else
+                error "health-monitor.sh not found or not executable"
+                return 1
+            fi
+            ;;
+        stop)
+            if [[ -f "$pid_file" ]]; then
+                local pid
+                pid=$(cat "$pid_file")
+                if kill -0 "$pid" 2>/dev/null; then
+                    kill "$pid"
+                    rm -f "$pid_file"
+                    success "Health monitor stopped (PID: $pid)"
+                else
+                    warn "Health monitor was not running"
+                    rm -f "$pid_file"
+                fi
+            else
+                warn "Health monitor is not running"
+            fi
+            ;;
+        status|reset|check)
+            if [[ -x "$INSTALL_DIR/scripts/health-monitor.sh" ]]; then
+                "$INSTALL_DIR/scripts/health-monitor.sh" "$action" "$@"
+            else
+                error "health-monitor.sh not found or not executable"
+                return 1
+            fi
+            ;;
+    esac
 }
 
 #=============================================================================
