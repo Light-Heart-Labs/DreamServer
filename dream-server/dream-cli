@@ -794,11 +794,25 @@ cmd_enable() {
         # Load current GPU_BACKEND from .env
         local current_backend="${GPU_BACKEND:-nvidia}"
         if [[ -f "$INSTALL_DIR/.env" ]]; then
-            current_backend=$(grep "^GPU_BACKEND=" "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "nvidia")
+            local env_backend
+            env_backend=$(grep "^GPU_BACKEND=" "$INSTALL_DIR/.env" | cut -d= -f2 | tr -d '"')
+            if [[ -n "$env_backend" ]]; then
+                current_backend="$env_backend"
+            else
+                warn "Could not read GPU_BACKEND from .env, using default: nvidia"
+            fi
         fi
 
+        # Handle "all" sentinel - services that work on any backend
+        if [[ " $gpu_backends " =~ " all " ]]; then
+            # Service works on all backends, skip compatibility check
+            :
+        # Apple Silicon exemption - all Docker services work on macOS regardless of gpu_backends
+        elif [[ "$current_backend" == "apple" ]]; then
+            # All Docker services run on macOS regardless of gpu_backends declaration
+            :
         # Check if current backend is in the supported list
-        if [[ ! " $gpu_backends " =~ " $current_backend " ]]; then
+        elif [[ ! " $gpu_backends " =~ " $current_backend " ]]; then
             warn "$service_id may not work with GPU backend: $current_backend"
             warn "  Supported backends: $gpu_backends"
             warn "  Current backend: $current_backend"

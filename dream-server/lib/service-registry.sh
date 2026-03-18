@@ -143,8 +143,8 @@ for service_dir in sorted(ext_dir.iterdir()):
             if full.exists():
                 setup_path = str(full)
         print(f'SERVICE_SETUP_HOOKS["{_esc(sid)}"]="{_esc(setup_path)}"')
-        # GPU backends (default to all if not specified)
-        gpu_backends = s.get("gpu_backends", ["amd", "nvidia", "apple", "cpu"])
+        # GPU backends (default to amd/nvidia/apple, consistent with dashboard-api)
+        gpu_backends = s.get("gpu_backends", ["amd", "nvidia", "apple"])
         backends_str = " ".join(str(b) for b in gpu_backends)
         print(f'SERVICE_GPU_BACKENDS["{_esc(sid)}"]="{_esc(backends_str)}"')
     except Exception as exc:
