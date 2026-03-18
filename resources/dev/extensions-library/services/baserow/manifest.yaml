@@ -33,6 +33,7 @@ features:
     enabled_services_all: [baserow]
     setup_time: ~2 minutes
     priority: 13
+    gpu_backends: [amd, nvidia, apple]
 
   - id: realtime-collaboration
     name: Real-Time Collaboration
@@ -45,6 +46,7 @@ features:
     enabled_services_all: [baserow]
     setup_time: ~2 minutes
     priority: 14
+    gpu_backends: [amd, nvidia, apple]
 
 tags:
   - database

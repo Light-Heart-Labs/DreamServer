@@ -30,4 +30,4 @@ features:
     enabled_services_all: [sillytavern]
     setup_time: ~1 minute
     priority: 6
-    gpu_backends: []
+    gpu_backends: [amd, nvidia, apple]

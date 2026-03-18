@@ -22,7 +22,7 @@ service:
     LangChain components, custom components, and real-time testing.
 
 features:
-  - id: visual-workflow
+  - id: langflow-visual-workflow
     name: Visual LLM Workflow Builder
     description: Visual LLM workflow builder with drag-and-drop and LangChain components
     icon: Workflow
@@ -33,6 +33,7 @@ features:
     enabled_services_all: [langflow]
     setup_time: ~2 minutes
     priority: 7
+    gpu_backends: [amd, nvidia, apple]
 
   - id: visual-rag
     name: Visual RAG Pipelines
@@ -45,6 +46,7 @@ features:
     enabled_services_all: [langflow]
     setup_time: ~2 minutes
     priority: 8
+    gpu_backends: [amd, nvidia, apple]
 
 tags:
   - visual

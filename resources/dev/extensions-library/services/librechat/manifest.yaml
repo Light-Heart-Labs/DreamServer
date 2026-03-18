@@ -33,6 +33,7 @@ features:
     enabled_services_all: [librechat]
     setup_time: ~2 minutes
     priority: 3
+    gpu_backends: [amd, nvidia, apple]
 
   - id: rag-file-uploads
     name: RAG with File Uploads
@@ -45,8 +46,9 @@ features:
     enabled_services_all: [librechat]
     setup_time: ~2 minutes
     priority: 4
+    gpu_backends: [amd, nvidia, apple]
 
-  - id: ai-agents
+  - id: librechat-ai-agents
     name: AI Agents & Plugins
     description: AI agents and plugins support
     icon: Bot
@@ -57,6 +59,7 @@ features:
     enabled_services_all: [librechat]
     setup_time: ~2 minutes
     priority: 5
+    gpu_backends: [amd, nvidia, apple]
 
 tags:
   - chat

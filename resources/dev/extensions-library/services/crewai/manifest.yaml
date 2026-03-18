@@ -35,6 +35,7 @@ features:
     enabled_services_all: [crewai]
     setup_time: ~2 minutes
     priority: 7
+    gpu_backends: [amd, nvidia, apple]
 
   - id: workflow-processes
     name: Workflow Processes
@@ -47,6 +48,7 @@ features:
     enabled_services_all: [crewai]
     setup_time: ~2 minutes
     priority: 8
+    gpu_backends: [amd, nvidia, apple]
 
 tags:
   - multi-agent

@@ -52,3 +52,4 @@ features:
     enabled_services_all: [gitea]
     setup_time: ~1 minute
     priority: 12
+    gpu_backends: [all]

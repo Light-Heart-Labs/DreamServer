@@ -12,7 +12,7 @@ service:
   external_port_default: 7800
   health: /api/health
   type: docker
-  gpu_backends: [nvidia, amd]
+  gpu_backends: [amd, nvidia]
   compose_file: compose.yaml
   category: optional
   depends_on: [ollama]
@@ -33,9 +33,9 @@ features:
     enabled_services_all: [anythingllm]
     setup_time: ~2 minutes
     priority: 4
-    gpu_backends: [nvidia, amd]
+    gpu_backends: [amd, nvidia]
 
-  - id: ai-agents
+  - id: anythingllm-ai-agents
     name: AI Agents
     description: AI agents for automated workflows
     icon: Bot
@@ -46,7 +46,7 @@ features:
     enabled_services_all: [anythingllm]
     setup_time: ~2 minutes
     priority: 6
-    gpu_backends: [nvidia, amd]
+    gpu_backends: [amd, nvidia]
 
 tags:
   - chat

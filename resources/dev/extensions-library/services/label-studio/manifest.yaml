@@ -33,7 +33,7 @@ features:
     enabled_services_all: [label-studio]
     setup_time: ~1 minute
     priority: 15
-    gpu_backends: []
+    gpu_backends: [amd, nvidia, apple]
 
 tags:
   - labeling

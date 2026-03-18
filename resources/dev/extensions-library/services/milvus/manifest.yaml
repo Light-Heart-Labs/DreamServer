@@ -18,7 +18,7 @@ service:
   depends_on: []
 
 features:
-  - id: vector-database
+  - id: milvus-vector-database
     name: Vector Database
     description: Cloud-native vector database for AI embeddings and similarity search
     icon: Database
@@ -29,3 +29,4 @@ features:
     enabled_services_all: [milvus]
     setup_time: ~2 minutes
     priority: 9
+    gpu_backends: [amd, nvidia, apple]

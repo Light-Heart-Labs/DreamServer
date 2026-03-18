@@ -34,6 +34,7 @@ features:
     enabled_services_all: [weaviate]
     setup_time: ~1 minute
     priority: 9
+    gpu_backends: [amd, nvidia, apple]
 
   - id: hybrid-search
     name: Hybrid Search
@@ -46,6 +47,7 @@ features:
     enabled_services_all: [weaviate]
     setup_time: ~1 minute
     priority: 10
+    gpu_backends: [amd, nvidia, apple]
 
 tags:
   - vector-database

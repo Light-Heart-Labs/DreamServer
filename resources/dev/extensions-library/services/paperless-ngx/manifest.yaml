@@ -34,6 +34,7 @@ features:
     enabled_services_all: [paperless-ngx]
     setup_time: ~2 minutes
     priority: 14
+    gpu_backends: [amd, nvidia, apple]
 
   - id: auto-classification
     name: Auto Classification
@@ -46,6 +47,7 @@ features:
     enabled_services_all: [paperless-ngx]
     setup_time: ~2 minutes
     priority: 15
+    gpu_backends: [amd, nvidia, apple]
 
 tags:
   - documents

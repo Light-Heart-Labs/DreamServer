@@ -12,7 +12,7 @@ service:
   external_port_default: 7862
   health: /
   type: docker
-  gpu_backends: [nvidia, amd]
+  gpu_backends: [amd, nvidia]
   compose_file: compose.yaml
   category: optional
   depends_on: []
@@ -36,7 +36,7 @@ features:
     enabled_services_all: [text-generation-webui]
     setup_time: ~3 minutes
     priority: 5
-    gpu_backends: [nvidia, amd]
+    gpu_backends: [amd, nvidia]
 
   - id: chat-ui
     name: Chat Interface
@@ -49,7 +49,7 @@ features:
     enabled_services_all: [text-generation-webui]
     setup_time: ~3 minutes
     priority: 6
-    gpu_backends: [nvidia, amd]
+    gpu_backends: [amd, nvidia]
 
   - id: openai-api
     name: OpenAI-Compatible API
@@ -62,7 +62,7 @@ features:
     enabled_services_all: [text-generation-webui]
     setup_time: ~3 minutes
     priority: 7
-    gpu_backends: [nvidia, amd]
+    gpu_backends: [amd, nvidia]
 
 tags:
   - llm

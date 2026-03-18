@@ -64,7 +64,7 @@ features:
     priority: 9
     gpu_backends: [nvidia]
 
-  - id: sound-effects
+  - id: bark-sound-effects
     name: Sound Effects Generation
     description: Generate music snippets and ambient sound effects
     icon: Music

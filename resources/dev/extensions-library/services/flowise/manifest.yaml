@@ -22,7 +22,7 @@ service:
     Integrates with OpenAI, Anthropic, local models, and 100+ tools.
 
 features:
-  - id: visual-workflow
+  - id: flowise-visual-workflow
     name: Visual Workflow Builder
     description: Visual drag-and-drop workflow builder for AI agents and chatbots
     icon: Workflow
@@ -33,6 +33,7 @@ features:
     enabled_services_all: [flowise]
     setup_time: ~2 minutes
     priority: 6
+    gpu_backends: [amd, nvidia, apple]
 
   - id: tool-integrations
     name: Tool Integrations
@@ -45,6 +46,7 @@ features:
     enabled_services_all: [flowise]
     setup_time: ~2 minutes
     priority: 7
+    gpu_backends: [amd, nvidia, apple]
 
 tags:
   - workflow
