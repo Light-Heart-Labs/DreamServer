@@ -58,3 +58,63 @@ jobs:
 
       - name: Run Unit Tests
         run: pytest tests/ -v --cov=. --cov-report=term --cov-report=lcov:coverage.lcov
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Dashboard Docker Image
+        run: |
+          cd dream-server/extensions/services/dashboard
+          docker build -t test-dashboard:latest .
+
+      - name: Verify Non-Root User
+        run: |
+          # Check that USER directive exists and is non-root
+          if ! grep -q "^USER dreamer" dream-server/extensions/services/dashboard/Dockerfile; then
+            echo "ERROR: USER directive not found or incorrect"
+            exit 1
+          fi
+          echo "✓ USER directive verified"
+
+      - name: Test Container Start
+        run: |
+          cd dream-server/extensions/services/dashboard
+          # Start container in background
+          docker run -d --name test-dashboard -p 3001:3001 \
+            -e DASHBOARD_API_KEY=test-key-for-ci \
+            test-dashboard:latest
+
+          # Wait for nginx to start
+          sleep 5
+
+          # Check if container is running
+          if ! docker ps | grep -q test-dashboard; then
+            echo "ERROR: Container failed to start"
+            docker logs test-dashboard
+            exit 1
+          fi
+
+          # Test health endpoint
+          if curl -f http://localhost:3001/ > /dev/null 2>&1; then
+            echo "✓ Container started successfully and responds on port 3001"
+          else
+            echo "ERROR: Container not responding on port 3001"
+            docker logs test-dashboard
+            exit 1
+          fi
+
+          # Verify running as non-root user
+          USER_ID=$(docker exec test-dashboard id -u)
+          if [ "$USER_ID" = "1000" ]; then
+            echo "✓ Container running as UID 1000 (non-root)"
+          else
+            echo "ERROR: Container running as UID $USER_ID (expected 1000)"
+            exit 1
+          fi
+
+          # Cleanup
+          docker stop test-dashboard
+          docker rm test-dashboard
