@@ -57,17 +57,23 @@ async def get_n8n_workflows() -> list[dict]:
     return []
 
 
-async def check_workflow_dependencies(deps: list[str]) -> dict[str, bool]:
-    """Check if required services are running."""
+async def check_workflow_dependencies(deps: list[str], health_cache: dict[str, bool] | None = None) -> dict[str, bool]:
+    """Check if required services are running. Uses health_cache to avoid duplicate checks."""
     from helpers import check_service_health
 
     _DEP_ALIASES = {"ollama": "llama-server"}
+    if health_cache is None:
+        health_cache = {}
     results = {}
     for dep in deps:
         resolved = _DEP_ALIASES.get(dep, dep)
-        if resolved in SERVICES:
+        if resolved in health_cache:
+            results[dep] = health_cache[resolved]
+        elif resolved in SERVICES:
             status = await check_service_health(resolved, SERVICES[resolved])
-            results[dep] = status.status == "healthy"
+            healthy = status.status == "healthy"
+            health_cache[resolved] = healthy
+            results[dep] = healthy
         else:
             results[dep] = True
     return results
@@ -93,6 +99,7 @@ async def api_workflows(api_key: str = Depends(verify_api_key)):
     n8n_by_name = {w.get("name", "").lower(): w for w in n8n_workflows}
 
     workflows = []
+    health_cache: dict[str, bool] = {}
     for wf in catalog.get("workflows", []):
         wf_name_lower = wf["name"].lower()
         installed = None
@@ -101,7 +108,7 @@ async def api_workflows(api_key: str = Depends(verify_api_key)):
                 installed = n8n_wf
                 break
 
-        dep_status = await check_workflow_dependencies(wf.get("dependencies", []))
+        dep_status = await check_workflow_dependencies(wf.get("dependencies", []), health_cache)
         all_deps_met = all(dep_status.values())
 
         executions = 0

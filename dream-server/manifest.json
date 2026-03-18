@@ -59,6 +59,9 @@
       "serviceManifestSchema": "extensions/schema/service-manifest.v1.json",
       "serviceDirectory": "extensions/services/",
       "serviceRegistryLib": "lib/service-registry.sh"
+    },
+    "ports": {
+      "canonicalPath": "config/ports.json"
     }
   }
 }

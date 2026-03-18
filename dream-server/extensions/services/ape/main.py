@@ -30,7 +30,6 @@ Default policy (policy.yaml):
   - All decisions logged to audit.jsonl (append-only)
 """
 
-import asyncio
 import json
 import logging
 import os

@@ -8,10 +8,10 @@ import aiohttp
 from fastapi import APIRouter, Depends
 
 from config import SERVICES, INSTALL_DIR
-
-logger = logging.getLogger(__name__)
 from models import PrivacyShieldStatus, PrivacyShieldToggle
 from security import verify_api_key
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["privacy"])
 
@@ -81,7 +81,7 @@ async def toggle_privacy_shield(request: PrivacyShieldToggle, api_key: str = Dep
         return {"success": False, "message": "Docker not available", "note": "Running in development mode without Docker"}
     except asyncio.TimeoutError:
         return {"success": False, "message": "Operation timed out"}
-    except (subprocess.SubprocessError, OSError):
+    except OSError:
         logger.exception("Privacy Shield toggle failed")
         return {"success": False, "message": "Privacy Shield operation failed"}
 

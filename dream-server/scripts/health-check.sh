@@ -31,14 +31,16 @@ for arg in "$@"; do
 done
 
 # Config (defaults; .env overrides after load_env_file below)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" 
+if [[ -f "$SCRIPT_DIR/lib/service-registry.sh" ]]; then 
+    . "$SCRIPT_DIR/lib/service-registry.sh" 
+    sr_load 
+fi
 INSTALL_DIR="${INSTALL_DIR:-$HOME/dream-server}"
 LLM_HOST="${LLM_HOST:-localhost}"
 LLM_PORT="${LLM_PORT:-8080}"
 TIMEOUT="${TIMEOUT:-5}"
 
-# Source service registry
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-. "$SCRIPT_DIR/lib/service-registry.sh"
 sr_load
 
 # Safe .env loading for port overrides (no eval; use lib/safe-env.sh)
@@ -93,12 +95,15 @@ _now_ms() {
 
 # llama-server: critical path — performs an actual inference test
 test_llm() {
-    local start=$(_now_ms)
-    local response=$(curl -sf --max-time $TIMEOUT \
+    local start
+    start=$(_now_ms)
+    local response
+    response=$(curl -sf --max-time $TIMEOUT \
         -H "Content-Type: application/json" \
         -d '{"model":"default","prompt":"Hi","max_tokens":1}' \
         "http://${LLM_HOST}:${LLM_PORT}/v1/completions" 2>/dev/null)
-    local end=$(_now_ms)
+    local end
+    end=$(_now_ms)
 
     if echo "$response" | grep -q '"text"'; then
         result_set "llm" "ok"
@@ -117,6 +122,7 @@ test_service() {
     local port_env="${SERVICE_PORT_ENVS[$sid]}"
     local default_port="${SERVICE_PORTS[$sid]}"
     local health="${SERVICE_HEALTH[$sid]}"
+    local timeout="${SERVICE_HEALTH_TIMEOUTS[$sid]:-$TIMEOUT}"
 
     # Resolve port
     local port="$default_port"
@@ -124,7 +130,7 @@ test_service() {
 
     [[ -z "$health" || "$port" == "0" ]] && return 1
 
-    if curl -sf --max-time $TIMEOUT "http://localhost:${port}${health}" >/dev/null 2>&1; then
+    if curl -sf --max-time "$timeout" "http://localhost:${port}${health}" >/dev/null 2>&1; then
         result_set "$sid" "ok"
         return 0
     fi
@@ -136,7 +142,8 @@ test_service() {
 # System-level: GPU
 test_gpu() {
     if command -v nvidia-smi &>/dev/null; then
-        local gpu_info=$(nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu,temperature.gpu --format=csv,noheader,nounits 2>/dev/null | head -1)
+        local gpu_info
+        gpu_info=$(nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu,temperature.gpu --format=csv,noheader,nounits 2>/dev/null | head -1)
         if [ -n "$gpu_info" ]; then
             IFS=',' read -r mem_used mem_total gpu_util temp <<< "$gpu_info"
             result_set "gpu" "ok"
@@ -161,7 +168,8 @@ test_gpu() {
 
 # System-level: Disk
 test_disk() {
-    local usage=$(df -h "$INSTALL_DIR" 2>/dev/null | tail -1 | awk '{print $5}' | tr -d '%')
+    local usage
+    usage=$(df -h "$INSTALL_DIR" 2>/dev/null | tail -1 | awk '{print $5}' | tr -d '%')
     if [ -n "$usage" ]; then
         result_set "disk" "ok"
         result_set "disk_usage" "$usage"

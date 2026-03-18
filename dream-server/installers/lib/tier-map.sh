@@ -24,6 +24,30 @@ resolve_tier_config() {
             GGUF_SHA256=""
             MAX_CONTEXT=200000
             ;;
+        ARC)
+            # Intel Arc A770 (16 GB) and future Arc B-series (≥12 GB VRAM)
+            # llama.cpp SYCL backend: N_GPU_LAYERS=99 offloads all layers to GPU
+            TIER_NAME="Intel Arc"
+            LLM_MODEL="qwen3-8b"
+            GGUF_FILE="Qwen3-8B-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/unsloth/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf"
+            GGUF_SHA256="120307ba529eb2439d6c430d94104dabd578497bc7bfe7e322b5d9933b449bd4"
+            MAX_CONTEXT=32768
+            GPU_BACKEND="sycl"
+            N_GPU_LAYERS=99
+            ;;
+        ARC_LITE)
+            # Intel Arc A750 (8 GB), A380 (6 GB) — smaller VRAM, lighter model
+            # llama.cpp SYCL backend: N_GPU_LAYERS=99 offloads all layers to GPU
+            TIER_NAME="Intel Arc Lite"
+            LLM_MODEL="qwen3-4b"
+            GGUF_FILE="Qwen3-4B-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf"
+            GGUF_SHA256="f6f851777709861056efcdad3af01da38b31223a3ba26e61a4f8bf3a2195813a"
+            MAX_CONTEXT=16384
+            GPU_BACKEND="sycl"
+            N_GPU_LAYERS=99
+            ;;
         NV_ULTRA)
             TIER_NAME="NVIDIA Ultra (90GB+)"
             LLM_MODEL="qwen3-coder-next"
@@ -89,7 +113,7 @@ resolve_tier_config() {
             MAX_CONTEXT=131072
             ;;
         *)
-            error "Invalid tier: $TIER. Valid tiers: 0, 1, 2, 3, 4, CLOUD, NV_ULTRA, SH_LARGE, SH_COMPACT"
+            error "Invalid tier: $TIER. Valid tiers: 0, 1, 2, 3, 4, CLOUD, NV_ULTRA, SH_LARGE, SH_COMPACT, ARC, ARC_LITE"
             # NOTE for modders: add your tier above this line and update this message.
             ;;
     esac
@@ -99,15 +123,17 @@ resolve_tier_config() {
 tier_to_model() {
     local t="$1"
     case "$t" in
-        CLOUD)      echo "anthropic/claude-sonnet-4-5-20250514" ;;
-        NV_ULTRA)   echo "qwen3-coder-next" ;;
-        SH_LARGE)   echo "qwen3-coder-next" ;;
-        SH_COMPACT|SH) echo "qwen3-30b-a3b" ;;
-        0|T0)       echo "qwen3.5-2b" ;;
-        1|T1)       echo "qwen3-8b" ;;
-        2|T2)       echo "qwen3-8b" ;;
-        3|T3)       echo "qwen3-14b" ;;
-        4|T4)       echo "qwen3-30b-a3b" ;;
-        *)          echo "" ;;
+        CLOUD)          echo "anthropic/claude-sonnet-4-5-20250514" ;;
+        NV_ULTRA)       echo "qwen3-coder-next" ;;
+        SH_LARGE)       echo "qwen3-coder-next" ;;
+        SH_COMPACT|SH)  echo "qwen3-30b-a3b" ;;
+        ARC)            echo "qwen3-8b" ;;
+        ARC_LITE)       echo "qwen3-4b" ;;
+        0|T0)           echo "qwen3.5-2b" ;;
+        1|T1)           echo "qwen3-8b" ;;
+        2|T2)           echo "qwen3-8b" ;;
+        3|T3)           echo "qwen3-14b" ;;
+        4|T4)           echo "qwen3-30b-a3b" ;;
+        *)              echo "" ;;
     esac
 }

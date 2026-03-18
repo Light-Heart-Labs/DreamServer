@@ -22,7 +22,7 @@ Full capability documentation extracted from MEMORY.md baseline.
 - Reliability: 1 agent 77%, 2 with any-success 95%, 3-of-3 93%
 - **Dual redundancy**: Spawn 2 on same task, take first success → 100% completion
 - **Templates**: `tools/agent-templates/` and `tools/SUBAGENT-TASK-TEMPLATE.md`
-- **Full playbook**: `research/SWARM-PLAYBOOK.md`
+- **Full playbook**: `../multi-agent/swarms/SWARM-PLAYBOOK.md`
 
 ## Communication
 - **Discord**: Listens to ALL messages in #todd and #general (no mention needed)

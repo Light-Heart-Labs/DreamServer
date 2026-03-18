@@ -152,6 +152,7 @@ fi
 
 declare -A ENV_MAP
 declare -A ENV_LINE
+declare -A ENV_DUPLICATE_FROM
 
 trim() {
   local s="$1"
@@ -208,7 +209,8 @@ while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
     continue
   fi
 
-  read -r key value < <(split_kv "$line")
+  key="$(trim "${line%%=*}")"
+  value="$(trim "${line#*=}")"
 
   if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
     log_warn "Ignoring line $line_no (invalid key '$key')"
@@ -225,6 +227,12 @@ while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
   value="$(trim "$value")"
   value="$(unquote "$value")"
 
+  # Duplicate keys are almost always accidental in generated/merged .env files.
+  # Keep the latest value for compatibility, but report duplicates as errors.
+  if [[ -n "${ENV_MAP[$key]+x}" ]]; then
+    ENV_DUPLICATE_FROM["$key"]="${ENV_LINE[$key]:-?}:$line_no"
+  fi
+
   ENV_MAP["$key"]="$value"
   ENV_LINE["$key"]="$line_no"
 done < "$ENV_FILE"
@@ -238,6 +246,7 @@ unknown=()
 type_errors=()
 enum_errors=()
 range_errors=()
+duplicate_errors=()
 
 mapfile -t required_keys < <(jq -r '.required[]?' "$SCHEMA_FILE")
 
@@ -367,6 +376,19 @@ if (( ${#range_errors[@]} > 0 )); then
     had_errors=true
     log_error "Range validation errors:"
     for err in "${range_errors[@]}"; do
+        echo "  - $err"
+    done
+fi
+
+for key in "${!ENV_DUPLICATE_FROM[@]}"; do
+  from_to="${ENV_DUPLICATE_FROM[$key]}"
+  duplicate_errors+=("$key: duplicate assignment at lines $from_to")
+done
+
+if (( ${#duplicate_errors[@]} > 0 )); then
+    had_errors=true
+    log_error "Duplicate key errors:"
+    for err in "${duplicate_errors[@]}"; do
         echo "  - $err"
     done
 fi

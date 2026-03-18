@@ -39,15 +39,22 @@ def _read_manifest_file(path: Path) -> dict[str, Any]:
     return data
 
 
-def load_extension_manifests(manifest_dir: Path, gpu_backend: str) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
-    """Load service and feature definitions from extension manifests."""
+def load_extension_manifests(
+    manifest_dir: Path, gpu_backend: str,
+) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]], list[dict[str, str]]]:
+    """Load service and feature definitions from extension manifests.
+
+    Returns a 3-tuple: (services, features, errors) where *errors* is a list
+    of ``{"file": ..., "error": ...}`` dicts for manifests that failed to load.
+    """
     services: dict[str, dict[str, Any]] = {}
     features: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
     loaded = 0
 
     if not manifest_dir.exists():
         logger.info("Extension manifest directory not found: %s", manifest_dir)
-        return services, features
+        return services, features, errors
 
     manifest_files: list[Path] = []
     for item in sorted(manifest_dir.iterdir()):
@@ -65,6 +72,7 @@ def load_extension_manifests(manifest_dir: Path, gpu_backend: str) -> tuple[dict
             manifest = _read_manifest_file(path)
             if manifest.get("schema_version") != "dream.services.v1":
                 logger.warning("Skipping manifest with unsupported schema_version: %s", path)
+                errors.append({"file": str(path), "error": "Unsupported schema_version"})
                 continue
 
             service = manifest.get("service")
@@ -112,16 +120,17 @@ def load_extension_manifests(manifest_dir: Path, gpu_backend: str) -> tuple[dict
                         features.append(feature)
 
             loaded += 1
-        except (yaml.YAMLError, json.JSONDecodeError, OSError, KeyError, TypeError) as e:
+        except (yaml.YAMLError, json.JSONDecodeError, OSError, KeyError, TypeError, ValueError) as e:
             logger.warning("Failed loading manifest %s: %s", path, e)
+            errors.append({"file": str(path), "error": str(e)})
 
     logger.info("Loaded %d extension manifests (%d services, %d features)", loaded, len(services), len(features))
-    return services, features
+    return services, features, errors
 
 
 # --- Service Registry ---
 
-MANIFEST_SERVICES, MANIFEST_FEATURES = load_extension_manifests(EXTENSIONS_DIR, GPU_BACKEND)
+MANIFEST_SERVICES, MANIFEST_FEATURES, MANIFEST_ERRORS = load_extension_manifests(EXTENSIONS_DIR, GPU_BACKEND)
 SERVICES = MANIFEST_SERVICES
 if not SERVICES:
     logger.error("No services loaded from manifests in %s — dashboard will have no services", EXTENSIONS_DIR)
@@ -191,4 +200,5 @@ SIDEBAR_ICONS = {
     "perplexica": "Search",
     "comfyui": "Image",
     "token-spy": "Terminal",
+    "langfuse": "BarChart2",
 }

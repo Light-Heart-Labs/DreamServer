@@ -21,6 +21,7 @@
 . "$SCRIPT_DIR/lib/service-registry.sh"
 sr_load
 
+dream_progress 85 "health" "Checking service health"
 show_phase 6 6 "Systems Online" "~1-2 minutes"
 
 if $DRY_RUN; then
@@ -53,12 +54,16 @@ _check_health() {
 # Core service health checks with adaptive timeouts
 # Format: _check_health "name" "url" max_attempts timeout_per_request
 # llama-server: 60 attempts * adaptive backoff (2s->8s) = up to 5 minutes (model loading can be slow)
+dream_progress 86 "health" "Waiting for LLM engine"
 _check_health "llama-server" "http://localhost:${SERVICE_PORTS[llama-server]:-8080}${SERVICE_HEALTH[llama-server]:-/health}" 60 15
 # Open WebUI: 30 attempts * adaptive backoff = up to 2 minutes
+dream_progress 89 "health" "Waiting for Chat UI"
 _check_health "Open WebUI" "http://localhost:${SERVICE_PORTS[open-webui]:-3000}${SERVICE_HEALTH[open-webui]:-/}" 30 10
 # Perplexica: 20 attempts * adaptive backoff = up to 1 minute
+dream_progress 91 "health" "Waiting for Research engine"
 _check_health "Perplexica" "http://localhost:${SERVICE_PORTS[perplexica]:-3004}${SERVICE_HEALTH[perplexica]:-/}" 20 10
 # ComfyUI: 60 attempts * adaptive backoff = up to 5 minutes (FLUX model loading is slow)
+dream_progress 93 "health" "Waiting for Image generation"
 _check_health "ComfyUI" "http://localhost:${SERVICE_PORTS[comfyui]:-8188}${SERVICE_HEALTH[comfyui]:-/}" 60 15
 
 # Perplexica auto-config: seed chat model + embedding model on first boot.
@@ -123,9 +128,11 @@ print('ok')
 fi
 
 # Extension service health checks with adaptive timeouts
+dream_progress 94 "health" "Checking extension services"
 [[ "$ENABLE_OPENCLAW" == "true" ]] && _check_health "OpenClaw" "http://localhost:${SERVICE_PORTS[openclaw]:-7860}${SERVICE_HEALTH[openclaw]:-/}" 20 10
 systemctl is-active opencode-web &>/dev/null && _check_health "OpenCode Web" "http://localhost:3003/" 10 5
 # Whisper: 40 attempts * adaptive backoff = up to 3 minutes (model download on first start)
+dream_progress 95 "health" "Checking voice services"
 [[ "$ENABLE_VOICE" == "true" ]] && _check_health "Whisper (STT)" "http://localhost:${SERVICE_PORTS[whisper]:-9000}${SERVICE_HEALTH[whisper]:-/health}" 40 10
 [[ "$ENABLE_VOICE" == "true" ]] && _check_health "Kokoro (TTS)" "http://localhost:${SERVICE_PORTS[tts]:-8880}${SERVICE_HEALTH[tts]:-/health}" 20 10
 
@@ -151,9 +158,11 @@ if [[ "$ENABLE_VOICE" == "true" ]]; then
     fi
 fi
 
+dream_progress 96 "health" "Checking workflow and RAG services"
 [[ "$ENABLE_WORKFLOWS" == "true" ]] && _check_health "n8n" "http://localhost:${SERVICE_PORTS[n8n]:-5678}${SERVICE_HEALTH[n8n]:-/healthz}" 20 10
 [[ "$ENABLE_RAG" == "true" ]] && _check_health "Qdrant" "http://localhost:${SERVICE_PORTS[qdrant]:-6333}${SERVICE_HEALTH[qdrant]:-/}" 20 10
 
+dream_progress 97 "health" "Health checks complete"
 echo ""
 if [[ "$HEALTH_FAILURES" -gt 0 ]]; then
     ai_warn "${HEALTH_FAILURES} service(s) did not pass health checks."

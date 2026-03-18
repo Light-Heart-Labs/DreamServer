@@ -4,7 +4,7 @@ These patterns were extracted from operating a multi-agent system in production.
 
 **The patterns are framework-agnostic.** You do not need OpenClaw, vLLM, or any specific tool to apply them. The implementations in this repo are one way to do it. The principles apply to LangChain, AutoGen, CrewAI, custom agent loops, or anything else.
 
-For the specific system these patterns were extracted from, see [COLLECTIVE.md](../COLLECTIVE.md). For the rationale behind specific parameter choices, see [DESIGN-DECISIONS.md](DESIGN-DECISIONS.md).
+For the specific system these patterns were extracted from, see [COLLECTIVE.md](../architecture/COLLECTIVE.md). For the rationale behind specific parameter choices, see [DESIGN-DECISIONS.md](../architecture/DESIGN-DECISIONS.md).
 
 ---
 
@@ -39,8 +39,8 @@ A supervisor on a timer that generates situation reports, creates prioritized pu
 
 ### This Toolkit's Implementation
 
-- [Guardian](../guardian/) — root systemd service that monitors processes, services, containers, and file integrity
-- Android-18 pattern — a Python cron bot with a timer loop, Discord output, and rotating prompts (described in [COLLECTIVE.md](../COLLECTIVE.md))
+- [Guardian](../../products/guardian/) — root systemd service that monitors processes, services, containers, and file integrity
+- Android-18 pattern — a Python cron bot with a timer loop, Discord output, and rotating prompts (described in [COLLECTIVE.md](../architecture/COLLECTIVE.md))
 
 ---
 
@@ -80,9 +80,9 @@ Why: the baseline is loaded into every session. Every kilobyte of baseline eats 
 
 ### This Toolkit's Implementation
 
-- [workspace/](../workspace/) — starter templates for SOUL.md, IDENTITY.md, TOOLS.md, MEMORY.md
-- [Memory Shepherd](../memory-shepherd/) — periodic reset to baseline with scratch archival
-- [Guardian](../guardian/) file-integrity checks — detects unauthorized modification of identity files
+- [workspace/](../governance/) — starter templates for SOUL.md, IDENTITY.md, TOOLS.md, MEMORY.md
+- [Memory Shepherd](../../products/memory-shepherd/) — periodic reset to baseline with scratch archival
+- [Guardian](../../products/guardian/) file-integrity checks — detects unauthorized modification of identity files
 
 ---
 
@@ -179,8 +179,8 @@ Step 6 is why this works. The agent doesn't lose its identity, goals, or context
 
 ### This Toolkit's Implementation
 
-- [Session Watchdog](../scripts/session-cleanup.sh) — file-size-based cleanup on a systemd timer
-- [Token Spy](../token-spy/) — character-count-based cleanup with API-level visibility
+- [Session Watchdog](../../tools/) — file-size-based cleanup on a systemd timer
+- [Token Spy](../../products/token-spy/) — character-count-based cleanup with API-level visibility
 
 ---
 
@@ -224,9 +224,9 @@ Scratch notes below `---` are not deleted — they're archived to timestamped fi
 
 ### This Toolkit's Implementation
 
-- [Memory Shepherd](../memory-shepherd/) — the reset cycle with archival
-- [workspace/MEMORY.md](../workspace/MEMORY.md) — template with `---` separator convention
-- [Writing Baselines](../memory-shepherd/docs/WRITING-BASELINES.md) — guide to authoring effective baselines
+- [Memory Shepherd](../../products/memory-shepherd/) — the reset cycle with archival
+- [workspace/MEMORY.md](../governance/MEMORY.md) — template with `---` separator convention
+- [Writing Baselines](../../products/memory-shepherd/docs/WRITING-BASELINES.md) — guide to authoring effective baselines
 
 ---
 
@@ -277,8 +277,8 @@ Each step is more invasive than the last. Soft restart fixes transient failures 
 
 ### This Toolkit's Implementation
 
-- [Guardian](../guardian/) — full implementation with INI config, tiered health checks, recovery cascade, generational backups, and immutable flags
-- [guardian/docs/HEALTH-CHECKS.md](../guardian/docs/HEALTH-CHECKS.md) — detailed reference for monitoring types and recovery cascade
+- [Guardian](../../products/guardian/) — full implementation with INI config, tiered health checks, recovery cascade, generational backups, and immutable flags
+- [guardian/docs/HEALTH-CHECKS.md](../../products/guardian/docs/HEALTH-CHECKS.md) — detailed reference for monitoring types and recovery cascade
 
 ---
 

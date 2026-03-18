@@ -62,11 +62,11 @@ The Collective runs across two GPU-equipped Linux servers on a private LAN. The 
 | Service | Purpose |
 |---------|---------|
 | vLLM | Local LLM inference (Qwen models) |
-| [vLLM Tool Proxy](scripts/) | Translates local model tool call format for OpenClaw |
-| [Token Spy](token-spy/) | API cost monitoring with real-time dashboard |
-| [Session Watchdog](scripts/session-cleanup.sh) | Prunes bloated sessions on a timer |
-| [Guardian](guardian/) | Self-healing process watchdog |
-| [Memory Shepherd](memory-shepherd/) | Periodic memory baseline reset |
+| [vLLM Tool Proxy](../../tools/vllm-tool-proxy.py) | Translates local model tool call format for OpenClaw |
+| [Token Spy](../../products/token-spy/) | API cost monitoring with real-time dashboard |
+| [Session Watchdog](../../tools/) | Prunes bloated sessions on a timer |
+| [Guardian](../../products/guardian/) | Self-healing process watchdog |
+| [Memory Shepherd](../../products/memory-shepherd/) | Periodic memory baseline reset |
 | SearXNG | Private web search |
 | Open WebUI | Web chat interface |
 | Qdrant | Vector database |
@@ -120,7 +120,7 @@ This is the critical architectural decision. The supervisor is too simple to bre
 
 The supervisor's authority comes from its position, not its intelligence. It speaks with the operator's voice. Agents treat its instructions as directives, not suggestions.
 
-**Why not an LLM supervisor?** See [Design Decisions](docs/DESIGN-DECISIONS.md#why-a-deterministic-supervisor-not-an-llm-one).
+**Why not an LLM supervisor?** See [Design Decisions](DESIGN-DECISIONS.md#why-a-deterministic-supervisor-not-an-llm-one).
 
 ### The Human Operator
 
@@ -166,9 +166,9 @@ LLM sessions are stateless. Every conversation starts from zero. The workspace-a
 
 The agent "becomes itself" by reading its own constitution. SOUL.md says who you are. IDENTITY.md says what you are. MISSIONS.md says why you exist. This persists across session restarts, server reboots, and even full system rebuilds — because the identity lives in files, not in any running process.
 
-The `---` separator in MEMORY.md is a key convention: everything above is operator-controlled baseline (preserved on reset), everything below is agent scratch space (archived and cleared periodically by [Memory Shepherd](memory-shepherd/)).
+The `---` separator in MEMORY.md is a key convention: everything above is operator-controlled baseline (preserved on reset), everything below is agent scratch space (archived and cleared periodically by [Memory Shepherd](../../products/memory-shepherd/)).
 
-See [workspace/](workspace/) for the templates.
+See the [governance files](../governance/) for the templates.
 
 ### Mission-Based Governance
 
@@ -209,7 +209,7 @@ The key insight: **agents are better at starting fresh than at working with cura
 
 Agents break things. They modify configs, crash services, corrupt files, and kill processes — sometimes intentionally ("optimizing"), sometimes accidentally. The self-healing stack runs at a higher privilege level than agents and automatically restores known-good state.
 
-[Guardian](guardian/) implements this as a root systemd service with:
+[Guardian](../../products/guardian/) implements this as a root systemd service with:
 
 - **Tiered health checks** — process existence, port listening, HTTP endpoints, custom commands
 - **Recovery cascade** — soft restart → backup restore → restart → alert human
@@ -313,7 +313,7 @@ Without resets, agents drift. They rewrite their own instructions, accumulate st
 
 Nothing is lost — scratch notes are archived, not deleted. But the agent's identity and rules are refreshed from the operator-controlled source of truth.
 
-The baseline sweet spot is 12-20KB. Under 5KB and agents spend too many cycles rediscovering context. Over 25KB and you're probably including content that belongs in separate files. See [Writing Baselines](memory-shepherd/docs/WRITING-BASELINES.md) for the full guide.
+The baseline sweet spot is 12-20KB. Under 5KB and agents spend too many cycles rediscovering context. Over 25KB and you're probably including content that belongs in separate files. See [Writing Baselines](../../products/memory-shepherd/docs/WRITING-BASELINES.md) for the full guide.
 
 ---
 
@@ -390,13 +390,12 @@ Each component in this repository maps to a specific architectural role:
 
 | Component | Architectural Role | Safety Layer |
 |-----------|-------------------|--------------|
-| [Session Watchdog](scripts/session-cleanup.sh) | Session lifecycle management | Layer 3 |
-| [vLLM Tool Proxy](scripts/vllm-tool-proxy.py) | Local model integration | Infrastructure |
-| [Token Spy](token-spy/) | Session monitoring + cost visibility | Layer 3 |
-| [Guardian](guardian/) | Infrastructure protection | Layer 1 |
-| [Memory Shepherd](memory-shepherd/) | Identity preservation | Layer 2 |
-| [Golden Configs](configs/) | Correct OpenClaw + vLLM configuration | Infrastructure |
-| [Workspace Templates](workspace/) | Workspace-as-brain pattern | Identity |
+| [Session Watchdog](../../tools/) | Session lifecycle management | Layer 3 |
+| [vLLM Tool Proxy](../../tools/vllm-tool-proxy.py) | Local model integration | Infrastructure |
+| [Token Spy](../../products/token-spy/) | Session monitoring + cost visibility | Layer 3 |
+| [Guardian](../../products/guardian/) | Infrastructure protection | Layer 1 |
+| [Memory Shepherd](../../products/memory-shepherd/) | Identity preservation | Layer 2 |
+| [Governance Files](../governance/) | Workspace-as-brain pattern | Identity |
 
 The toolkit is the infrastructure layer. The [architecture principles](#architecture-principles) are the design layer. Android-Labs is the application layer.
 
@@ -408,10 +407,10 @@ You can use the tools without the architecture. But together, they enable someth
 
 ## Further Reading
 
-- **[README.md](README.md)** — Installation, configuration, and troubleshooting for each component
-- **[docs/DESIGN-DECISIONS.md](docs/DESIGN-DECISIONS.md)** — Why we made the choices we did (session limits, ping cycles, deterministic supervision, and more)
-- **[docs/PATTERNS.md](docs/PATTERNS.md)** — Six transferable patterns for autonomous agent systems, applicable to any framework
-- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — Deep dive on the vLLM Tool Call Proxy internals
+- **[Multi-Agent Overview](../README.md)** — Start here for the full picture
+- **[DESIGN-DECISIONS.md](DESIGN-DECISIONS.md)** — Why we made the choices we did (session limits, ping cycles, deterministic supervision, and more)
+- **[PATTERNS.md](../patterns/PATTERNS.md)** — Six transferable patterns for autonomous agent systems, applicable to any framework
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — Deep dive on the vLLM Tool Call Proxy internals
 - **Android-Labs** (private) — The proof of work repository where the Collective operates
 
 ---

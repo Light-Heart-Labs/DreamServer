@@ -58,7 +58,7 @@ class TestLoadExtensionManifests:
         svc_dir.mkdir()
         (svc_dir / "manifest.yaml").write_text(VALID_MANIFEST)
 
-        services, features = load_extension_manifests(tmp_path, "nvidia")
+        services, features, _ = load_extension_manifests(tmp_path, "nvidia")
         assert "test-service" in services
         assert services["test-service"]["port"] == 8080
         assert services["test-service"]["name"] == "Test Service"
@@ -73,8 +73,10 @@ class TestLoadExtensionManifests:
             "schema_version: dream.services.v0\nservice:\n  id: old\n  port: 80\n"
         )
 
-        services, features = load_extension_manifests(tmp_path, "nvidia")
+        services, features, errors = load_extension_manifests(tmp_path, "nvidia")
         assert len(services) == 0
+        assert len(errors) == 1
+        assert "Unsupported schema_version" in errors[0]["error"]
 
     def test_filters_by_gpu_backend(self, tmp_path):
         svc_dir = tmp_path / "nvidia-only"
@@ -85,20 +87,20 @@ class TestLoadExtensionManifests:
             "  gpu_backends: [nvidia]\n"
         )
 
-        services, _ = load_extension_manifests(tmp_path, "amd")
+        services, _, _ = load_extension_manifests(tmp_path, "amd")
         assert len(services) == 0
 
-        services, _ = load_extension_manifests(tmp_path, "nvidia")
+        services, _, _ = load_extension_manifests(tmp_path, "nvidia")
         assert "nvidia-only" in services
 
     def test_empty_directory(self, tmp_path):
-        services, features = load_extension_manifests(tmp_path, "nvidia")
+        services, features, _ = load_extension_manifests(tmp_path, "nvidia")
         assert services == {}
         assert features == []
 
     def test_nonexistent_directory(self, tmp_path):
         missing = tmp_path / "does-not-exist"
-        services, features = load_extension_manifests(missing, "nvidia")
+        services, features, _ = load_extension_manifests(missing, "nvidia")
         assert services == {}
         assert features == []
 
@@ -114,7 +116,7 @@ class TestLoadExtensionManifests:
             "  - id: both-feat\n    name: Both Feature\n    gpu_backends: [amd, nvidia]\n"
         )
 
-        _, features = load_extension_manifests(tmp_path, "nvidia")
+        _, features, _ = load_extension_manifests(tmp_path, "nvidia")
         feature_ids = [f["id"] for f in features]
         assert "both-feat" in feature_ids
         assert "amd-feat" not in feature_ids
@@ -128,7 +130,7 @@ class TestLoadExtensionManifests:
             "service:\n  id: generic-svc\n  name: Generic\n  port: 80\n"
         )
 
-        services, _ = load_extension_manifests(tmp_path, "apple")
+        services, _, _ = load_extension_manifests(tmp_path, "apple")
         assert "generic-svc" in services
 
     def test_apple_backend_filtered_by_explicit_nvidia_amd_list(self, tmp_path):
@@ -141,7 +143,7 @@ class TestLoadExtensionManifests:
             "  gpu_backends: [amd, nvidia]\n"
         )
 
-        services, _ = load_extension_manifests(tmp_path, "apple")
+        services, _, _ = load_extension_manifests(tmp_path, "apple")
         assert "gpu-only-svc" in services
 
     def test_apple_backend_discovers_service_explicitly_listing_apple(self, tmp_path):
@@ -154,7 +156,7 @@ class TestLoadExtensionManifests:
             "  gpu_backends: [amd, nvidia, apple]\n"
         )
 
-        services, _ = load_extension_manifests(tmp_path, "apple")
+        services, _, _ = load_extension_manifests(tmp_path, "apple")
         assert "apple-svc" in services
 
     def test_apple_backend_feature_default_discovered(self, tmp_path):
@@ -168,7 +170,7 @@ class TestLoadExtensionManifests:
             "  - id: default-feat\n    name: Default Feature\n"
         )
 
-        _, features = load_extension_manifests(tmp_path, "apple")
+        _, features, _ = load_extension_manifests(tmp_path, "apple")
         assert any(f["id"] == "default-feat" for f in features)
 
     def test_apple_backend_excludes_host_systemd(self, tmp_path):
@@ -182,7 +184,7 @@ class TestLoadExtensionManifests:
             "  gpu_backends: [amd, nvidia]\n"
         )
 
-        services, _ = load_extension_manifests(tmp_path, "apple")
+        services, _, _ = load_extension_manifests(tmp_path, "apple")
         assert "systemd-svc" not in services
 
     def test_apple_backend_loads_all_features(self, tmp_path):
@@ -196,7 +198,7 @@ class TestLoadExtensionManifests:
             "  - id: gpu-feat\n    name: GPU Feature\n    gpu_backends: [amd, nvidia]\n"
         )
 
-        _, features = load_extension_manifests(tmp_path, "apple")
+        _, features, _ = load_extension_manifests(tmp_path, "apple")
         assert any(f["id"] == "gpu-feat" for f in features)
 
     def test_warns_on_missing_optional_feature_fields(self, tmp_path, caplog):
@@ -211,7 +213,7 @@ class TestLoadExtensionManifests:
         )
 
         with caplog.at_level(logging.WARNING, logger="config"):
-            _, features = load_extension_manifests(tmp_path, "nvidia")
+            _, features, _ = load_extension_manifests(tmp_path, "nvidia")
 
         assert any(f["id"] == "sparse-feat" for f in features)
         warning_msgs = [r.message for r in caplog.records if "missing optional fields" in r.message]
@@ -219,3 +221,31 @@ class TestLoadExtensionManifests:
         assert "sparse-feat" in warning_msgs[0]
         for field in ("description", "icon", "category", "setup_time", "priority"):
             assert field in warning_msgs[0]
+
+    def test_collects_parse_errors(self, tmp_path):
+        svc_dir = tmp_path / "broken-svc"
+        svc_dir.mkdir()
+        (svc_dir / "manifest.yaml").write_text("invalid: yaml: [unterminated")
+
+        services, features, errors = load_extension_manifests(tmp_path, "nvidia")
+        assert len(errors) == 1
+        assert "file" in errors[0]
+        assert "error" in errors[0]
+        assert "broken-svc" in errors[0]["file"]
+        assert services == {}
+        assert features == []
+
+    def test_collects_error_for_missing_service_id(self, tmp_path):
+        """A manifest with a valid schema but no service.id collects an error."""
+        svc_dir = tmp_path / "no-id-svc"
+        svc_dir.mkdir()
+        (svc_dir / "manifest.yaml").write_text(
+            "schema_version: dream.services.v1\n"
+            "service:\n  name: No ID\n  port: 80\n"
+        )
+
+        services, features, errors = load_extension_manifests(tmp_path, "nvidia")
+        assert len(errors) == 1
+        assert "service.id is required" in errors[0]["error"]
+        assert "no-id-svc" in errors[0]["file"]
+        assert services == {}

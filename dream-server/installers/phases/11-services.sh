@@ -17,12 +17,13 @@
 #   Change model download logic or compose launch flags here.
 # ============================================================================
 
+dream_progress 75 "services" "Starting services"
 show_phase 5 6 "Starting Services" "~2-3 minutes"
 
 if $DRY_RUN; then
     log "[DRY RUN] Would start services: $DOCKER_COMPOSE_CMD $COMPOSE_FLAGS up -d"
 else
-    cd "$INSTALL_DIR"
+    cd "$INSTALL_DIR" || exit 1
     # Convert COMPOSE_FLAGS string to array for safe word-splitting
     read -ra COMPOSE_FLAGS_ARR <<< "$COMPOSE_FLAGS"
     mkdir -p "$INSTALL_DIR/logs"
@@ -43,6 +44,7 @@ else
     mkdir -p "$INSTALL_DIR/data/models"
 
     # Download GGUF model if not already present (with retry and integrity verification)
+    dream_progress 76 "services" "Checking AI model"
     GGUF_DIR="$INSTALL_DIR/data/models"
     if [[ "${DREAM_MODE:-local}" != "cloud" && -n "$GGUF_URL" ]]; then
         # Check if model exists and verify integrity
@@ -74,6 +76,7 @@ else
 
         # Download if not present or was removed due to corruption
         if [[ ! -f "$GGUF_DIR/$GGUF_FILE" ]]; then
+            dream_progress 77 "services" "Downloading AI model"
             ai "Downloading GGUF model: $GGUF_FILE"
             signal "This is the big one. I've got it — sit back."
             echo ""
@@ -135,6 +138,7 @@ else
     fi
 
     # ── FLUX.1-schnell model download (ComfyUI image generation) ──
+    dream_progress 79 "services" "Checking image generation models"
     if [[ "${DREAM_MODE:-local}" == "cloud" ]]; then
         ai "Cloud mode — skipping FLUX model download"
     elif [[ "$GPU_BACKEND" == "amd" ]]; then
@@ -242,7 +246,24 @@ MODELS_INI_EOF
         ai_ok "Generated models.ini for llama-server"
     fi
 
+    # Validate service dependencies before launching
+    if [[ -f "$INSTALL_DIR/lib/service-registry.sh" && -f "$INSTALL_DIR/lib/validate-dependencies.sh" ]]; then
+        . "$INSTALL_DIR/lib/service-registry.sh"
+        . "$INSTALL_DIR/lib/validate-dependencies.sh"
+        sr_load
+
+        ai "Validating service dependencies..."
+        if ! validate_service_dependencies; then
+            ai_err "Service dependency validation failed"
+            ai "Some services depend on other services that are not enabled"
+            ai "Enable required services or disable dependent services to continue"
+            exit 1
+        fi
+        ai_ok "All service dependencies satisfied"
+    fi
+
     # Launch containers
+    dream_progress 81 "services" "Launching containers"
     echo ""
     signal "Waking the stack..."
     ai "I'm bringing systems online. You can breathe."
@@ -276,6 +297,7 @@ MODELS_INI_EOF
         ai_warn "Log file: $LOG_FILE"
     fi
 
+    dream_progress 83 "services" "Running extension setup hooks"
     # ── Run extension setup hooks ──
     if [[ -f "$INSTALL_DIR/lib/service-registry.sh" ]]; then
         _HOOK_DIR="$INSTALL_DIR"

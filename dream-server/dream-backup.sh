@@ -28,6 +28,9 @@ log_success() { echo -e "${GREEN}[SUCCESS]${NC} $*"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
+# Source shared rsync utilities
+. "$DREAM_DIR/lib/rsync.sh"
+
 # Convert bytes to a human-friendly string (best-effort)
 fmt_bytes() {
     local bytes="${1:-0}"
@@ -314,7 +317,7 @@ backup_user_data() {
         if [[ -d "$full_path" ]]; then
             local dest_dir="$backup_dir/$(dirname "$path")"
             mkdir -p "$dest_dir"
-            rsync -a --delete "$full_path" "$dest_dir/"
+            rsync_with_progress "$full_path" "$dest_dir/" "Backing up $path"
             log_success "Backed up: $path"
         else
             log_warn "Skipped (not found): $path"
@@ -337,7 +340,7 @@ backup_config() {
 
     # Config directory
     if [[ -d "$DREAM_DIR/config" ]]; then
-        rsync -a --delete "$DREAM_DIR/config" "$backup_dir/"
+        rsync_with_progress "$DREAM_DIR/config" "$backup_dir/" "Backing up config/"
         log_success "Backed up: config/"
     fi
 }
@@ -383,7 +386,7 @@ backup_cache() {
     log_info "Backing up cache (models, etc.)..."
 
     if [[ -d "$DREAM_DIR/models" ]]; then
-        rsync -a --delete "$DREAM_DIR/models" "$backup_dir/"
+        rsync_with_progress "$DREAM_DIR/models" "$backup_dir/" "Backing up models/"
         log_success "Backed up: models/"
     fi
 
@@ -397,7 +400,7 @@ backup_cache() {
         if [[ -d "$DREAM_DIR/$path" ]]; then
             local dest_dir="$backup_dir/$(dirname "$path")"
             mkdir -p "$dest_dir"
-            rsync -a --delete "$DREAM_DIR/$path" "$dest_dir/"
+            rsync_with_progress "$DREAM_DIR/$path" "$dest_dir/" "Backing up $path"
             log_success "Backed up: $path"
         fi
     done

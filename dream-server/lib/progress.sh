@@ -119,7 +119,8 @@ print_phase() {
     local phase=$1
     local desc=$2
     local estimate=${PHASE_ESTIMATES[$phase]:-0}
-    local duration=$(format_duration $estimate)
+    local duration
+    duration=$(format_duration $estimate)
     
     echo -e "\n${BOLD}${BLUE}▶ $desc${NC} ${CYAN}(~$duration)${NC}"
 }
@@ -183,7 +184,8 @@ monitor_model_download() {
     
     while true; do
         if [[ -d "$model_dir" ]]; then
-            local current_bytes=$(du -sb "$model_dir" 2>/dev/null | cut -f1)
+            local current_bytes
+            current_bytes=$(du -sb "$model_dir" 2>/dev/null | cut -f1)
             current_bytes=${current_bytes:-0}
             
             if [[ $current_bytes -ge $expected_size_bytes ]]; then
