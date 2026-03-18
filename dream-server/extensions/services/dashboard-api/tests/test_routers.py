@@ -290,6 +290,43 @@ def test_api_storage_authenticated(test_client):
     assert "percent" in data["models"]
 
 
+def test_api_settings_authenticated(test_client, tmp_path, monkeypatch):
+    """GET /api/settings with auth → 200, returns consolidated settings data."""
+    install_dir = tmp_path / "dream-install"
+    install_dir.mkdir()
+    (install_dir / ".env").write_text("WEBUI_PORT=3000\n")
+    (install_dir / ".version").write_text('{"version":"1.2.3","installed_at":"2026-03-10T00:00:00Z"}')
+
+    import routers.updates as updates_router
+    monkeypatch.setattr(updates_router, "INSTALL_DIR", str(install_dir))
+
+    async def fake_resolve_version_info(install_dir=None):
+        return {
+            "current": "1.2.3",
+            "latest": "1.2.4",
+            "update_available": True,
+            "changelog_url": "https://example.invalid/release",
+            "checked_at": "2026-03-17T00:00:00Z",
+        }
+
+    monkeypatch.setattr(updates_router, "resolve_version_info", fake_resolve_version_info)
+
+    resp = test_client.get("/api/settings", headers=test_client.auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["version"] == "1.2.3"
+    assert data["installDate"] == "2026-03-10T00:00:00Z"
+    assert data["updates"]["update_available"] is True
+    assert "tier" in data
+    assert "uptime" in data
+    assert "hostname" in data
+    assert "updates" in data
+    assert "services" in data
+    assert "storage" in data
+    assert "gpu" in data
+    assert "model" in data
+
+
 def test_api_external_links_authenticated(test_client):
     """GET /api/external-links with auth → 200, returns sidebar links."""
     resp = test_client.get("/api/external-links", headers=test_client.auth_headers)
