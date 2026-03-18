@@ -165,3 +165,18 @@ Every PR automatically tests installer detection on 6 distros via GitHub Actions
 3. Add a CI matrix entry in `.github/workflows/matrix-smoke.yml`
 4. Test with Distrobox: `distrobox create --name dream-test-newdistro --image newdistro:latest`
 5. Run: `./tests/test-multi-distro.sh newdistro`
+
+---
+
+## Showcase & Demos
+
+```bash
+# Interactive showcase (requires running services)
+./scripts/showcase.sh
+
+# Offline demo mode (no GPU/services needed)
+./scripts/demo-offline.sh
+
+# Run integration tests
+./tests/integration-test.sh
+```

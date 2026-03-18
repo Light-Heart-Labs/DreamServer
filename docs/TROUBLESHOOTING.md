@@ -241,4 +241,54 @@ docker compose up -d
 
 ---
 
+## Useful Commands
+
+```bash
+# Management scripts
+./scripts/session-cleanup.sh             # Clean up bloated agent sessions
+./scripts/llm-cold-storage.sh --status   # Check model hot/cold storage
+dream mode status                        # Show current mode
+```
+
+---
+
+## Quick Troubleshooting FAQ
+
+**llama-server won't start / OOM errors**
+- Reduce `CTX_SIZE` in `.env` (try 4096)
+- Use a smaller model: `./install.sh --tier 1`
+
+**"Model not found" on first boot**
+- First launch downloads the model (10-30 min depending on size)
+- Watch progress: `dream logs llm`
+
+**Open WebUI shows "Connection error"**
+- llama-server is still loading. Wait for health check to pass: `curl localhost:8080/health`
+
+**Port already in use**
+- Change ports in `.env` (e.g., `WEBUI_PORT=3001`)
+- Or stop the conflicting service: `sudo lsof -i :3000`
+
+**Docker permission denied**
+- Add yourself to the docker group: `sudo usermod -aG docker $USER`
+- Log out and back in for it to take effect
+
+**WSL: GPU not detected**
+- Install NVIDIA drivers on Windows (not inside WSL)
+- Verify with `nvidia-smi` inside WSL
+- Ensure Docker Desktop has WSL integration enabled
+
+**AMD Strix Halo: llama-server won't start**
+- Check GGUF model exists: `ls -lh data/models/*.gguf`
+- Watch logs: `docker compose -f docker-compose.base.yml -f docker-compose.amd.yml logs -f llama-server`
+- Verify GPU devices: `ls /dev/kfd /dev/dri/renderD128`
+- Ensure ROCm env: `HSA_OVERRIDE_GFX_VERSION=11.5.1` must be set
+
+**AMD: "missing tensor" errors**
+- Use upstream llama.cpp GGUF files (from `unsloth/` on HuggingFace)
+- Ollama's GGUF format has incompatible tensor naming for qwen3next architecture
+- Do NOT use Ollama blob files with llama-server
+
+---
+
 *Built by The Collective*

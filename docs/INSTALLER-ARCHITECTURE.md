@@ -148,6 +148,15 @@ bash scripts/simulate-installers.sh
 bash tests/integration-test.sh
 ```
 
+## Installer Evidence
+
+- Run simulation suite: `bash scripts/simulate-installers.sh`
+- Output artifacts:
+  - `artifacts/installer-sim/summary.json`
+  - `artifacts/installer-sim/SUMMARY.md`
+- CI uploads these artifacts on each PR via `.github/workflows/test-linux.yml`
+- One-command maintainer gate: `bash scripts/release-gate.sh`
+
 ## See Also
 
 - [CONTRIBUTING.md](../CONTRIBUTING.md) — Contributor validation checklist

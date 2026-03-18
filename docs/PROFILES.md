@@ -45,3 +45,20 @@ Dream Server previously used Docker Compose profiles (`voice`, `workflows`, `rag
 - [EXTENSIONS.md](EXTENSIONS.md) — Adding new services
 - [../QUICKSTART.md](../QUICKSTART.md) — Installation guide
 - [../.env.example](../.env.example) — Configuration reference
+
+---
+
+## Key Configuration Settings
+
+The installer generates `.env` automatically. Key settings:
+
+```bash
+# NVIDIA
+LLM_MODEL=qwen2.5-32b-instruct            # Model (auto-set by installer)
+CTX_SIZE=32768                             # Context window
+
+# AMD Strix Halo
+LLM_MODEL=qwen3-coder-next                # or qwen3-30b-a3b for compact tier
+CTX_SIZE=131072                            # Context window
+GPU_BACKEND=amd                            # Set automatically by installer
+```
