@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -221,3 +222,136 @@ def test_privacy_shield_status_with_mock(test_client):
     assert "enabled" in data
     assert "container_running" in data
     assert "port" in data
+
+
+# ---------------------------------------------------------------------------
+# Runtime router (settings + voice + diagnostics)
+# ---------------------------------------------------------------------------
+
+
+def test_api_settings_returns_expected_shape(test_client, tmp_path, monkeypatch):
+    """GET /api/settings returns dynamic values and storage summary."""
+    import routers.runtime as runtime_router
+
+    version_file = tmp_path / ".version"
+    version_file.write_text("2.6.4")
+
+    setup_file = tmp_path / "setup-complete.json"
+    setup_file.write_text(json.dumps({"completed_at": "2026-03-10T10:11:12Z"}))
+
+    monkeypatch.setattr(runtime_router, "_VERSION_FILE", version_file)
+    monkeypatch.setattr(runtime_router, "_SETUP_COMPLETE_FILE", setup_file)
+    monkeypatch.setattr(runtime_router, "get_disk_usage", lambda: SimpleNamespace(path="/tmp", used_gb=10.5, total_gb=200.0, percent=5.3))
+    monkeypatch.setattr(runtime_router, "get_uptime", lambda: 3723)
+    monkeypatch.setattr(runtime_router, "_resolve_tier", lambda: "Prosumer")
+
+    resp = test_client.get("/api/settings", headers=test_client.auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["version"] == "2.6.4"
+    assert data["installDate"] == "Mar 10, 2026"
+    assert data["tier"] == "Prosumer"
+    assert data["uptime"] == "1h 2m"
+    assert data["storage"]["path"] == "/tmp"
+    assert data["storage"]["percent"] == 5.3
+    assert "generatedAt" in data
+
+
+def test_voice_settings_defaults_then_save_roundtrip(test_client, tmp_path, monkeypatch):
+    """GET returns defaults; POST persists voice settings; GET returns persisted values."""
+    import routers.runtime as runtime_router
+
+    settings_file = tmp_path / "voice-settings.json"
+    monkeypatch.setattr(runtime_router, "_VOICE_SETTINGS_FILE", settings_file)
+
+    get_default = test_client.get("/api/voice/settings", headers=test_client.auth_headers)
+    assert get_default.status_code == 200
+    assert get_default.json() == {"voice": "default", "speed": 1.0, "wakeWord": False}
+
+    save_resp = test_client.post(
+        "/api/voice/settings",
+        json={"voice": "jenny", "speed": 1.3, "wakeWord": True},
+        headers=test_client.auth_headers,
+    )
+    assert save_resp.status_code == 200
+    assert save_resp.json()["success"] is True
+    assert settings_file.exists()
+
+    get_saved = test_client.get("/api/voice/settings", headers=test_client.auth_headers)
+    assert get_saved.status_code == 200
+    assert get_saved.json() == {"voice": "jenny", "speed": 1.3, "wakeWord": True}
+
+
+def test_voice_status_aggregates_service_health(test_client, monkeypatch):
+    """GET /api/voice/status reports stt, tts, and livekit health plus available=true."""
+    import routers.runtime as runtime_router
+
+    stt = {"id": "whisper", "name": "Whisper (STT)", "status": "healthy", "responseTimeMs": 12.1, "checkedAt": "x", "url": "http://whisper:8000/health"}
+    tts = {"id": "tts", "name": "Kokoro (TTS)", "status": "healthy", "responseTimeMs": 14.9, "checkedAt": "x", "url": "http://tts:8880/health"}
+    livekit = {"id": "livekit", "name": "LiveKit", "status": "healthy", "responseTimeMs": 9.0, "checkedAt": "x", "url": "http://livekit:7880"}
+
+    monkeypatch.setattr(runtime_router, "_check_service", AsyncMock(side_effect=[stt, tts]))
+    monkeypatch.setattr(runtime_router, "_check_livekit", AsyncMock(return_value=livekit))
+
+    resp = test_client.get("/api/voice/status", headers=test_client.auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["available"] is True
+    assert data["services"]["stt"]["status"] == "healthy"
+    assert data["services"]["tts"]["status"] == "healthy"
+    assert data["services"]["livekit"]["status"] == "healthy"
+
+
+def test_voice_token_requires_livekit_credentials(test_client, monkeypatch):
+    """POST /api/voice/token returns 503 when LIVEKIT credentials are missing."""
+    monkeypatch.delenv("LIVEKIT_API_KEY", raising=False)
+    monkeypatch.delenv("LIVEKIT_API_SECRET", raising=False)
+
+    resp = test_client.post(
+        "/api/voice/token",
+        json={"identity": "dashboard-test", "room": "dream-voice"},
+        headers=test_client.auth_headers,
+    )
+    assert resp.status_code == 503
+    assert "not configured" in resp.json()["detail"]
+
+
+def test_voice_token_returns_jwt_with_credentials(test_client, monkeypatch):
+    """POST /api/voice/token returns a JWT-like token when credentials exist."""
+    monkeypatch.setenv("LIVEKIT_API_KEY", "livekit-key")
+    monkeypatch.setenv("LIVEKIT_API_SECRET", "super-secret")
+    monkeypatch.setenv("LIVEKIT_URL", "ws://livekit:7880")
+
+    resp = test_client.post(
+        "/api/voice/token",
+        json={"identity": "dashboard-test", "room": "dream-voice", "ttlSeconds": 600},
+        headers=test_client.auth_headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["room"] == "dream-voice"
+    assert data["url"] == "ws://livekit:7880"
+    assert len(data["token"].split(".")) == 3
+
+
+def test_diagnostic_voice_endpoint_uses_voice_status(test_client, monkeypatch):
+    """GET /api/test/voice maps to voice status and returns success bool."""
+    import routers.runtime as runtime_router
+
+    monkeypatch.setattr(
+        runtime_router,
+        "voice_status",
+        AsyncMock(return_value={"available": True, "services": {"stt": {}, "tts": {}, "livekit": {}}, "message": "ok", "checkedAt": "now"}),
+    )
+
+    resp = test_client.get("/api/test/voice", headers=test_client.auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["feature"] == "voice"
+    assert data["success"] is True
+
+
+def test_diagnostic_unknown_target_returns_404(test_client):
+    """Unknown diagnostics target should return 404."""
+    resp = test_client.get("/api/test/not-a-real-target", headers=test_client.auth_headers)
+    assert resp.status_code == 404
