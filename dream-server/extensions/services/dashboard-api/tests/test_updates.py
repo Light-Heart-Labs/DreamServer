@@ -1,6 +1,6 @@
 """Tests for updates router endpoints."""
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 
 def test_get_version_requires_auth(test_client):
@@ -22,12 +22,21 @@ def test_get_version_authenticated(test_client):
 
 def test_get_version_with_mock_github(test_client):
     """GET /api/version with mocked GitHub API → returns update info."""
-    mock_response = MagicMock()
-    mock_response.read.return_value = b'{"tag_name": "v2.0.0", "html_url": "https://github.com/test"}'
-    mock_response.__enter__ = lambda self: self
-    mock_response.__exit__ = lambda self, *args: None
+    class FakeResponse:
+        def json(self):
+            return {"tag_name": "v2.0.0", "html_url": "https://github.com/test"}
 
-    with patch("urllib.request.urlopen", return_value=mock_response):
+    class FakeAsyncClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, *args, **kwargs):
+            return FakeResponse()
+
+    with patch("routers.updates.httpx.AsyncClient", return_value=FakeAsyncClient()):
         resp = test_client.get("/api/version", headers=test_client.auth_headers)
         assert resp.status_code == 200
         data = resp.json()
