@@ -93,6 +93,12 @@ checkpoint_load() {
         return 1
     fi
 
+    # Validate INSTALL_DIR hasn't changed
+    if [[ -n "$saved_dir" && "$saved_dir" != "$INSTALL_DIR" ]]; then
+        warn "Install directory changed (was: $saved_dir, now: $INSTALL_DIR), starting fresh"
+        return 1
+    fi
+
     # Check if checkpoint is stale (>24 hours)
     local now
     now=$(date +%s)
