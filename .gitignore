@@ -69,6 +69,7 @@ dream-server/.claude/
 dream-server/.pytest_cache/
 dream-server/tests/__pycache__/
 dream-server/.cache/
+dream-server/tests/bats/
 
 # ============================================
 # Archived / deprecated code (pre-v2.0)
