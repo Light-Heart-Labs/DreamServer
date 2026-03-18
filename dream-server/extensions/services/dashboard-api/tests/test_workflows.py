@@ -36,12 +36,6 @@ def test_workflow_executions_requires_auth(test_client):
     assert resp.status_code == 401
 
 
-def test_workflow_executions_requires_auth(test_client):
-    """GET /api/workflows/{id}/executions without auth → 401."""
-    resp = test_client.get("/api/workflows/test-workflow/executions")
-    assert resp.status_code == 401
-
-
 def test_workflow_enable_authenticated(test_client):
     """POST /api/workflows/{id}/enable with auth → 404 when workflow not in catalog."""
     resp = test_client.post(
