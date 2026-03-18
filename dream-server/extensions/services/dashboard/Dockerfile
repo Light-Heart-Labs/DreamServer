@@ -40,7 +40,8 @@ RUN addgroup -g 1000 dreamer && \
     chown -R dreamer:dreamer /var/log/nginx && \
     chown -R dreamer:dreamer /etc/nginx/conf.d && \
     touch /var/run/nginx.pid && \
-    chown -R dreamer:dreamer /var/run/nginx.pid
+    chown -R dreamer:dreamer /var/run/nginx.pid && \
+    sed -i '/^user/d' /etc/nginx/nginx.conf
 
 USER dreamer
 
