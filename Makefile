@@ -1,7 +1,7 @@
 # Dream Server — Developer Targets
 # Run `make help` to see available commands.
 
-SHELL_FILES := $(shell find dream-server/ -name '*.sh' -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/data/*' -not -path '*/token-spy/*')
+SHELL_FILES := $(shell find dream-server/ scripts/ -name '*.sh' -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/data/*' -not -path '*/token-spy/*')
 
 .PHONY: help lint test bats smoke simulate gate doctor
 
@@ -26,7 +26,7 @@ test: ## Run unit and contract tests
 
 bats: ## Run BATS unit tests for shell libraries
 	@echo "=== BATS unit tests ==="
-	@bash tests/run-bats.sh
+	@bash dream-server/tests/run-bats.sh
 
 smoke: ## Run platform smoke tests
 	@echo "=== Smoke tests ==="
