@@ -12,7 +12,7 @@ service:
   external_port_default: 7805
   health: /health
   type: docker
-  gpu_backends: [none]
+  gpu_backends: [amd, nvidia, apple]
   category: optional
   depends_on: []
   compose_file: compose.yaml
@@ -20,25 +20,53 @@ service:
     Open Interpreter lets LLMs run code locally (Python, JavaScript, Shell, etc.).
     It provides a ChatGPT-like interface in your terminal and can control Chrome,
     create/edit files, analyze datasets, and more. Fully local, no API costs.
-  
-  features:
-    code-exec:
-      description: Run Python, JavaScript, Shell code locally
-      vram_required_mb: 0
-    browser:
-      description: Control Chrome browser for research tasks
-      vram_required_mb: 0
-    file-ops:
-      description: Create and edit files, photos, videos, PDFs
-      vram_required_mb: 0
-    data-analysis:
-      description: Plot, clean, and analyze large datasets
-      vram_required_mb: 0
-    
-  tags:
-    - code
-    - local
-    - terminal
-    - browser
-    - file-ops
-    - data
+
+features:
+  - id: code-exec
+    name: Local Code Execution
+    description: Run Python, JavaScript, Shell code locally
+    icon: Terminal
+    category: development
+    requirements:
+      services: [open-interpreter]
+      vram_gb: 0
+    enabled_services_all: [open-interpreter]
+    setup_time: ~1 minute
+    priority: 9
+    gpu_backends: [amd, nvidia, apple]
+  - id: browser
+    name: Browser Control
+    description: Control Chrome browser for research tasks
+    icon: Globe
+    category: development
+    requirements:
+      services: [open-interpreter]
+      vram_gb: 0
+    enabled_services_all: [open-interpreter]
+    setup_time: ~1 minute
+    priority: 10
+    gpu_backends: [amd, nvidia, apple]
+  - id: file-ops
+    name: File Operations
+    description: Create and edit files, photos, videos, PDFs
+    icon: FileEdit
+    category: development
+    requirements:
+      services: [open-interpreter]
+      vram_gb: 0
+    enabled_services_all: [open-interpreter]
+    setup_time: ~1 minute
+    priority: 11
+    gpu_backends: [amd, nvidia, apple]
+  - id: data-analysis
+    name: Data Analysis
+    description: Plot, clean, and analyze large datasets
+    icon: BarChart
+    category: development
+    requirements:
+      services: [open-interpreter]
+      vram_gb: 0
+    enabled_services_all: [open-interpreter]
+    setup_time: ~1 minute
+    priority: 12
+    gpu_backends: [amd, nvidia, apple]

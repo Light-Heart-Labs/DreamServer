@@ -12,7 +12,7 @@ service:
   external_port_default: 7811
   health: /v1/.well-known/ready
   type: docker
-  gpu_backends: [none]
+  gpu_backends: [amd, nvidia, apple]
   compose_file: compose.yaml
   category: optional
   depends_on: []
@@ -22,21 +22,40 @@ service:
     Supports semantic search, hybrid search, structured filtering, and multi-tenancy.
     A cloud-native alternative to ChromaDB with gRPC support and horizontal scaling.
 
-  features:
-    vector-search:
-      description: Semantic similarity search with vector embeddings
-      vram_required_mb: 0
-    hybrid-search:
-      description: Combine vector similarity with keyword matching
-      vram_required_mb: 0
-    multi-tenancy:
-      description: Isolated data spaces for different users/organizations
-      vram_required_mb: 0
-
-  tags:
-    - vector-database
-    - semantic-search
-    - embeddings
-    - open-source
-    - scalable
-    - local
+features:
+  - id: vector-search
+    name: Semantic Vector Search
+    description: Semantic similarity search with vector embeddings
+    icon: Search
+    category: data
+    requirements:
+      services: [weaviate]
+      vram_gb: 0
+    enabled_services_all: [weaviate]
+    setup_time: ~1 minute
+    priority: 9
+    gpu_backends: [amd, nvidia, apple]
+  - id: hybrid-search
+    name: Hybrid Search
+    description: Combine vector similarity with keyword matching
+    icon: GitMerge
+    category: data
+    requirements:
+      services: [weaviate]
+      vram_gb: 0
+    enabled_services_all: [weaviate]
+    setup_time: ~1 minute
+    priority: 10
+    gpu_backends: [amd, nvidia, apple]
+  - id: multi-tenancy
+    name: Multi-Tenancy
+    description: Isolated data spaces for different users/organizations
+    icon: Users
+    category: data
+    requirements:
+      services: [weaviate]
+      vram_gb: 0
+    enabled_services_all: [weaviate]
+    setup_time: ~1 minute
+    priority: 11
+    gpu_backends: [amd, nvidia, apple]

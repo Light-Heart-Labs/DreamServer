@@ -12,7 +12,7 @@ service:
   external_port_default: 7807
   health: /accounts/login/
   type: docker
-  gpu_backends: [none]
+  gpu_backends: [amd, nvidia, apple]
   compose_file: compose.yaml
   category: optional
   depends_on: []
@@ -22,24 +22,52 @@ service:
     documents into a searchable online archive. OCR, tagging, automatic
     classification, and full-text search for PDFs and images.
 
-  features:
-    ocr:
-      description: Automatic OCR for scanned PDFs and images
-      vram_required_mb: 0
-    document-tags:
-      description: Auto and manual tagging for organization
-      vram_required_mb: 0
-    fulltext-search:
-      description: Search inside all your documents
-      vram_required_mb: 0
-    email-import:
-      description: Import documents via email
-      vram_required_mb: 0
-
-  tags:
-    - documents
-    - ocr
-    - archive
-    - pdf
-    - search
-    - productivity
+features:
+  - id: ocr
+    name: Automatic OCR
+    description: Automatic OCR for scanned PDFs and images
+    icon: Scan
+    category: productivity
+    requirements:
+      services: [paperless-ngx]
+      vram_gb: 0
+    enabled_services_all: [paperless-ngx]
+    setup_time: ~1 minute
+    priority: 13
+    gpu_backends: [amd, nvidia, apple]
+  - id: document-tags
+    name: Document Tagging
+    description: Auto and manual tagging for organization
+    icon: Tag
+    category: productivity
+    requirements:
+      services: [paperless-ngx]
+      vram_gb: 0
+    enabled_services_all: [paperless-ngx]
+    setup_time: ~1 minute
+    priority: 14
+    gpu_backends: [amd, nvidia, apple]
+  - id: fulltext-search
+    name: Full-Text Search
+    description: Search inside all your documents
+    icon: Search
+    category: productivity
+    requirements:
+      services: [paperless-ngx]
+      vram_gb: 0
+    enabled_services_all: [paperless-ngx]
+    setup_time: ~1 minute
+    priority: 15
+    gpu_backends: [amd, nvidia, apple]
+  - id: email-import
+    name: Email Import
+    description: Import documents via email
+    icon: Mail
+    category: productivity
+    requirements:
+      services: [paperless-ngx]
+      vram_gb: 0
+    enabled_services_all: [paperless-ngx]
+    setup_time: ~1 minute
+    priority: 16
+    gpu_backends: [amd, nvidia, apple]
