@@ -5,6 +5,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -20,15 +21,94 @@ router = APIRouter(tags=["updates"])
 _GITHUB_HEADERS = {"Accept": "application/vnd.github.v3+json"}
 
 
-@router.get("/api/version", response_model=VersionInfo, dependencies=[Depends(verify_api_key)])
-async def get_version():
-    """Get current Dream Server version and check for updates (non-blocking)."""
-    version_file = Path(INSTALL_DIR) / ".version"
-    current = await asyncio.to_thread(
-        lambda: version_file.read_text().strip() if version_file.exists() else "0.0.0"
-    )
+def _read_version_state(install_dir: str | Path | None = None) -> tuple[str, dict[str, Any]]:
+    """Read version metadata from `.version`.
 
-    result = {"current": current, "latest": None, "update_available": False, "changelog_url": None, "checked_at": datetime.now(timezone.utc).isoformat() + "Z"}
+    Supports both the newer JSON shape used by update tooling and the older
+    plain-text version format that still appears in some installs/tests.
+    """
+    base_dir = Path(install_dir or INSTALL_DIR)
+    version_file = base_dir / ".version"
+    if not version_file.exists():
+        return "0.0.0", {}
+
+    try:
+        raw = version_file.read_text().strip()
+    except OSError:
+        return "0.0.0", {}
+
+    if not raw:
+        return "0.0.0", {}
+
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return raw.lstrip("v"), {}
+
+    if isinstance(parsed, dict):
+        version = str(parsed.get("version") or "0.0.0").strip().lstrip("v")
+        return version or "0.0.0", parsed
+
+    if isinstance(parsed, str):
+        return parsed.strip().lstrip("v") or "0.0.0", {}
+
+    return "0.0.0", {}
+
+
+def resolve_install_date(install_dir: str | Path | None = None) -> str | None:
+    """Best-effort install date for Settings UI.
+
+    Prefer explicit metadata when available, otherwise fall back to the oldest
+    stable file timestamp in the install directory.
+    """
+    base_dir = Path(install_dir or INSTALL_DIR)
+    _, version_meta = _read_version_state(base_dir)
+    for key in ("installed_at", "created_at", "initialized_at"):
+        value = version_meta.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+
+    base = base_dir
+    candidates = [base / ".env", base / ".version", base]
+    timestamps = []
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            timestamps.append(path.stat().st_mtime)
+        except OSError:
+            continue
+
+    if not timestamps:
+        return None
+
+    return datetime.fromtimestamp(min(timestamps), tz=timezone.utc).date().isoformat()
+
+
+def _normalize_release_version(value: str | None) -> list[int]:
+    """Convert a release tag into a comparable 3-part integer list."""
+    if not value:
+        return [0, 0, 0]
+
+    parts = []
+    for part in value.lstrip("v").split(".")[:3]:
+        digits = "".join(ch for ch in part if ch.isdigit())
+        parts.append(int(digits or "0"))
+    parts += [0] * (3 - len(parts))
+    return parts[:3]
+
+
+async def resolve_version_info(install_dir: str | Path | None = None) -> dict[str, Any]:
+    """Resolve the current/local version and latest release metadata."""
+    base_dir = Path(install_dir or INSTALL_DIR)
+    current, _ = await asyncio.to_thread(_read_version_state, base_dir)
+    result: dict[str, Any] = {
+        "current": current,
+        "latest": None,
+        "update_available": False,
+        "changelog_url": None,
+        "checked_at": datetime.now(timezone.utc).isoformat() + "Z",
+    }
 
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -37,19 +117,24 @@ async def get_version():
                 headers=_GITHUB_HEADERS,
             )
         data = resp.json()
-        latest = data.get("tag_name", "").lstrip("v")
+        latest = str(data.get("tag_name", "")).lstrip("v")
         if latest:
             result["latest"] = latest
             result["changelog_url"] = data.get("html_url")
-            current_parts = [int(x) for x in current.split(".") if x.isdigit()][:3]
-            latest_parts = [int(x) for x in latest.split(".") if x.isdigit()][:3]
-            current_parts += [0] * (3 - len(current_parts))
-            latest_parts += [0] * (3 - len(latest_parts))
-            result["update_available"] = latest_parts > current_parts
-    except (httpx.HTTPError, httpx.TimeoutException, json.JSONDecodeError, ValueError, OSError):
+            result["update_available"] = (
+                _normalize_release_version(latest)
+                > _normalize_release_version(current)
+            )
+    except (httpx.HTTPError, httpx.TimeoutException, json.JSONDecodeError, OSError, ValueError):
         pass
 
     return result
+
+
+@router.get("/api/version", response_model=VersionInfo, dependencies=[Depends(verify_api_key)])
+async def get_version():
+    """Get current Dream Server version and check for updates (non-blocking)."""
+    return await resolve_version_info()
 
 
 @router.get("/api/releases/manifest", dependencies=[Depends(verify_api_key)])
@@ -70,10 +155,7 @@ async def get_release_manifest():
             "checked_at": datetime.now(timezone.utc).isoformat() + "Z"
         }
     except (httpx.HTTPError, httpx.TimeoutException, json.JSONDecodeError, OSError):
-        version_file = Path(INSTALL_DIR) / ".version"
-        current = await asyncio.to_thread(
-            lambda: version_file.read_text().strip() if version_file.exists() else "0.0.0"
-        )
+        current, _ = await asyncio.to_thread(_read_version_state, INSTALL_DIR)
         return {
             "releases": [{"version": current, "date": datetime.now(timezone.utc).isoformat() + "Z", "title": f"Dream Server {current}", "changelog": "Release information unavailable. Check GitHub directly.", "url": "https://github.com/Light-Heart-Labs/DreamServer/releases", "prerelease": False}],
             "checked_at": datetime.now(timezone.utc).isoformat() + "Z",

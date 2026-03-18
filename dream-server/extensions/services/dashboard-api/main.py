@@ -349,7 +349,16 @@ async def _build_api_status() -> dict:
             gpu_data["powerDraw"] = gpu_info.power_w
         gpu_data["memoryLabel"] = "VRAM Partition" if gpu_info.memory_type == "unified" else "VRAM"
 
-    services_data = [{"name": s.name, "status": s.status, "port": s.external_port, "uptime": None} for s in service_statuses]
+    services_data = [
+        {
+            "id": s.id,
+            "name": s.name,
+            "status": s.status,
+            "port": s.external_port,
+            "uptime": None,
+        }
+        for s in service_statuses
+    ]
 
     model_data = None
     if model_info:
@@ -393,6 +402,86 @@ async def _build_api_status() -> dict:
 
 
 # --- Settings ---
+
+def _format_uptime_label(seconds: int) -> str:
+    """Render uptime in a compact human-readable format."""
+    if seconds <= 0:
+        return "0m"
+
+    days, remainder = divmod(seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, _ = divmod(remainder, 60)
+
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes or not parts:
+        parts.append(f"{minutes}m")
+    return " ".join(parts[:2])
+
+
+def _compute_storage_payload() -> dict:
+    models_dir = Path(DATA_DIR) / "models"
+    vector_dir = Path(DATA_DIR) / "qdrant"
+    data_dir = Path(DATA_DIR)
+
+    def dir_size_gb(path: Path) -> float:
+        if not path.exists():
+            return 0.0
+        total = 0
+        try:
+            for f in path.rglob("*"):
+                if f.is_file():
+                    try:
+                        total += f.stat().st_size
+                    except OSError:
+                        pass
+        except (PermissionError, OSError):
+            pass
+        return round(total / (1024**3), 2)
+
+    disk_info = get_disk_usage()
+    models_gb = dir_size_gb(models_dir)
+    vector_gb = dir_size_gb(vector_dir)
+    other_gb = dir_size_gb(data_dir) - models_gb - vector_gb
+    total_data_gb = models_gb + vector_gb + max(other_gb, 0)
+
+    return {
+        "models": {
+            "formatted": f"{models_gb:.1f} GB",
+            "gb": models_gb,
+            "percent": round(models_gb / disk_info.total_gb * 100, 1) if disk_info.total_gb else 0,
+        },
+        "vector_db": {
+            "formatted": f"{vector_gb:.1f} GB",
+            "gb": vector_gb,
+            "percent": round(vector_gb / disk_info.total_gb * 100, 1) if disk_info.total_gb else 0,
+        },
+        "total_data": {
+            "formatted": f"{total_data_gb:.1f} GB",
+            "gb": total_data_gb,
+            "percent": round(total_data_gb / disk_info.total_gb * 100, 1) if disk_info.total_gb else 0,
+        },
+        "disk": {
+            "used_gb": disk_info.used_gb,
+            "total_gb": disk_info.total_gb,
+            "percent": disk_info.percent,
+        },
+    }
+
+
+async def _build_storage_payload() -> dict:
+    """Get storage breakdown for Settings page (cached, runs in thread pool)."""
+    cached = _cache.get("storage")
+    if cached is not None:
+        return cached
+
+    result = await asyncio.to_thread(_compute_storage_payload)
+    _cache.set("storage", result, _STORAGE_CACHE_TTL)
+    return result
+
 
 @app.get("/api/service-tokens", dependencies=[Depends(verify_api_key)])
 async def service_tokens():
@@ -440,47 +529,45 @@ async def get_external_links(api_key: str = Depends(verify_api_key)):
 
 @app.get("/api/storage")
 async def api_storage(api_key: str = Depends(verify_api_key)):
-    """Get storage breakdown for Settings page (cached, runs in thread pool)."""
-    cached = _cache.get("storage")
-    if cached is not None:
-        return cached
+    return await _build_storage_payload()
 
-    def _compute_storage():
-        models_dir = Path(DATA_DIR) / "models"
-        vector_dir = Path(DATA_DIR) / "qdrant"
-        data_dir = Path(DATA_DIR)
 
-        def dir_size_gb(path: Path) -> float:
-            if not path.exists():
-                return 0.0
-            total = 0
-            try:
-                for f in path.rglob("*"):
-                    if f.is_file():
-                        try:
-                            total += f.stat().st_size
-                        except OSError:
-                            pass
-            except (PermissionError, OSError):
-                pass
-            return round(total / (1024**3), 2)
+@app.get("/api/settings")
+async def api_settings(api_key: str = Depends(verify_api_key)):
+    """Return a consolidated Settings payload for the dashboard."""
+    status_data, storage_data, version_data = await asyncio.gather(
+        _build_api_status(),
+        _build_storage_payload(),
+        updates.resolve_version_info(),
+    )
 
-        disk_info = get_disk_usage()
-        models_gb = dir_size_gb(models_dir)
-        vector_gb = dir_size_gb(vector_dir)
-        other_gb = dir_size_gb(data_dir) - models_gb - vector_gb
-        total_data_gb = models_gb + vector_gb + max(other_gb, 0)
-
-        return {
-            "models": {"formatted": f"{models_gb:.1f} GB", "gb": models_gb, "percent": round(models_gb / disk_info.total_gb * 100, 1) if disk_info.total_gb else 0},
-            "vector_db": {"formatted": f"{vector_gb:.1f} GB", "gb": vector_gb, "percent": round(vector_gb / disk_info.total_gb * 100, 1) if disk_info.total_gb else 0},
-            "total_data": {"formatted": f"{total_data_gb:.1f} GB", "gb": total_data_gb, "percent": round(total_data_gb / disk_info.total_gb * 100, 1) if disk_info.total_gb else 0},
-            "disk": {"used_gb": disk_info.used_gb, "total_gb": disk_info.total_gb, "percent": disk_info.percent}
+    services = [
+        {
+            "id": svc.get("id"),
+            "name": svc.get("name"),
+            "status": svc.get("status", "unknown"),
+            "port": svc.get("port"),
         }
+        for svc in status_data.get("services", [])
+    ]
 
-    result = await asyncio.to_thread(_compute_storage)
-    _cache.set("storage", result, _STORAGE_CACHE_TTL)
-    return result
+    return {
+        "version": version_data.get("current") or status_data.get("version"),
+        "installDate": updates.resolve_install_date(),
+        "tier": status_data.get("tier", "Unknown"),
+        "uptime": _format_uptime_label(status_data.get("uptime", 0)),
+        "hostname": socket.gethostname(),
+        "updates": version_data,
+        "services": services,
+        "storage": storage_data,
+        "gpu": status_data.get("gpu"),
+        "model": {
+            **(status_data.get("model") or {}),
+            "loadedModel": status_data.get("inference", {}).get("loadedModel"),
+            "tokensPerSecond": status_data.get("inference", {}).get("tokensPerSecond"),
+            "contextSize": status_data.get("inference", {}).get("contextSize"),
+        },
+    }
 
 
 # --- Startup ---

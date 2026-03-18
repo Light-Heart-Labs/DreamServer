@@ -66,6 +66,7 @@ Environment variables (set in `.env`):
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
+| `GET` | `/api/settings` | Yes | Consolidated Settings payload (system identity, updates, routing, storage) |
 | `GET` | `/api/service-tokens` | Yes | Service auth tokens (e.g. OpenClaw) |
 | `GET` | `/api/external-links` | Yes | Sidebar links from service manifests |
 | `GET` | `/api/storage` | Yes | Storage breakdown (models, vector DB, total) |

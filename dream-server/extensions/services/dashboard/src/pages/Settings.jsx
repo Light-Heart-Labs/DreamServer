@@ -1,7 +1,9 @@
 import { Settings as SettingsIcon, Server, HardDrive, RefreshCw, Download, Loader2, Network } from 'lucide-react'
 import { useState, useEffect } from 'react'
+import { triggerUpdate } from '../hooks/useVersion'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
+const getHost = () => (typeof window !== 'undefined' ? window.location.hostname : 'localhost')
 
 // Fetch with timeout to avoid hanging requests
 const fetchJson = async (url, ms = 8000) => {
@@ -14,12 +16,17 @@ const fetchJson = async (url, ms = 8000) => {
   }
 }
 
+const formatCheckedAt = (value) => {
+  if (!value) return 'Not checked yet'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString()
+}
+
 export default function Settings() {
-  const [version, setVersion] = useState(null)
-  const [storage, setStorage] = useState(null)
-  const [services, setServices] = useState([])
-  const [statusCache, setStatusCache] = useState(null)
+  const [settings, setSettings] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [checkingUpdates, setCheckingUpdates] = useState(false)
   const [error, setError] = useState(null)
   const [notice, setNotice] = useState(null)
 
@@ -31,34 +38,11 @@ export default function Settings() {
     try {
       setLoading(true)
       setError(null)
-      const [versionRes, storageRes, statusRes] = await Promise.all([
-        fetchJson(`${API_BASE}/api/version`),
-        fetchJson(`${API_BASE}/api/storage`),
-        fetchJson(`${API_BASE}/api/status`)
-      ])
-
-      const versionData = versionRes.ok ? await versionRes.json() : {}
-      if (statusRes.ok) {
-        const statusData = await statusRes.json()
-        setStatusCache(statusData)
-        const secs = statusData.uptime || 0
-        const hours = Math.floor(secs / 3600)
-        const mins = Math.floor((secs % 3600) / 60)
-        setVersion({
-          ...versionData,
-          version: versionData.current || statusData.version,
-          tier: statusData.tier,
-          uptime: hours > 0 ? `${hours}h ${mins}m` : `${mins}m`,
-        })
-        if (statusData.services) {
-          setServices(statusData.services)
-        }
-      } else {
-        setVersion(versionData)
+      const response = await fetchJson(`${API_BASE}/api/settings`)
+      if (!response.ok) {
+        throw new Error(`Settings request failed (${response.status})`)
       }
-      if (storageRes.ok) {
-        setStorage(await storageRes.json())
-      }
+      setSettings(await response.json())
     } catch (err) {
       setError(err.name === 'AbortError' ? 'Request timed out' : 'Failed to load settings')
       console.error('Settings fetch error:', err)
@@ -67,20 +51,43 @@ export default function Settings() {
     }
   }
 
-  const handleCheckUpdates = () => {
-    setNotice({ type: 'info', text: 'Update channel not wired yet (v2.0).' })
+  const handleCheckUpdates = async () => {
+    try {
+      setCheckingUpdates(true)
+      const result = await triggerUpdate('check')
+      await fetchSettings()
+      if (result.update_available) {
+        setNotice({ type: 'warn', text: 'Update available. Review the latest release details below before applying it.' })
+      } else {
+        setNotice({ type: 'info', text: 'No updates available right now.' })
+      }
+    } catch (err) {
+      setNotice({ type: 'danger', text: `Update check failed: ${err.message}` })
+    } finally {
+      setCheckingUpdates(false)
+    }
   }
 
-  const handleExportConfig = async () => {
+  const handleExportConfig = () => {
     try {
-      const data = statusCache || (await (await fetchJson(`${API_BASE}/api/status`)).json())
+      const data = settings
+      if (!data) {
+        throw new Error('Settings are still loading')
+      }
       const config = {
         exported_at: new Date().toISOString(),
-        version: data.version,
-        tier: data.tier,
+        system: {
+          version: data.version,
+          installDate: data.installDate,
+          tier: data.tier,
+          uptime: data.uptime,
+          hostname: data.hostname,
+        },
         gpu: data.gpu,
-        services: data.services?.map(s => ({ name: s.name, port: s.port, status: s.status })),
-        model: data.model
+        model: data.model,
+        updates: data.updates,
+        services: data.services?.map(s => ({ id: s.id, name: s.name, port: s.port, status: s.status })),
+        storage: data.storage,
       }
       const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
@@ -111,6 +118,13 @@ export default function Settings() {
       </div>
     )
   }
+
+  const services = settings?.services || []
+  const storage = settings?.storage
+  const updates = settings?.updates
+  const updateStatusText = updates?.update_available
+    ? `Update available: v${updates.latest}`
+    : "You're up to date"
 
   return (
     <div className="p-8">
@@ -153,10 +167,10 @@ export default function Settings() {
         {/* System Identity */}
         <SettingsSection title="System Identity" icon={Server}>
           <div className="grid grid-cols-2 gap-4">
-            <InfoRow label="Version" value={version?.version || 'Unknown'} />
-            <InfoRow label="Install Date" value={version?.install_date || 'Unknown'} />
-            <InfoRow label="Tier" value={version?.tier || 'Community'} />
-            <InfoRow label="Uptime" value={version?.uptime || 'Unknown'} />
+            <InfoRow label="Version" value={settings?.version || 'Unknown'} />
+            <InfoRow label="Install Date" value={settings?.installDate || 'Unknown'} />
+            <InfoRow label="Tier" value={settings?.tier || 'Community'} />
+            <InfoRow label="Uptime" value={settings?.uptime || 'Unknown'} />
           </div>
         </SettingsSection>
 
@@ -164,11 +178,11 @@ export default function Settings() {
         {services.length > 0 && (
           <SettingsSection title="Routing Table" icon={Network}>
             <p className="text-xs text-zinc-500 mb-3 font-mono">
-              host: {typeof window !== 'undefined' ? window.location.hostname : 'localhost'}
+              host: {getHost()}
             </p>
             <div className="space-y-1">
               {services.map((svc) => (
-                <div key={svc.name} className="flex items-center justify-between py-1.5">
+                <div key={svc.id || svc.name} className="flex items-center justify-between py-1.5">
                   <div className="flex items-center gap-2">
                     <span className={`w-2 h-2 rounded-full ${dotColor(svc.status)}`} />
                     <span className="text-sm text-zinc-400">{svc.name}</span>
@@ -176,7 +190,7 @@ export default function Settings() {
                   {svc.port ? (
                     <a
                       className="text-sm text-indigo-300 hover:text-indigo-200 font-mono transition-colors"
-                      href={`http://${typeof window !== 'undefined' ? window.location.hostname : 'localhost'}:${svc.port}`}
+                      href={`http://${getHost()}:${svc.port}`}
                       target="_blank"
                       rel="noopener noreferrer"
                     >
@@ -228,15 +242,28 @@ export default function Settings() {
         <SettingsSection title="Updates" icon={RefreshCw}>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-white">You're up to date</p>
-              <p className="text-sm text-zinc-500">Last checked: just now</p>
+              <p className="text-white">{updateStatusText}</p>
+              <p className="text-sm text-zinc-500">
+                Last checked: {formatCheckedAt(updates?.checked_at)}
+              </p>
+              {updates?.changelog_url && (
+                <a
+                  href={updates.changelog_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block mt-2 text-xs text-indigo-300 hover:text-indigo-200"
+                >
+                  View release notes
+                </a>
+              )}
             </div>
             <button
               onClick={handleCheckUpdates}
+              disabled={checkingUpdates}
               className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg text-sm flex items-center gap-2 transition-colors"
             >
-              <RefreshCw size={16} />
-              Check for Updates
+              <RefreshCw size={16} className={checkingUpdates ? 'animate-spin' : ''} />
+              {checkingUpdates ? 'Checking...' : 'Check for Updates'}
             </button>
           </div>
         </SettingsSection>
