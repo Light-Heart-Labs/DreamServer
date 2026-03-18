@@ -1,0 +1,9 @@
+services:
+  text-generation-webui:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

@@ -1,5 +1,3 @@
-name: frigate
-
 services:
   frigate:
     image: ghcr.io/blakeblackshear/frigate:0.15.0
@@ -38,10 +36,6 @@ services:
         reservations:
           cpus: '1.0'
           memory: 2G
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
 
 networks:
   dream-network:

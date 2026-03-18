@@ -1,5 +1,3 @@
-name: text-generation-webui
-
 services:
   text-generation-webui:
     # atinoda/text-generation-webui is the most widely-used community image.
@@ -37,10 +35,6 @@ services:
         reservations:
           cpus: '1.0'
           memory: 4G
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
 
 networks:
   dream-network:

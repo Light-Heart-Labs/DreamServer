@@ -1,5 +1,3 @@
-name: bark
-
 services:
   bark:
     build:
@@ -37,10 +35,6 @@ services:
         reservations:
           cpus: '0.5'
           memory: 4G
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
 
 networks:
   dream-network:

@@ -1,5 +1,3 @@
-name: xtts
-
 services:
   xtts:
     image: daswer123/xtts-api-server:latest
@@ -22,8 +20,6 @@ services:
         reservations:
           cpus: '0.5'
           memory: 1G
-          devices:
-            - capabilities: ["gpu"]
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:80/health')"]
       interval: 30s

@@ -21,10 +21,6 @@ services:
         reservations:
           cpus: '1'
           memory: 2G
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
       interval: 30s

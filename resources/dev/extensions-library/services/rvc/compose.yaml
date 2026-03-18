@@ -1,5 +1,3 @@
-name: rvc
-
 services:
   rvc:
     image: aladdin1234/rvc-webui:0.1@sha256:0127333111eccb00ee97e12052f2c9efc7739d74841dbdec771d4f469273a0c2
@@ -22,11 +20,6 @@ services:
         limits:
           memory: 8G
           cpus: '4.0'
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:7865"]
       interval: 30s

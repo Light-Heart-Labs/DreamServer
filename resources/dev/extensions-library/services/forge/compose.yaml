@@ -1,5 +1,3 @@
-name: forge
-
 services:
   forge:
     image: ghcr.io/ai-dock/stable-diffusion-webui-forge@sha256:36a8b82c9ddec17a88303d933f3d08d2c1d1286617f5642281859f64d40beddc
@@ -32,10 +30,6 @@ services:
         reservations:
           cpus: '1.0'
           memory: 4G
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
 
 networks:
   dream-network:
