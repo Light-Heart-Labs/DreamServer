@@ -4,7 +4,7 @@
 # Purpose: Save installer state and resume from last successful phase
 #
 # Expects: INSTALL_DIR, INSTALL_PHASE (set by install-core.sh)
-# Provides: checkpoint_save(), checkpoint_load(), checkpoint_prompt_resume(), checkpoint_clear()
+# Provides: checkpoint_save(), checkpoint_load(), checkpoint_prompt_resume(), checkpoint_clear(), checkpoint_migrate()
 #
 # Idempotency notes:
 #   Phases 01-04 (preflight, detection, features, requirements) perform system
@@ -12,16 +12,38 @@
 #   results if system state changed. Phases 05+ (docker, directories, devtools,
 #   images, offline, amd-tuning, services, health, summary) are generally
 #   idempotent and safe to resume from.
+#
+# Checkpoint location strategy:
+#   Phases 1-5: Use temp location (INSTALL_DIR doesn't exist yet)
+#   Phase 6+: Migrate to final location inside INSTALL_DIR
 
-CHECKPOINT_FILE="${INSTALL_DIR}/.install-checkpoint"
+# Temp checkpoint for phases 1-5 (before INSTALL_DIR is created)
+CHECKPOINT_TEMP="${HOME}/.cache/dream-server-install-checkpoint"
+
+# Final checkpoint location (phases 6+)
+CHECKPOINT_FINAL="${INSTALL_DIR}/.install-checkpoint"
+
+# Get active checkpoint file path (temp if INSTALL_DIR doesn't exist, final otherwise)
+_checkpoint_path() {
+    if [[ -d "$INSTALL_DIR" ]]; then
+        echo "$CHECKPOINT_FINAL"
+    else
+        echo "$CHECKPOINT_TEMP"
+    fi
+}
 
 # Save checkpoint after successful phase
 checkpoint_save() {
     local phase="$1"
     local timestamp
     timestamp=$(date +%s)
+    local checkpoint_file
+    checkpoint_file=$(_checkpoint_path)
 
-    cat > "$CHECKPOINT_FILE" << EOF
+    # Ensure parent directory exists
+    mkdir -p "$(dirname "$checkpoint_file")"
+
+    cat > "$checkpoint_file" << EOF
 LAST_PHASE=$phase
 TIMESTAMP=$timestamp
 INSTALL_DIR=$INSTALL_DIR
@@ -34,7 +56,14 @@ EOF
 # Load checkpoint from previous installation
 # Returns: echoes last phase number to stdout, returns 0 on success, 1 on failure
 checkpoint_load() {
-    if [[ ! -f "$CHECKPOINT_FILE" ]]; then
+    local checkpoint_file=""
+
+    # Check final location first, then temp location
+    if [[ -f "$CHECKPOINT_FINAL" ]]; then
+        checkpoint_file="$CHECKPOINT_FINAL"
+    elif [[ -f "$CHECKPOINT_TEMP" ]]; then
+        checkpoint_file="$CHECKPOINT_TEMP"
+    else
         return 1
     fi
 
@@ -51,7 +80,7 @@ checkpoint_load() {
             INSTALL_DIR) saved_dir="$value" ;;
             VERSION) saved_version="$value" ;;
         esac
-    done < "$CHECKPOINT_FILE"
+    done < "$checkpoint_file"
 
     # Validate checkpoint
     if [[ -z "$last_phase" || -z "$timestamp" ]]; then
@@ -72,10 +101,26 @@ checkpoint_load() {
     return 0
 }
 
+# Migrate checkpoint from temp to final location (called in phase 6 after INSTALL_DIR is created)
+checkpoint_migrate() {
+    if [[ -f "$CHECKPOINT_TEMP" && -d "$INSTALL_DIR" ]]; then
+        mv "$CHECKPOINT_TEMP" "$CHECKPOINT_FINAL"
+        log "Checkpoint migrated to $INSTALL_DIR"
+    fi
+}
+
 # Clear checkpoint after successful installation
 checkpoint_clear() {
-    if [[ -f "$CHECKPOINT_FILE" ]]; then
-        rm -f "$CHECKPOINT_FILE"
+    local cleared=false
+    if [[ -f "$CHECKPOINT_FINAL" ]]; then
+        rm -f "$CHECKPOINT_FINAL"
+        cleared=true
+    fi
+    if [[ -f "$CHECKPOINT_TEMP" ]]; then
+        rm -f "$CHECKPOINT_TEMP"
+        cleared=true
+    fi
+    if $cleared; then
         log "Checkpoint cleared"
     fi
 }
