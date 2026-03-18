@@ -6,6 +6,8 @@
 
 Services now run as non-root users (UID 1000). Existing deployments with root-owned volume directories will encounter permission errors.
 
+**Note on UID 1000**: This UID is chosen as the default non-root user ID on most Linux systems. If your host system uses a different UID for the primary user, you may need to adjust volume permissions accordingly. The installer will handle this automatically during updates.
+
 ### Affected Services
 
 - **token-spy**: Volume mount `./data/token-spy:/app/data`
