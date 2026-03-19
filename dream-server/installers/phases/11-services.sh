@@ -177,44 +177,68 @@ else
                 bash -c '
                     echo "[FLUX] Starting FLUX.1-schnell model downloads..."
 
-                    # Diffusion model (~24GB)
+                    # Diffusion model (~24GB) with retry
                     if [[ ! -f "$FLUX_DIFFUSION_DIR/flux1-schnell.safetensors" ]]; then
                         echo "[FLUX] Downloading flux1-schnell.safetensors (~24GB)..."
-                        wget -c -q --show-progress --timeout=600 -O "$FLUX_DIFFUSION_DIR/flux1-schnell.safetensors.part" \
-                            "https://huggingface.co/Comfy-Org/flux1-schnell/resolve/main/flux1-schnell.safetensors" 2>&1 && \
-                            mv "$FLUX_DIFFUSION_DIR/flux1-schnell.safetensors.part" "$FLUX_DIFFUSION_DIR/flux1-schnell.safetensors" && \
-                            echo "[FLUX] flux1-schnell.safetensors complete" || \
-                            echo "[FLUX] ERROR: Failed to download flux1-schnell.safetensors"
+                        for attempt in 1 2 3; do
+                            [[ $attempt -gt 1 ]] && echo "[FLUX] Retry attempt $attempt/3 for flux1-schnell.safetensors..." && sleep $((2 ** (attempt - 1)))
+                            if wget -c -q --show-progress --timeout=600 -O "$FLUX_DIFFUSION_DIR/flux1-schnell.safetensors.part" \
+                                "https://huggingface.co/Comfy-Org/flux1-schnell/resolve/main/flux1-schnell.safetensors" 2>&1; then
+                                mv "$FLUX_DIFFUSION_DIR/flux1-schnell.safetensors.part" "$FLUX_DIFFUSION_DIR/flux1-schnell.safetensors"
+                                echo "[FLUX] flux1-schnell.safetensors complete"
+                                break
+                            elif [[ $attempt -eq 3 ]]; then
+                                echo "[FLUX] ERROR: Failed to download flux1-schnell.safetensors after 3 attempts"
+                            fi
+                        done
                     fi
 
-                    # CLIP-L text encoder (~246MB)
+                    # CLIP-L text encoder (~246MB) with retry
                     if [[ ! -f "$FLUX_ENCODER_DIR/clip_l.safetensors" ]]; then
                         echo "[FLUX] Downloading clip_l.safetensors (~246MB)..."
-                        wget -c -q --show-progress --timeout=600 -O "$FLUX_ENCODER_DIR/clip_l.safetensors.part" \
-                            "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors" 2>&1 && \
-                            mv "$FLUX_ENCODER_DIR/clip_l.safetensors.part" "$FLUX_ENCODER_DIR/clip_l.safetensors" && \
-                            echo "[FLUX] clip_l.safetensors complete" || \
-                            echo "[FLUX] ERROR: Failed to download clip_l.safetensors"
+                        for attempt in 1 2 3; do
+                            [[ $attempt -gt 1 ]] && echo "[FLUX] Retry attempt $attempt/3 for clip_l.safetensors..." && sleep $((2 ** (attempt - 1)))
+                            if wget -c -q --show-progress --timeout=600 -O "$FLUX_ENCODER_DIR/clip_l.safetensors.part" \
+                                "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors" 2>&1; then
+                                mv "$FLUX_ENCODER_DIR/clip_l.safetensors.part" "$FLUX_ENCODER_DIR/clip_l.safetensors"
+                                echo "[FLUX] clip_l.safetensors complete"
+                                break
+                            elif [[ $attempt -eq 3 ]]; then
+                                echo "[FLUX] ERROR: Failed to download clip_l.safetensors after 3 attempts"
+                            fi
+                        done
                     fi
 
-                    # T5-XXL text encoder (~10GB)
+                    # T5-XXL text encoder (~10GB) with retry
                     if [[ ! -f "$FLUX_ENCODER_DIR/t5xxl_fp16.safetensors" ]]; then
                         echo "[FLUX] Downloading t5xxl_fp16.safetensors (~10GB)..."
-                        wget -c -q --show-progress --timeout=600 -O "$FLUX_ENCODER_DIR/t5xxl_fp16.safetensors.part" \
-                            "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors" 2>&1 && \
-                            mv "$FLUX_ENCODER_DIR/t5xxl_fp16.safetensors.part" "$FLUX_ENCODER_DIR/t5xxl_fp16.safetensors" && \
-                            echo "[FLUX] t5xxl_fp16.safetensors complete" || \
-                            echo "[FLUX] ERROR: Failed to download t5xxl_fp16.safetensors"
+                        for attempt in 1 2 3; do
+                            [[ $attempt -gt 1 ]] && echo "[FLUX] Retry attempt $attempt/3 for t5xxl_fp16.safetensors..." && sleep $((2 ** (attempt - 1)))
+                            if wget -c -q --show-progress --timeout=600 -O "$FLUX_ENCODER_DIR/t5xxl_fp16.safetensors.part" \
+                                "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors" 2>&1; then
+                                mv "$FLUX_ENCODER_DIR/t5xxl_fp16.safetensors.part" "$FLUX_ENCODER_DIR/t5xxl_fp16.safetensors"
+                                echo "[FLUX] t5xxl_fp16.safetensors complete"
+                                break
+                            elif [[ $attempt -eq 3 ]]; then
+                                echo "[FLUX] ERROR: Failed to download t5xxl_fp16.safetensors after 3 attempts"
+                            fi
+                        done
                     fi
 
-                    # VAE (~335MB)
+                    # VAE (~335MB) with retry
                     if [[ ! -f "$FLUX_VAE_DIR/ae.safetensors" ]]; then
                         echo "[FLUX] Downloading ae.safetensors (~335MB)..."
-                        wget -c -q --show-progress --timeout=600 -O "$FLUX_VAE_DIR/ae.safetensors.part" \
-                            "https://huggingface.co/Comfy-Org/Lumina_Image_2.0_Repackaged/resolve/main/split_files/vae/ae.safetensors" 2>&1 && \
-                            mv "$FLUX_VAE_DIR/ae.safetensors.part" "$FLUX_VAE_DIR/ae.safetensors" && \
-                            echo "[FLUX] ae.safetensors complete" || \
-                            echo "[FLUX] ERROR: Failed to download ae.safetensors"
+                        for attempt in 1 2 3; do
+                            [[ $attempt -gt 1 ]] && echo "[FLUX] Retry attempt $attempt/3 for ae.safetensors..." && sleep $((2 ** (attempt - 1)))
+                            if wget -c -q --show-progress --timeout=600 -O "$FLUX_VAE_DIR/ae.safetensors.part" \
+                                "https://huggingface.co/Comfy-Org/Lumina_Image_2.0_Repackaged/resolve/main/split_files/vae/ae.safetensors" 2>&1; then
+                                mv "$FLUX_VAE_DIR/ae.safetensors.part" "$FLUX_VAE_DIR/ae.safetensors"
+                                echo "[FLUX] ae.safetensors complete"
+                                break
+                            elif [[ $attempt -eq 3 ]]; then
+                                echo "[FLUX] ERROR: Failed to download ae.safetensors after 3 attempts"
+                            fi
+                        done
                     fi
 
                     echo "[FLUX] All FLUX.1-schnell model downloads finished."
