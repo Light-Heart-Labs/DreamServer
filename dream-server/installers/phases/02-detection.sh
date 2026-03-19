@@ -34,11 +34,11 @@ if [[ "${DREAM_MODE:-local}" == "cloud" ]]; then
     GPU_COUNT=0
     GPU_MEMORY_TYPE="none"
     TIER="CLOUD"
-    if grep -qi microsoft /proc/version 2>/dev/null; then
+    if [[ -f /proc/version ]] && grep -qi microsoft /proc/version 2>>"$LOG_FILE"; then
         _wsl_ram_bytes=""
         if command -v powershell.exe &>/dev/null; then
             _wsl_ram_bytes=$(powershell.exe -NoProfile -Command \
-                "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory" 2>/dev/null | tr -d '\r')
+                "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory" 2>>"$LOG_FILE" | tr -d '\r')
         fi
         if [[ -n "$_wsl_ram_bytes" && "$_wsl_ram_bytes" =~ ^[0-9]+$ ]]; then
             RAM_KB=$((_wsl_ram_bytes / 1024))
@@ -70,17 +70,17 @@ ai "Reading hardware telemetry..."
 load_capability_profile || true
 
 # RAM Detection (WSL2-aware: query Windows host RAM if available)
-if grep -qi microsoft /proc/version 2>/dev/null; then
+if [[ -f /proc/version ]] && grep -qi microsoft /proc/version 2>>"$LOG_FILE"; then
     _wsl_ram_kb=""
     if command -v powershell.exe &>/dev/null; then
         _wsl_ram_bytes=$(powershell.exe -NoProfile -Command \
-            "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory" 2>/dev/null | tr -d '\r')
+            "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory" 2>>"$LOG_FILE" | tr -d '\r')
         if [[ -n "$_wsl_ram_bytes" && "$_wsl_ram_bytes" =~ ^[0-9]+$ ]]; then
             _wsl_ram_kb=$((_wsl_ram_bytes / 1024))
         fi
     fi
     if [[ -z "$_wsl_ram_kb" ]] && command -v wmic.exe &>/dev/null; then
-        _wsl_ram_kb=$(wmic.exe OS get TotalVisibleMemorySize /value 2>/dev/null \
+        _wsl_ram_kb=$(wmic.exe OS get TotalVisibleMemorySize /value 2>>"$LOG_FILE" \
             | grep -oE '[0-9]+' | sed -n '1p')
     fi
     if [[ -n "$_wsl_ram_kb" && "$_wsl_ram_kb" =~ ^[0-9]+$ ]]; then

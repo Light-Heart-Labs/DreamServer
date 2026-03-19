@@ -148,20 +148,20 @@ check_port_conflict() {
     # Try lsof first (most reliable for getting process info)
     if command -v lsof &> /dev/null; then
         if lsof -i ":${port}" -sTCP:LISTEN >/dev/null 2>&1; then
-            PORT_CONFLICT_PID=$(lsof -t -i ":${port}" -sTCP:LISTEN 2>/dev/null | head -1)
-            PORT_CONFLICT_PROC=$(ps -p "$PORT_CONFLICT_PID" -o comm= 2>/dev/null || echo "unknown")
+            PORT_CONFLICT_PID=$(lsof -t -i ":${port}" -sTCP:LISTEN 2>>"$LOG_FILE" | head -1)
+            PORT_CONFLICT_PROC=$(ps -p "$PORT_CONFLICT_PID" -o comm= 2>>"$LOG_FILE" || echo "unknown")
             PORT_CONFLICT=true
             return 0
         fi
     # Fallback to ss (faster but less detailed)
     elif command -v ss &> /dev/null; then
-        if ss -tln 2>/dev/null | grep -qE ":${port}(\s|$)"; then
+        if command -v ss &>/dev/null && ss -tln 2>>"$LOG_FILE" | grep -qE ":${port}(\s|$)"; then
             # Try to extract PID from ss output (format: users:(("process",pid=1234,fd=5)))
             local ss_line
-            ss_line=$(ss -tlnp 2>/dev/null | grep -E ":${port}(\s|$)" | head -1)
+            ss_line=$(ss -tlnp 2>>"$LOG_FILE" | grep -E ":${port}(\s|$)" | head -1)
             if [[ "$ss_line" =~ pid=([0-9]+) ]]; then
                 PORT_CONFLICT_PID="${BASH_REMATCH[1]}"
-                PORT_CONFLICT_PROC=$(ps -p "$PORT_CONFLICT_PID" -o comm= 2>/dev/null || echo "unknown")
+                PORT_CONFLICT_PROC=$(ps -p "$PORT_CONFLICT_PID" -o comm= 2>>"$LOG_FILE" || echo "unknown")
             else
                 PORT_CONFLICT_PROC="unknown"
             fi
@@ -170,10 +170,10 @@ check_port_conflict() {
         fi
     # Fallback to netstat
     elif command -v netstat &> /dev/null; then
-        if netstat -tln 2>/dev/null | grep -qE ":${port}(\s|$)"; then
+        if command -v netstat &>/dev/null && netstat -tln 2>>"$LOG_FILE" | grep -qE ":${port}(\s|$)"; then
             # netstat -tlnp requires root, so we may not get PID
             local netstat_line
-            netstat_line=$(netstat -tlnp 2>/dev/null | grep -E ":${port}(\s|$)" | head -1)
+            netstat_line=$(netstat -tlnp 2>>"$LOG_FILE" | grep -E ":${port}(\s|$)" | head -1)
             if [[ "$netstat_line" =~ ([0-9]+)/([^ ]+) ]]; then
                 PORT_CONFLICT_PID="${BASH_REMATCH[1]}"
                 PORT_CONFLICT_PROC="${BASH_REMATCH[2]}"
@@ -215,7 +215,7 @@ if $OLLAMA_RUNNING; then
     if $INTERACTIVE && ! $DRY_RUN; then
         read -r -p "  Stop Ollama for this session? [Y/n] " ollama_choice
         if [[ ! "$ollama_choice" =~ ^[nN] ]]; then
-            kill "$OLLAMA_PID" 2>/dev/null || sudo kill "$OLLAMA_PID" 2>/dev/null || true
+            kill "$OLLAMA_PID" 2>>"$LOG_FILE" || sudo kill "$OLLAMA_PID" 2>>"$LOG_FILE" || true
             sleep 2
             if pgrep -x ollama >/dev/null 2>&1; then
                 ai_warn "Ollama restarted automatically. Stop it manually: sudo systemctl stop ollama"

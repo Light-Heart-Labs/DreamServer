@@ -69,7 +69,7 @@ else
         sudo usermod -aG docker "$target_user"
 
         # In most cases group membership won't take effect until a new login shell.
-        if ! id -nG "$target_user" 2>/dev/null | tr ' ' '\n' | grep -qx docker; then
+        if ! id -nG "$target_user" 2>>"$LOG_FILE" | tr ' ' '\n' | grep -qx docker; then
             DOCKER_NEEDS_SUDO=true
         fi
     fi
@@ -271,7 +271,7 @@ if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "nvidia" ]]; then
         ai "Installing NVIDIA Container Toolkit..."
         if ! $DRY_RUN; then
             # Add NVIDIA GPG key (used by apt and as trust anchor)
-            curl -fsSL --max-time 60 https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg 2>/dev/null || true
+            curl -fsSL --max-time 60 https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg 2>>"$LOG_FILE" || true
 
             # Distro-aware repo setup + install
             case "$PKG_MANAGER" in
@@ -280,7 +280,7 @@ if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "nvidia" ]]; then
                         sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
                         sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list > /dev/null
                     # Verify we got a valid repo file, not an HTML 404
-                    if grep -q '<html' /etc/apt/sources.list.d/nvidia-container-toolkit.list 2>/dev/null; then
+                    if [[ -f /etc/apt/sources.list.d/nvidia-container-toolkit.list ]] && grep -q '<html' /etc/apt/sources.list.d/nvidia-container-toolkit.list 2>>"$LOG_FILE"; then
                         warn "Failed to download NVIDIA Container Toolkit repo list. Trying fallback..."
                         echo "deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://nvidia.github.io/libnvidia-container/stable/deb/\$(ARCH) /" | \
                             sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list > /dev/null
@@ -312,7 +312,7 @@ if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "nvidia" ]]; then
                     fi
                     ;;
                 zypper)
-                    sudo zypper addrepo https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo 2>/dev/null || true
+                    sudo zypper addrepo https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo 2>>"$LOG_FILE" || true
                     sudo zypper --non-interactive --gpg-auto-import-keys refresh 2>>"$LOG_FILE"
                     if ! sudo zypper --non-interactive install nvidia-container-toolkit 2>>"$LOG_FILE"; then
                         error "Failed to install NVIDIA Container Toolkit."

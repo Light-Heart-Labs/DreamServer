@@ -96,7 +96,7 @@ detect_gpu() {
     # Try NVIDIA first
     if command -v nvidia-smi &> /dev/null; then
         local raw
-        if raw=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null) && [[ -n "$raw" ]]; then
+        if raw=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>>"$LOG_FILE") && [[ -n "$raw" ]]; then
             GPU_BACKEND="nvidia"
             GPU_MEMORY_TYPE="discrete"
             GPU_INFO="$raw"
@@ -106,7 +106,7 @@ detect_gpu() {
             GPU_VRAM=$(echo "$GPU_INFO" | cut -d',' -f2 | grep -oP '\d+' | awk '{s+=$1} END {print s+0}')
             # Extract PCI device ID from first GPU
             local pci_id
-            pci_id=$(nvidia-smi --query-gpu=pci.device_id --format=csv,noheader 2>/dev/null | head -1 | xargs)
+            pci_id=$(nvidia-smi --query-gpu=pci.device_id --format=csv,noheader 2>>"$LOG_FILE" | head -1 | xargs)
             [[ -n "$pci_id" ]] && GPU_DEVICE_ID="${pci_id:0:6}"
             if [[ $GPU_COUNT -gt 1 ]]; then
                 # Build a display name for multi-GPU (e.g. "RTX 3090 + RTX 4090" or "RTX 4090 × 2")
@@ -128,12 +128,12 @@ detect_gpu() {
     fi
 
     # Try Intel Arc via lspci + sysfs
-    if lspci 2>/dev/null | grep -qi 'VGA.*Intel.*Arc'; then
+    if command -v lspci &>/dev/null && lspci 2>>"$LOG_FILE" | grep -qi 'VGA.*Intel.*Arc'; then
         for card_dir in /sys/class/drm/card*/device; do
             [[ -d "$card_dir" ]] || continue
             local vendor device
-            vendor=$(cat "$card_dir/vendor" 2>/dev/null) || continue
-            device=$(cat "$card_dir/device" 2>/dev/null) || continue
+            vendor=$(cat "$card_dir/vendor" 2>>"$LOG_FILE") || continue
+            device=$(cat "$card_dir/device" 2>>"$LOG_FILE") || continue
             # Intel vendor ID: 0x8086, Arc device IDs: 0x56a0-0x56c1 (Alchemist), 0x5690-0x569f (DG2)
             if [[ "$vendor" == "0x8086" ]] && [[ "$device" =~ ^0x(56[a-c][0-9a-f]|569[0-9a-f])$ ]]; then
                 GPU_BACKEND="intel"
@@ -142,11 +142,11 @@ detect_gpu() {
                 GPU_COUNT=1
                 # Try to get VRAM size from sysfs (lmem_total_bytes on Arc)
                 local vram_bytes
-                vram_bytes=$(cat "$card_dir/lmem_total_bytes" 2>/dev/null) || vram_bytes=0
+                vram_bytes=$(cat "$card_dir/lmem_total_bytes" 2>>"$LOG_FILE") || vram_bytes=0
                 GPU_VRAM=$(( vram_bytes / 1048576 ))  # in MB
                 # Try marketing name from sysfs or lspci
                 if [[ -f "$card_dir/product_name" ]]; then
-                    GPU_NAME=$(cat "$card_dir/product_name" 2>/dev/null) || GPU_NAME="Intel Arc"
+                    GPU_NAME=$(cat "$card_dir/product_name" 2>>"$LOG_FILE") || GPU_NAME="Intel Arc"
                 else
                     GPU_NAME=$(lspci | grep -i 'VGA.*Intel.*Arc' | sed 's/.*: //' | head -1)
                     [[ -z "$GPU_NAME" ]] && GPU_NAME="Intel Arc ($GPU_DEVICE_ID)"
@@ -161,16 +161,16 @@ detect_gpu() {
     for card_dir in /sys/class/drm/card*/device; do
         [[ -d "$card_dir" ]] || continue
         local vendor
-        vendor=$(cat "$card_dir/vendor" 2>/dev/null) || continue
+        vendor=$(cat "$card_dir/vendor" 2>>"$LOG_FILE") || continue
         if [[ "$vendor" == "0x1002" ]]; then
             local vram_bytes gtt_bytes
-            vram_bytes=$(cat "$card_dir/mem_info_vram_total" 2>/dev/null) || vram_bytes=0
-            gtt_bytes=$(cat "$card_dir/mem_info_gtt_total" 2>/dev/null) || gtt_bytes=0
+            vram_bytes=$(cat "$card_dir/mem_info_vram_total" 2>>"$LOG_FILE") || vram_bytes=0
+            gtt_bytes=$(cat "$card_dir/mem_info_gtt_total" 2>>"$LOG_FILE") || gtt_bytes=0
             local gtt_gb=$(( gtt_bytes / 1073741824 ))
             local vram_gb=$(( vram_bytes / 1073741824 ))
 
             # Read device ID from sysfs
-            GPU_DEVICE_ID=$(cat "$card_dir/device" 2>/dev/null) || GPU_DEVICE_ID="unknown"
+            GPU_DEVICE_ID=$(cat "$card_dir/device" 2>>"$LOG_FILE") || GPU_DEVICE_ID="unknown"
 
             # Detect APU: small VRAM + large GTT = unified memory
             if [[ $gtt_gb -ge 16 && $vram_gb -le 4 ]] || [[ $gtt_gb -ge 32 ]] || [[ $vram_gb -ge 32 ]]; then
@@ -205,7 +205,7 @@ MIN_DRIVER_VERSION=570
 
 fix_nvidia_secure_boot() {
     # Step 1: Is there even NVIDIA hardware on this machine?
-    if ! lspci 2>/dev/null | grep -qi 'nvidia'; then
+    if ! command -v lspci &>/dev/null || ! lspci 2>>"$LOG_FILE" | grep -qi 'nvidia'; then
         return 1  # No hardware — nothing to fix
     fi
 
