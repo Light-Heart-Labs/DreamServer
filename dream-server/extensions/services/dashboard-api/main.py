@@ -285,24 +285,10 @@ async def status(api_key: str = Depends(verify_api_key)):
 async def api_status(api_key: str = Depends(verify_api_key)):
     """Dashboard-compatible status endpoint.
 
-    Wrapped in a top-level try/except so that a transient failure in any
-    sub-call (GPU, health checks, llama metrics …) never returns a raw 500
-    to the dashboard — the frontend would flash "0/17" otherwise.
+    Returns full status or raises HTTPException on failure.
+    The dashboard handles errors gracefully via its error boundary.
     """
-    try:
-        return await _build_api_status()
-    except Exception:
-        logger.exception("/api/status handler failed — returning safe fallback")
-        return {
-            "gpu": None, "services": [], "model": None,
-            "bootstrap": None, "uptime": 0,
-            "version": app.version, "tier": "Unknown",
-            "cpu": {"percent": 0, "temp_c": None},
-            "ram": {"used_gb": 0, "total_gb": 0, "percent": 0},
-            "inference": {"tokensPerSecond": 0, "lifetimeTokens": 0,
-                          "loadedModel": None, "contextSize": None},
-            "manifest_errors": MANIFEST_ERRORS,
-        }
+    return await _build_api_status()
 
 
 async def _build_api_status() -> dict:
