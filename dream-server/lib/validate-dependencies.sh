@@ -21,6 +21,16 @@ validate_service_dependencies() {
         fi
     done
 
+    # Core services defined in docker-compose.base.yml are always enabled
+    # (they have no extension manifest, so the registry does not know about them)
+    local _base_compose="${INSTALL_DIR:-$SCRIPT_DIR}/docker-compose.base.yml"
+    if [[ -f "$_base_compose" ]]; then
+        local _svc
+        while IFS= read -r _svc; do
+            enabled_services[$_svc]=1
+        done < <(grep -oP '^  \K[a-z][a-z0-9_-]+(?=:)' "$_base_compose" 2>/dev/null)
+    fi
+
     # Check each enabled service's dependencies
     for sid in "${SERVICE_IDS[@]}"; do
         [[ -z "${enabled_services[$sid]:-}" ]] && continue
@@ -61,6 +71,15 @@ validate_dependencies_verbose() {
             service_deps[$sid]="${SERVICE_DEPENDS[$sid]:-}"
         fi
     done
+
+    # Core services defined in docker-compose.base.yml are always enabled
+    local _base_compose="${INSTALL_DIR:-$SCRIPT_DIR}/docker-compose.base.yml"
+    if [[ -f "$_base_compose" ]]; then
+        local _svc
+        while IFS= read -r _svc; do
+            enabled_services[$_svc]=1
+        done < <(grep -oP '^  \K[a-z][a-z0-9_-]+(?=:)' "$_base_compose" 2>/dev/null)
+    fi
 
     local total_enabled=${#enabled_services[@]}
     echo "  Enabled services: $total_enabled"

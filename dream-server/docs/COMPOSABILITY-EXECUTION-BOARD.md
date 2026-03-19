@@ -113,9 +113,9 @@ Status: `DONE`
 Owner: Docs + Infra  
 Effort: 1 day  
 Files:
-- [`docs/PROFILES.md`](../docs/PROFILES.md)
-- [`docs/TROUBLESHOOTING.md`](../docs/TROUBLESHOOTING.md)
-- [`docs/INTEGRATION-GUIDE.md`](../docs/INTEGRATION-GUIDE.md)
+- [PROFILES.md](PROFILES.md)
+- [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+- [INTEGRATION-GUIDE.md](INTEGRATION-GUIDE.md)
 Acceptance:
 - `docker compose` style standardized.
 - Compose examples match canonical contract from W3-M1.
@@ -208,7 +208,7 @@ Effort: 1-2 days
 Files:
 - `config/n8n/catalog.json` (planned; not yet created)
 - [`dashboard-api/main.py`](../extensions/services/dashboard-api/main.py)
-- [`docs/INTEGRATION-GUIDE.md`](../docs/INTEGRATION-GUIDE.md)
+- [INTEGRATION-GUIDE.md](INTEGRATION-GUIDE.md)
 Acceptance:
 - One canonical workflow path in code/docs.
 - Catalog supports both templates and metadata cleanly.

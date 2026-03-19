@@ -110,6 +110,23 @@ function New-DreamEnv {
     $qdrantApiKey     = Get-EnvOrNew "QDRANT_API_KEY"            (New-SecureHex -Bytes 32)
     $opencodePassword = Get-EnvOrNew "OPENCODE_SERVER_PASSWORD"  (New-SecureBase64 -Bytes 16)
 
+    # Langfuse observability secrets
+    $langfusePort              = Get-EnvOrNew "LANGFUSE_PORT"              "3006"
+    $langfuseEnabled           = Get-EnvOrNew "LANGFUSE_ENABLED"           "false"
+    $langfuseNextauthSecret    = Get-EnvOrNew "LANGFUSE_NEXTAUTH_SECRET"   (New-SecureHex -Bytes 32)
+    $langfuseSalt              = Get-EnvOrNew "LANGFUSE_SALT"              (New-SecureHex -Bytes 32)
+    $langfuseEncryptionKey     = Get-EnvOrNew "LANGFUSE_ENCRYPTION_KEY"    (New-SecureHex -Bytes 32)
+    $langfuseDbPassword        = Get-EnvOrNew "LANGFUSE_DB_PASSWORD"       (New-SecureHex -Bytes 16)
+    $langfuseClickhousePassword = Get-EnvOrNew "LANGFUSE_CLICKHOUSE_PASSWORD" (New-SecureHex -Bytes 16)
+    $langfuseRedisPassword     = Get-EnvOrNew "LANGFUSE_REDIS_PASSWORD"    (New-SecureHex -Bytes 16)
+    $langfuseMinioAccessKey    = Get-EnvOrNew "LANGFUSE_MINIO_ACCESS_KEY"  (New-SecureHex -Bytes 16)
+    $langfuseMinioSecretKey    = Get-EnvOrNew "LANGFUSE_MINIO_SECRET_KEY"  (New-SecureHex -Bytes 32)
+    $langfuseProjectPublicKey  = Get-EnvOrNew "LANGFUSE_PROJECT_PUBLIC_KEY" "pk-lf-dream-$(New-SecureHex -Bytes 16)"
+    $langfuseProjectSecretKey  = Get-EnvOrNew "LANGFUSE_PROJECT_SECRET_KEY" "sk-lf-dream-$(New-SecureHex -Bytes 16)"
+    $langfuseInitProjectId     = Get-EnvOrNew "LANGFUSE_INIT_PROJECT_ID"   (New-SecureHex -Bytes 16)
+    $langfuseInitUserEmail     = Get-EnvOrNew "LANGFUSE_INIT_USER_EMAIL"   "admin@dreamserver.local"
+    $langfuseInitUserPassword  = Get-EnvOrNew "LANGFUSE_INIT_USER_PASSWORD" (New-SecureHex -Bytes 16)
+
     # Determine LLM API URL based on backend
     # AMD on Windows: llama-server runs natively, containers reach it via host.docker.internal
     # NVIDIA: llama-server runs in Docker, containers reach it via service name
@@ -228,6 +245,23 @@ N8N_AUTH=true
 N8N_HOST=localhost
 N8N_WEBHOOK_URL=http://localhost:5678
 TIMEZONE=$tz
+
+#=== Langfuse Observability ===
+LANGFUSE_PORT=$langfusePort
+LANGFUSE_ENABLED=$langfuseEnabled
+LANGFUSE_NEXTAUTH_SECRET=$langfuseNextauthSecret
+LANGFUSE_SALT=$langfuseSalt
+LANGFUSE_ENCRYPTION_KEY=$langfuseEncryptionKey
+LANGFUSE_DB_PASSWORD=$langfuseDbPassword
+LANGFUSE_CLICKHOUSE_PASSWORD=$langfuseClickhousePassword
+LANGFUSE_REDIS_PASSWORD=$langfuseRedisPassword
+LANGFUSE_MINIO_ACCESS_KEY=$langfuseMinioAccessKey
+LANGFUSE_MINIO_SECRET_KEY=$langfuseMinioSecretKey
+LANGFUSE_PROJECT_PUBLIC_KEY=$langfuseProjectPublicKey
+LANGFUSE_PROJECT_SECRET_KEY=$langfuseProjectSecretKey
+LANGFUSE_INIT_PROJECT_ID=$langfuseInitProjectId
+LANGFUSE_INIT_USER_EMAIL=$langfuseInitUserEmail
+LANGFUSE_INIT_USER_PASSWORD=$langfuseInitUserPassword
 "@
 
     # NOTE: No VIDEO_GID, RENDER_GID, HSA_OVERRIDE_GFX_VERSION on Windows

@@ -27,7 +27,7 @@ STATE_FILE="$DREAM_DIR/model-state.json"
 BACKUP_FILE="$DREAM_DIR/model-state.backup.json"
 LOG_FILE="$DREAM_DIR/upgrade-model.log"
 
-OLLAMA_PORT="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-8080}}"
+OLLAMA_PORT="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-11434}}"
 LLAMA_SERVER_CONTAINER="${LLAMA_SERVER_CONTAINER:-dream-llama-server}"
 
 HEALTH_CHECK_TIMEOUT=120  # seconds
@@ -449,7 +449,7 @@ Examples:
 
 Environment Variables:
   MODELS_DIR             Models directory (default: $MODELS_DIR)
-  OLLAMA_PORT            llama-server port (default: 8080)
+  OLLAMA_PORT            llama-server port (default: 11434)
   LLAMA_SERVER_CONTAINER Docker container name (default: dream-llama-server)
 
 EOF

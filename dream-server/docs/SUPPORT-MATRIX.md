@@ -12,7 +12,7 @@ Last updated: 2026-03-17
 | **Linux + NVIDIA (CUDA)** | **Supported** | Complete install and runtime. Broader distro test matrix still expanding. |
 | **Windows (Docker Desktop + WSL2)** | **Supported** | Complete install and runtime via `.\install.ps1`. GPU auto-detection (NVIDIA/AMD). |
 | **macOS (Apple Silicon)** | **Supported** | Complete install and runtime via `./install.sh`. Native Metal inference + Docker services. |
-| **Linux + Intel Arc (SYCL)** | **Experimental** | Installer auto-detects Arc, assigns ARC/ARC\_LITE tier, and selects `docker-compose.arc.yml`. End-to-end runtime on A770/A750. See [`docs/INTEL-ARC-GUIDE.md`](INTEL-ARC-GUIDE.md). |
+| **Linux + Intel Arc (SYCL)** | **Experimental** | Installer auto-detects Arc, assigns ARC/ARC\_LITE tier, and selects `docker-compose.arc.yml`. End-to-end runtime on A770/A750. See [INTEL-ARC-GUIDE.md](INTEL-ARC-GUIDE.md). |
 
 ## Support Tiers
 

@@ -6,7 +6,6 @@ import logging
 import os
 import platform
 import shutil
-import subprocess
 import time
 from pathlib import Path
 from typing import Optional
@@ -343,12 +342,12 @@ def get_bootstrap_status() -> BootstrapStatus:
 def get_uptime() -> int:
     """Get system uptime in seconds (cross-platform)."""
     _system = platform.system()
+    import subprocess
     try:
         if _system == "Linux":
             with open("/proc/uptime") as f:
                 return int(float(f.read().split()[0]))
         elif _system == "Darwin":
-            import subprocess
             result = subprocess.run(
                 ["sysctl", "-n", "kern.boottime"],
                 capture_output=True, text=True, timeout=5,

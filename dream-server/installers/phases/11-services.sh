@@ -254,7 +254,7 @@ MODELS_INI_EOF
 
         ai "Validating service dependencies..."
         if ! validate_service_dependencies; then
-            ai_err "Service dependency validation failed"
+            ai_bad "Service dependency validation failed"
             ai "Some services depend on other services that are not enabled"
             ai "Enable required services or disable dependent services to continue"
             exit 1

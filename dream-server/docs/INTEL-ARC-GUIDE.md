@@ -276,8 +276,8 @@ sudo intel_gpu_top -l 1 | grep -i mem
 
 ## Related Docs
 
-- [`docs/SUPPORT-MATRIX.md`](SUPPORT-MATRIX.md) — platform support tiers
-- [`docs/HARDWARE-GUIDE.md`](HARDWARE-GUIDE.md) — GPU buying guide and tier overview
-- [`docs/TROUBLESHOOTING.md`](TROUBLESHOOTING.md) — general installer troubleshooting
+- [SUPPORT-MATRIX.md](SUPPORT-MATRIX.md) — platform support tiers
+- [HARDWARE-GUIDE.md](HARDWARE-GUIDE.md) — GPU buying guide and tier overview
+- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) — general installer troubleshooting
 - [`docker-compose.arc.yml`](../docker-compose.arc.yml) — Intel Arc compose overlay
 - [`images/llama-sycl/Dockerfile`](../images/llama-sycl/Dockerfile) — SYCL build image

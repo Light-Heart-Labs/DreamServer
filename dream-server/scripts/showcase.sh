@@ -29,7 +29,7 @@ if [[ -f "$DREAM_DIR/lib/service-registry.sh" ]]; then
 fi
 
 # URLs — resolved from registry
-LLM_URL="${LLM_URL:-http://localhost:${SERVICE_PORTS[llama-server]:-8080}}"
+LLM_URL="${LLM_URL:-http://localhost:${SERVICE_PORTS[llama-server]:-11434}}"
 WHISPER_URL="${WHISPER_URL:-http://localhost:${SERVICE_PORTS[whisper]:-9000}}"
 TTS_URL="${TTS_URL:-http://localhost:${SERVICE_PORTS[tts]:-8880}}"
 QDRANT_URL="${QDRANT_URL:-http://localhost:${SERVICE_PORTS[qdrant]:-6333}}"
@@ -346,7 +346,7 @@ show_status() {
     echo ""
     echo -e "  Chat UI:    ${CYAN}http://localhost:${SERVICE_PORTS[open-webui]:-3000}${NC}"
     echo -e "  Workflows:  ${CYAN}http://localhost:${SERVICE_PORTS[n8n]:-5678}${NC}"
-    echo -e "  API:        ${CYAN}http://localhost:${SERVICE_PORTS[llama-server]:-8080}/v1${NC}"
+    echo -e "  API:        ${CYAN}http://localhost:${SERVICE_PORTS[llama-server]:-11434}/v1${NC}"
     
     echo ""
     echo -e "${DIM}Press Enter to return to menu...${NC}"

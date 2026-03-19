@@ -51,6 +51,8 @@ services:
         condition: service_healthy
       langfuse-minio:
         condition: service_healthy
+      langfuse-minio-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/public/health"]
       interval: 30s
@@ -104,6 +106,8 @@ services:
         condition: service_healthy
       langfuse-minio:
         condition: service_healthy
+      langfuse-minio-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3030/api/health"]
       interval: 30s
@@ -236,6 +240,36 @@ services:
           memory: 256m
         reservations:
           cpus: '0.1'
+          memory: 128m
+
+  langfuse-minio-init:
+    image: minio/mc:RELEASE.2025-09-07T16-13-09Z
+    container_name: dream-langfuse-minio-init
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        until mc alias set local http://langfuse-minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"; do
+          echo "Waiting for MinIO..."
+          sleep 2
+        done
+        mc mb local/langfuse-events --ignore-existing
+        echo "Bucket langfuse-events ready"
+    environment:
+      MINIO_ROOT_USER: "${LANGFUSE_MINIO_ACCESS_KEY}"
+      MINIO_ROOT_PASSWORD: "${LANGFUSE_MINIO_SECRET_KEY}"
+    depends_on:
+      langfuse-minio:
+        condition: service_healthy
+    networks:
+      - langfuse-internal
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
           memory: 128m
 
   # Inject Langfuse credentials into LiteLLM when this extension is active.
