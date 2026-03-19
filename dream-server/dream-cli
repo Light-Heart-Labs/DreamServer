@@ -346,7 +346,9 @@ cmd_status() {
 
     # Wait for all health checks to complete
     for pid in "${pids[@]}"; do
-        wait "$pid" 2>/dev/null || true
+        wait_exit=0
+        wait "$pid" 2>/dev/null || wait_exit=$?
+        [[ $wait_exit -ne 0 ]] && log "Health check process $pid exited with code $wait_exit"
     done
 
     # Display results in SERVICE_IDS order
@@ -391,7 +393,9 @@ cmd_status_json() {
     if docker compose "${flags[@]}" ps --format "{{.Service}}" >/dev/null 2>&1; then
         running_services=$(docker compose "${flags[@]}" ps --format "{{.Service}}")
     elif command -v docker-compose >/dev/null 2>&1; then
-        running_services=$(docker-compose ps --services --filter "status=running" 2>/dev/null || true)
+        dc_ps_exit=0
+        running_services=$(docker-compose ps --services --filter "status=running" 2>/dev/null) || dc_ps_exit=$?
+        [[ $dc_ps_exit -ne 0 ]] && log "docker-compose ps failed (exit $dc_ps_exit)"
     fi
 
     # Temp file to accumulate per-service JSON objects
@@ -806,7 +810,9 @@ cmd_doctor() {
     # to make failures actionable for operators.
     local doctor_out
     doctor_out=$(mktemp)
-    "$INSTALL_DIR/scripts/dream-doctor.sh" "$report_file" >"$doctor_out" 2>&1 || true
+    doctor_exit=0
+    "$INSTALL_DIR/scripts/dream-doctor.sh" "$report_file" >"$doctor_out" 2>&1 || doctor_exit=$?
+    [[ $doctor_exit -ne 0 ]] && log "dream-doctor.sh exited with code $doctor_exit"
 
     if [[ ! -f "$report_file" ]]; then
         cat "$doctor_out" >&2
@@ -1097,7 +1103,9 @@ cmd_disable() {
     flags_str=$(get_compose_flags)
     local -a flags
     read -ra flags <<< "$flags_str"
-    docker compose "${flags[@]}" stop "$service_id" 2>/dev/null || true
+    stop_exit=0
+    docker compose "${flags[@]}" stop "$service_id" 2>/dev/null || stop_exit=$?
+    [[ $stop_exit -ne 0 ]] && log "docker compose stop $service_id failed (exit $stop_exit)"
     [[ -f "$cf" ]] && mv "$cf" "${cf}.disabled"
     success "$service_id disabled."
 }
@@ -1397,7 +1405,9 @@ META
             # Compare metadata
             echo -e "${CYAN}━━━ Metadata ━━━${NC}"
             if [[ -f "$dir1/meta.txt" ]] && [[ -f "$dir2/meta.txt" ]]; then
-                diff -u "$dir1/meta.txt" "$dir2/meta.txt" | tail -n +4 | sed "s/^-/$(printf "${RED}-${NC}")/" | sed "s/^+/$(printf "${GREEN}+${NC}")/" || true
+                diff_exit=0
+                diff -u "$dir1/meta.txt" "$dir2/meta.txt" | tail -n +4 | sed "s/^-/$(printf "${RED}-${NC}")/" | sed "s/^+/$(printf "${GREEN}+${NC}")/" || diff_exit=$?
+                # diff returns 1 when files differ, which is expected in this context
             fi
             echo ""
 
@@ -1720,7 +1730,9 @@ cmd_rollback() {
     flags_str=$(get_compose_flags)
     local -a flags
     read -ra flags <<< "$flags_str"
-    docker compose "${flags[@]}" down 2>/dev/null || true
+    down_exit=0
+    docker compose "${flags[@]}" down 2>/dev/null || down_exit=$?
+    [[ $down_exit -ne 0 ]] && log "docker compose down failed (exit $down_exit)"
 
     # Restore from backup
     if "$INSTALL_DIR/dream-restore.sh" "$backup_id"; then
