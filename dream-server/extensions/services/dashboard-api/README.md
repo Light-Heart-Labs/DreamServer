@@ -21,6 +21,7 @@ It runs at `http://localhost:3002` and is the single backend used by the React d
 - **Privacy Shield control**: Enable/disable container, fetch PII scrubbing statistics
 - **Version checking**: GitHub releases integration for update notifications
 - **Storage reporting**: Breakdown of disk usage by models, vector DB, and total data
+- **Model catalog management**: Discover recommended models, track downloads, switch configured GGUFs, and remove local artifacts
 
 ## Configuration
 
@@ -69,6 +70,16 @@ Environment variables (set in `.env`):
 | `GET` | `/api/service-tokens` | Yes | Service auth tokens (e.g. OpenClaw) |
 | `GET` | `/api/external-links` | Yes | Sidebar links from service manifests |
 | `GET` | `/api/storage` | Yes | Storage breakdown (models, vector DB, total) |
+
+### Models
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/models` | Yes | Dashboard model catalog with VRAM-fit and local download state |
+| `GET` | `/api/models/download-status` | Yes | Active bootstrap/model download progress |
+| `POST` | `/api/models/{id}/download` | Yes | Queue a GGUF download into `/data/models` |
+| `POST` | `/api/models/{id}/load` | Yes | Persist `LLM_MODEL` and `GGUF_FILE` selection in `.env` |
+| `DELETE` | `/api/models/{id}` | Yes | Remove a downloaded local model artifact |
 
 ### Workflows (n8n integration)
 
@@ -150,6 +161,7 @@ Dashboard API (:3002)
        ├── setup.py ─────────── Setup wizard + persona system
        ├── updates.py ──────── GitHub releases + dream-update.sh
        ├── agents.py ───────── Agent session + throughput metrics
+       ├── model_catalog.py ── Local GGUF catalog + download orchestration
        └── privacy.py ──────── Privacy Shield container control
 ```
 
@@ -162,7 +174,7 @@ Dashboard API (:3002)
 - `gpu.py` — GPU detection for NVIDIA and AMD
 - `helpers.py` — Service health checks, LLM metrics, system metrics
 - `agent_monitor.py` — Background agent metrics collection
-- `routers/` — Endpoint modules (workflows, features, setup, updates, agents, privacy)
+- `routers/` — Endpoint modules (workflows, features, setup, updates, agents, privacy, model catalog)
 - `Dockerfile` — Container definition
 - `requirements.txt` — Python dependencies
 
