@@ -35,6 +35,9 @@ config/openclaw/workspace/
 **/node_modules/
 **/dist/
 
+# CLI installer lock file
+cli-installer/bun.lock
+
 # Test coverage
 .coverage
 *.coverage
