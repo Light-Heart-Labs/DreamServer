@@ -106,6 +106,7 @@ Environment variables (set in `.env`):
 | `GET` | `/api/agents/metrics.html` | Yes | Agent metrics as HTML fragment (htmx) |
 | `GET` | `/api/agents/cluster` | Yes | Cluster health and GPU node status |
 | `GET` | `/api/agents/throughput` | Yes | Throughput stats (tokens/sec) |
+| `GET` | `/api/agents/tokens` | Yes | Agent launch tokens plus OpenClaw auth metadata |
 
 ### Privacy Shield
 
