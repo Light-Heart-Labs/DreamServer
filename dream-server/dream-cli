@@ -1323,6 +1323,221 @@ cmd_model() {
     esac
 }
 
+#=============================================================================
+# Memory Shepherd Commands
+#=============================================================================
+
+# Resolve the Memory Shepherd port (env override or manifest default 7891)
+_shepherd_port() {
+    echo "${MEMORY_SHEPHERD_PORT:-7891}"
+}
+
+# curl wrapper that targets the Memory Shepherd API
+_shepherd_curl() {
+    local path="$1"
+    shift
+    local port
+    port=$(_shepherd_port)
+    curl -sf --max-time 10 "http://localhost:${port}${path}" "$@"
+}
+
+# Guard: exit with a clear message if Memory Shepherd is not reachable
+_shepherd_check() {
+    local port
+    port=$(_shepherd_port)
+    if ! curl -sf --max-time 5 "http://localhost:${port}/health" > /dev/null 2>&1; then
+        warn "Memory Shepherd is not running on port ${port}."
+        warn "Enable and start it with:"
+        warn "  dream enable memory-shepherd && dream start memory-shepherd"
+        exit 1
+    fi
+}
+
+cmd_memory() {
+    check_install
+    load_env
+
+    local subcmd="${1:-status}"
+    shift || true
+
+    case "$subcmd" in
+        # ── dream memory status ──────────────────────────────────────────────
+        status)
+            _shepherd_check
+
+            local resp
+            if ! resp=$(_shepherd_curl "/status"); then
+                error "Memory Shepherd /status request failed — check logs: dream logs memory-shepherd"
+            fi
+
+            echo -e "${BLUE}━━━ Memory Shepherd ━━━${NC}"
+            echo ""
+
+            # Sessions block
+            local sess_total sess_oldest sess_bytes
+            sess_total=$(echo "$resp"  | jq -r '.sessions.total   // "?"')
+            sess_oldest=$(echo "$resp" | jq -r '.sessions.oldest_iso // "—"' | cut -dT -f1)
+            sess_bytes=$(echo "$resp"  | jq -r '.sessions.size_bytes // 0')
+            local sess_kb=$(( sess_bytes / 1024 ))
+
+            echo -e "${CYAN}Session records${NC}"
+            printf "  Total   : %s\n" "$sess_total"
+            printf "  Oldest  : %s\n" "$sess_oldest"
+            printf "  Disk    : %s KB\n" "$sess_kb"
+            echo ""
+
+            # Agent memory block
+            local mem_total mem_avg mem_bytes
+            mem_total=$(echo "$resp"   | jq -r '.memory.total          // "?"')
+            mem_avg=$(echo "$resp"     | jq -r '.memory.avg_importance // "?"')
+            mem_bytes=$(echo "$resp"   | jq -r '.memory.size_bytes     // 0')
+            local mem_kb=$(( mem_bytes / 1024 ))
+
+            echo -e "${CYAN}Agent memory entries${NC}"
+            printf "  Total   : %s\n" "$mem_total"
+            printf "  Avg imp : %s\n" "$mem_avg"
+            printf "  Disk    : %s KB\n" "$mem_kb"
+
+            # Namespaces (one per line, indented)
+            local ns_list
+            ns_list=$(echo "$resp" | jq -r '.memory.namespaces // [] | .[]' 2>/dev/null)
+            if [[ -n "$ns_list" ]]; then
+                echo ""
+                echo -e "${CYAN}Namespaces${NC}"
+                while IFS= read -r ns; do
+                    printf "  • %s\n" "$ns"
+                done <<< "$ns_list"
+            fi
+
+            echo ""
+
+            # Config block
+            local ttl max_ent prune
+            ttl=$(echo "$resp"     | jq -r '.config.session_ttl_days  // "?"')
+            max_ent=$(echo "$resp" | jq -r '.config.max_entries        // "?"')
+            prune=$(echo "$resp"   | jq -r '.config.prune_threshold    // "?"')
+
+            echo -e "${CYAN}Retention policy${NC}"
+            printf "  Session TTL   : %s days\n" "$ttl"
+            printf "  Max entries   : %s\n"      "$max_ent"
+            printf "  Prune < imp   : %s\n"      "$prune"
+            echo ""
+
+            success "Memory Shepherd healthy on port $(_shepherd_port)"
+            ;;
+
+        # ── dream memory flush [agent-id] ────────────────────────────────────
+        flush)
+            local agent_id="${1:-}"
+            _shepherd_check
+
+            echo ""
+            if [[ -n "$agent_id" ]]; then
+                warn "This will permanently delete all memory entries for agent: ${CYAN}${agent_id}${NC}"
+            else
+                warn "This will permanently delete ALL agent memory entries across every namespace."
+            fi
+            read -p "  Are you sure? [y/N] " -n 1 -r
+            echo ""
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                log "Cancelled."
+                return 0
+            fi
+
+            local payload
+            if [[ -n "$agent_id" ]]; then
+                payload=$(jq -n --arg id "$agent_id" '{agent_id: $id}')
+            else
+                payload='{}'
+            fi
+
+            local resp
+            if ! resp=$(_shepherd_curl "/flush" \
+                    -X POST \
+                    -H "Content-Type: application/json" \
+                    -d "$payload"); then
+                error "Flush request failed — check logs: dream logs memory-shepherd"
+            fi
+
+            local flushed_entries flushed_sessions
+            flushed_entries=$(echo "$resp" | jq -r '.flushed_entries  // 0')
+            flushed_sessions=$(echo "$resp" | jq -r '.flushed_sessions // 0')
+
+            if [[ -n "$agent_id" ]]; then
+                success "Flushed ${flushed_entries} memory entries for agent '${agent_id}'."
+            else
+                success "Flushed ${flushed_entries} memory entries and ${flushed_sessions} session records."
+            fi
+            ;;
+
+        # ── dream memory sessions ─────────────────────────────────────────────
+        sessions)
+            _shepherd_check
+
+            local resp
+            if ! resp=$(_shepherd_curl "/sessions"); then
+                error "Memory Shepherd /sessions request failed — check logs: dream logs memory-shepherd"
+            fi
+
+            echo -e "${BLUE}━━━ Recent Sessions ━━━${NC}"
+            echo ""
+
+            local count
+            count=$(echo "$resp" | jq '.sessions | length')
+            if [[ "$count" -eq 0 ]]; then
+                echo "  No session records found."
+                return 0
+            fi
+
+            printf "  %-36s  %-10s  %s\n" "SESSION ID" "DATE" "GOAL"
+            printf "  %-36s  %-10s  %s\n" "──────────" "────" "────"
+            echo "$resp" | jq -r '.sessions[] | [.id, (.started // "" | split("T")[0]), (.goal // "—")] | @tsv' \
+                | while IFS=$'\t' read -r id date goal; do
+                    printf "  %-36s  %-10s  %s\n" "$id" "$date" "${goal:0:60}"
+                  done
+            echo ""
+            printf "  %s session records total\n" "$count"
+            ;;
+
+        # ── dream memory prune ───────────────────────────────────────────────
+        prune)
+            _shepherd_check
+            log "Pruning stale session records and low-importance memory entries..."
+
+            local resp
+            if ! resp=$(_shepherd_curl "/prune" -X POST -H "Content-Type: application/json" -d '{}'); then
+                error "Prune request failed — check logs: dream logs memory-shepherd"
+            fi
+
+            local pruned_entries pruned_sessions
+            pruned_entries=$(echo "$resp"  | jq -r '.pruned_entries  // 0')
+            pruned_sessions=$(echo "$resp" | jq -r '.pruned_sessions // 0')
+            success "Pruned ${pruned_entries} memory entries and ${pruned_sessions} session records."
+            ;;
+
+        *)
+            cat <<EOF
+Usage: dream memory <subcommand> [args]
+
+Subcommands:
+  status              Show memory entry counts, namespaces, disk usage, and retention policy
+  flush [agent-id]    Permanently delete memory entries (all namespaces, or one agent)
+  sessions            List recent OpenClaw session records
+  prune               Apply retention policy now (prune expired sessions + low-importance entries)
+
+Examples:
+  dream memory status
+  dream memory flush
+  dream memory flush research-agent
+  dream memory sessions
+  dream memory prune
+
+Requires: memory-shepherd service running (dream enable memory-shepherd && dream start memory-shepherd)
+EOF
+            ;;
+    esac
+}
+
 cmd_backup() {
     check_install
     cd "$INSTALL_DIR"
@@ -1388,6 +1603,7 @@ ${CYAN}Commands:${NC}
   chat "<message>"    Quick chat with the LLM
   benchmark           Run a quick performance test
   doctor [--json]     Run diagnostics (use --json for raw report)
+  memory <subcommand> Manage agent memory (status, flush, sessions, prune)
   help                Show this help
 
 ${CYAN}Preset Commands:${NC}
@@ -1454,6 +1670,9 @@ ${CYAN}Examples:${NC}
   dream chat "What is 2+2?"      # Quick LLM test
   dream config edit               # Edit .env file
   dream config validate           # Validate .env and extension manifests
+  dream memory status             # Show agent memory stats
+  dream memory flush              # Flush all agent memory entries
+  dream memory flush coding-agent # Flush one agent's memories
 
 ${CYAN}Environment:${NC}
   DREAM_HOME          Installation directory (default: ~/dream-server)
@@ -1485,6 +1704,7 @@ case "${1:-help}" in
     chat|c)      shift; cmd_chat "$@" ;;
     benchmark|bench|b) cmd_benchmark ;;
     doctor|diag|d) shift; cmd_doctor "$@" ;;
+    memory|mem)    shift; cmd_memory "$@" ;;
     help|h|--help|-h) cmd_help ;;
     version|v|--version|-v) echo "dream-cli v${VERSION}" ;;
     *)           error "Unknown command: $1. Run 'dream help' for usage." ;;
