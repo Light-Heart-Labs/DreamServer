@@ -104,3 +104,36 @@ class PrivacyShieldStatus(BaseModel):
 
 class PrivacyShieldToggle(BaseModel):
     enable: bool
+
+
+# --- Voice settings ---
+
+class VoiceSettingsResponse(BaseModel):
+    whisper_model: str
+    tts_voice: Optional[str] = None
+    whisper_vad_threshold: float
+    allowed_whisper_models: list[str] = Field(
+        default_factory=list,
+        description="Valid WHISPER_MODEL values from .env.schema.json",
+    )
+
+
+class VoiceSettingsPatch(BaseModel):
+    whisper_model: Optional[str] = None
+    tts_voice: Optional[str] = None
+    whisper_vad_threshold: Optional[float] = Field(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="VAD threshold (0.0–1.0); authoritative bounds are re-checked against schema",
+    )
+
+
+# --- Model swap ---
+
+class ModelSwapRequest(BaseModel):
+    tier: str = Field(..., description="Target hardware tier (e.g. T2, T3, NV_ULTRA)")
+    restart: bool = Field(
+        True,
+        description="Restart llama-server after updating .env (recommended)",
+    )
