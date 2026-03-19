@@ -1,0 +1,231 @@
+# =============================================================================
+# Release Gate
+#
+# Runs on every v* tag push.  ALL jobs below are classified P0 — a single
+# failure blocks the release.  The final `release-gate` job aggregates
+# results and writes a Markdown summary to the workflow run page.
+#
+# Local equivalent (sequential):
+#   cd dream-server && bash scripts/release-gate.sh
+#
+# To enforce this as a required status check, add "Release gate — all P0
+# checks passed" to your branch / tag protection rules.
+# =============================================================================
+
+name: Release Gate
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+# Cancel any in-progress gate run for the same tag (e.g. force-pushed tag)
+concurrency:
+  group: release-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── P0 · Shell syntax ──────────────────────────────────────────────────────
+  shell-syntax:
+    name: "P0 · Shell syntax"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dream-server
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash -n all .sh files
+        run: |
+          mapfile -t sh_files < <(git ls-files '*.sh')
+          if [[ "${#sh_files[@]}" -eq 0 ]]; then
+            echo "No .sh files found — nothing to check."
+            exit 0
+          fi
+          echo "Checking ${#sh_files[@]} shell scripts…"
+          failed=0
+          for f in "${sh_files[@]}"; do
+            if bash -n "$f" 2>&1; then
+              echo "  OK  $f"
+            else
+              echo "  FAIL $f"
+              failed=1
+            fi
+          done
+          if [[ "$failed" -ne 0 ]]; then
+            echo ""
+            echo "One or more shell scripts have syntax errors."
+            exit 1
+          fi
+          echo ""
+          echo "All shell scripts passed syntax check."
+
+  # ── P0 · Manifest compatibility + release claims ───────────────────────────
+  compatibility-claims:
+    name: "P0 · Compatibility & release claims"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dream-server
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Manifest compatibility check
+        run: bash scripts/check-compatibility.sh
+
+      - name: Release claims check
+        run: bash scripts/check-release-claims.sh
+
+  # ── P0 · Installer contracts ───────────────────────────────────────────────
+  contracts:
+    name: "P0 · Installer contracts"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dream-server
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installer contract tests
+        run: bash tests/contracts/test-installer-contracts.sh
+
+      - name: Preflight fixture tests
+        run: bash tests/contracts/test-preflight-fixtures.sh
+
+  # ── P0 · Linux smoke (AMD · NVIDIA · WSL) ─────────────────────────────────
+  smoke-linux:
+    name: "P0 · Linux smoke"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dream-server
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: AMD path smoke
+        run: bash tests/smoke/linux-amd.sh
+
+      - name: NVIDIA path smoke
+        run: bash tests/smoke/linux-nvidia.sh
+
+      - name: WSL logic smoke
+        run: bash tests/smoke/wsl-logic.sh
+
+  # ── P0 · macOS smoke ───────────────────────────────────────────────────────
+  smoke-macos:
+    name: "P0 · macOS smoke"
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: dream-server
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: macOS dispatch smoke
+        run: bash tests/smoke/macos-dispatch.sh
+
+  # ── P0 · Installer simulation ──────────────────────────────────────────────
+  installer-sim:
+    name: "P0 · Installer simulation"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dream-server
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run installer simulation
+        run: bash scripts/simulate-installers.sh
+
+      - name: Validate simulation summary
+        run: python3 scripts/validate-sim-summary.py artifacts/installer-sim/summary.json
+
+      # Upload artifacts even on failure so engineers can inspect partial output
+      - name: Upload simulation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-sim-${{ github.ref_name }}
+          path: |
+            dream-server/artifacts/installer-sim/summary.json
+            dream-server/artifacts/installer-sim/SUMMARY.md
+            dream-server/artifacts/installer-sim/linux-dryrun.log
+            dream-server/artifacts/installer-sim/macos-installer.log
+            dream-server/artifacts/installer-sim/windows-preflight-sim.json
+            dream-server/artifacts/installer-sim/macos-preflight.json
+            dream-server/artifacts/installer-sim/macos-doctor.json
+            dream-server/artifacts/installer-sim/doctor.json
+
+  # ── Gate · aggregate all P0 results ───────────────────────────────────────
+  #
+  # `if: always()` ensures this job runs even when upstream jobs fail, so the
+  # Markdown summary is always written and the exit code reflects the true
+  # overall outcome rather than being skipped.
+  release-gate:
+    name: "Release gate — all P0 checks passed"
+    needs:
+      - shell-syntax
+      - compatibility-claims
+      - contracts
+      - smoke-linux
+      - smoke-macos
+      - installer-sim
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Evaluate P0 results and write summary
+        env:
+          R_SHELL_SYNTAX:   ${{ needs.shell-syntax.result }}
+          R_COMPAT_CLAIMS:  ${{ needs.compatibility-claims.result }}
+          R_CONTRACTS:      ${{ needs.contracts.result }}
+          R_SMOKE_LINUX:    ${{ needs.smoke-linux.result }}
+          R_SMOKE_MACOS:    ${{ needs.smoke-macos.result }}
+          R_INSTALLER_SIM:  ${{ needs.installer-sim.result }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          SUMMARY="$GITHUB_STEP_SUMMARY"
+
+          echo "## Release Gate — ${TAG}" >> "$SUMMARY"
+          echo "" >> "$SUMMARY"
+          echo "| # | Check | Result |" >> "$SUMMARY"
+          echo "|---|-------|--------|" >> "$SUMMARY"
+
+          failed=0
+          idx=0
+
+          report_row() {
+            local label="$1" result="$2"
+            idx=$(( idx + 1 ))
+            if [[ "$result" == "success" ]]; then
+              echo "| ${idx} | ${label} | ✅ passed |" >> "$SUMMARY"
+            else
+              echo "| ${idx} | ${label} | ❌ ${result} |" >> "$SUMMARY"
+              failed=1
+            fi
+          }
+
+          report_row "Shell syntax (bash -n)"       "$R_SHELL_SYNTAX"
+          report_row "Compatibility & release claims" "$R_COMPAT_CLAIMS"
+          report_row "Installer contracts"           "$R_CONTRACTS"
+          report_row "Linux smoke (AMD · NVIDIA · WSL)" "$R_SMOKE_LINUX"
+          report_row "macOS smoke (dispatch)"        "$R_SMOKE_MACOS"
+          report_row "Installer simulation"          "$R_INSTALLER_SIM"
+
+          echo "" >> "$SUMMARY"
+
+          if [[ "$failed" -ne 0 ]]; then
+            echo "**❌ Release BLOCKED — one or more P0 checks failed for \`${TAG}\`.**" >> "$SUMMARY"
+            echo "::error::Release gate FAILED for ${TAG} — see summary for which P0 checks did not pass."
+            exit 1
+          fi
+
+          echo "**✅ All P0 checks passed — \`${TAG}\` is cleared for release.**" >> "$SUMMARY"
+          echo "Release gate PASSED for ${TAG}."
