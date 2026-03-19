@@ -273,30 +273,51 @@ MODELS_INI_EOF
     for _svc in dashboard dashboard-api comfyui ape token-spy privacy-shield; do
         $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" build --no-cache "$_svc" >> "$LOG_FILE" 2>&1 || true
     done
-    # Start everything — --no-build skips services whose images failed to build
-    $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up -d --no-build >> "$LOG_FILE" 2>&1 &
-    compose_pid=$!
-    if spin_task $compose_pid "Launching containers..."; then
-        compose_ok=true
-    else
-        printf "\r  ${AMB}⚠${NC} %-60s\n" "Some services still starting..."
-        echo ""
-        ai_warn "Some containers need more time. Retrying..."
+
+    # Start everything with retry logic — --no-build skips services whose images failed to build
+    _compose_attempts=0
+    _max_compose_attempts=3
+    while [[ $_compose_attempts -lt $_max_compose_attempts ]]; do
+        _compose_attempts=$((_compose_attempts + 1))
+
+        if [[ $_compose_attempts -gt 1 ]]; then
+            _backoff_delay=$((2 ** (_compose_attempts - 1)))
+            printf "\r  ${AMB}⚠${NC} %-60s\n" "Retry attempt $_compose_attempts/$_max_compose_attempts (waiting ${_backoff_delay}s)..."
+            sleep "$_backoff_delay"
+        fi
+
         $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up -d --no-build >> "$LOG_FILE" 2>&1 &
         compose_pid=$!
-        if spin_task $compose_pid "Waiting for remaining services..."; then
-            compose_ok=true
+
+        if [[ $_compose_attempts -eq 1 ]]; then
+            if spin_task $compose_pid "Launching containers..."; then
+                compose_ok=true
+                break
+            fi
+        else
+            if spin_task $compose_pid "Waiting for services (attempt $_compose_attempts)..."; then
+                compose_ok=true
+                break
+            fi
         fi
-    fi
+    done
     # Safety net: when --no-build hits a missing image, compose aborts before
     # starting other containers. Some end up in "Created", others never got
     # past "Creating" because their dependencies weren't ready yet.
-    # Step 1: start any containers already in Created state
-    docker start $(docker ps -a --filter status=created -q) 2>/dev/null || true
-    # Step 2: second compose pass picks up services whose deps are now healthy
-    $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up -d --no-build >> "$LOG_FILE" 2>&1 || true
-    # Step 3: catch any stragglers from the second pass
-    docker start $(docker ps -a --filter status=created -q) 2>/dev/null || true
+    # Use retry logic for safety net operations
+    if declare -F retry_fixed >/dev/null 2>&1; then
+        # Step 1: start any containers already in Created state (with retry)
+        retry_fixed 3 2 bash -c 'docker start $(docker ps -a --filter status=created -q) 2>/dev/null || true' >/dev/null 2>&1 || true
+        # Step 2: second compose pass picks up services whose deps are now healthy
+        retry_fixed 2 3 $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up -d --no-build >> "$LOG_FILE" 2>&1 || true
+        # Step 3: catch any stragglers from the second pass
+        retry_fixed 2 2 bash -c 'docker start $(docker ps -a --filter status=created -q) 2>/dev/null || true' >/dev/null 2>&1 || true
+    else
+        # Fallback if retry library not available
+        docker start $(docker ps -a --filter status=created -q) 2>/dev/null || true
+        $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up -d --no-build >> "$LOG_FILE" 2>&1 || true
+        docker start $(docker ps -a --filter status=created -q) 2>/dev/null || true
+    fi
 
     if $compose_ok; then
         printf "\r  ${BGRN}✓${NC} %-60s\n" "All containers launched"
