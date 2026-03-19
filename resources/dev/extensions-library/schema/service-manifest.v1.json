@@ -3,16 +3,16 @@
   "$id": "https://dreamserver.ai/schemas/service-manifest.v1.json",
   "title": "Dream Server Service Manifest v1",
   "type": "object",
-  "required": ["schema_version"],
+  "required": ["schema_version", "service"],
   "properties": {
     "schema_version": {
       "const": "dream.services.v1"
     },
     "service": {
       "type": "object",
-      "required": ["id", "name", "port", "health"],
+      "required": ["id", "name", "container_name", "host_env", "default_host", "port", "external_port_env", "external_port_default", "health", "type", "gpu_backends", "category", "depends_on"],
       "properties": {
-        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
         "name": { "type": "string", "minLength": 1 },
         "aliases": {
           "type": "array",
@@ -21,7 +21,7 @@
         },
         "container_name": {
           "type": "string",
-          "description": "Docker container name for dream shell"
+          "description": "Docker container name (convention: dream-<service-id>)"
         },
         "host_env": { "type": "string" },
         "default_host": { "type": "string" },
@@ -32,7 +32,7 @@
         "type": { "type": "string", "enum": ["docker", "host-systemd"] },
         "gpu_backends": {
           "type": "array",
-          "items": { "type": "string", "enum": ["amd", "nvidia", "apple", "all"] },
+          "items": { "type": "string", "enum": ["amd", "nvidia", "apple", "all", "none"] },
           "minItems": 1
         },
         "compose_file": {
@@ -53,7 +53,7 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["key"],
+            "required": ["key", "description"],
             "properties": {
               "key": { "type": "string" },
               "required": { "type": "boolean" },
@@ -65,6 +65,10 @@
           },
           "description": "Environment variables used by this service"
         },
+        "description": {
+          "type": "string",
+          "description": "Human-readable service description"
+        },
         "setup_hook": {
           "type": "string",
           "description": "Relative path to a setup script run during installation (e.g. setup.sh)"
@@ -74,9 +78,10 @@
     },
     "features": {
       "type": "array",
+      "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "name", "description", "icon", "category", "requirements", "priority"],
+        "required": ["id", "name", "description"],
         "properties": {
           "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
           "name": { "type": "string", "minLength": 1 },
@@ -89,9 +94,10 @@
               "services": { "type": "array", "items": { "type": "string" } },
               "services_any": { "type": "array", "items": { "type": "string" } },
               "vram_gb": { "type": "number", "minimum": 0 },
+              "vram_mb": { "type": "number", "minimum": 0 },
               "disk_gb": { "type": "number", "minimum": 0 }
             },
-            "additionalProperties": true
+            "additionalProperties": false
           },
           "enabled_services_all": { "type": "array", "items": { "type": "string" } },
           "enabled_services_any": { "type": "array", "items": { "type": "string" } },
@@ -99,12 +105,16 @@
           "priority": { "type": "integer", "minimum": 1 },
           "gpu_backends": {
             "type": "array",
-            "items": { "type": "string", "enum": ["amd", "nvidia", "apple", "all"] },
-            "minItems": 1
+            "items": { "type": "string", "enum": ["amd", "nvidia", "apple", "all", "none"] }
           }
         },
         "additionalProperties": true
       }
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+      "description": "Categorization tags for service discovery"
     }
   },
   "additionalProperties": true
