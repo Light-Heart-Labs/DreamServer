@@ -107,6 +107,12 @@ Environment variables (set in `.env`):
 | `GET` | `/api/agents/cluster` | Yes | Cluster health and GPU node status |
 | `GET` | `/api/agents/throughput` | Yes | Throughput stats (tokens/sec) |
 
+### HTML Fragments
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/fragments/tasks` | Yes | Workflow task board with installation state and dependency badges |
+
 ### Privacy Shield
 
 | Method | Path | Auth | Description |
