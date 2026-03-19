@@ -17,6 +17,8 @@
 #   set conservatively compared to discrete-GPU platforms.
 # ============================================================================
 
+set -euo pipefail
+
 resolve_tier_config() {
     local tier="$1"
 

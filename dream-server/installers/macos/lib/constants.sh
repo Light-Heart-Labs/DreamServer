@@ -11,6 +11,8 @@
 #   Change DS_VERSION for custom builds. Must match constants.sh VERSION.
 # ============================================================================
 
+set -euo pipefail
+
 DS_VERSION="2.0.0-strix-halo"
 
 # Install location - use shared path resolution if available

@@ -15,7 +15,7 @@
 #   ./llm-cold-storage.sh --restore-all    # Restore all archived models
 #   ./llm-cold-storage.sh --status         # Show archive status
 #
-set -uo pipefail
+set -euo pipefail
 
 HF_CACHE="${HF_CACHE:-$HOME/.cache/huggingface/hub}"
 COLD_DIR="${COLD_DIR:-$HOME/llm-cold-storage}"

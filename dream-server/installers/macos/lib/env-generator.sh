@@ -13,6 +13,8 @@
 #   All secrets use cryptographic RNG -- never use $RANDOM for secrets.
 # ============================================================================
 
+set -euo pipefail
+
 # Generate cryptographically secure hex string
 new_secure_hex() {
     local bytes="${1:-32}"

@@ -6,6 +6,8 @@
 # Expects: SERVICE_IDS, SERVICE_DEPENDS, SERVICE_COMPOSE (from service-registry.sh)
 # Provides: validate_service_dependencies()
 
+set -euo pipefail
+
 # Validate that all service dependencies are satisfied
 # Returns 0 if all dependencies are met, 1 if any are missing
 validate_service_dependencies() {

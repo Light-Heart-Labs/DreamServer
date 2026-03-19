@@ -13,6 +13,8 @@
 #   Add new chip detection patterns in get_apple_silicon_info().
 # ============================================================================
 
+set -euo pipefail
+
 # ── Apple Silicon Detection ──
 
 get_apple_silicon_info() {

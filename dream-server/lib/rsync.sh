@@ -13,6 +13,8 @@
 #   rsync_with_progress "$src" "$dest" "Optional label"
 # ============================================================================
 
+set -euo pipefail
+
 # Rsync with progress indicator
 # Args:
 #   $1 - source path

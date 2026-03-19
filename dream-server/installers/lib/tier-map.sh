@@ -14,6 +14,8 @@
 #   Each tier maps to a specific GGUF quantization and context window.
 # ============================================================================
 
+set -euo pipefail
+
 resolve_tier_config() {
     case $TIER in
         CLOUD)

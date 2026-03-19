@@ -9,6 +9,8 @@
 # - load_env_from_output  — parse KEY="value" lines from stdin (for script output)
 # ============================================================================
 
+set -euo pipefail
+
 # Load a .env file safely: comments and empty lines skipped; key names must be
 # valid identifiers; values may be unquoted or quoted; no eval or word-splitting.
 load_env_file() {

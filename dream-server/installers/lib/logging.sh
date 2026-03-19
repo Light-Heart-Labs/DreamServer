@@ -12,6 +12,8 @@
 #   Change log format or add log levels here.
 # ============================================================================
 
+set -euo pipefail
+
 install_elapsed() {
   local secs=$(( $(date +%s) - INSTALL_START_EPOCH ))
   local m=$(( secs / 60 ))

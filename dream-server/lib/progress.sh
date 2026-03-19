@@ -2,6 +2,8 @@
 # Dream Server — Progress Bar Utilities
 # Sourced by install-core.sh for download/install progress display
 
+set -euo pipefail
+
 # ═══════════════════════════════════════════════════════════════
 # PROGRESS BAR
 # ═══════════════════════════════════════════════════════════════

@@ -8,6 +8,8 @@
 # Matches the CRT narrator voice from installers/lib/ui.sh
 # ============================================================================
 
+set -euo pipefail
+
 DIVIDER="──────────────────────────────────────────────────────────────────────────────"
 
 # Elapsed time since install start

@@ -2,6 +2,8 @@
 # Dream Server — ASCII QR Code Generator
 # Generates simple QR codes for terminal display without external dependencies
 
+set -euo pipefail
+
 # ═══════════════════════════════════════════════════════════════
 # QR CODE DISPLAY
 # ═══════════════════════════════════════════════════════════════

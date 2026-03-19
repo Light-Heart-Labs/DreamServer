@@ -2,6 +2,8 @@
 # Service Registry — loads extension manifests and provides lookup functions.
 # Source this file: . "$SCRIPT_DIR/lib/service-registry.sh"
 
+set -euo pipefail
+
 EXTENSIONS_DIR="${SCRIPT_DIR:-$(pwd)}/extensions/services"
 _SR_LOADED=false
 _SR_CACHE="/tmp/dream-service-registry.$$.sh"
