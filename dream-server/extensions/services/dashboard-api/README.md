@@ -18,6 +18,8 @@ It runs at `http://localhost:3002` and is the single backend used by the React d
 - **Feature discovery**: Hardware-aware feature recommendations with VRAM tier detection
 - **Setup wizard**: First-run setup, persona selection, diagnostic tests
 - **Agent monitoring**: Session counts, throughput, cluster status, per-model token usage
+- **HTML fragments**: Reusable server-rendered cards for htmx dashboards and embeds
+  Helpful for status walls, internal ops pages, and low-JS admin surfaces.
 - **Privacy Shield control**: Enable/disable container, fetch PII scrubbing statistics
 - **Version checking**: GitHub releases integration for update notifications
 - **Storage reporting**: Breakdown of disk usage by models, vector DB, and total data
@@ -106,6 +108,12 @@ Environment variables (set in `.env`):
 | `GET` | `/api/agents/metrics.html` | Yes | Agent metrics as HTML fragment (htmx) |
 | `GET` | `/api/agents/cluster` | Yes | Cluster health and GPU node status |
 | `GET` | `/api/agents/throughput` | Yes | Throughput stats (tokens/sec) |
+
+### HTML Fragments
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/fragments/sessions` | Yes | Live Token Spy session table with turns and token totals |
 
 ### Privacy Shield
 
