@@ -1,5 +1,5 @@
 {
-  "version": "1",
+  "version": "2",
   "workflows": [
     {
       "id": "m4-deterministic-voice",
@@ -8,7 +8,9 @@
       "description": "Intent classification with deterministic routing",
       "icon": "Brain",
       "category": "voice",
-      "dependencies": ["llama-server"],
+      "dependencies": [
+        "llama-server"
+      ],
       "setupTime": "2 minutes",
       "featured": true
     },
@@ -19,7 +21,10 @@
       "description": "Upload documents and ask questions about them",
       "icon": "FileText",
       "category": "productivity",
-      "dependencies": ["qdrant", "llama-server"],
+      "dependencies": [
+        "qdrant",
+        "llama-server"
+      ],
       "setupTime": "2 minutes",
       "featured": true
     },
@@ -30,7 +35,9 @@
       "description": "Transcribe audio files to text",
       "icon": "Mic",
       "category": "voice",
-      "dependencies": ["whisper"],
+      "dependencies": [
+        "whisper"
+      ],
       "setupTime": "1 minute",
       "featured": false
     },
@@ -41,7 +48,11 @@
       "description": "Speak, get AI response as audio",
       "icon": "Headphones",
       "category": "voice",
-      "dependencies": ["whisper", "llama-server", "kokoro"],
+      "dependencies": [
+        "whisper",
+        "llama-server",
+        "kokoro"
+      ],
       "setupTime": "2 minutes",
       "featured": true
     },
@@ -52,7 +63,9 @@
       "description": "Summarize your day every morning",
       "icon": "Calendar",
       "category": "productivity",
-      "dependencies": ["llama-server"],
+      "dependencies": [
+        "llama-server"
+      ],
       "setupTime": "5 minutes",
       "featured": false
     },
@@ -63,7 +76,9 @@
       "description": "AI-powered coding help via API",
       "icon": "Code",
       "category": "development",
-      "dependencies": ["llama-server"],
+      "dependencies": [
+        "llama-server"
+      ],
       "setupTime": "1 minute",
       "featured": false
     },
@@ -74,7 +89,10 @@
       "description": "Retrieval-augmented generation example",
       "icon": "Search",
       "category": "development",
-      "dependencies": ["qdrant", "llama-server"],
+      "dependencies": [
+        "qdrant",
+        "llama-server"
+      ],
       "setupTime": "3 minutes",
       "featured": false
     },
@@ -85,7 +103,9 @@
       "description": "Record and transcribe voice memos",
       "icon": "Mic",
       "category": "productivity",
-      "dependencies": ["whisper"],
+      "dependencies": [
+        "whisper"
+      ],
       "setupTime": "1 minute",
       "featured": false
     },
@@ -96,14 +116,556 @@
       "description": "REST API for chat completions",
       "icon": "MessageSquare",
       "category": "development",
-      "dependencies": ["llama-server"],
+      "dependencies": [
+        "llama-server"
+      ],
       "setupTime": "1 minute",
       "featured": false
+    },
+    {
+      "id": "llm-summarizer",
+      "file": "llm-summarizer.json",
+      "name": "LLM Summarizer",
+      "description": "Send any text or URL to a webhook and get a concise AI-generated summary.",
+      "icon": "FileText",
+      "category": "productivity",
+      "dependencies": [
+        "llama-server"
+      ],
+      "setupTime": "1 minute",
+      "featured": true,
+      "diagram": {
+        "nodes": [
+          {
+            "id": "trigger",
+            "type": "trigger",
+            "label": "POST /summarize"
+          },
+          {
+            "id": "fetch",
+            "type": "http",
+            "label": "Fetch URL (optional)"
+          },
+          {
+            "id": "llm",
+            "type": "llm",
+            "label": "LLM Summarize"
+          },
+          {
+            "id": "output",
+            "type": "output",
+            "label": "Summary Response"
+          }
+        ],
+        "edges": [
+          {
+            "from": "trigger",
+            "to": "fetch"
+          },
+          {
+            "from": "fetch",
+            "to": "llm"
+          },
+          {
+            "from": "llm",
+            "to": "output"
+          }
+        ]
+      }
+    },
+    {
+      "id": "rag-pipeline-trigger",
+      "file": "rag-pipeline-trigger.json",
+      "name": "RAG Pipeline Trigger",
+      "description": "Ingest documents from a watched folder into Qdrant, then answer questions over the indexed corpus.",
+      "icon": "Database",
+      "category": "development",
+      "dependencies": [
+        "llama-server",
+        "qdrant"
+      ],
+      "setupTime": "3 minutes",
+      "featured": true,
+      "diagram": {
+        "nodes": [
+          {
+            "id": "watch",
+            "type": "trigger",
+            "label": "Folder Watch"
+          },
+          {
+            "id": "chunk",
+            "type": "transform",
+            "label": "Chunk & Clean"
+          },
+          {
+            "id": "embed",
+            "type": "rag",
+            "label": "Embed Chunks"
+          },
+          {
+            "id": "upsert",
+            "type": "store",
+            "label": "Qdrant Upsert"
+          },
+          {
+            "id": "query",
+            "type": "trigger",
+            "label": "POST /rag-query"
+          },
+          {
+            "id": "retrieve",
+            "type": "rag",
+            "label": "Vector Retrieve"
+          },
+          {
+            "id": "llm",
+            "type": "llm",
+            "label": "LLM Answer"
+          },
+          {
+            "id": "output",
+            "type": "output",
+            "label": "JSON Response"
+          }
+        ],
+        "edges": [
+          {
+            "from": "watch",
+            "to": "chunk"
+          },
+          {
+            "from": "chunk",
+            "to": "embed"
+          },
+          {
+            "from": "embed",
+            "to": "upsert"
+          },
+          {
+            "from": "query",
+            "to": "retrieve"
+          },
+          {
+            "from": "retrieve",
+            "to": "llm"
+          },
+          {
+            "from": "llm",
+            "to": "output"
+          }
+        ]
+      }
+    },
+    {
+      "id": "whisper-to-notes",
+      "file": "whisper-to-notes.json",
+      "name": "Whisper Transcription to Notes",
+      "description": "Upload audio; Whisper transcribes it, LLM extracts action items, saves a structured markdown note.",
+      "icon": "NotebookPen",
+      "category": "productivity",
+      "dependencies": [
+        "whisper",
+        "llama-server"
+      ],
+      "setupTime": "2 minutes",
+      "featured": true,
+      "diagram": {
+        "nodes": [
+          {
+            "id": "trigger",
+            "type": "trigger",
+            "label": "Audio Webhook"
+          },
+          {
+            "id": "whisper",
+            "type": "stt",
+            "label": "Whisper Transcribe"
+          },
+          {
+            "id": "llm",
+            "type": "llm",
+            "label": "Extract Key Points"
+          },
+          {
+            "id": "format",
+            "type": "transform",
+            "label": "Format Markdown"
+          },
+          {
+            "id": "save",
+            "type": "store",
+            "label": "Save Note File"
+          },
+          {
+            "id": "output",
+            "type": "output",
+            "label": "Note URL"
+          }
+        ],
+        "edges": [
+          {
+            "from": "trigger",
+            "to": "whisper"
+          },
+          {
+            "from": "whisper",
+            "to": "llm"
+          },
+          {
+            "from": "llm",
+            "to": "format"
+          },
+          {
+            "from": "format",
+            "to": "save"
+          },
+          {
+            "from": "save",
+            "to": "output"
+          }
+        ]
+      }
+    },
+    {
+      "id": "scheduled-web-search",
+      "file": "scheduled-web-search.json",
+      "name": "Scheduled Web Search",
+      "description": "Run a search query on a cron schedule, summarize top results with the LLM, post a digest.",
+      "icon": "Globe",
+      "category": "automation",
+      "dependencies": [
+        "llama-server"
+      ],
+      "setupTime": "5 minutes",
+      "featured": false,
+      "diagram": {
+        "nodes": [
+          {
+            "id": "schedule",
+            "type": "schedule",
+            "label": "Cron Trigger"
+          },
+          {
+            "id": "search",
+            "type": "http",
+            "label": "Web Search API"
+          },
+          {
+            "id": "parse",
+            "type": "transform",
+            "label": "Parse Results"
+          },
+          {
+            "id": "llm",
+            "type": "llm",
+            "label": "LLM Summarize"
+          },
+          {
+            "id": "notify",
+            "type": "output",
+            "label": "Post Digest"
+          }
+        ],
+        "edges": [
+          {
+            "from": "schedule",
+            "to": "search"
+          },
+          {
+            "from": "search",
+            "to": "parse"
+          },
+          {
+            "from": "parse",
+            "to": "llm"
+          },
+          {
+            "from": "llm",
+            "to": "notify"
+          }
+        ]
+      }
+    },
+    {
+      "id": "email-to-task",
+      "file": "email-to-task.json",
+      "name": "Email-to-Task via LiteLLM",
+      "description": "Poll an IMAP mailbox, extract tasks and priority via LiteLLM, create cards in your task manager.",
+      "icon": "Mail",
+      "category": "automation",
+      "dependencies": [
+        "litellm"
+      ],
+      "setupTime": "5 minutes",
+      "featured": false,
+      "diagram": {
+        "nodes": [
+          {
+            "id": "poll",
+            "type": "schedule",
+            "label": "IMAP Poll"
+          },
+          {
+            "id": "filter",
+            "type": "transform",
+            "label": "Filter Unread"
+          },
+          {
+            "id": "llm",
+            "type": "llm",
+            "label": "LiteLLM Extract Tasks"
+          },
+          {
+            "id": "create",
+            "type": "http",
+            "label": "Create Task Card"
+          },
+          {
+            "id": "mark",
+            "type": "output",
+            "label": "Mark Processed"
+          }
+        ],
+        "edges": [
+          {
+            "from": "poll",
+            "to": "filter"
+          },
+          {
+            "from": "filter",
+            "to": "llm"
+          },
+          {
+            "from": "llm",
+            "to": "create"
+          },
+          {
+            "from": "create",
+            "to": "mark"
+          }
+        ]
+      }
+    },
+    {
+      "id": "image-gen-webhook",
+      "file": "image-gen-webhook.json",
+      "name": "Image Generation on Webhook",
+      "description": "Accept a prompt via webhook, optionally enhance with LLM, submit to ComfyUI, return image URL.",
+      "icon": "Image",
+      "category": "creative",
+      "dependencies": [
+        "comfyui"
+      ],
+      "setupTime": "3 minutes",
+      "featured": true,
+      "diagram": {
+        "nodes": [
+          {
+            "id": "trigger",
+            "type": "trigger",
+            "label": "POST /generate"
+          },
+          {
+            "id": "enhance",
+            "type": "llm",
+            "label": "Prompt Enhance (opt)"
+          },
+          {
+            "id": "submit",
+            "type": "http",
+            "label": "ComfyUI Queue"
+          },
+          {
+            "id": "poll",
+            "type": "schedule",
+            "label": "Poll Status"
+          },
+          {
+            "id": "output",
+            "type": "output",
+            "label": "Image URL"
+          }
+        ],
+        "edges": [
+          {
+            "from": "trigger",
+            "to": "enhance"
+          },
+          {
+            "from": "enhance",
+            "to": "submit"
+          },
+          {
+            "from": "submit",
+            "to": "poll"
+          },
+          {
+            "from": "poll",
+            "to": "output"
+          }
+        ]
+      }
+    },
+    {
+      "id": "privacy-shield-test",
+      "file": "privacy-shield-test.json",
+      "name": "Privacy-Shield Proxy Test",
+      "description": "Send a test payload through Privacy Shield, verify PII is redacted, log a compliance report.",
+      "icon": "ShieldCheck",
+      "category": "privacy",
+      "dependencies": [
+        "privacy-shield"
+      ],
+      "setupTime": "2 minutes",
+      "featured": false,
+      "diagram": {
+        "nodes": [
+          {
+            "id": "trigger",
+            "type": "trigger",
+            "label": "POST /privacy-test"
+          },
+          {
+            "id": "proxy",
+            "type": "http",
+            "label": "Privacy Shield Proxy"
+          },
+          {
+            "id": "validate",
+            "type": "transform",
+            "label": "Validate Redaction"
+          },
+          {
+            "id": "log",
+            "type": "store",
+            "label": "Compliance Log"
+          },
+          {
+            "id": "output",
+            "type": "output",
+            "label": "Pass / Fail Report"
+          }
+        ],
+        "edges": [
+          {
+            "from": "trigger",
+            "to": "proxy"
+          },
+          {
+            "from": "proxy",
+            "to": "validate"
+          },
+          {
+            "from": "validate",
+            "to": "log"
+          },
+          {
+            "from": "log",
+            "to": "output"
+          }
+        ]
+      }
+    },
+    {
+      "id": "openclaw-agent-trigger",
+      "file": "openclaw-agent-trigger.json",
+      "name": "OpenClaw Agent Trigger",
+      "description": "Dispatch a goal to a named OpenClaw agent via webhook, stream tool-call events, store final result.",
+      "icon": "Bot",
+      "category": "agents",
+      "dependencies": [
+        "openclaw",
+        "llama-server"
+      ],
+      "setupTime": "3 minutes",
+      "featured": true,
+      "diagram": {
+        "nodes": [
+          {
+            "id": "trigger",
+            "type": "trigger",
+            "label": "POST /run-agent"
+          },
+          {
+            "id": "auth",
+            "type": "transform",
+            "label": "Validate Token"
+          },
+          {
+            "id": "agent",
+            "type": "agent",
+            "label": "OpenClaw Agent"
+          },
+          {
+            "id": "stream",
+            "type": "output",
+            "label": "SSE Tool Events"
+          },
+          {
+            "id": "store",
+            "type": "store",
+            "label": "Persist Result"
+          },
+          {
+            "id": "output",
+            "type": "output",
+            "label": "Final Response"
+          }
+        ],
+        "edges": [
+          {
+            "from": "trigger",
+            "to": "auth"
+          },
+          {
+            "from": "auth",
+            "to": "agent"
+          },
+          {
+            "from": "agent",
+            "to": "stream"
+          },
+          {
+            "from": "agent",
+            "to": "store"
+          },
+          {
+            "from": "store",
+            "to": "output"
+          }
+        ]
+      }
     }
   ],
   "categories": {
-    "productivity": {"name": "Productivity", "description": "Automate your daily tasks"},
-    "voice": {"name": "Voice", "description": "Speech-to-text and text-to-speech"},
-    "development": {"name": "Development", "description": "APIs and coding tools"}
+    "productivity": {
+      "name": "Productivity",
+      "description": "Automate your daily tasks"
+    },
+    "voice": {
+      "name": "Voice",
+      "description": "Speech-to-text and text-to-speech"
+    },
+    "development": {
+      "name": "Development",
+      "description": "APIs and coding tools"
+    },
+    "automation": {
+      "name": "Automation",
+      "description": "Scheduled jobs, polling loops, and trigger-driven pipelines"
+    },
+    "creative": {
+      "name": "Creative",
+      "description": "Image generation, art, and generative media"
+    },
+    "privacy": {
+      "name": "Privacy",
+      "description": "PII redaction, compliance testing, and data protection"
+    },
+    "agents": {
+      "name": "Agents",
+      "description": "Autonomous AI agents and multi-step reasoning workflows"
+    }
   }
 }
