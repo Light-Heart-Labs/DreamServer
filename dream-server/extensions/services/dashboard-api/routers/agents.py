@@ -1,14 +1,46 @@
 """Agent monitoring endpoints."""
 
 import html as html_mod
+import os
+from pathlib import Path
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse
 
 from agent_monitor import get_full_agent_metrics, cluster_status, throughput
+from config import SERVICES
 from security import verify_api_key
 
 router = APIRouter(tags=["agents"])
+
+
+def _read_openclaw_token() -> str:
+    token = os.environ.get("OPENCLAW_TOKEN", "").strip()
+    if token:
+        return token
+
+    for path in (Path("/data/openclaw/home/gateway-token"), Path("/dream-server/.env")):
+        try:
+            if path.suffix == ".env":
+                for line in path.read_text().splitlines():
+                    if line.startswith("OPENCLAW_TOKEN="):
+                        return line.split("=", 1)[1].strip()
+            else:
+                value = path.read_text().strip()
+                if value:
+                    return value
+        except (OSError, ValueError):
+            continue
+
+    return ""
+
+
+def _mask_token(token: str) -> str | None:
+    if not token:
+        return None
+    if len(token) <= 8:
+        return "*" * len(token)
+    return f"{token[:4]}...{token[-4:]}"
 
 
 @router.get("/api/agents/metrics")
@@ -73,3 +105,28 @@ async def get_cluster_status(api_key: str = Depends(verify_api_key)):
 async def get_throughput(api_key: str = Depends(verify_api_key)):
     """Get throughput metrics (tokens/sec)."""
     return throughput.get_stats()
+
+
+@router.get("/api/agents/tokens")
+async def get_agent_tokens(api_key: str = Depends(verify_api_key)):
+    """Return agent service auth tokens and launch metadata for the dashboard."""
+    openclaw = SERVICES.get("openclaw", {})
+    token = _read_openclaw_token()
+    external_port = openclaw.get("external_port", openclaw.get("port", 7860))
+
+    payload = {
+        "tokens": {"openclaw": token} if token else {},
+        "services": [
+            {
+                "id": "openclaw",
+                "name": openclaw.get("name", "OpenClaw"),
+                "tokenPresent": bool(token),
+                "tokenPreview": _mask_token(token),
+                "authMode": "query",
+                "externalPort": external_port,
+                "launchPath": "/",
+                "launchUrl": f"http://localhost:{external_port}/?token={token}" if token else None,
+            }
+        ],
+    }
+    return payload

@@ -89,3 +89,88 @@ class TestGetThroughput:
         assert "average" in data
         assert "peak" in data
         assert "history" in data
+
+
+# --- GET /api/agents/tokens ---
+
+
+class TestGetAgentTokens:
+
+    def test_returns_token_payload(self, test_client, monkeypatch):
+        monkeypatch.setenv("OPENCLAW_TOKEN", "oc-secret-1234")
+        monkeypatch.setattr(
+            "routers.agents.SERVICES",
+            {"openclaw": {"name": "OpenClaw (Agents)", "external_port": 7860}},
+        )
+
+        resp = test_client.get("/api/agents/tokens", headers=test_client.auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert data["tokens"]["openclaw"] == "oc-secret-1234"
+        assert data["services"][0]["id"] == "openclaw"
+        assert data["services"][0]["tokenPresent"] is True
+        assert data["services"][0]["tokenPreview"] == "oc-s...1234"
+        assert data["services"][0]["launchUrl"].endswith("/?token=oc-secret-1234")
+
+    def test_returns_metadata_when_token_missing(self, test_client, monkeypatch):
+        monkeypatch.delenv("OPENCLAW_TOKEN", raising=False)
+        monkeypatch.setattr(
+            "routers.agents.SERVICES",
+            {"openclaw": {"name": "OpenClaw (Agents)", "external_port": 7860}},
+        )
+        monkeypatch.setattr("routers.agents.Path.read_text", lambda self: "")
+
+        resp = test_client.get("/api/agents/tokens", headers=test_client.auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert data["tokens"] == {}
+        assert data["services"][0]["tokenPresent"] is False
+        assert data["services"][0]["tokenPreview"] is None
+        assert data["services"][0]["launchUrl"] is None
+
+    def test_reads_token_from_env_file_fallback(self, test_client, monkeypatch):
+        monkeypatch.delenv("OPENCLAW_TOKEN", raising=False)
+        monkeypatch.setattr(
+            "routers.agents.SERVICES",
+            {"openclaw": {"name": "OpenClaw (Agents)", "external_port": 7860}},
+        )
+
+        def fake_read_text(path_obj):
+            if str(path_obj).endswith(".env"):
+                return "OPENCLAW_TOKEN=file-token-9999\n"
+            raise OSError("missing")
+
+        monkeypatch.setattr("routers.agents.Path.read_text", fake_read_text)
+
+        resp = test_client.get("/api/agents/tokens", headers=test_client.auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert data["tokens"]["openclaw"] == "file-token-9999"
+        assert data["services"][0]["tokenPreview"] == "file...9999"
+
+    def test_masks_short_token_values(self, monkeypatch):
+        from routers.agents import _mask_token
+
+        assert _mask_token("abcd") == "****"
+        assert _mask_token("abcdefgh") == "********"
+        assert _mask_token("") is None
+
+    def test_falls_back_to_service_port_when_external_port_missing(self, test_client, monkeypatch):
+        monkeypatch.setenv("OPENCLAW_TOKEN", "port-token")
+        monkeypatch.setattr(
+            "routers.agents.SERVICES",
+            {"openclaw": {"name": "OpenClaw (Agents)", "port": 18789}},
+        )
+
+        resp = test_client.get("/api/agents/tokens", headers=test_client.auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["services"][0]["externalPort"] == 18789
+        assert data["services"][0]["launchUrl"].endswith(":18789/?token=port-token")
+
+    def test_requires_auth(self, test_client):
+        resp = test_client.get("/api/agents/tokens")
+        assert resp.status_code == 401

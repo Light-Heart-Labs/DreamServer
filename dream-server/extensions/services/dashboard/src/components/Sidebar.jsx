@@ -5,6 +5,7 @@ import {
   ChevronRight
 } from 'lucide-react'
 import { getSidebarExternalLinks, getSidebarNavItems } from '../plugins/registry'
+import { useServiceTokens } from '../hooks/useServiceTokens'
 
 // Derive external service URLs from current host
 const getExternalUrl = (port) =>
@@ -13,15 +14,10 @@ const getExternalUrl = (port) =>
     : `http://localhost:${port}`
 
 export default function Sidebar({ status, collapsed, onToggle }) {
-  const [serviceTokens, setServiceTokens] = useState({})
   const [apiLinks, setApiLinks] = useState([])
+  const serviceTokens = useServiceTokens()
 
   useEffect(() => {
-    fetch('/api/service-tokens')
-      .then(r => r.ok ? r.json() : {})
-      .then(setServiceTokens)
-      .catch(() => {})
-
     fetch('/api/external-links')
       .then(r => r.ok ? r.json() : [])
       .then(setApiLinks)

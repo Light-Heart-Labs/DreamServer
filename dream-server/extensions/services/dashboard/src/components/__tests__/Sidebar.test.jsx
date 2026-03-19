@@ -6,7 +6,9 @@ vi.mock('../../plugins/registry', () => ({
   getSidebarNavItems: vi.fn(() => [
     { id: 'dashboard', path: '/', icon: () => <span data-testid="nav-icon">D</span>, label: 'Dashboard' }
   ]),
-  getSidebarExternalLinks: vi.fn(() => [])
+  getSidebarExternalLinks: vi.fn(() => [
+    { key: 'openclaw', url: 'http://localhost:7860', icon: () => <span>O</span>, label: 'OpenClaw', healthy: true }
+  ])
 }))
 
 describe('Sidebar', () => {
@@ -56,5 +58,34 @@ describe('Sidebar', () => {
   test('shows version in header', () => {
     render(<Sidebar status={defaultStatus} collapsed={false} onToggle={() => {}} />)
     expect(screen.getByText(/v1\.0\.0/)).toBeInTheDocument()
+  })
+
+  test('appends the OpenClaw token to external links', async () => {
+    fetch.mockImplementation((url) => {
+      if (url === '/api/agents/tokens') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ tokens: { openclaw: 'gateway-token' } })
+        })
+      }
+
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
+    })
+
+    render(<Sidebar status={defaultStatus} collapsed={false} onToggle={() => {}} />)
+
+    const link = await screen.findByRole('link', { name: /openclaw open/i })
+    expect(link).toHaveAttribute('href', 'http://localhost:7860/?token=gateway-token')
+  })
+
+  test('leaves the external link unchanged when no token is available', async () => {
+    fetch.mockImplementation(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({ tokens: {} }) })
+    )
+
+    render(<Sidebar status={defaultStatus} collapsed={false} onToggle={() => {}} />)
+
+    const link = await screen.findByRole('link', { name: /openclaw open/i })
+    expect(link).toHaveAttribute('href', 'http://localhost:7860')
   })
 })
