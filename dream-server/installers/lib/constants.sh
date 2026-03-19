@@ -59,7 +59,7 @@ CURSOR='█'               # Block cursor for typing
 # BSD sed (macOS) requires `sed -i ''` while GNU sed uses `sed -i`.
 # Usage: _sed_i "s/old/new/g" file
 _sed_i() {
-    if sed --version 2>/dev/null | grep -q GNU; then
+    if sed --version 2>>"${LOG_FILE:-/dev/null}" | grep -q GNU; then
         sed -i "$@"
     else
         sed -i '' "$@"

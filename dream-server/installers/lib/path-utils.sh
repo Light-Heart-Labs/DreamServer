@@ -33,10 +33,10 @@ normalize_path() {
     # Resolve symlinks and normalize (remove .., ., //)
     if command -v realpath &>/dev/null; then
         # GNU realpath (Linux)
-        realpath -m "$path" 2>/dev/null || echo "$path"
+        realpath -m "$path" 2>>"${LOG_FILE:-/dev/null}" || echo "$path"
     elif command -v grealpath &>/dev/null; then
         # GNU realpath via Homebrew (macOS)
-        grealpath -m "$path" 2>/dev/null || echo "$path"
+        grealpath -m "$path" 2>>"${LOG_FILE:-/dev/null}" || echo "$path"
     else
         # Fallback: basic normalization without external dependencies
         # This handles most cases but doesn't resolve all edge cases
@@ -97,7 +97,7 @@ validate_install_path() {
     if command -v df &>/dev/null; then
         # Use df -Pk (POSIX) which returns KB, then convert to GB
         local avail_kb
-        avail_kb=$(df -Pk "$parent_dir" 2>/dev/null | tail -1 | awk '{print $4}' || echo "0")
+        avail_kb=$(df -Pk "$parent_dir" 2>>"${LOG_FILE:-/dev/null}" | tail -1 | awk '{print $4}' || echo "0")
         avail_gb=$((avail_kb / 1048576))  # KB to GB (1024*1024)
         if [[ "$avail_gb" -lt "$required_gb" ]]; then
             echo "WARNING: Low disk space. Available: ${avail_gb}GB, Required: ${required_gb}GB" >&2
