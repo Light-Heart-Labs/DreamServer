@@ -43,7 +43,7 @@ from helpers import (
 from agent_monitor import collect_metrics
 
 # --- Router imports ---
-from routers import workflows, features, setup, updates, agents, privacy
+from routers import workflows, features, setup, updates, agents, privacy, settings, voice_settings, model_swap
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +92,9 @@ app.include_router(setup.router)
 app.include_router(updates.router)
 app.include_router(agents.router)
 app.include_router(privacy.router)
+app.include_router(settings.router)
+app.include_router(voice_settings.router)
+app.include_router(model_swap.router)
 
 
 # ================================================================
