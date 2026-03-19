@@ -1,6 +1,6 @@
 services:
   openclaw:
-    image: ghcr.io/openclaw/openclaw:latest
+    image: ghcr.io/openclaw/openclaw:2026.3.8
     container_name: dream-openclaw
     restart: unless-stopped
     security_opt:
@@ -20,7 +20,7 @@ services:
       - ./data/openclaw/home:/home/node/.openclaw
       - ./config/openclaw/workspace:/home/node/.openclaw/workspace
     ports:
-      - "${OPENCLAW_PORT:-7860}:18789"
+      - "127.0.0.1:${OPENCLAW_PORT:-7860}:18789"
     deploy:
       resources:
         limits:

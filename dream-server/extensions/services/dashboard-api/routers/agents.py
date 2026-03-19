@@ -21,50 +21,43 @@ async def get_agent_metrics(api_key: str = Depends(verify_api_key)):
 async def get_agent_metrics_html(api_key: str = Depends(verify_api_key)):
     """Get agent metrics as HTML fragment for htmx."""
     metrics = get_full_agent_metrics()
-    cluster_class = "status-ok" if metrics["cluster"]["failover_ready"] else "status-warn"
-    failover_text = "Ready \u2705" if metrics["cluster"]["failover_ready"] else "Single GPU \u26a0\ufe0f"
-    last_update_time = metrics["agent"]["last_update"].split("T")[1][:8]
-    tokens_k = metrics["tokens"]["total_tokens_24h"] // 1000
-    top_models = metrics["tokens"]["top_models"]
-    if top_models:
-        rows = "".join(
-            "<tr><td>{}</td><td>{}K</td><td>{}</td></tr>".format(
-                html_mod.escape(str(m["model"])), m["tokens"] // 1000, m["requests"]
-            )
-            for m in top_models
-        )
-        top_models_html = (
-            "<article class='metric-card'><h4>Top Models (24h)</h4>"
-            "<table><thead><tr><th>Model</th><th>Tokens</th><th>Requests</th></tr></thead>"
-            "<tbody>" + rows + "</tbody></table></article>"
-        )
-    else:
-        top_models_html = ""
+    cluster = metrics.get("cluster", {})
+    agent = metrics.get("agent", {})
+    tp = metrics.get("throughput", {})
+
+    cluster_class = "status-ok" if cluster.get("failover_ready") else "status-warn"
+    failover_text = "Ready \u2705" if cluster.get("failover_ready") else "Single GPU \u26a0\ufe0f"
+    last_update = agent.get("last_update", "")
+    last_update_time = last_update.split("T")[1][:8] if "T" in last_update else "N/A"
+
+    # Escape all interpolated values for HTML safety
+    esc = lambda v: html_mod.escape(str(v))
+    active_gpus = esc(cluster.get("active_gpus", 0))
+    total_gpus = esc(cluster.get("total_gpus", 0))
+    failover_safe = esc(failover_text)
+    sessions = esc(agent.get("session_count", 0))
+    last_update_safe = esc(last_update_time)
+    tp_current = esc(f"{tp.get('current', 0):.1f}")
+    tp_average = esc(f"{tp.get('average', 0):.1f}")
 
     html = f"""
     <div class="grid">
         <article class="metric-card">
             <div class="metric-label">Cluster Status</div>
-            <div class="metric-value {cluster_class}">{metrics["cluster"]["active_gpus"]}/{metrics["cluster"]["total_gpus"]} GPUs</div>
-            <p style="margin: 0; font-size: 0.875rem;">Failover: {failover_text}</p>
+            <div class="metric-value {cluster_class}">{active_gpus}/{total_gpus} GPUs</div>
+            <p style="margin: 0; font-size: 0.875rem;">Failover: {failover_safe}</p>
         </article>
         <article class="metric-card">
             <div class="metric-label">Active Sessions</div>
-            <div class="metric-value">{metrics["agent"]["session_count"]}</div>
-            <p style="margin: 0; font-size: 0.875rem;">Updated: {last_update_time}</p>
-        </article>
-        <article class="metric-card">
-            <div class="metric-label">Token Usage (24h)</div>
-            <div class="metric-value">{tokens_k}K</div>
-            <p style="margin: 0; font-size: 0.875rem;">${metrics["tokens"]["total_cost_24h"]:.4f} | {metrics["tokens"]["requests_24h"]} reqs</p>
+            <div class="metric-value">{sessions}</div>
+            <p style="margin: 0; font-size: 0.875rem;">Updated: {last_update_safe}</p>
         </article>
         <article class="metric-card">
             <div class="metric-label">Throughput</div>
-            <div class="metric-value">{metrics["throughput"]["current"]:.1f}</div>
-            <p style="margin: 0; font-size: 0.875rem;">tokens/sec (avg: {metrics["throughput"]["average"]:.1f})</p>
+            <div class="metric-value">{tp_current}</div>
+            <p style="margin: 0; font-size: 0.875rem;">tokens/sec (avg: {tp_average})</p>
         </article>
     </div>
-    {top_models_html}
     """
     return HTMLResponse(content=html)
 

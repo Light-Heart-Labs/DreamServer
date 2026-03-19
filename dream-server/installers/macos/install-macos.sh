@@ -115,7 +115,7 @@ fi
 ai_ok "Docker Desktop running (v${DOCKER_VERSION})"
 
 # Disk space
-test_disk_space "$HOME" 30
+test_disk_space "$INSTALL_DIR" 30
 info_box "Disk free:" "${DISK_FREE_GB} GB"
 if ! $DISK_SUFFICIENT; then
     ai_err "At least ${DISK_REQUIRED_GB} GB free space required. Found ${DISK_FREE_GB} GB."
@@ -146,8 +146,17 @@ if $OLLAMA_RUNNING; then
     fi
 fi
 
-# Port conflict checks
-for port_check in 8080 11434 3000 3001 3003; do
+# Port conflict checks — dynamically read from extension manifests
+_conflict_ports=(8080 11434)  # llama-server (native) + Ollama default (host conflict, no manifest)
+for _manifest in "${SOURCE_ROOT}/extensions/services/"*/manifest.yaml; do
+    [[ -f "$_manifest" ]] || continue
+    _port=$(grep 'external_port_default:' "$_manifest" 2>/dev/null | awk '{print $2}' | tr -d '"') || true
+    if [[ -n "$_port" && "$_port" =~ ^[0-9]+$ && "$_port" -ne 8080 ]]; then
+        _conflict_ports+=("$_port")
+    fi
+done
+
+for port_check in "${_conflict_ports[@]}"; do
     if check_port_conflict "$port_check"; then
         ai_warn "Port ${port_check} is in use by ${PORT_CONFLICT_PROC} (PID ${PORT_CONFLICT_PID})"
     fi
@@ -196,7 +205,7 @@ elif [[ "$GGUF_FILE" =~ 14B ]]; then
 else
     NEEDED_GB=23
 fi
-test_disk_space "$HOME" "$NEEDED_GB"
+test_disk_space "$INSTALL_DIR" "$NEEDED_GB"
 if ! $DISK_SUFFICIENT; then
     ai_warn "Tier ${SELECTED_TIER} needs ~${NEEDED_GB} GB (model + Docker images). Only ${DISK_FREE_GB} GB free."
     if ! $FORCE; then exit 1; fi
@@ -273,6 +282,10 @@ else
     mkdir -p "${INSTALL_DIR}/data/n8n"
     mkdir -p "${INSTALL_DIR}/data/qdrant"
     mkdir -p "${INSTALL_DIR}/data/models"
+    mkdir -p "${INSTALL_DIR}/data/langfuse/postgres"
+    mkdir -p "${INSTALL_DIR}/data/langfuse/clickhouse"
+    mkdir -p "${INSTALL_DIR}/data/langfuse/redis"
+    mkdir -p "${INSTALL_DIR}/data/langfuse/minio"
     mkdir -p "${INSTALL_DIR}/bin"
     ai_ok "Created directory structure"
 
@@ -309,19 +322,37 @@ else
         ai_ok "Installed dream-macos.sh CLI"
     fi
 
-    # Generate .env
-    generate_dream_env "$INSTALL_DIR" "$SELECTED_TIER"
-    ai_ok "Generated .env with secure secrets"
+    # Generate .env (idempotent unless --force)
+    env_existed=false
+    [[ -f "${INSTALL_DIR}/.env" ]] && env_existed=true
+    generate_dream_env "$INSTALL_DIR" "$SELECTED_TIER" "$FORCE"
+    if $env_existed && ! $FORCE; then
+        ai_ok "Preserved existing .env (use --force to regenerate secrets)"
+    else
+        ai_ok "Generated .env with secure secrets"
+    fi
 
     # Generate SearXNG config
-    generate_searxng_config "$INSTALL_DIR" "$ENV_SEARXNG_SECRET"
-    ai_ok "Generated SearXNG config"
+    searx_existed=false
+    [[ -f "${INSTALL_DIR}/config/searxng/settings.yml" ]] && searx_existed=true
+    generate_searxng_config "$INSTALL_DIR" "$ENV_SEARXNG_SECRET" "$FORCE"
+    if $searx_existed && ! $FORCE; then
+        ai_ok "Preserved existing SearXNG config (use --force to regenerate)"
+    else
+        ai_ok "Generated SearXNG config"
+    fi
 
     # Generate OpenClaw configs (if enabled)
     if $ENABLE_OPENCLAW; then
+        openclaw_existed=false
+        [[ -f "${INSTALL_DIR}/data/openclaw/home/openclaw.json" ]] && openclaw_existed=true
         generate_openclaw_config "$INSTALL_DIR" "$LLM_MODEL" "$MAX_CONTEXT" \
-            "$ENV_OPENCLAW_TOKEN" "http://host.docker.internal:8080"
-        ai_ok "Generated OpenClaw configs"
+            "$ENV_OPENCLAW_TOKEN" "http://host.docker.internal:8080" "$FORCE"
+        if $openclaw_existed && ! $FORCE; then
+            ai_ok "Preserved existing OpenClaw config (use --force to regenerate)"
+        else
+            ai_ok "Generated OpenClaw configs"
+        fi
     fi
 
     # Create llama-server models.ini (empty -- populated later)
@@ -351,43 +382,26 @@ else
 
         if [[ -f "$MODEL_PATH" ]]; then
             # Verify integrity if hash is available
-            if [[ -n "$GGUF_SHA256" ]]; then
-                ai "Verifying model integrity (SHA256)..."
-                ACTUAL_HASH=$(shasum -a 256 "$MODEL_PATH" 2>/dev/null | awk '{print $1}')
-                if [[ "$ACTUAL_HASH" == "$GGUF_SHA256" ]]; then
-                    ai_ok "Model verified: ${GGUF_FILE}"
-                else
-                    ai_warn "Model file is corrupt (hash mismatch)."
-                    ai "  Expected: ${GGUF_SHA256}"
-                    ai "  Got:      ${ACTUAL_HASH}"
-                    ai "Removing corrupt file and re-downloading..."
-                    rm -f "$MODEL_PATH"
-                fi
+            if verify_sha256 "$MODEL_PATH" "$GGUF_SHA256" "Model ${GGUF_FILE}"; then
+                ai_ok "Model already present and verified: ${GGUF_FILE}"
             else
-                ai_ok "Model already downloaded: ${GGUF_FILE}"
+                ai "Removing corrupt file and re-downloading..."
+                rm -f "$MODEL_PATH"
             fi
         fi
 
         if [[ ! -f "$MODEL_PATH" ]]; then
-            download_with_progress "$GGUF_URL" "$MODEL_PATH" "Downloading ${GGUF_FILE}" || {
-                ai_err "Model download failed. Re-run the installer to resume."
+            # Download with retry logic (built into download_with_progress)
+            if ! download_with_progress "$GGUF_URL" "$MODEL_PATH" "Downloading ${GGUF_FILE}"; then
+                ai_err "Model download failed after retries. Re-run the installer to try again."
                 exit 1
-            }
+            fi
 
             # Verify freshly downloaded file
-            if [[ -n "$GGUF_SHA256" ]]; then
-                ai "Verifying download integrity (SHA256)..."
-                ACTUAL_HASH=$(shasum -a 256 "$MODEL_PATH" 2>/dev/null | awk '{print $1}')
-                if [[ "$ACTUAL_HASH" == "$GGUF_SHA256" ]]; then
-                    ai_ok "Download verified OK"
-                else
-                    ai_err "Downloaded file is corrupt (SHA256 mismatch)."
-                    ai "  Expected: ${GGUF_SHA256}"
-                    ai "  Got:      ${ACTUAL_HASH}"
-                    rm -f "$MODEL_PATH"
-                    ai_err "Re-run the installer to download again."
-                    exit 1
-                fi
+            if ! verify_sha256 "$MODEL_PATH" "$GGUF_SHA256" "Downloaded ${GGUF_FILE}"; then
+                rm -f "$MODEL_PATH"
+                ai_err "Downloaded file is corrupt. Re-run the installer to try again."
+                exit 1
             fi
         fi
     fi
@@ -501,7 +515,7 @@ else
         while [[ "$WAITED" -lt "$MAX_WAIT" ]]; do
             sleep 2
             WAITED=$((WAITED + 2))
-            if curl -sf http://localhost:8080/health >/dev/null 2>&1; then
+            if curl -sf --max-time 10 http://localhost:8080/health >/dev/null 2>&1; then
                 HEALTHY=true
                 break
             fi
@@ -590,6 +604,12 @@ else
         done
     fi
 
+    # Layer Tier 0 memory overlay for low-RAM machines
+    if [[ "$SELECTED_TIER" == "0" && -f "${INSTALL_DIR}/docker-compose.tier0.yml" ]]; then
+        COMPOSE_FLAGS+=("-f" "docker-compose.tier0.yml")
+        ai "Applying lightweight memory limits for Tier 0"
+    fi
+
     # Docker compose override (user customizations)
     if [[ -f "${INSTALL_DIR}/docker-compose.override.yml" ]]; then
         COMPOSE_FLAGS+=("-f" "docker-compose.override.yml")
@@ -610,11 +630,14 @@ else
     # ── Start Docker services ──
     chapter "STARTING SERVICES"
     ai "Running: docker compose ${COMPOSE_FLAGS[*]} up -d"
+    set +o pipefail  # pipefail would abort on compose exit before PIPESTATUS is read; capture it first
     docker compose "${COMPOSE_FLAGS[@]}" up -d 2>&1 | while IFS= read -r line; do
         echo "  $line"
     done
+    compose_exit="${PIPESTATUS[0]}"
+    set -o pipefail
 
-    if [[ "${PIPESTATUS[0]}" -ne 0 ]]; then
+    if [[ "$compose_exit" -ne 0 ]]; then
         ai_err "docker compose up failed"
         exit 1
     fi
@@ -629,7 +652,7 @@ else
     if [[ ! -x "$OPENCODE_BIN" ]]; then
         ai "Installing OpenCode..."
         tmpfile=$(mktemp /tmp/opencode-install.XXXXXX.sh)
-        if curl -fsSL https://opencode.ai/install -o "$tmpfile" 2>/dev/null && bash "$tmpfile" >> "$DS_LOG_FILE" 2>&1; then
+        if curl -fsSL --max-time 300 https://opencode.ai/install -o "$tmpfile" 2>/dev/null && bash "$tmpfile" >> "$DS_LOG_FILE" 2>&1; then
             ai_ok "OpenCode installed (~/.opencode/bin/opencode)"
         else
             ai_warn "OpenCode install failed — install later with: curl -fsSL https://opencode.ai/install | bash"

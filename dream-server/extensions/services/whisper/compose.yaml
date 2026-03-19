@@ -1,18 +1,21 @@
 services:
   whisper:
-    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    image: ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cpu
     container_name: dream-whisper
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
     environment:
       - WHISPER__TTL=86400
-    entrypoint: ["/app/docker-entrypoint.sh"]
+    # Use a shell wrapper to wait for the bind-mounted entrypoint to
+    # become visible.  On fast compose-up the container can start before
+    # the mount is ready, causing transient "permission denied" errors.
+    entrypoint: ["/bin/sh", "-c", "until [ -x /app/docker-entrypoint.sh ]; do sleep 0.5; done; exec /app/docker-entrypoint.sh"]
     volumes:
       - ./data/whisper:/home/ubuntu/.cache/huggingface/hub
       - ./extensions/services/whisper/docker-entrypoint.sh:/app/docker-entrypoint.sh:ro
     ports:
-      - "${WHISPER_PORT:-9000}:8000"
+      - "127.0.0.1:${WHISPER_PORT:-9000}:8000"
     deploy:
       resources:
         limits:

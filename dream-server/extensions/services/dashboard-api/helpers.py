@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import platform
 import shutil
 import time
 from pathlib import Path
@@ -16,6 +17,33 @@ from config import SERVICES, INSTALL_DIR, DATA_DIR
 from models import ServiceStatus, DiskUsage, ModelInfo, BootstrapStatus
 
 logger = logging.getLogger(__name__)
+
+# --- Shared HTTP sessions (connection pooling) ---
+# Re-using sessions avoids creating/destroying TCP connections every
+# poll cycle and prevents file-descriptor exhaustion.
+
+_aio_session: Optional[aiohttp.ClientSession] = None
+_HEALTH_TIMEOUT = aiohttp.ClientTimeout(total=5)
+
+
+async def _get_aio_session() -> aiohttp.ClientSession:
+    """Return (and lazily create) a module-level aiohttp session."""
+    global _aio_session
+    if _aio_session is None or _aio_session.closed:
+        _aio_session = aiohttp.ClientSession(timeout=_HEALTH_TIMEOUT)
+    return _aio_session
+
+
+# Shared httpx client for llama-server requests (connection pooling)
+_httpx_client: Optional[httpx.AsyncClient] = None
+
+
+async def _get_httpx_client() -> httpx.AsyncClient:
+    """Return (and lazily create) a module-level httpx async client."""
+    global _httpx_client
+    if _httpx_client is None or _httpx_client.is_closed:
+        _httpx_client = httpx.AsyncClient(timeout=5.0)
+    return _httpx_client
 
 
 # --- Token Tracking ---
@@ -30,8 +58,8 @@ def _update_lifetime_tokens(server_counter: float) -> int:
     try:
         if _TOKEN_FILE.exists():
             data = json.loads(_TOKEN_FILE.read_text())
-    except Exception:
-        pass
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("Failed to read token counter file %s: %s", _TOKEN_FILE, e)
 
     prev = data.get("last_server_counter", 0)
     delta = server_counter if server_counter < prev else server_counter - prev
@@ -41,8 +69,8 @@ def _update_lifetime_tokens(server_counter: float) -> int:
 
     try:
         _TOKEN_FILE.write_text(json.dumps(data))
-    except Exception:
-        pass
+    except OSError as e:
+        logger.warning("Failed to write token counter file %s: %s", _TOKEN_FILE, e)
 
     return data["lifetime"]
 
@@ -50,22 +78,26 @@ def _update_lifetime_tokens(server_counter: float) -> int:
 def _get_lifetime_tokens() -> int:
     try:
         return json.loads(_TOKEN_FILE.read_text()).get("lifetime", 0)
-    except Exception:
+    except (json.JSONDecodeError, OSError):
         return 0
 
 
 # --- LLM Metrics ---
 
-async def get_llama_metrics() -> dict:
-    """Get inference metrics from llama-server Prometheus /metrics endpoint."""
+async def get_llama_metrics(model_hint: Optional[str] = None) -> dict:
+    """Get inference metrics from llama-server Prometheus /metrics endpoint.
+
+    Accepts an optional *model_hint* so callers that already resolved the
+    loaded model name can avoid a redundant HTTP round-trip.
+    """
     try:
         host = SERVICES["llama-server"]["host"]
         port = SERVICES["llama-server"]["port"]
-        model_name = await get_loaded_model() or ""
+        model_name = model_hint if model_hint is not None else (await get_loaded_model() or "")
         url = f"http://{host}:{port}/metrics"
         params = {"model": model_name} if model_name else {}
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(url, params=params)
+        client = await _get_httpx_client()
+        resp = await client.get(url, params=params)
 
         metrics = {}
         for line in resp.text.split("\n"):
@@ -89,7 +121,7 @@ async def get_llama_metrics() -> dict:
 
         lifetime = _update_lifetime_tokens(curr)
         return {"tokens_per_second": _prev_tokens["tps"], "lifetime_tokens": lifetime}
-    except Exception as e:
+    except (httpx.HTTPError, httpx.TimeoutException, OSError) as e:
         logger.warning(f"get_llama_metrics failed: {e}")
         return {"tokens_per_second": 0, "lifetime_tokens": _get_lifetime_tokens()}
 
@@ -99,8 +131,8 @@ async def get_loaded_model() -> Optional[str]:
     try:
         host = SERVICES["llama-server"]["host"]
         port = SERVICES["llama-server"]["port"]
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(f"http://{host}:{port}/v1/models")
+        client = await _get_httpx_client()
+        resp = await client.get(f"http://{host}:{port}/v1/models")
         models = resp.json().get("data", [])
         for m in models:
             status = m.get("status", {})
@@ -108,25 +140,30 @@ async def get_loaded_model() -> Optional[str]:
                 return m.get("id")
         if models:
             return models[0].get("id")
-    except Exception:
-        pass
+    except (httpx.HTTPError, httpx.TimeoutException) as e:
+        logger.debug("get_loaded_model failed: %s", e)
     return None
 
 
-async def get_llama_context_size() -> Optional[int]:
-    """Query llama-server /props for the actual n_ctx."""
+async def get_llama_context_size(model_hint: Optional[str] = None) -> Optional[int]:
+    """Query llama-server /props for the actual n_ctx.
+
+    Accepts an optional *model_hint* to skip the redundant
+    ``get_loaded_model()`` call when the caller already has it.
+    """
     try:
         host = SERVICES["llama-server"]["host"]
         port = SERVICES["llama-server"]["port"]
-        loaded = await get_loaded_model()
+        loaded = model_hint if model_hint is not None else await get_loaded_model()
         url = f"http://{host}:{port}/props"
         if loaded:
             url += f"?model={loaded}"
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(url)
+        client = await _get_httpx_client()
+        resp = await client.get(url)
         n_ctx = resp.json().get("default_generation_settings", {}).get("n_ctx")
         return int(n_ctx) if n_ctx else None
-    except Exception:
+    except (httpx.HTTPError, httpx.TimeoutException, ValueError) as e:
+        logger.debug("get_llama_context_size failed: %s", e)
         return None
 
 
@@ -143,17 +180,21 @@ async def check_service_health(service_id: str, config: dict) -> ServiceStatus:
     response_time = None
 
     try:
+        session = await _get_aio_session()
         start = asyncio.get_event_loop().time()
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3)) as session:
-            async with session.get(url) as resp:
-                response_time = (asyncio.get_event_loop().time() - start) * 1000
-                status = "healthy" if resp.status < 500 else "unhealthy"
+        async with session.get(url) as resp:
+            response_time = (asyncio.get_event_loop().time() - start) * 1000
+            status = "healthy" if resp.status < 400 else "unhealthy"
+    except asyncio.TimeoutError:
+        # Service is reachable but slow — report degraded rather than down
+        # to avoid false "offline" flashes during startup or heavy load.
+        status = "degraded"
     except aiohttp.ClientConnectorError as e:
         if "Name or service not known" in str(e) or "nodename nor servname" in str(e):
             status = "not_deployed"
         else:
             status = "down"
-    except Exception as e:
+    except (aiohttp.ClientError, OSError) as e:
         logger.debug(f"Health check failed for {service_id} at {url}: {e}")
         status = "down"
 
@@ -172,14 +213,14 @@ async def _check_host_service_health(service_id: str, config: dict) -> ServiceSt
     status = "down"
     response_time = None
     try:
+        session = await _get_aio_session()
         start = asyncio.get_event_loop().time()
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3)) as session:
-            async with session.get(url) as resp:
-                response_time = (asyncio.get_event_loop().time() - start) * 1000
-                status = "healthy" if resp.status < 500 else "unhealthy"
+        async with session.get(url) as resp:
+            response_time = (asyncio.get_event_loop().time() - start) * 1000
+            status = "healthy" if resp.status < 400 else "unhealthy"
     except aiohttp.ClientConnectorError:
         status = "down"
-    except Exception as e:
+    except (aiohttp.ClientError, OSError) as e:
         logger.debug(f"Host health check failed for {service_id} at {url}: {e}")
         status = "down"
     return ServiceStatus(
@@ -190,9 +231,26 @@ async def _check_host_service_health(service_id: str, config: dict) -> ServiceSt
 
 
 async def get_all_services() -> list[ServiceStatus]:
-    """Get all service health statuses."""
+    """Get all service health statuses.
+
+    Uses ``return_exceptions=True`` so that one misbehaving service
+    cannot take down the entire status response.
+    """
     tasks = [check_service_health(sid, cfg) for sid, cfg in SERVICES.items()]
-    return await asyncio.gather(*tasks)
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    statuses: list[ServiceStatus] = []
+    for (sid, cfg), result in zip(SERVICES.items(), results):
+        if isinstance(result, BaseException):
+            logger.warning("Health check for %s raised %s: %s", sid, type(result).__name__, result)
+            statuses.append(ServiceStatus(
+                id=sid, name=cfg["name"], port=cfg["port"],
+                external_port=cfg.get("external_port", cfg["port"]),
+                status="down", response_time_ms=None,
+            ))
+        else:
+            statuses.append(result)
+    return statuses
 
 
 # --- System Metrics ---
@@ -214,17 +272,18 @@ def get_model_info() -> Optional[ModelInfo]:
                     if line.startswith("LLM_MODEL="):
                         model_name = line.split("=", 1)[1].strip().strip('"\'')
                         size_gb, context, quant = 15.0, 32768, None
+                        import re as _re
                         name_lower = model_name.lower()
-                        if "7b" in name_lower: size_gb = 4.0
-                        elif "14b" in name_lower: size_gb = 8.0
-                        elif "32b" in name_lower: size_gb = 16.0
-                        elif "70b" in name_lower: size_gb = 35.0
+                        if _re.search(r'\b7b\b', name_lower): size_gb = 4.0
+                        elif _re.search(r'\b14b\b', name_lower): size_gb = 8.0
+                        elif _re.search(r'\b32b\b', name_lower): size_gb = 16.0
+                        elif _re.search(r'\b70b\b', name_lower): size_gb = 35.0
                         if "awq" in name_lower: quant = "AWQ"
                         elif "gptq" in name_lower: quant = "GPTQ"
                         elif "gguf" in name_lower: quant = "GGUF"
                         return ModelInfo(name=model_name, size_gb=size_gb, context_length=context, quantization=quant)
-        except Exception:
-            pass
+        except OSError as e:
+            logger.warning("Failed to read .env for model info: %s", e)
     return None
 
 
@@ -275,21 +334,41 @@ def get_bootstrap_status() -> BootstrapStatus:
             speed_mbps=speed_bps / (1024**2) if speed_bps else None,
             eta_seconds=eta_seconds
         )
-    except Exception:
+    except (json.JSONDecodeError, OSError, KeyError) as e:
+        logger.warning("Failed to parse bootstrap status: %s", e)
         return BootstrapStatus(active=False)
 
 
 def get_uptime() -> int:
-    """Get system uptime in seconds."""
+    """Get system uptime in seconds (cross-platform)."""
+    _system = platform.system()
+    import subprocess
     try:
-        with open("/proc/uptime") as f:
-            return int(float(f.read().split()[0]))
-    except Exception:
-        return 0
+        if _system == "Linux":
+            with open("/proc/uptime") as f:
+                return int(float(f.read().split()[0]))
+        elif _system == "Darwin":
+            result = subprocess.run(
+                ["sysctl", "-n", "kern.boottime"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0:
+                # Output: "{ sec = 1234567890, usec = 0 } ..."
+                import re
+                match = re.search(r"sec\s*=\s*(\d+)", result.stdout)
+                if match:
+                    import time as _time
+                    return int(_time.time()) - int(match.group(1))
+        elif _system == "Windows":
+            import ctypes
+            return ctypes.windll.kernel32.GetTickCount64() // 1000
+    except (OSError, subprocess.SubprocessError, ValueError, AttributeError) as e:
+        logger.debug("get_uptime failed on %s: %s", _system, e)
+    return 0
 
 
-def get_cpu_metrics() -> dict:
-    """Get CPU usage percentage and temperature."""
+def _get_cpu_metrics_linux() -> dict:
+    """Get CPU usage from /proc/stat (Linux only)."""
     result = {"percent": 0, "temp_c": None}
     try:
         with open("/proc/stat") as f:
@@ -305,8 +384,8 @@ def get_cpu_metrics() -> dict:
             get_cpu_metrics._prev = (idle, total)
             if d_total > 0:
                 result["percent"] = round((1 - d_idle / d_total) * 100, 1)
-    except Exception:
-        pass
+    except OSError as e:
+        logger.debug("Failed to read /proc/stat: %s", e)
 
     try:
         import glob
@@ -325,13 +404,42 @@ def get_cpu_metrics() -> dict:
                     with open(hwmon.replace("/name", "/temp1_input")) as f:
                         result["temp_c"] = int(f.read().strip()) // 1000
                     break
-    except Exception:
-        pass
+    except OSError as e:
+        logger.debug("Failed to read CPU temperature: %s", e)
     return result
 
 
-def get_ram_metrics() -> dict:
-    """Get RAM usage from /proc/meminfo."""
+def _get_cpu_metrics_darwin() -> dict:
+    """Get CPU usage on macOS via host_processor_info."""
+    result = {"percent": 0, "temp_c": None}
+    try:
+        import subprocess
+        out = subprocess.run(
+            ["top", "-l", "1", "-n", "0", "-stats", "cpu"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if out.returncode == 0:
+            import re
+            match = re.search(r"CPU usage:\s+([\d.]+)%\s+user.*?([\d.]+)%\s+sys", out.stdout)
+            if match:
+                result["percent"] = round(float(match.group(1)) + float(match.group(2)), 1)
+    except (subprocess.SubprocessError, OSError, ValueError) as e:
+        logger.debug("macOS CPU metrics failed: %s", e)
+    return result
+
+
+def get_cpu_metrics() -> dict:
+    """Get CPU usage percentage and temperature (cross-platform)."""
+    _system = platform.system()
+    if _system == "Linux":
+        return _get_cpu_metrics_linux()
+    elif _system == "Darwin":
+        return _get_cpu_metrics_darwin()
+    return {"percent": 0, "temp_c": None}
+
+
+def _get_ram_metrics_linux() -> dict:
+    """Get RAM usage from /proc/meminfo (Linux only)."""
     result = {"used_gb": 0, "total_gb": 0, "percent": 0}
     try:
         meminfo = {}
@@ -347,6 +455,67 @@ def get_ram_metrics() -> dict:
         result["used_gb"] = round(used / (1024 * 1024), 1)
         if total > 0:
             result["percent"] = round(used / total * 100, 1)
-    except Exception:
-        pass
+        # On Apple Silicon, override total_gb with the host's actual RAM
+        host_ram_gb_str = os.environ.get("HOST_RAM_GB", "")
+        gpu_backend = os.environ.get("GPU_BACKEND", "").lower()
+        if gpu_backend == "apple" and host_ram_gb_str:
+            try:
+                host_ram_gb = float(host_ram_gb_str)
+                if host_ram_gb > 0:
+                    result["total_gb"] = round(host_ram_gb, 1)
+                    result["percent"] = round(used / (host_ram_gb * 1024 * 1024) * 100, 1)
+            except ValueError:
+                pass
+    except OSError as e:
+        logger.debug("Failed to read /proc/meminfo: %s", e)
     return result
+
+
+def _get_ram_metrics_sysctl() -> dict:
+    """Get RAM usage on macOS via sysctl."""
+    result = {"used_gb": 0, "total_gb": 0, "percent": 0}
+    try:
+        import subprocess
+        out = subprocess.run(
+            ["sysctl", "-n", "hw.memsize"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if out.returncode == 0:
+            total_bytes = int(out.stdout.strip())
+            total_gb = total_bytes / (1024 ** 3)
+            result["total_gb"] = round(total_gb, 1)
+            # vm_stat for used memory
+            vm = subprocess.run(
+                ["vm_stat"], capture_output=True, text=True, timeout=5,
+            )
+            if vm.returncode == 0:
+                import re
+                pages = {}
+                for line in vm.stdout.splitlines():
+                    match = re.match(r"(.+?):\s+(\d+)", line)
+                    if match:
+                        pages[match.group(1).strip()] = int(match.group(2))
+                page_size = 16384  # default on Apple Silicon
+                ps_match = re.search(r"page size of (\d+) bytes", vm.stdout)
+                if ps_match:
+                    page_size = int(ps_match.group(1))
+                active = pages.get("Pages active", 0)
+                wired = pages.get("Pages wired down", 0)
+                compressed = pages.get("Pages occupied by compressor", 0)
+                used_bytes = (active + wired + compressed) * page_size
+                result["used_gb"] = round(used_bytes / (1024 ** 3), 1)
+                if total_bytes > 0:
+                    result["percent"] = round(used_bytes / total_bytes * 100, 1)
+    except (subprocess.SubprocessError, OSError, ValueError) as e:
+        logger.debug("macOS RAM metrics failed: %s", e)
+    return result
+
+
+def get_ram_metrics() -> dict:
+    """Get RAM usage (cross-platform)."""
+    _system = platform.system()
+    if _system == "Linux":
+        return _get_ram_metrics_linux()
+    elif _system == "Darwin":
+        return _get_ram_metrics_sysctl()
+    return {"used_gb": 0, "total_gb": 0, "percent": 0}

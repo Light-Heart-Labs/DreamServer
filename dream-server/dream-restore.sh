@@ -25,6 +25,68 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 log_step() { echo -e "${CYAN}[STEP]${NC} $*"; }
 
+# Source shared rsync utilities
+. "$DREAM_DIR/lib/rsync.sh"
+
+# Convert bytes to a human-friendly string (best-effort)
+fmt_bytes() {
+    local bytes="${1:-0}"
+    if command -v numfmt >/dev/null 2>&1; then
+        numfmt --to=iec --suffix=B "$bytes" 2>/dev/null || echo "${bytes}B"
+    else
+        local mib=$(( (bytes + 1048575) / 1048576 ))
+        echo "${mib}MiB"
+    fi
+}
+
+# Available bytes on filesystem containing a path
+free_bytes_for_path() {
+    local path="$1"
+    df -Pk "$path" 2>/dev/null | awk 'NR==2 { print $4 * 1024 }'
+}
+
+# Estimate the backup size on disk (uncompressed)
+estimate_restore_bytes_dir() {
+    local backup_dir="$1"
+    du -sk "$backup_dir" 2>/dev/null | awk '{print $1 * 1024}'
+}
+
+# Estimate restore size for a tar.gz (uncompressed file sizes)
+estimate_restore_bytes_tar() {
+    local tar_path="$1"
+    # tar -tv lists size in column 3
+    tar -tvzf "$tar_path" 2>/dev/null | awk '{sum += $3} END {print sum+0}'
+}
+
+ensure_restore_space() {
+    local backup_id="$1"
+
+    local compressed="$BACKUP_ROOT/$backup_id.tar.gz"
+    local uncompressed="$BACKUP_ROOT/$backup_id"
+
+    local need=""
+    if [[ -d "$uncompressed" ]]; then
+        need=$(estimate_restore_bytes_dir "$uncompressed")
+    elif [[ -f "$compressed" ]]; then
+        need=$(estimate_restore_bytes_tar "$compressed")
+    fi
+
+    # Best-effort only
+    [[ -n "$need" && "$need" -gt 0 ]] || return 0
+
+    local free
+    free=$(free_bytes_for_path "$DREAM_DIR")
+
+    if [[ -n "$free" && "$free" -gt 0 && "$free" -lt "$need" ]]; then
+        log_error "Not enough disk space to restore into: $DREAM_DIR"
+        log_error "Need ~$(fmt_bytes "$need"), have ~$(fmt_bytes "$free")."
+        log_error "Free up space or restore to a different location (set DREAM_DIR)."
+        return 1
+    fi
+
+    return 0
+}
+
 # Show usage
 usage() {
     cat << EOF
@@ -40,6 +102,7 @@ OPTIONS:
     -s, --stop-containers   Stop containers before restore (recommended)
     --data-only             Restore only user data, not config
     --config-only           Restore only config, not user data
+    --skip-verify           Skip checksum verification (NOT RECOMMENDED)
 
 BACKUP_ID:
     The backup identifier to restore from (e.g., 20260212-071500)
@@ -150,9 +213,18 @@ extract_backup() {
     fi
 
     if [[ -f "$compressed" ]]; then
+        # Validate: reject archives with absolute paths or path traversal
+        if tar -tzf "$compressed" 2>/dev/null | grep -qE '(^/|\.\./)'; then
+            log_error "Backup archive contains unsafe paths (absolute or ../) — refusing to extract"
+            return 1
+        fi
         log_info "Extracting compressed backup..."
         mkdir -p "$uncompressed"
-        tar xzf "$compressed" -C "$BACKUP_ROOT"
+        if ! tar xzf "$compressed" --no-same-owner -C "$BACKUP_ROOT"; then
+            log_error "Failed to extract backup archive"
+            rm -rf "$uncompressed"
+            return 1
+        fi
         echo "$uncompressed"
         return 0
     fi
@@ -164,6 +236,7 @@ extract_backup() {
 # Validate backup
 validate_backup() {
     local backup_dir="$1"
+    local skip_checksum="${2:-false}"
     local manifest="$backup_dir/manifest.json"
 
     log_step "Validating backup..."
@@ -189,6 +262,71 @@ validate_backup() {
     grep -E '"(backup_date|backup_type|dream_version|description)"' "$manifest" | \
         sed 's/^[[:space:]]*/  /' | sed 's/"//g' | sed 's/,//'
     echo ""
+
+    # Verify checksums (CRITICAL SECURITY CHECK)
+    if [[ "$skip_checksum" != "true" ]]; then
+        local checksum_file="$backup_dir/checksums.sha256"
+        if [[ -f "$checksum_file" ]]; then
+            log_info "Verifying backup integrity (SHA256)..."
+
+            local verify_cmd=""
+            if command -v sha256sum >/dev/null 2>&1; then
+                verify_cmd="sha256sum -c"
+            elif command -v shasum >/dev/null 2>&1; then
+                verify_cmd="shasum -a 256 -c"
+            else
+                log_warn "Neither sha256sum nor shasum available, skipping checksum verification"
+                log_warn "Use --skip-verify to suppress this warning"
+            fi
+
+            if [[ -n "$verify_cmd" ]]; then
+                (
+                    cd "$backup_dir"
+                    if $verify_cmd "checksums.sha256" >/dev/null 2>&1; then
+                        log_success "Backup integrity verified (all checksums match)"
+                    else
+                        log_error "Backup integrity check FAILED - checksums do not match"
+                        log_error "This backup may be corrupted or tampered with"
+                        log_error "Use --skip-verify to restore anyway (NOT RECOMMENDED)"
+                        return 1
+                    fi
+                )
+                if [[ $? -ne 0 ]]; then
+                    return 1
+                fi
+            fi
+        else
+            log_warn "No checksums.sha256 found in backup (older backup format)"
+            log_warn "Cannot verify backup integrity - proceed with caution"
+        fi
+    else
+        log_warn "Checksum verification SKIPPED (--skip-verify flag used)"
+    fi
+
+    # Warn if backup looks partial / missing common paths.
+    # (Informational only; older/minimal backups are still valid.)
+    local -a expected_data=(
+        "data/open-webui"
+        "data/n8n"
+        "data/qdrant"
+        "data/openclaw"
+        "data/litellm"
+        "data/livekit"
+        "data/ollama"
+    )
+
+    local missing_any=false
+    for p in "${expected_data[@]}"; do
+        if [[ ! -d "$backup_dir/$p" ]]; then
+            missing_any=true
+            break
+        fi
+    done
+
+    if [[ "$missing_any" == "true" ]]; then
+        log_warn "This backup does not contain some common data directories."
+        log_warn "That may be normal (services not used), but restore will be partial for missing paths."
+    fi
 
     log_success "Backup validated"
     return 0
@@ -220,10 +358,10 @@ dry_run_preview() {
     if [[ "$restore_config" == "true" ]]; then
         echo "Config Files to Restore:"
         echo "───────────────────────────────────────────────────────────────────"
-        local config_files=(".env" "docker-compose.yml" ".version")
-        for file in "${config_files[@]}"; do
-            if [[ -f "$backup_dir/$file" ]]; then
-                echo "  ✓ $file"
+        # Dynamically discover config files (dotfiles + compose overlays + scripts)
+        for file in "$backup_dir"/.env "$backup_dir"/.version "$backup_dir"/docker-compose*.y*ml "$backup_dir"/dream-*.sh; do
+            if [[ -f "$file" ]]; then
+                echo "  ✓ $(basename "$file")"
             fi
         done
         if [[ -d "$backup_dir/config" ]]; then
@@ -259,15 +397,23 @@ restore_user_data() {
 
     local data_dirs=("data/open-webui" "data/n8n" "data/qdrant" "data/openclaw" "data/litellm" "data/livekit" "data/ollama")
 
+    local restored_any=false
     for dir in "${data_dirs[@]}"; do
         if [[ -d "$backup_dir/$dir" ]]; then
+            restored_any=true
             mkdir -p "$DREAM_DIR/$(dirname "$dir")"
             # Note: Using -a without --delete to preserve any new files created after backup
             # Use --force flag or manually delete target if you need exact restoration
-            rsync -a "$backup_dir/$dir" "$DREAM_DIR/$(dirname "$dir")/"
+            rsync_with_progress "$backup_dir/$dir" "$DREAM_DIR/$(dirname "$dir")/" "Restoring $dir"
             log_success "Restored: $dir"
+        else
+            log_warn "Skipped (not in backup): $dir"
         fi
     done
+
+    if [[ "$restored_any" == "false" ]]; then
+        log_warn "No user data directories were found in this backup."
+    fi
 }
 
 # Restore configuration
@@ -275,21 +421,30 @@ restore_config() {
     local backup_dir="$1"
     log_step "Restoring configuration..."
 
-    local config_files=(".env" "docker-compose.yml" ".version" "dream-preflight.sh" "dream-update.sh")
+    local restored_any=false
 
-    for file in "${config_files[@]}"; do
-        if [[ -f "$backup_dir/$file" ]]; then
-            cp "$backup_dir/$file" "$DREAM_DIR/"
-            log_success "Restored: $file"
+    # Dynamically discover config files (dotfiles + compose overlays + scripts)
+    for file in "$backup_dir"/.env "$backup_dir"/.version "$backup_dir"/docker-compose*.y*ml "$backup_dir"/dream-*.sh; do
+        if [[ -f "$file" ]]; then
+            restored_any=true
+            cp "$file" "$DREAM_DIR/"
+            log_success "Restored: $(basename "$file")"
         fi
     done
 
     if [[ -d "$backup_dir/config" ]]; then
+        restored_any=true
         if [[ -d "$DREAM_DIR/config" ]]; then
             rm -rf "$DREAM_DIR/config"
         fi
         cp -r "$backup_dir/config" "$DREAM_DIR/"
         log_success "Restored: config/"
+    else
+        log_warn "Skipped (not in backup): config/"
+    fi
+
+    if [[ "$restored_any" == "false" ]]; then
+        log_warn "No configuration files were found in this backup."
     fi
 }
 
@@ -300,13 +455,19 @@ verify_restore() {
     local all_good=true
 
     # Check critical paths
-    local critical_paths=("data/open-webui" "docker-compose.yml")
-    for path in "${critical_paths[@]}"; do
-        if [[ ! -e "$DREAM_DIR/$path" ]]; then
-            log_warn "Missing after restore: $path"
-            all_good=false
-        fi
+    # Check that at least one compose file exists (base or standalone)
+    local has_compose=false
+    for f in "$DREAM_DIR"/docker-compose*.y*ml; do
+        [[ -f "$f" ]] && has_compose=true && break
     done
+    if [[ "$has_compose" == "false" ]]; then
+        log_warn "Missing after restore: no docker-compose*.yml files found"
+        all_good=false
+    fi
+    if [[ ! -d "$DREAM_DIR/data/open-webui" ]]; then
+        log_warn "Missing after restore: data/open-webui"
+        all_good=false
+    fi
 
     if [[ "$all_good" == "true" ]]; then
         log_success "Restore verification passed"
@@ -325,15 +486,21 @@ do_restore() {
     local stop_first="$4"
     local restore_data="$5"
     local restore_config="$6"
+    local skip_verify="$7"
 
     log_info "Starting restore from backup: $backup_id"
+
+    # Disk space preflight (best-effort)
+    if ! ensure_restore_space "$backup_id"; then
+        return 1
+    fi
 
     # Extract if compressed
     local backup_dir
     backup_dir=$(extract_backup "$backup_id")
 
-    # Validate backup
-    if ! validate_backup "$backup_dir"; then
+    # Validate backup (with optional checksum verification)
+    if ! validate_backup "$backup_dir" "$skip_verify"; then
         log_error "Backup validation failed"
         return 1
     fi
@@ -347,10 +514,11 @@ do_restore() {
     # Confirmation
     if [[ "$force" != "true" ]]; then
         echo ""
-        log_warn "⚠️  This will OVERWRITE current Dream Server data!"
+        log_warn "This will copy backup data into: $DREAM_DIR"
+        log_warn "Existing files may be overwritten."
         echo ""
-        read -rp "Are you sure you want to continue? [y/N] " confirm
-        if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        read -rp "Type the backup ID ('$backup_id') to continue, or press Enter to cancel: " confirm
+        if [[ "$confirm" != "$backup_id" ]]; then
             log_info "Restore cancelled"
             return 0
         fi
@@ -390,6 +558,7 @@ main() {
     local restore_data="true"
     local restore_config="true"
     local list_mode="false"
+    local skip_verify="false"
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -415,11 +584,17 @@ main() {
                 shift
                 ;;
             --data-only)
+                restore_data="true"
                 restore_config="false"
                 shift
                 ;;
             --config-only)
                 restore_data="false"
+                restore_config="true"
+                shift
+                ;;
+            --skip-verify)
+                skip_verify="true"
                 shift
                 ;;
             -*)
@@ -448,7 +623,12 @@ main() {
     fi
 
     # Check if running in Dream Server directory
-    if [[ ! -f "$DREAM_DIR/docker-compose.yml" && ! -d "$DREAM_DIR/data" ]]; then
+    # Check for any compose file (standalone or overlay) or data directory
+    local has_compose=false
+    for f in "$DREAM_DIR"/docker-compose*.y*ml; do
+        [[ -f "$f" ]] && has_compose=true && break
+    done
+    if [[ "$has_compose" == "false" && ! -d "$DREAM_DIR/data" ]]; then
         log_warn "This doesn't appear to be a Dream Server directory"
         log_warn "Expected: docker-compose.yml or data/ directory"
         read -rp "Continue anyway? [y/N] " confirm
@@ -458,7 +638,7 @@ main() {
     fi
 
     # Perform restore
-    do_restore "$backup_id" "$force" "$dry_run" "$stop_first" "$restore_data" "$restore_config"
+    do_restore "$backup_id" "$force" "$dry_run" "$stop_first" "$restore_data" "$restore_config" "$skip_verify"
 }
 
 main "$@"

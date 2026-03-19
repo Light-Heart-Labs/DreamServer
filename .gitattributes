@@ -1,0 +1,17 @@
+# Force LF line endings for all shell scripts and Docker-mounted files.
+# Windows Git's core.autocrlf converts LF→CRLF on checkout, which breaks
+# shell shebangs inside Linux Docker containers (kernel reads #!/bin/sh\r
+# and fails with "no such file or directory").
+*.sh text eol=lf
+*.bash text eol=lf
+Dockerfile* text eol=lf
+docker-entrypoint* text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+*.env text eol=lf
+
+# PowerShell scripts can use CRLF (native Windows)
+*.ps1 text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf

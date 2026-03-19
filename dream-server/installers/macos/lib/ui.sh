@@ -67,22 +67,89 @@ show_dream_banner() {
     echo ""
 }
 
-# Download with curl and resume support
+# Download with curl, resume support, and retry logic
 download_with_progress() {
     local url="$1"
     local destination="$2"
     local label="${3:-Downloading}"
+    local max_retries="${4:-3}"
 
-    ai "${label}..."
     local part_file="${destination}.part"
-    if curl -C - -L --progress-bar -o "$part_file" "$url"; then
-        mv "$part_file" "$destination"
-        ai_ok "${label} complete"
+    local attempt=1
+
+    while [[ $attempt -le $max_retries ]]; do
+        if [[ $attempt -gt 1 ]]; then
+            local wait_time=$((2 ** (attempt - 1)))  # Exponential backoff: 2, 4, 8 seconds
+            ai "Retry attempt $attempt of $max_retries (waiting ${wait_time}s)..."
+            sleep $wait_time
+        else
+            ai "${label}..."
+        fi
+
+        if curl -C - -L --progress-bar \
+            --connect-timeout 10 \
+            --speed-time 30 --speed-limit 10240 \
+            -o "$part_file" "$url"; then
+            mv "$part_file" "$destination"
+            ai_ok "${label} complete"
+            return 0
+        else
+            local rc=$?
+            if [[ $attempt -eq $max_retries ]]; then
+                ai_err "${label} failed after $max_retries attempts (curl exit code: ${rc})"
+                ai "Re-run the installer to resume the download."
+                return 1
+            else
+                ai_warn "${label} failed (attempt $attempt/$max_retries, curl exit code: ${rc})"
+            fi
+        fi
+
+        attempt=$((attempt + 1))
+    done
+}
+
+# Verify file integrity using SHA256 checksum
+verify_sha256() {
+    local file_path="$1"
+    local expected_hash="$2"
+    local label="${3:-File}"
+
+    if [[ ! -f "$file_path" ]]; then
+        ai_err "${label} not found: $file_path"
+        return 1
+    fi
+
+    if [[ -z "$expected_hash" ]]; then
+        ai_warn "No SHA256 hash provided for ${label}, skipping verification"
+        return 0
+    fi
+
+    ai "Verifying ${label} integrity (SHA256)..."
+
+    local actual_hash
+    if command -v shasum &>/dev/null; then
+        # macOS native shasum
+        actual_hash=$(shasum -a 256 "$file_path" 2>/dev/null | awk '{print $1}')
+    elif command -v sha256sum &>/dev/null; then
+        # GNU coreutils (if installed via Homebrew)
+        actual_hash=$(sha256sum "$file_path" 2>/dev/null | awk '{print $1}')
+    else
+        ai_warn "Neither shasum nor sha256sum available, skipping verification"
+        return 0
+    fi
+
+    if [[ -z "$actual_hash" ]]; then
+        ai_warn "Could not compute checksum for ${label}"
+        return 2
+    fi
+
+    if [[ "$actual_hash" == "$expected_hash" ]]; then
+        ai_ok "${label} verified OK"
         return 0
     else
-        local rc=$?
-        ai_err "${label} failed (curl exit code: ${rc})"
-        ai "Re-run the installer to resume the download."
+        ai_err "${label} is corrupt (SHA256 mismatch)"
+        ai "  Expected: $expected_hash"
+        ai "  Got:      $actual_hash"
         return 1
     fi
 }

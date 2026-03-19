@@ -17,6 +17,9 @@
 
 set -euo pipefail
 
+# Prerequisites
+command -v jq >/dev/null 2>&1 || { echo "Error: jq is required but not installed." >&2; exit 1; }
+
 # Configuration
 DREAM_DIR="${DREAM_DIR:-$HOME/dream-server}"
 MODELS_DIR="${MODELS_DIR:-$DREAM_DIR/models}"
@@ -24,14 +27,14 @@ STATE_FILE="$DREAM_DIR/model-state.json"
 BACKUP_FILE="$DREAM_DIR/model-state.backup.json"
 LOG_FILE="$DREAM_DIR/upgrade-model.log"
 
-LLAMA_SERVER_PORT="${LLAMA_SERVER_PORT:-8080}"
+OLLAMA_PORT="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-11434}}"
 LLAMA_SERVER_CONTAINER="${LLAMA_SERVER_CONTAINER:-dream-llama-server}"
 
 HEALTH_CHECK_TIMEOUT=120  # seconds
 HEALTH_CHECK_INTERVAL=5   # seconds
 
 INFERENCE_SERVICE="llama-server"
-INFERENCE_PORT="$LLAMA_SERVER_PORT"
+INFERENCE_PORT="$OLLAMA_PORT"
 INFERENCE_CONTAINER="$LLAMA_SERVER_CONTAINER"
 MODEL_ENV_KEY="LLM_MODEL"
 
@@ -67,7 +70,7 @@ resolve_inference_runtime() {
         INFERENCE_SERVICE="llama-server"
     fi
 
-    INFERENCE_PORT="$LLAMA_SERVER_PORT"
+    INFERENCE_PORT="$OLLAMA_PORT"
     INFERENCE_CONTAINER="$LLAMA_SERVER_CONTAINER"
     MODEL_ENV_KEY="LLM_MODEL"
 }
@@ -85,25 +88,29 @@ NC='\033[0m'
 #-----------------------------------------------------------------------------
 
 log() {
-    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+    local msg
+    msg="[$(date '+%Y-%m-%d %H:%M:%S')] $1"
     echo "$msg" >> "$LOG_FILE"
     echo -e "${BLUE}[INFO]${NC} $1"
 }
 
 success() {
-    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] SUCCESS: $1"
+    local msg
+    msg="[$(date '+%Y-%m-%d %H:%M:%S')] SUCCESS: $1"
     echo "$msg" >> "$LOG_FILE"
     echo -e "${GREEN}[OK]${NC} $1"
 }
 
 warn() {
-    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] WARN: $1"
+    local msg
+    msg="[$(date '+%Y-%m-%d %H:%M:%S')] WARN: $1"
     echo "$msg" >> "$LOG_FILE"
     echo -e "${YELLOW}[WARN]${NC} $1"
 }
 
 error() {
-    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $1"
+    local msg
+    msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $1"
     echo "$msg" >> "$LOG_FILE"
     echo -e "${RED}[ERROR]${NC} $1" >&2
 }
@@ -140,16 +147,14 @@ save_state() {
     # Backup current state
     [[ -f "$STATE_FILE" ]] && cp "$STATE_FILE" "$BACKUP_FILE"
     
-    cat > "$STATE_FILE" << EOF
-{
-    "current": "$current",
-    "previous": "$previous",
-    "updatedAt": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
-    "history": [
-        {"model": "$current", "activatedAt": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"}
-    ]
-}
-EOF
+    jq -n         --arg cur "$current"         --arg prev "$previous"         --arg ts "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"         '{
+            current: $cur,
+            previous: $prev,
+            updatedAt: $ts,
+            history: [
+                {model: $cur, activatedAt: $ts}
+            ]
+        }' > "$STATE_FILE"
 }
 
 #-----------------------------------------------------------------------------
@@ -159,7 +164,7 @@ EOF
 check_llm_health() {
     resolve_inference_runtime
     local response
-    response=$(curl -s -o /dev/null -w "%{http_code}" \
+    response=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
         "http://${LLM_HOST:-localhost}:${INFERENCE_PORT}/health" 2>/dev/null || echo "000")
     [[ "$response" == "200" ]]
 }
@@ -189,9 +194,9 @@ wait_for_llm() {
 test_inference() {
     resolve_inference_runtime
     log "Testing inference..."
-    
+
     local response
-    response=$(curl -s "http://${LLM_HOST:-localhost}:${INFERENCE_PORT}/v1/models" 2>/dev/null || echo "")
+    response=$(curl -s --max-time 10 "http://${LLM_HOST:-localhost}:${INFERENCE_PORT}/v1/models" 2>/dev/null || echo "")
     
     if echo "$response" | grep -q '"data"'; then
         success "Inference test passed"
@@ -235,7 +240,10 @@ start_llm() {
     if [[ -f "$env_file" ]]; then
         # Update active model env key for detected inference backend.
         if grep -q "^${MODEL_ENV_KEY}=" "$env_file"; then
-            sed -i "s|^${MODEL_ENV_KEY}=.*|${MODEL_ENV_KEY}=$model|" "$env_file"
+            # Use awk index() instead of sed to avoid delimiter collisions
+            awk -v k="$MODEL_ENV_KEY" -v v="$model" '{
+                if (index($0, k "=") == 1) print k "=" v; else print
+            }' "$env_file" > "${env_file}.tmp" && mv "${env_file}.tmp" "$env_file"
         else
             echo "${MODEL_ENV_KEY}=$model" >> "$env_file"
         fi
@@ -267,9 +275,10 @@ cmd_list() {
     if [[ -d "$MODELS_DIR" ]]; then
         for model_dir in "$MODELS_DIR"/*/; do
             if [[ -f "${model_dir}config.json" ]]; then
-                local model_name=$(basename "$model_dir")
-                local size=$(du -sh "$model_dir" 2>/dev/null | cut -f1)
-                local current=$(get_current_model)
+                local model_name size current
+                model_name=$(basename "$model_dir")
+                size=$(du -sh "$model_dir" 2>/dev/null | cut -f1)
+                current=$(get_current_model)
                 
                 if [[ "$model_name" == "$current" ]]; then
                     echo -e "  ${GREEN}● $model_name${NC} ($size) [ACTIVE]"
@@ -440,7 +449,7 @@ Examples:
 
 Environment Variables:
   MODELS_DIR             Models directory (default: $MODELS_DIR)
-  LLAMA_SERVER_PORT      llama-server port (default: 8080)
+  OLLAMA_PORT            llama-server port (default: 11434)
   LLAMA_SERVER_CONTAINER Docker container name (default: dream-llama-server)
 
 EOF

@@ -19,6 +19,9 @@
 #   The fix_nvidia_secure_boot() function handles Secure Boot key enrollment.
 # ============================================================================
 
+# Safe env loading (no eval) for script output KEY="value" lines
+[[ -f "${SCRIPT_DIR:-}/lib/safe-env.sh" ]] && . "${SCRIPT_DIR}/lib/safe-env.sh"
+
 load_capability_profile() {
     CAP_PROFILE_LOADED="false"
     local builder="$SCRIPT_DIR/scripts/build-capability-profile.sh"
@@ -29,7 +32,7 @@ load_capability_profile() {
 
     local env_out
     if env_out="$("$builder" --output "$CAPABILITY_PROFILE_FILE" --env 2>>"$LOG_FILE")"; then
-        eval "$env_out"
+        load_env_from_output <<< "$env_out"
         CAP_PROFILE_LOADED="true"
         log "Capability profile loaded: ${CAP_PROFILE_FILE:-$CAPABILITY_PROFILE_FILE}"
         log "Capability profile: platform=${CAP_PLATFORM_ID:-unknown}, gpu=${CAP_GPU_VENDOR:-unknown}, tier=${CAP_RECOMMENDED_TIER:-unknown}"
@@ -43,11 +46,12 @@ load_capability_profile() {
 
 normalize_profile_tier() {
     case "$1" in
+        T0) echo "0" ;;
         T1) echo "1" ;;
         T2) echo "2" ;;
         T3) echo "3" ;;
         T4) echo "4" ;;
-        NV_ULTRA|SH_LARGE|SH_COMPACT) echo "$1" ;;
+        NV_ULTRA|SH_LARGE|SH_COMPACT|ARC|ARC_LITE) echo "$1" ;;
         *) echo "" ;;
     esac
 }
@@ -57,7 +61,9 @@ tier_rank() {
         NV_ULTRA|SH_LARGE) echo 5 ;;
         4) echo 4 ;;
         SH_COMPACT|3) echo 3 ;;
-        2) echo 2 ;;
+        ARC|2) echo 2 ;;
+        ARC_LITE|1) echo 1 ;;
+        0) echo 0 ;;
         *) echo 1 ;;
     esac
 }
@@ -72,7 +78,7 @@ load_backend_contract() {
     fi
     local env_out
     if env_out="$("$loader" --backend "$backend" --env 2>>"$LOG_FILE")"; then
-        eval "$env_out"
+        load_env_from_output <<< "$env_out"
         BACKEND_CONTRACT_LOADED="true"
         log "Backend contract loaded: ${BACKEND_CONTRACT_FILE:-unknown}"
         log "Backend runtime: ${BACKEND_CONTRACT_ID:-$backend} (${BACKEND_LLM_ENGINE:-unknown})"
@@ -83,25 +89,72 @@ load_backend_contract() {
 }
 
 detect_gpu() {
-    GPU_BACKEND="nvidia"  # default
-    GPU_MEMORY_TYPE="discrete"
+    GPU_BACKEND="cpu"  # default to CPU-only fallback
+    GPU_MEMORY_TYPE="none"
     GPU_DEVICE_ID=""
 
     # Try NVIDIA first
     if command -v nvidia-smi &> /dev/null; then
         local raw
         if raw=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null) && [[ -n "$raw" ]]; then
+            GPU_BACKEND="nvidia"
+            GPU_MEMORY_TYPE="discrete"
             GPU_INFO="$raw"
             GPU_NAME=$(echo "$GPU_INFO" | head -1 | cut -d',' -f1 | xargs)
-            GPU_VRAM=$(echo "$GPU_INFO" | head -1 | cut -d',' -f2 | grep -oP '\d+' | head -1)
             GPU_COUNT=$(echo "$GPU_INFO" | wc -l)
-            # Extract PCI device ID
+            # Sum VRAM across all GPUs (each line = one GPU)
+            GPU_VRAM=$(echo "$GPU_INFO" | cut -d',' -f2 | grep -oP '\d+' | awk '{s+=$1} END {print s+0}')
+            # Extract PCI device ID from first GPU
             local pci_id
             pci_id=$(nvidia-smi --query-gpu=pci.device_id --format=csv,noheader 2>/dev/null | head -1 | xargs)
             [[ -n "$pci_id" ]] && GPU_DEVICE_ID="${pci_id:0:6}"
-            log "GPU: $GPU_NAME (${GPU_VRAM}MB VRAM) x${GPU_COUNT}"
+            if [[ $GPU_COUNT -gt 1 ]]; then
+                # Build a display name for multi-GPU (e.g. "RTX 3090 + RTX 4090" or "RTX 4090 × 2")
+                local first_name second_name
+                first_name=$(echo "$GPU_INFO" | sed -n '1p' | cut -d',' -f1 | xargs)
+                second_name=$(echo "$GPU_INFO" | sed -n '2p' | cut -d',' -f1 | xargs)
+                if [[ "$first_name" == "$second_name" ]]; then
+                    GPU_NAME="${first_name} × ${GPU_COUNT}"
+                else
+                    GPU_NAME="${first_name} + ${second_name}"
+                    [[ $GPU_COUNT -gt 2 ]] && GPU_NAME="${GPU_NAME} + $((GPU_COUNT - 2)) more"
+                fi
+                log "GPU: ${GPU_COUNT}x NVIDIA (${GPU_VRAM}MB total VRAM) — ${GPU_NAME}"
+            else
+                log "GPU: $GPU_NAME (${GPU_VRAM}MB VRAM)"
+            fi
             return 0
         fi
+    fi
+
+    # Try Intel Arc via lspci + sysfs
+    if lspci 2>/dev/null | grep -qi 'VGA.*Intel.*Arc'; then
+        for card_dir in /sys/class/drm/card*/device; do
+            [[ -d "$card_dir" ]] || continue
+            local vendor device
+            vendor=$(cat "$card_dir/vendor" 2>/dev/null) || continue
+            device=$(cat "$card_dir/device" 2>/dev/null) || continue
+            # Intel vendor ID: 0x8086, Arc device IDs: 0x56a0-0x56c1 (Alchemist), 0x5690-0x569f (DG2)
+            if [[ "$vendor" == "0x8086" ]] && [[ "$device" =~ ^0x(56[a-c][0-9a-f]|569[0-9a-f])$ ]]; then
+                GPU_BACKEND="intel"
+                GPU_MEMORY_TYPE="discrete"
+                GPU_DEVICE_ID="$device"
+                GPU_COUNT=1
+                # Try to get VRAM size from sysfs (lmem_total_bytes on Arc)
+                local vram_bytes
+                vram_bytes=$(cat "$card_dir/lmem_total_bytes" 2>/dev/null) || vram_bytes=0
+                GPU_VRAM=$(( vram_bytes / 1048576 ))  # in MB
+                # Try marketing name from sysfs or lspci
+                if [[ -f "$card_dir/product_name" ]]; then
+                    GPU_NAME=$(cat "$card_dir/product_name" 2>/dev/null) || GPU_NAME="Intel Arc"
+                else
+                    GPU_NAME=$(lspci | grep -i 'VGA.*Intel.*Arc' | sed 's/.*: //' | head -1)
+                    [[ -z "$GPU_NAME" ]] && GPU_NAME="Intel Arc ($GPU_DEVICE_ID)"
+                fi
+                log "GPU: $GPU_NAME (${GPU_VRAM}MB VRAM, Intel Arc)"
+                return 0
+            fi
+        done
     fi
 
     # Try AMD APU (Strix Halo / unified memory) via sysfs
@@ -137,10 +190,14 @@ detect_gpu() {
         fi
     done
 
-    GPU_NAME="None"
+    # No GPU detected - fall back to CPU-only mode
+    GPU_NAME="None (CPU-only mode)"
     GPU_VRAM=0
     GPU_COUNT=0
-    warn "No NVIDIA or AMD GPU detected. CPU-only mode available but slow."
+    GPU_BACKEND="cpu"
+    GPU_MEMORY_TYPE="none"
+    warn "No GPU detected. Falling back to CPU-only mode (inference will be slow)."
+    log "CPU-only mode: llama.cpp will use CPU inference. Consider adding a GPU for better performance."
     return 1
 }
 
@@ -308,10 +365,12 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=$USER
 ExecStart=/bin/bash ${SCRIPT_DIR}/install.sh ${resume_args}
 ExecStartPost=/bin/rm -f /etc/systemd/system/${svc_name}.service
 ExecStartPost=/bin/systemctl daemon-reload
+WorkingDirectory=${SCRIPT_DIR}
+Environment="HOME=${HOME}"
+Environment="USER=${USER}"
 StandardOutput=journal+console
 StandardError=journal+console
 

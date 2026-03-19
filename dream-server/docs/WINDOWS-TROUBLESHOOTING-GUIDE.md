@@ -22,9 +22,9 @@
 
 **Required:**
 - Windows 10 (version 2004 or newer) OR Windows 11
-- NVIDIA graphics card (GPU) with 8GB+ memory
-- 16GB+ system RAM (32GB recommended)
-- 50GB free disk space
+- NVIDIA graphics card (GPU) recommended (CPU-only works with smaller models)
+- 4GB+ system RAM (16GB+ recommended, 32GB ideal)
+- 15GB+ free disk space (50GB recommended)
 - Internet connection
 
 **Not Required (Common Confusion):**
@@ -109,7 +109,7 @@
    - Hold Shift + Right-click in the folder → "Open PowerShell window here"
 3. Run these commands:
    ```powershell
-   Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/main/install.ps1" -OutFile install.ps1
+   Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.1.0/install.ps1" -OutFile install.ps1
    ```
 4. Then run:
    ```powershell
@@ -119,7 +119,7 @@
 **If PowerShell gives an error about execution policy:**
 - Use the batch file method instead:
   ```powershell
-  Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/main/install-windows.bat" -OutFile install-windows.bat
+  Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.1.0/install-windows.bat" -OutFile install-windows.bat
   ```
 - Then double-click `install-windows.bat` (or right-click → Run as administrator)
 

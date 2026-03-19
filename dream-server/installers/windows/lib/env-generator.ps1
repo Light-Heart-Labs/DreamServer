@@ -78,15 +78,54 @@ function New-DreamEnv {
         [string]$LlamaServerImage = ""
     )
 
-    # Generate secrets
-    $webuiSecret     = New-SecureHex -Bytes 32
-    $n8nPass         = New-SecureBase64 -Bytes 16
-    $litellmKey      = "sk-dream-$(New-SecureHex -Bytes 16)"
-    $livekitSecret   = New-SecureBase64 -Bytes 32
-    $livekitApiKey   = New-SecureHex -Bytes 16
-    $dashboardApiKey = New-SecureHex -Bytes 32
-    $openclawToken   = New-SecureHex -Bytes 24
-    $searxngSecret   = New-SecureHex -Bytes 32
+    # Preserve existing secrets on re-install (mirrors Linux _env_get logic)
+    $existingEnv = @{}
+    $envPath = Join-Path $InstallDir ".env"
+    if (Test-Path $envPath) {
+        Get-Content $envPath | ForEach-Object {
+            if ($_ -match "^([A-Za-z_][A-Za-z0-9_]*)=(.*)$") {
+                $existingEnv[$Matches[1]] = $Matches[2]
+            }
+        }
+    }
+
+    # Helper: reuse existing value or generate new
+    function Get-EnvOrNew { param([string]$Key, [string]$Default)
+        if ($existingEnv.ContainsKey($Key) -and $existingEnv[$Key]) {
+            return $existingEnv[$Key]
+        }
+        return $Default
+    }
+
+    # Generate secrets (reuse existing on re-install)
+    $webuiSecret     = Get-EnvOrNew "WEBUI_SECRET"       (New-SecureHex -Bytes 32)
+    $n8nPass         = Get-EnvOrNew "N8N_PASS"           (New-SecureBase64 -Bytes 16)
+    $litellmKey      = Get-EnvOrNew "LITELLM_KEY"        "sk-dream-$(New-SecureHex -Bytes 16)"
+    $livekitSecret   = Get-EnvOrNew "LIVEKIT_API_SECRET" (New-SecureBase64 -Bytes 32)
+    $livekitApiKey   = Get-EnvOrNew "LIVEKIT_API_KEY"    (New-SecureHex -Bytes 16)
+    $dashboardApiKey = Get-EnvOrNew "DASHBOARD_API_KEY"  (New-SecureHex -Bytes 32)
+    $openclawToken   = Get-EnvOrNew "OPENCLAW_TOKEN"     (New-SecureHex -Bytes 24)
+    $searxngSecret   = Get-EnvOrNew "SEARXNG_SECRET"     (New-SecureHex -Bytes 32)
+    $difySecretKey    = Get-EnvOrNew "DIFY_SECRET_KEY"           (New-SecureHex -Bytes 32)
+    $qdrantApiKey     = Get-EnvOrNew "QDRANT_API_KEY"            (New-SecureHex -Bytes 32)
+    $opencodePassword = Get-EnvOrNew "OPENCODE_SERVER_PASSWORD"  (New-SecureBase64 -Bytes 16)
+
+    # Langfuse observability secrets
+    $langfusePort              = Get-EnvOrNew "LANGFUSE_PORT"              "3006"
+    $langfuseEnabled           = Get-EnvOrNew "LANGFUSE_ENABLED"           "false"
+    $langfuseNextauthSecret    = Get-EnvOrNew "LANGFUSE_NEXTAUTH_SECRET"   (New-SecureHex -Bytes 32)
+    $langfuseSalt              = Get-EnvOrNew "LANGFUSE_SALT"              (New-SecureHex -Bytes 32)
+    $langfuseEncryptionKey     = Get-EnvOrNew "LANGFUSE_ENCRYPTION_KEY"    (New-SecureHex -Bytes 32)
+    $langfuseDbPassword        = Get-EnvOrNew "LANGFUSE_DB_PASSWORD"       (New-SecureHex -Bytes 16)
+    $langfuseClickhousePassword = Get-EnvOrNew "LANGFUSE_CLICKHOUSE_PASSWORD" (New-SecureHex -Bytes 16)
+    $langfuseRedisPassword     = Get-EnvOrNew "LANGFUSE_REDIS_PASSWORD"    (New-SecureHex -Bytes 16)
+    $langfuseMinioAccessKey    = Get-EnvOrNew "LANGFUSE_MINIO_ACCESS_KEY"  (New-SecureHex -Bytes 16)
+    $langfuseMinioSecretKey    = Get-EnvOrNew "LANGFUSE_MINIO_SECRET_KEY"  (New-SecureHex -Bytes 32)
+    $langfuseProjectPublicKey  = Get-EnvOrNew "LANGFUSE_PROJECT_PUBLIC_KEY" "pk-lf-dream-$(New-SecureHex -Bytes 16)"
+    $langfuseProjectSecretKey  = Get-EnvOrNew "LANGFUSE_PROJECT_SECRET_KEY" "sk-lf-dream-$(New-SecureHex -Bytes 16)"
+    $langfuseInitProjectId     = Get-EnvOrNew "LANGFUSE_INIT_PROJECT_ID"   (New-SecureHex -Bytes 16)
+    $langfuseInitUserEmail     = Get-EnvOrNew "LANGFUSE_INIT_USER_EMAIL"   "admin@dreamserver.local"
+    $langfuseInitUserPassword  = Get-EnvOrNew "LANGFUSE_INIT_USER_PASSWORD" (New-SecureHex -Bytes 16)
 
     # Determine LLM API URL based on backend
     # AMD on Windows: llama-server runs natively, containers reach it via host.docker.internal
@@ -154,9 +193,9 @@ DREAM_MODE=$DreamMode
 LLM_API_URL=$llmApiUrl
 
 #=== Cloud API Keys ===
-ANTHROPIC_API_KEY=
-OPENAI_API_KEY=
-TOGETHER_API_KEY=
+ANTHROPIC_API_KEY=$(Get-EnvOrNew "ANTHROPIC_API_KEY" "")
+OPENAI_API_KEY=$(Get-EnvOrNew "OPENAI_API_KEY" "")
+TOGETHER_API_KEY=$(Get-EnvOrNew "TOGETHER_API_KEY" "")
 
 #=== LLM Settings (llama-server) ===
 LLM_MODEL=$($TierConfig.LlmModel)
@@ -167,13 +206,14 @@ GPU_BACKEND=$GpuBackend
 $(if ($LlamaServerImage) { "LLAMA_SERVER_IMAGE=$LlamaServerImage" } else { "#LLAMA_SERVER_IMAGE=ghcr.io/ggml-org/llama.cpp:server-cuda" })
 
 #=== Ports ===
-LLAMA_SERVER_PORT=8080
+OLLAMA_PORT=8080
 WEBUI_PORT=3000
 WHISPER_PORT=9000
 TTS_PORT=8880
 N8N_PORT=5678
 QDRANT_PORT=6333
 QDRANT_GRPC_PORT=6334
+QDRANT_API_KEY=$qdrantApiKey
 LITELLM_PORT=4000
 OPENCLAW_PORT=7860
 SEARXNG_PORT=8888
@@ -187,8 +227,9 @@ LITELLM_KEY=$litellmKey
 LIVEKIT_API_KEY=$livekitApiKey
 LIVEKIT_API_SECRET=$livekitSecret
 OPENCLAW_TOKEN=$openclawToken
-OPENCODE_SERVER_PASSWORD=
+OPENCODE_SERVER_PASSWORD=$opencodePassword
 OPENCODE_PORT=3003
+DIFY_SECRET_KEY=$difySecretKey
 
 #=== Voice Settings ===
 WHISPER_MODEL=base
@@ -204,6 +245,23 @@ N8N_AUTH=true
 N8N_HOST=localhost
 N8N_WEBHOOK_URL=http://localhost:5678
 TIMEZONE=$tz
+
+#=== Langfuse Observability ===
+LANGFUSE_PORT=$langfusePort
+LANGFUSE_ENABLED=$langfuseEnabled
+LANGFUSE_NEXTAUTH_SECRET=$langfuseNextauthSecret
+LANGFUSE_SALT=$langfuseSalt
+LANGFUSE_ENCRYPTION_KEY=$langfuseEncryptionKey
+LANGFUSE_DB_PASSWORD=$langfuseDbPassword
+LANGFUSE_CLICKHOUSE_PASSWORD=$langfuseClickhousePassword
+LANGFUSE_REDIS_PASSWORD=$langfuseRedisPassword
+LANGFUSE_MINIO_ACCESS_KEY=$langfuseMinioAccessKey
+LANGFUSE_MINIO_SECRET_KEY=$langfuseMinioSecretKey
+LANGFUSE_PROJECT_PUBLIC_KEY=$langfuseProjectPublicKey
+LANGFUSE_PROJECT_SECRET_KEY=$langfuseProjectSecretKey
+LANGFUSE_INIT_PROJECT_ID=$langfuseInitProjectId
+LANGFUSE_INIT_USER_EMAIL=$langfuseInitUserEmail
+LANGFUSE_INIT_USER_PASSWORD=$langfuseInitUserPassword
 "@
 
     # NOTE: No VIDEO_GID, RENDER_GID, HSA_OVERRIDE_GFX_VERSION on Windows

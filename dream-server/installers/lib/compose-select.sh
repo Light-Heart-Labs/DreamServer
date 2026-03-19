@@ -14,6 +14,8 @@
 #   Add new compose overlay mappings or backends here.
 # ============================================================================
 
+[[ -f "${SCRIPT_DIR:-}/lib/safe-env.sh" ]] && . "${SCRIPT_DIR}/lib/safe-env.sh"
+
 resolve_compose_config() {
     COMPOSE_FILE="docker-compose.yml"
     COMPOSE_FLAGS=""
@@ -54,6 +56,16 @@ resolve_compose_config() {
                 COMPOSE_FLAGS="-f docker-compose.base.yml -f docker-compose.amd.yml"
                 COMPOSE_FILE="docker-compose.amd.yml"
             fi
+        elif [[ "$TIER" == "ARC" || "$TIER" == "ARC_LITE" || "$GPU_BACKEND" == "intel" || "$GPU_BACKEND" == "sycl" ]]; then
+            # Prefer docker-compose.arc.yml (oneAPI build-from-source) when present;
+            # fall back to docker-compose.intel.yml (pre-built image) if arc.yml is absent.
+            if [[ -f "$SCRIPT_DIR/docker-compose.base.yml" && -f "$SCRIPT_DIR/docker-compose.arc.yml" ]]; then
+                COMPOSE_FLAGS="-f docker-compose.base.yml -f docker-compose.arc.yml"
+                COMPOSE_FILE="docker-compose.arc.yml"
+            elif [[ -f "$SCRIPT_DIR/docker-compose.base.yml" && -f "$SCRIPT_DIR/docker-compose.intel.yml" ]]; then
+                COMPOSE_FLAGS="-f docker-compose.base.yml -f docker-compose.intel.yml"
+                COMPOSE_FILE="docker-compose.intel.yml"
+            fi
         else
             if [[ -f "$SCRIPT_DIR/docker-compose.base.yml" && -f "$SCRIPT_DIR/docker-compose.nvidia.yml" ]]; then
                 COMPOSE_FLAGS="-f docker-compose.base.yml -f docker-compose.nvidia.yml"
@@ -75,7 +87,13 @@ resolve_compose_config() {
             --gpu-backend "$GPU_BACKEND" \
             --profile-overlays "${CAP_COMPOSE_OVERLAYS:-}" \
             --env 2>>"$LOG_FILE")"
-        eval "$COMPOSE_ENV"
+        load_env_from_output <<< "$COMPOSE_ENV"
+    fi
+
+    # Layer Tier 0 memory overlay for low-RAM machines
+    if [[ "$TIER" == "0" && -f "$SCRIPT_DIR/docker-compose.tier0.yml" ]]; then
+        COMPOSE_FLAGS="$COMPOSE_FLAGS -f docker-compose.tier0.yml"
+        log "Including docker-compose.tier0.yml (Tier 0 memory limits)"
     fi
 
     # Auto-include docker-compose.override.yml if present (standard Docker convention).

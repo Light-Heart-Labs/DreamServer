@@ -29,9 +29,8 @@ log = logging.getLogger("token-spy-db")
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
-    raise RuntimeError(
-        "DATABASE_URL environment variable is required. "
-        "Example: postgresql://token_spy:yourpassword@localhost:5432/token_spy"
+    log.warning(
+        "DATABASE_URL is not set. Database connections will fail until it is configured."
     )
 
 # Encryption key for provider keys (must match dashboard)
@@ -233,6 +232,11 @@ def init_pool(database_url: Optional[str] = None, min_conn: int = 10, max_conn: 
     
     if _pool is None:
         url = database_url or DATABASE_URL
+        if not url:
+            raise RuntimeError(
+                "DATABASE_URL environment variable is required. "
+                "Example: postgresql://token_spy:yourpassword@localhost:5432/token_spy"
+            )
         _pool = ThreadedConnectionPool(min_conn, max_conn, url)
         log.info(f"Database pool initialized (min={min_conn}, max={max_conn})")
     return _pool

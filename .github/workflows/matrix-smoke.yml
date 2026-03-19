@@ -1,0 +1,179 @@
+name: Matrix Smoke
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  linux-smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dream-server
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: AMD Path Smoke
+        run: bash tests/smoke/linux-amd.sh
+
+      - name: NVIDIA Path Smoke
+        run: bash tests/smoke/linux-nvidia.sh
+
+      - name: WSL Logic Smoke
+        run: bash tests/smoke/wsl-logic.sh
+
+  # Multi-distro installer detection tests (dry-run, no GPU required)
+  distro-matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: ubuntu-24.04
+            container: ubuntu:24.04
+            expected_pkg: apt
+          - distro: ubuntu-22.04
+            container: ubuntu:22.04
+            expected_pkg: apt
+          - distro: debian-12
+            container: debian:12
+            expected_pkg: apt
+          - distro: fedora-41
+            container: fedora:41
+            expected_pkg: dnf
+          - distro: archlinux
+            container: archlinux:latest
+            expected_pkg: pacman
+          - distro: opensuse-tw
+            container: opensuse/tumbleweed:latest
+            expected_pkg: zypper
+    runs-on: ubuntu-latest
+    container: ${{ matrix.container }}
+    defaults:
+      run:
+        working-directory: dream-server
+    name: "distro: ${{ matrix.distro }}"
+    steps:
+      - name: Install git (distro-aware)
+        working-directory: /
+        run: |
+          if command -v apt-get &>/dev/null; then
+            apt-get update -qq && apt-get install -y -qq git curl
+          elif command -v dnf &>/dev/null; then
+            dnf install -y -q git curl
+          elif command -v pacman &>/dev/null; then
+            pacman -Sy --noconfirm git curl
+          elif command -v zypper &>/dev/null; then
+            zypper --non-interactive install git curl
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify /etc/os-release
+        working-directory: /
+        shell: bash
+        run: |
+          echo "=== /etc/os-release ==="
+          cat /etc/os-release
+          . /etc/os-release
+          echo "ID=$ID"
+          echo "ID_LIKE=${ID_LIKE:-none}"
+
+      - name: Test packaging.sh detection
+        shell: bash
+        run: |
+          # Source the packaging library and verify detection
+          export LOG_FILE=/dev/null
+          log() { echo "[INFO] $1"; }
+          warn() { echo "[WARN] $1"; }
+          error() { echo "[ERROR] $1"; exit 1; }
+          source installers/lib/packaging.sh
+          detect_pkg_manager
+
+          echo "Detected: PKG_MANAGER=$PKG_MANAGER"
+          echo "Expected: ${{ matrix.expected_pkg }}"
+
+          if [[ "$PKG_MANAGER" != "${{ matrix.expected_pkg }}" ]]; then
+            echo "FAIL: expected ${{ matrix.expected_pkg }}, got $PKG_MANAGER"
+            exit 1
+          fi
+          echo "PASS: package manager detection correct"
+
+      - name: Test pkg_install (install jq + rsync)
+        shell: bash
+        run: |
+          export LOG_FILE=/dev/null
+          log() { echo "[INFO] $1"; }
+          warn() { echo "[WARN] $1"; }
+          error() { echo "[ERROR] $1"; exit 1; }
+          source installers/lib/packaging.sh
+          detect_pkg_manager
+          pkg_update
+          pkg_install curl jq || echo "WARN: jq install failed (may not be in repos)"
+
+          # Verify at least curl works
+          if command -v curl &>/dev/null; then
+            echo "PASS: curl available"
+          else
+            echo "FAIL: curl not available after pkg_install"
+            exit 1
+          fi
+
+      - name: Test installer bash syntax
+        run: |
+          bash -n install-core.sh
+          bash -n installers/lib/packaging.sh
+          for f in installers/phases/*.sh; do
+            bash -n "$f" && echo "  OK: $f" || echo "  FAIL: $f"
+          done
+
+  macos-smoke:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: dream-server
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: macOS Dispatch Smoke
+        run: bash tests/smoke/macos-dispatch.sh
+
+      - name: Bash 3.2 syntax check (catches declare -g, associative arrays, etc.)
+        run: |
+          echo "=== Checking installer scripts for Bash 3.2 compatibility ==="
+          FAIL=0
+          for f in install-core.sh installers/phases/*.sh installers/lib/*.sh; do
+            if [[ -f "$f" ]]; then
+              # macOS ships Bash 3.2 at /bin/bash — use it for syntax check
+              if /bin/bash -n "$f" 2>/dev/null; then
+                echo "  OK: $f"
+              else
+                echo "  FAIL: $f"
+                FAIL=1
+              fi
+            fi
+          done
+          # Also check macOS-specific scripts
+          for f in installers/macos/**/*.sh; do
+            if [[ -f "$f" ]]; then
+              if /bin/bash -n "$f" 2>/dev/null; then
+                echo "  OK: $f"
+              else
+                echo "  FAIL: $f"
+                FAIL=1
+              fi
+            fi
+          done
+          if [[ $FAIL -eq 1 ]]; then
+            echo ""
+            echo "FAIL: Some scripts have Bash 3.2 syntax errors."
+            echo "Common issues: declare -g, associative arrays (declare -A),"
+            echo "  &>> redirection, |& pipes, [[ with regex =~"
+            exit 1
+          fi
+          echo "PASS: All installer scripts parse under Bash 3.2"

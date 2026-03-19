@@ -3,9 +3,9 @@
 # Dream Server Installer — Phase 01: Pre-flight Checks
 # ============================================================================
 # Part of: installers/phases/
-# Purpose: Root/OS/tools checks, existing installation check
+# Purpose: Root/OS/tools checks, existing installation detection
 #
-# Expects: SCRIPT_DIR, INSTALL_DIR, LOG_FILE, INTERACTIVE, DRY_RUN, FORCE,
+# Expects: SCRIPT_DIR, INSTALL_DIR, LOG_FILE, INTERACTIVE, DRY_RUN,
 #           PKG_MANAGER,
 #           show_phase(), ai(), ai_ok(), signal(), log(), warn(), error()
 # Provides: OS sourced from /etc/os-release, OPTIONAL_TOOLS_MISSING
@@ -14,6 +14,7 @@
 #   Add new pre-flight checks (e.g., kernel version) here.
 # ============================================================================
 
+dream_progress 5 "preflight" "Running preflight checks"
 show_phase 1 6 "Pre-flight Checks" "~30 seconds"
 ai "I'm scanning your system for required components..."
 
@@ -39,7 +40,7 @@ if ! command -v curl &> /dev/null; then
         *)      error "curl is required but not installed. Install with: sudo apt install curl" ;;
     esac
 fi
-log "curl: $(curl --version | head -1)"
+log "curl: $(curl --version 2>/dev/null | sed -n '1p')"
 
 # Check optional tools (warn but don't fail)
 OPTIONAL_TOOLS_MISSING=""
@@ -65,21 +66,10 @@ if [[ ! -f "$SCRIPT_DIR/docker-compose.yml" ]] && [[ ! -f "$SCRIPT_DIR/docker-co
     error "No compose files found in $SCRIPT_DIR. Please run from the dream-server directory."
 fi
 
-# Check for existing installation
-if [[ -d "$INSTALL_DIR" && "$FORCE" != "true" ]]; then
-    if $INTERACTIVE && ! $DRY_RUN; then
-        warn "Existing installation found at $INSTALL_DIR"
-        read -p "  Overwrite and start fresh? [y/N] " -r
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            log "User chose to overwrite existing installation"
-            FORCE=true
-        else
-            log "User chose not to overwrite. Exiting."
-            exit 0
-        fi
-    else
-        error "Installation already exists at $INSTALL_DIR. Use --force to overwrite."
-    fi
+# Existing installation — update in place (secrets and data are preserved)
+if [[ -d "$INSTALL_DIR" ]]; then
+    log "Existing installation found at $INSTALL_DIR — updating in place"
+    signal "Existing install detected. Secrets and data will be preserved."
 fi
 
 ai_ok "Pre-flight checks passed."

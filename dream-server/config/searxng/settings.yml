@@ -1,6 +1,6 @@
 use_default_settings: true
 server:
-  secret_key: "9d0e105e00289d066f0532614b135e5df22eeb2b6e0228bd4c0a4426ae3f39f0"
+  secret_key: "CHANGEME-run-the-installer-to-generate-a-secure-key"
   bind_address: "0.0.0.0"
   port: 8080
   limiter: false

@@ -14,6 +14,7 @@
 #   Add new developer tools or change installation methods here.
 # ============================================================================
 
+dream_progress 42 "devtools" "Installing developer tools"
 if $DRY_RUN; then
     log "[DRY RUN] Would install AI developer tools (Claude Code, Codex CLI, OpenCode)"
     log "[DRY RUN] Would configure OpenCode for local llama-server (user-level systemd service on port 3003)"
@@ -26,22 +27,22 @@ else
         case "$PKG_MANAGER" in
             apt)
                 tmpfile=$(mktemp /tmp/nodesource-setup.XXXXXX.sh)
-                if curl -fsSL https://deb.nodesource.com/setup_22.x -o "$tmpfile" 2>/dev/null; then
-                    sudo -E bash "$tmpfile" >> "$LOG_FILE" 2>&1 || true
+                if curl -fsSL --max-time 300 https://deb.nodesource.com/setup_22.x -o "$tmpfile" 2>/dev/null; then
+                    sudo -E bash "$tmpfile" 2>&1 | tee -a "$LOG_FILE" || true
                 fi
                 rm -f "$tmpfile"
-                sudo apt-get install -y nodejs >> "$LOG_FILE" 2>&1 || true
+                sudo apt-get install -y nodejs 2>&1 | tee -a "$LOG_FILE" || true
                 ;;
             dnf)
-                sudo dnf module install -y nodejs:22 >> "$LOG_FILE" 2>&1 || \
-                    sudo dnf install -y nodejs >> "$LOG_FILE" 2>&1 || true
+                sudo dnf module install -y nodejs:22 2>&1 | tee -a "$LOG_FILE" || \
+                    sudo dnf install -y nodejs 2>&1 | tee -a "$LOG_FILE" || true
                 ;;
             pacman)
-                sudo pacman -S --noconfirm --needed nodejs npm >> "$LOG_FILE" 2>&1 || true
+                sudo pacman -S --noconfirm --needed nodejs npm 2>&1 | tee -a "$LOG_FILE" || true
                 ;;
             zypper)
-                sudo zypper --non-interactive install nodejs22 >> "$LOG_FILE" 2>&1 || \
-                    sudo zypper --non-interactive install nodejs >> "$LOG_FILE" 2>&1 || true
+                sudo zypper --non-interactive install nodejs22 2>&1 | tee -a "$LOG_FILE" || \
+                    sudo zypper --non-interactive install nodejs 2>&1 | tee -a "$LOG_FILE" || true
                 ;;
             *)
                 ai_warn "Unknown package manager — cannot install Node.js automatically"
@@ -91,7 +92,7 @@ else
     if ! command -v opencode &> /dev/null && [[ ! -x "$HOME/.opencode/bin/opencode" ]]; then
         ai "Installing OpenCode..."
         tmpfile=$(mktemp /tmp/opencode-install.XXXXXX.sh)
-        if curl -fsSL https://opencode.ai/install -o "$tmpfile" 2>/dev/null && bash "$tmpfile" >> "$LOG_FILE" 2>&1; then
+        if curl -fsSL --max-time 300 https://opencode.ai/install -o "$tmpfile" 2>/dev/null && bash "$tmpfile" >> "$LOG_FILE" 2>&1; then
             ai_ok "OpenCode installed (~/.opencode/bin/opencode)"
         else
             ai_warn "OpenCode install failed — install later with: curl -fsSL https://opencode.ai/install | bash"
@@ -106,6 +107,11 @@ else
         OPENCODE_CONFIG_DIR="$HOME/.config/opencode"
         mkdir -p "$OPENCODE_CONFIG_DIR"
         if [[ ! -f "$OPENCODE_CONFIG_DIR/opencode.json" ]]; then
+            # Read OLLAMA_PORT from the .env generated in phase 06
+            # (it's not exported as a shell variable, only written to the file)
+            if [[ -z "${OLLAMA_PORT:-}" && -f "$INSTALL_DIR/.env" ]]; then
+                OLLAMA_PORT=$(grep -m1 '^OLLAMA_PORT=' "$INSTALL_DIR/.env" | cut -d= -f2-)
+            fi
             cat > "$OPENCODE_CONFIG_DIR/opencode.json" <<OPENCODE_EOF
 {
   "\$schema": "https://opencode.ai/config.json",
@@ -115,7 +121,7 @@ else
       "npm": "@ai-sdk/openai-compatible",
       "name": "llama-server (local)",
       "options": {
-        "baseURL": "http://127.0.0.1:${OLLAMA_PORT:-11434}/v1",
+        "baseURL": "http://127.0.0.1:${OLLAMA_PORT:-8080}/v1",
         "apiKey": "no-key"
       },
       "models": {
@@ -149,8 +155,11 @@ OPENCODE_EOF
 
             svc_tmp="/tmp/opencode-web.service.$$"
             cp "$INSTALL_DIR/opencode/opencode-web.service" "$svc_tmp"
-            sed -i "s|__HOME__|$HOME|g" "$svc_tmp"
-            sed -i "s|__OPENCODE_SERVER_PASSWORD__|${OPENCODE_SERVER_PASSWORD}|g" "$svc_tmp"
+            # Escape sed special chars to prevent injection from path or password values
+            _home_esc=$(printf '%s\n' "$HOME" | sed 's/[&/\]/\\&/g')
+            _pass_esc=$(printf '%s\n' "${OPENCODE_SERVER_PASSWORD}" | sed 's/[&/\]/\\&/g')
+            _sed_i "s|__HOME__|${_home_esc}|g" "$svc_tmp"
+            _sed_i "s|__OPENCODE_SERVER_PASSWORD__|${_pass_esc}|g" "$svc_tmp"
             cp "$svc_tmp" "$SYSTEMD_USER_DIR/opencode-web.service"
             rm -f "$svc_tmp"
 

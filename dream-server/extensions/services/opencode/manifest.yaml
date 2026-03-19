@@ -7,6 +7,7 @@ service:
   container_name: ""
   default_host: localhost
   port: 3003
+  external_port_env: OPENCODE_PORT
   external_port_default: 3003
   health: /
   type: host-systemd
@@ -22,9 +23,9 @@ features:
     icon: Code
     category: development
     requirements:
-      services_any: [opencode, llama-server]
+      services_all: [opencode]
       vram_gb: 8
-    enabled_services_any: [opencode, llama-server]
+    enabled_services_all: [opencode]
     setup_time: Ready
     priority: 6
     gpu_backends: [amd, nvidia]

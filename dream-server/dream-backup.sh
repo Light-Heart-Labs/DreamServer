@@ -20,6 +20,7 @@ NC='\033[0m' # No Color
 
 # Prerequisites check
 command -v rsync >/dev/null 2>&1 || { echo -e "${RED}Error: rsync is required but not installed.${NC}" >&2; echo "Install with: apt install rsync (Debian/Ubuntu) or brew install rsync (macOS)" >&2; exit 1; }
+command -v jq >/dev/null 2>&1 || { echo -e "${RED}Error: jq is required but not installed.${NC}" >&2; echo "Install with: apt install jq (Debian/Ubuntu) or brew install jq (macOS)" >&2; exit 1; }
 
 # Logging functions
 log_info() { echo -e "${BLUE}[INFO]${NC} $*"; }
@@ -27,12 +28,124 @@ log_success() { echo -e "${GREEN}[SUCCESS]${NC} $*"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
+# Source shared rsync utilities
+. "$DREAM_DIR/lib/rsync.sh"
+
+# Convert bytes to a human-friendly string (best-effort)
+fmt_bytes() {
+    local bytes="${1:-0}"
+    if command -v numfmt >/dev/null 2>&1; then
+        numfmt --to=iec --suffix=B "$bytes" 2>/dev/null || echo "${bytes}B"
+    else
+        # Fallback: show MiB rounding
+        local mib=$(( (bytes + 1048575) / 1048576 ))
+        echo "${mib}MiB"
+    fi
+}
+
+# Available bytes on filesystem containing a path
+free_bytes_for_path() {
+    local path="$1"
+    # df -P gives POSIX output; field 4 = available 1K-blocks
+    df -Pk "$path" 2>/dev/null | awk 'NR==2 { print $4 * 1024 }'
+}
+
+# Estimate bytes needed for a backup type (rough but safe)
+estimate_backup_bytes() {
+    local backup_type="$1"
+
+    local total=0
+
+    # user data volumes
+    if [[ "$backup_type" == "full" || "$backup_type" == "user-data" ]]; then
+        local -a user_data_paths=(
+            "data/open-webui"
+            "data/n8n"
+            "data/qdrant"
+            "data/openclaw"
+            "data/litellm"
+            "data/livekit"
+            "data/ollama"
+        )
+
+        for p in "${user_data_paths[@]}"; do
+            if [[ -d "$DREAM_DIR/$p" ]]; then
+                local b
+                b=$(du -sk "$DREAM_DIR/$p" 2>/dev/null | awk '{print $1 * 1024}')
+                total=$(( total + ${b:-0} ))
+            fi
+        done
+    fi
+
+    # config files/dir
+    if [[ "$backup_type" == "full" || "$backup_type" == "config" ]]; then
+        if [[ -d "$DREAM_DIR/config" ]]; then
+            local b
+            b=$(du -sk "$DREAM_DIR/config" 2>/dev/null | awk '{print $1 * 1024}')
+            total=$(( total + ${b:-0} ))
+        fi
+        for f in "$DREAM_DIR"/.env "$DREAM_DIR"/.version "$DREAM_DIR"/docker-compose*.y*ml "$DREAM_DIR"/dream-preflight.sh "$DREAM_DIR"/dream-update.sh; do
+            if [[ -f "$f" ]]; then
+                local s
+                s=$(wc -c < "$f" 2>/dev/null || echo 0)
+                total=$(( total + ${s:-0} ))
+            fi
+        done
+    fi
+
+    # cache (models + some caches)
+    if [[ "$backup_type" == "full" ]]; then
+        if [[ -d "$DREAM_DIR/models" ]]; then
+            local b
+            b=$(du -sk "$DREAM_DIR/models" 2>/dev/null | awk '{print $1 * 1024}')
+            total=$(( total + ${b:-0} ))
+        fi
+        local -a cache_paths=("data/whisper/cache" "data/kokoro/cache")
+        for p in "${cache_paths[@]}"; do
+            if [[ -d "$DREAM_DIR/$p" ]]; then
+                local b
+                b=$(du -sk "$DREAM_DIR/$p" 2>/dev/null | awk '{print $1 * 1024}')
+                total=$(( total + ${b:-0} ))
+            fi
+        done
+    fi
+
+    # Add a small overhead buffer (manifest, filesystem slack, etc.)
+    total=$(( total + 50 * 1024 * 1024 ))
+
+    echo "$total"
+}
+
+ensure_backup_space() {
+    local backup_type="$1"
+
+    mkdir -p "$BACKUP_ROOT"
+
+    local need
+    need=$(estimate_backup_bytes "$backup_type")
+
+    local free
+    free=$(free_bytes_for_path "$BACKUP_ROOT")
+
+    if [[ -n "$free" && "$free" -gt 0 && "$free" -lt "$need" ]]; then
+        log_error "Not enough disk space in $(dirname "$BACKUP_ROOT") to create backup."
+        log_error "Need ~$(fmt_bytes "$need"), have ~$(fmt_bytes "$free")."
+        log_error "Free up space or use --output to write backups to another disk."
+        exit 1
+    fi
+}
+
 # Show usage
 usage() {
     cat << EOF
 Dream Server Backup Utility
 
-Usage: $(basename "$0") [OPTIONS]
+Usage: $(basename "$0") <command> [OPTIONS]
+
+Commands:
+    backup                   Create a backup (default)
+    verify <backup_id>        Verify checksums for an existing backup
+
 
 OPTIONS:
     -h, --help              Show this help message
@@ -49,10 +162,13 @@ BACKUP TYPES:
     config      Backup only configuration files
 
 EXAMPLES:
-    $(basename "$0")                          # Full backup with default settings
-    $(basename "$0") -t user-data -c          # Compressed user data backup
+    $(basename "$0")                          # Backup (default: user-data)
+    $(basename "$0") -t full -c               # Compressed full backup
     $(basename "$0") -l                       # List all backups
     $(basename "$0") -d 20260212-071500       # Delete specific backup
+    $(basename "$0") verify 20260212-071500   # Verify checksum integrity
+    $(basename "$0") verify 20260212-071500.tar.gz
+    $(basename "$0") backup -t config         # Explicit backup subcommand
 
 EOF
 }
@@ -67,7 +183,7 @@ list_backups() {
     local backups=()
     while IFS= read -r -d '' backup; do
         backups+=("$backup")
-    done < <(find "$BACKUP_ROOT" -maxdepth 1 -type d -name "*-*-*" -print0 2>/dev/null | sort -z -r)
+    done < <(find "$BACKUP_ROOT" -maxdepth 1 \( -type d -o -name "*.tar.gz" \) -name "*-*-*" -print0 2>/dev/null | sort -z -r)
 
     if [[ ${#backups[@]} -eq 0 ]]; then
         log_info "No backups found"
@@ -83,15 +199,24 @@ list_backups() {
     for backup in "${backups[@]}"; do
         local id
         id=$(basename "$backup")
-        local manifest="$backup/manifest.json"
         local backup_type="unknown"
         local description=""
         local size
         size=$(du -sh "$backup" 2>/dev/null | cut -f1)
 
-        if [[ -f "$manifest" ]]; then
-            backup_type=$(grep -o '"backup_type": "[^"]*"' "$manifest" 2>/dev/null | cut -d'"' -f4 || echo "unknown")
-            description=$(grep -o '"description": "[^"]*"' "$manifest" 2>/dev/null | cut -d'"' -f4 || echo "")
+        if [[ "$backup" == *.tar.gz ]]; then
+            # Compressed archive — extract manifest from inside the tar
+            local manifest_data
+            local archive_name="${id%.tar.gz}"
+            if manifest_data=$(tar xzf "$backup" -O "${archive_name}/manifest.json" 2>/dev/null); then
+                backup_type=$(echo "$manifest_data" | grep -o '"backup_type": "[^"]*"' 2>/dev/null | cut -d'"' -f4 || echo "compressed")
+                description=$(echo "$manifest_data" | grep -o '"description": "[^"]*"' 2>/dev/null | cut -d'"' -f4 || echo "")
+            else
+                backup_type="compressed"
+            fi
+        elif [[ -f "$backup/manifest.json" ]]; then
+            backup_type=$(grep -o '"backup_type": "[^"]*"' "$backup/manifest.json" 2>/dev/null | cut -d'"' -f4 || echo "unknown")
+            description=$(grep -o '"description": "[^"]*"' "$backup/manifest.json" 2>/dev/null | cut -d'"' -f4 || echo "")
         fi
 
         printf "%-20s %-12s %-10s %s\n" "$id" "$backup_type" "$size" "$description"
@@ -102,6 +227,13 @@ list_backups() {
 # Delete specific backup
 delete_backup() {
     local backup_id="$1"
+
+    # Reject path traversal attempts
+    if [[ "$backup_id" == *..* || "$backup_id" == */* || "$backup_id" == *\\* ]]; then
+        log_error "Invalid backup ID: $backup_id"
+        return 1
+    fi
+
     local backup_dir="$BACKUP_ROOT/$backup_id"
 
     if [[ ! -d "$backup_dir" ]]; then
@@ -126,31 +258,42 @@ create_manifest() {
     local version
     version=$(cat "$DREAM_DIR/.version" 2>/dev/null || echo "unknown")
 
-    cat > "$backup_dir/manifest.json" << EOF
-{
-  "manifest_version": "1.0",
-  "backup_date": "$(date -Iseconds)",
-  "backup_id": "$(basename "$backup_dir")",
-  "backup_type": "$backup_type",
-  "dream_version": "$version",
-  "hostname": "$(hostname)",
-  "description": "$description",
-  "contents": {
-    "user_data": $( [[ "$backup_type" == "full" || "$backup_type" == "user-data" ]] && echo "true" || echo "false" ),
-    "config": $( [[ "$backup_type" == "full" || "$backup_type" == "config" ]] && echo "true" || echo "false" ),
-    "cache": $( [[ "$backup_type" == "full" ]] && echo "true" || echo "false" )
-  },
-  "paths": {
-    "data_open_webui": "data/open-webui",
-    "data_n8n": "data/n8n",
-    "data_qdrant": "data/qdrant",
-    "data_openclaw": "data/openclaw",
-    "env": ".env",
-    "compose": "docker-compose.yml",
-    "config": "config"
-  }
-}
-EOF
+    # Use jq to safely construct JSON (prevents injection via $description)
+    local has_user_data="false" has_config="false" has_cache="false"
+    [[ "$backup_type" == "full" || "$backup_type" == "user-data" ]] && has_user_data="true"
+    [[ "$backup_type" == "full" || "$backup_type" == "config" ]] && has_config="true"
+    [[ "$backup_type" == "full" ]] && has_cache="true"
+
+    jq -n \
+        --arg mv "1.0" \
+        --arg bd "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+        --arg bi "$(basename "$backup_dir")" \
+        --arg bt "$backup_type" \
+        --arg dv "$version" \
+        --arg hn "$(hostname)" \
+        --arg desc "$description" \
+        --argjson ud "$has_user_data" \
+        --argjson cfg "$has_config" \
+        --argjson ca "$has_cache" \
+        '{
+          manifest_version: $mv,
+          backup_date: $bd,
+          backup_id: $bi,
+          backup_type: $bt,
+          dream_version: $dv,
+          hostname: $hn,
+          description: $desc,
+          contents: { user_data: $ud, config: $cfg, cache: $ca },
+          paths: {
+            data_open_webui: "data/open-webui",
+            data_n8n: "data/n8n",
+            data_qdrant: "data/qdrant",
+            data_openclaw: "data/openclaw",
+            env: ".env",
+            compose: "docker-compose.yml",
+            config: "config"
+          }
+        }' > "$backup_dir/manifest.json"
     log_info "Created backup manifest"
 }
 
@@ -174,7 +317,7 @@ backup_user_data() {
         if [[ -d "$full_path" ]]; then
             local dest_dir="$backup_dir/$(dirname "$path")"
             mkdir -p "$dest_dir"
-            rsync -a --delete "$full_path" "$dest_dir/"
+            rsync_with_progress "$full_path" "$dest_dir/" "Backing up $path"
             log_success "Backed up: $path"
         else
             log_warn "Skipped (not found): $path"
@@ -187,29 +330,54 @@ backup_config() {
     local backup_dir="$1"
     log_info "Backing up configuration..."
 
-    # Essential config files
-    local config_files=(
-        ".env"
-        "docker-compose.yml"
-        ".version"
-        "dream-preflight.sh"
-        "dream-update.sh"
-    )
-
-    for file in "${config_files[@]}"; do
-        if [[ -f "$DREAM_DIR/$file" ]]; then
-            cp "$DREAM_DIR/$file" "$backup_dir/"
-            log_success "Backed up: $file"
-        else
-            log_warn "Skipped (not found): $file"
+    # Essential config files: discover compose overlays + dotfiles dynamically
+    for file in "$DREAM_DIR"/.env "$DREAM_DIR"/.version "$DREAM_DIR"/docker-compose*.y*ml "$DREAM_DIR"/dream-preflight.sh "$DREAM_DIR"/dream-update.sh; do
+        if [[ -f "$file" ]]; then
+            cp "$file" "$backup_dir/"
+            log_success "Backed up: $(basename "$file")"
         fi
     done
 
     # Config directory
     if [[ -d "$DREAM_DIR/config" ]]; then
-        rsync -a --delete "$DREAM_DIR/config" "$backup_dir/"
+        rsync_with_progress "$DREAM_DIR/config" "$backup_dir/" "Backing up config/"
         log_success "Backed up: config/"
     fi
+}
+
+# Generate a SHA256 manifest for all backed up files
+# Writes: $backup_dir/checksums.sha256 (format: sha256  relative/path)
+create_checksums() {
+    local backup_dir="$1"
+    log_info "Generating checksums..."
+
+    local checksum_file="$backup_dir/checksums.sha256"
+
+    if command -v sha256sum >/dev/null 2>&1; then
+        (
+            cd "$backup_dir"
+            # Deterministic ordering; exclude the checksum file itself.
+            find . -type f ! -name "checksums.sha256" -print0 \
+                | sort -z \
+                | xargs -0 sha256sum \
+                | sed 's#  \./#  #' \
+                > "$(basename "$checksum_file")"
+        )
+    elif command -v shasum >/dev/null 2>&1; then
+        (
+            cd "$backup_dir"
+            find . -type f ! -name "checksums.sha256" -print0 \
+                | sort -z \
+                | xargs -0 shasum -a 256 \
+                | sed 's#  \./#  #' \
+                > "$(basename "$checksum_file")"
+        )
+    else
+        log_warn "Skipping checksums: sha256sum/shasum not found"
+        return 0
+    fi
+
+    log_info "Wrote checksums.sha256"
 }
 
 # Backup cache (optional, for full backups)
@@ -218,7 +386,7 @@ backup_cache() {
     log_info "Backing up cache (models, etc.)..."
 
     if [[ -d "$DREAM_DIR/models" ]]; then
-        rsync -a --delete "$DREAM_DIR/models" "$backup_dir/"
+        rsync_with_progress "$DREAM_DIR/models" "$backup_dir/" "Backing up models/"
         log_success "Backed up: models/"
     fi
 
@@ -232,7 +400,7 @@ backup_cache() {
         if [[ -d "$DREAM_DIR/$path" ]]; then
             local dest_dir="$backup_dir/$(dirname "$path")"
             mkdir -p "$dest_dir"
-            rsync -a --delete "$DREAM_DIR/$path" "$dest_dir/"
+            rsync_with_progress "$DREAM_DIR/$path" "$dest_dir/" "Backing up $path"
             log_success "Backed up: $path"
         fi
     done
@@ -245,7 +413,7 @@ apply_retention() {
     local backups=()
     while IFS= read -r -d '' backup; do
         backups+=("$backup")
-    done < <(find "$BACKUP_ROOT" -maxdepth 1 -type d -name "*-*-*" -print0 2>/dev/null | sort -z -r)
+    done < <(find "$BACKUP_ROOT" -maxdepth 1 \( -type d -o -name "*.tar.gz" \) -name "*-*-*" -print0 2>/dev/null | sort -z -r)
 
     local count=${#backups[@]}
     if [[ $count -gt $RETENTION_COUNT ]]; then
@@ -296,6 +464,9 @@ do_backup() {
     log_info "Starting $backup_type backup: $backup_id"
     log_info "Backup directory: $backup_dir"
 
+    # Disk space preflight (best-effort)
+    ensure_backup_space "$backup_type"
+
     # Create backup directory
     mkdir -p "$backup_dir"
 
@@ -322,6 +493,9 @@ do_backup() {
             ;;
     esac
 
+    # Generate checksums after files are copied into place
+    create_checksums "$backup_dir"
+
     # Compress if requested
     if [[ "$compress" == "true" ]]; then
         compress_backup "$backup_dir"
@@ -337,17 +511,101 @@ do_backup() {
     echo "  dream-restore.sh $backup_id"
 }
 
+# Verify checksums for an existing backup directory or archive
+verify_backup() {
+    local backup_id="$1"
+
+    # Reject path traversal attempts
+    if [[ "$backup_id" == *..* || "$backup_id" == */* || "$backup_id" == *\\* ]]; then
+        log_error "Invalid backup ID: $backup_id"
+        return 1
+    fi
+
+    local target="$BACKUP_ROOT/$backup_id"
+
+    if [[ -d "$target" ]]; then
+        if [[ ! -f "$target/checksums.sha256" ]]; then
+            log_error "checksums.sha256 not found for backup: $backup_id"
+            return 1
+        fi
+
+        (
+            cd "$target"
+            if command -v sha256sum >/dev/null 2>&1; then
+                sha256sum -c "checksums.sha256"
+            else
+                shasum -a 256 -c "checksums.sha256"
+            fi
+        )
+        log_success "Backup verified: $backup_id"
+        return 0
+    fi
+
+    if [[ -f "$target" && "$target" == *.tar.gz ]]; then
+        local tmpdir
+        tmpdir=$(mktemp -d)
+        trap 'rm -rf "$tmpdir"' RETURN
+
+        # Extract checksums first (fast fail if missing)
+        local archive_name="${backup_id%.tar.gz}"
+        if ! tar xzf "$target" -C "$tmpdir" "${archive_name}/checksums.sha256" >/dev/null 2>&1; then
+            log_error "checksums.sha256 not found in archive: $backup_id"
+            return 1
+        fi
+
+        tar xzf "$target" -C "$tmpdir"
+
+        (
+            cd "$tmpdir/$archive_name"
+            if command -v sha256sum >/dev/null 2>&1; then
+                sha256sum -c "checksums.sha256"
+            else
+                shasum -a 256 -c "checksums.sha256"
+            fi
+        )
+
+        log_success "Backup verified: $backup_id"
+        return 0
+    fi
+
+    log_error "Backup not found: $backup_id"
+    return 1
+}
+
 # Main entry point
 main() {
+    local subcommand="backup"
+
+    # Allow subcommands to appear either first (e.g. `verify ...`) or after options
+    # (e.g. `--output /path verify ...`). We'll detect `backup`/`verify` during arg parsing.
+
+
     local backup_type="user-data"
     local compress="false"
     local description=""
     local list_mode="false"
     local delete_id=""
+    local verify_id=""
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            backup)
+                subcommand="backup"
+                shift
+                ;;
+            verify)
+                subcommand="verify"
+                shift
+                verify_id="${1:-}"
+                if [[ -z "$verify_id" ]]; then
+                    log_error "Usage: $(basename "$0") verify <backup_id|backup_id.tar.gz>"
+                    exit 1
+                fi
+                shift
+                # No more flags after verify are supported
+                break
+                ;;
             -h|--help)
                 usage
                 exit 0
@@ -396,8 +654,21 @@ main() {
         exit 0
     fi
 
+    # Verify mode
+    if [[ "$subcommand" == "verify" ]]; then
+        # Create backup root so --output works even if dir doesn't exist yet
+        mkdir -p "$BACKUP_ROOT"
+
+        verify_backup "$verify_id"
+        exit $?
+    fi
+
     # Check if running in Dream Server directory
-    if [[ ! -f "$DREAM_DIR/docker-compose.yml" && ! -d "$DREAM_DIR/data" ]]; then
+    local has_compose=false
+    for f in "$DREAM_DIR"/docker-compose*.y*ml; do
+        [[ -f "$f" ]] && has_compose=true && break
+    done
+    if [[ "$has_compose" == "false" && ! -d "$DREAM_DIR/data" ]]; then
         log_warn "This doesn't appear to be a Dream Server directory"
         log_warn "Expected: docker-compose.yml or data/ directory"
         read -rp "Continue anyway? [y/N] " confirm

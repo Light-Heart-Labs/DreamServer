@@ -6,6 +6,15 @@
 
 name: dream-server
 
+# ============================================
+# Standardized Logging Policy
+# ============================================
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   # ============================================
   # LLM Inference — llama-server (GPU-agnostic stub)
@@ -19,7 +28,7 @@ services:
       - ./data/models:/models
       - ./config/llama-server/models.ini:/config/models.ini:ro
     ports:
-      - "${OLLAMA_PORT:-11434}:8080"
+      - "127.0.0.1:${OLLAMA_PORT:-8080}:8080"
     command:
       - --model
       - /models/${GGUF_FILE:-Qwen3-8B-Q4_K_M.gguf}
@@ -31,13 +40,20 @@ services:
       - "999"
       - --ctx-size
       - "${CTX_SIZE:-16384}"
+      - --batch-size
+      - "${LLAMA_BATCH_SIZE:-2048}"
+      - --threads
+      - "${LLAMA_THREADS:-4}"
+      - --parallel
+      - "${LLAMA_PARALLEL:-1}"
       - --metrics
     security_opt:
       - no-new-privileges:true
+    logging: *default-logging
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
       interval: 15s
-      timeout: 5s
+      timeout: 10s
       retries: 5
       start_period: 120s
 
@@ -48,14 +64,18 @@ services:
     image: ghcr.io/open-webui/open-webui:v0.7.2
     container_name: dream-webui
     restart: unless-stopped
+    depends_on:
+      llama-server:
+        condition: service_healthy
+    logging: *default-logging
     security_opt:
       - no-new-privileges:true
     environment:
       ENABLE_OLLAMA_API: "false"
       OPENAI_API_BASE_URL: "${LLM_API_URL:-http://llama-server:8080}/v1"
-      OPENAI_API_KEY: "not-needed"
+      OPENAI_API_KEY: ""
       WEBUI_AUTH: "${WEBUI_AUTH:-true}"
-      WEBUI_SECRET_KEY: "${WEBUI_SECRET:?Set WEBUI_SECRET in .env}"
+      WEBUI_SECRET_KEY: "${WEBUI_SECRET:-changeme}"
       ENABLE_WEB_SEARCH: "true"
       WEB_SEARCH_ENGINE: "searxng"
       SEARXNG_QUERY_URL: "http://searxng:8080/search?q=<query>&format=json"
@@ -93,19 +113,19 @@ services:
       # ── Speech-to-Text (Whisper) ──
       AUDIO_STT_ENGINE: "openai"
       AUDIO_STT_OPENAI_API_BASE_URL: "http://whisper:8000/v1"
-      AUDIO_STT_OPENAI_API_KEY: "not-needed"
+      AUDIO_STT_OPENAI_API_KEY: ""
       AUDIO_STT_MODEL: "Systran/faster-whisper-base"
       # ── Text-to-Speech (Kokoro) ──
       AUDIO_TTS_ENGINE: "openai"
       AUDIO_TTS_OPENAI_API_BASE_URL: "http://tts:8880/v1"
-      AUDIO_TTS_OPENAI_API_KEY: "not-needed"
+      AUDIO_TTS_OPENAI_API_KEY: ""
       AUDIO_TTS_MODEL: "kokoro"
       AUDIO_TTS_VOICE: "af_heart"
       TZ: "${TIMEZONE:-UTC}"
     volumes:
       - ./data/open-webui:/app/backend/data
     ports:
-      - "${WEBUI_PORT:-3000}:8080"
+      - "127.0.0.1:${WEBUI_PORT:-3000}:8080"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
@@ -125,19 +145,23 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "${DASHBOARD_API_PORT:-3002}:3002"
+      - "127.0.0.1:${DASHBOARD_API_PORT:-3002}:3002"
     security_opt:
       - no-new-privileges:true
+    logging: *default-logging
     environment:
       - DREAM_INSTALL_DIR=/dream-server
       - DREAM_DATA_DIR=/data
       - GPU_BACKEND=${GPU_BACKEND:-nvidia}
+      - HOST_RAM_GB=${HOST_RAM_GB:-0}
       - OLLAMA_URL=${LLM_API_URL:-http://llama-server:8080}
       - LLM_MODEL=${LLM_MODEL:-qwen3:30b-a3b}
       - KOKORO_URL=${KOKORO_URL:-http://tts:8880}
       - N8N_URL=${N8N_URL:-http://n8n:5678}
       - DASHBOARD_API_KEY=${DASHBOARD_API_KEY:-}
       - OPENCLAW_TOKEN=${OPENCLAW_TOKEN:-}
+      - TOKEN_SPY_URL=${TOKEN_SPY_URL:-http://token-spy:8080}
+      - TOKEN_SPY_API_KEY=${TOKEN_SPY_API_KEY:-}
     volumes:
       - ./scripts:/dream-server/scripts:ro
       - ./config:/dream-server/config:ro
@@ -170,12 +194,13 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    logging: *default-logging
     environment:
       - DASHBOARD_API_KEY=${DASHBOARD_API_KEY:-}
     volumes:
       - ./data:/data:ro
     ports:
-      - "${DASHBOARD_PORT:-3001}:3001"
+      - "127.0.0.1:${DASHBOARD_PORT:-3001}:3001"
     deploy:
       resources:
         limits:

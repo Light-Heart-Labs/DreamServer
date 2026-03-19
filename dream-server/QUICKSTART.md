@@ -2,7 +2,7 @@
 
 One command to a fully running local AI stack. No manual config, no dependency hell.
 
-> **This quickstart covers Linux and Windows.** For Windows, see the [Windows install section](#windows) below. macOS support is coming soon — see [Platform Support](README.md#platform-support) for the roadmap.
+> **This quickstart covers Linux, Windows, and macOS.** For Windows, see the [Windows install section](#windows) below. For macOS, see the [macOS Quickstart](docs/MACOS-QUICKSTART.md).
 
 ## Prerequisites
 
@@ -185,7 +185,7 @@ The inference engine is still loading.
 Edit `.env` to change ports:
 ```
 WEBUI_PORT=3001
-LLAMA_SERVER_PORT=8081    # LLM inference port
+OLLAMA_PORT=8081          # LLM inference port
 ```
 
 ---
@@ -228,7 +228,7 @@ The installer handles everything — GPU detection, tier selection, Docker setup
 
 ### Common Windows Issues
 
-**Ollama conflict:** If Ollama Desktop is running, it uses port 11434 which conflicts with llama-server. The installer will detect this and offer to stop it.
+**Ollama conflict:** If you set `OLLAMA_PORT=11434` and Ollama Desktop is running, ports will conflict. Keep `OLLAMA_PORT=8080` (default) or stop Ollama.
 
 **Docker Desktop not running:** Start Docker Desktop from the Start Menu before running the installer.
 

@@ -1,58 +1,154 @@
 #!/bin/sh
 # ============================================================================
-# DreamServer Whisper VAD Patch
+# DreamServer Whisper Entrypoint
 # ============================================================================
-# Injects Voice Activity Detection parameters into the speaches STT router.
-# This runs at container startup and is IDEMPOTENT — safe across restarts.
-#
-# Why: The upstream speaches image doesn't include VAD tuning parameters
-# that work well for conversational AI. This patch adds them at runtime
-# so we don't need to maintain a custom Docker image.
-#
-# The DREAM_PATCHED marker prevents duplicate insertion when Docker
-# restarts the container (which preserves the writable filesystem layer).
+# VAD patch implementation with safe multi-line function call handling.
+# Uses Python AST parsing to safely modify transcribe() calls.
 # ============================================================================
 
-STT_FILE="/home/ubuntu/speaches/src/speaches/routers/stt.py"
+apply_vad_patch() {
+    local stt_file="$1"
+    echo "[dream-whisper] Applying VAD patch to $stt_file"
 
-apply_patch() {
-    # Already patched? Skip to prevent duplicate insertion on restart
-    if grep -q "DREAM_PATCHED" "$STT_FILE" 2>/dev/null; then
-        echo "[dream-whisper] VAD patch already applied, skipping"
-        return 0
+    if [[ ! -f "$stt_file" ]]; then
+        echo "[dream-whisper] Warning: STT file not found: $stt_file"
+        return 1
     fi
 
-    # Check if target pattern exists
-    if ! grep -qE '^[[:space:]]*vad_filter[[:space:]]*=[[:space:]]*effective_vad_filter[[:space:]]*,?[[:space:]]*$' "$STT_FILE" 2>/dev/null; then
-        echo "[dream-whisper] WARNING: Target pattern not found in $STT_FILE" >&2
-        echo "[dream-whisper] Upstream may have changed - patch skipped" >&2
-        return 0
-    fi
+    # Create Python script to safely patch the transcribe call
+    cat > /tmp/vad_patcher.py << 'PYTHON_EOF'
+import ast
+import sys
+import re
 
-    # Apply patch - match the FULL LINE to prevent partial matches
-    # Replaces the vad_filter line with vad_filter + vad_parameters + marker
-    if command -v perl >/dev/null 2>&1; then
-        perl -i -pe 's/^[[:space:]]*vad_filter\s*=\s*effective_vad_filter\s*,?\s*$/            vad_filter=effective_vad_filter,\n            vad_parameters={"threshold": 0.3, "min_silence_duration_ms": 400, "min_speech_duration_ms": 50, "speech_pad_ms": 200},  # DREAM_PATCHED/' "$STT_FILE"
-    else
-        sed -i -E '/^[[:space:]]*vad_filter[[:space:]]*=[[:space:]]*effective_vad_filter[[:space:]]*,?[[:space:]]*$/c\            vad_filter=effective_vad_filter,\n            vad_parameters={"threshold": 0.3, "min_silence_duration_ms": 400, "min_speech_duration_ms": 50, "speech_pad_ms": 200},  # DREAM_PATCHED' "$STT_FILE"
-    fi
+def patch_transcribe_call(source_code):
+    """Safely patch transcribe() calls to add VAD parameters."""
+    try:
+        # Parse the AST to find function calls
+        tree = ast.parse(source_code)
 
-    # Verify
-    if grep -q "DREAM_PATCHED" "$STT_FILE" 2>/dev/null; then
+        # Track line numbers of transcribe calls
+        transcribe_lines = []
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call) and
+                isinstance(node.func, ast.Attribute) and
+                node.func.attr == 'transcribe'):
+                transcribe_lines.append(node.lineno)
+
+        if not transcribe_lines:
+            return source_code, False
+
+        lines = source_code.splitlines()
+        modified = False
+
+        for line_num in transcribe_lines:
+            # Convert to 0-based index
+            idx = line_num - 1
+            if idx >= len(lines):
+                continue
+
+            line = lines[idx]
+
+            # Check if VAD parameters already exist
+            if 'vad_filter=' in line or 'vad_parameters=' in line:
+                continue
+
+            # Find the transcribe call and add VAD parameters
+            # Handle both single-line and multi-line calls
+            if 'transcribe(' in line:
+                # Simple single-line case
+                if line.strip().endswith(')'):
+                    # Insert VAD parameters before the LAST closing paren only
+                    # Use rfind to replace only the rightmost ')' to avoid breaking nested calls
+                    last_paren_idx = line.rfind(')')
+                    if last_paren_idx != -1:
+                        new_line = line[:last_paren_idx] + ', vad_filter=True, vad_parameters={"threshold": 0.5}' + line[last_paren_idx:]
+                        lines[idx] = new_line
+                        modified = True
+                else:
+                    # Multi-line call - find the closing parenthesis
+                    paren_count = line.count('(') - line.count(')')
+                    search_idx = idx + 1
+
+                    while search_idx < len(lines) and paren_count > 0:
+                        search_line = lines[search_idx]
+                        paren_count += search_line.count('(') - search_line.count(')')
+
+                        if paren_count == 0:
+                            # Found the closing line
+                            if search_line.strip() == ')':
+                                # Closing paren on its own line
+                                lines.insert(search_idx, '    vad_filter=True,')
+                                lines.insert(search_idx + 1, '    vad_parameters={"threshold": 0.5},')
+                            else:
+                                # Closing paren with other content - replace only the last ')'
+                                last_paren_idx = search_line.rfind(')')
+                                if last_paren_idx != -1:
+                                    lines[search_idx] = search_line[:last_paren_idx] + ', vad_filter=True, vad_parameters={"threshold": 0.5}' + search_line[last_paren_idx:]
+                            modified = True
+                            break
+                        search_idx += 1
+
+        return '\n'.join(lines), modified
+
+    except SyntaxError as e:
+        print(f"Syntax error in source file: {e}", file=sys.stderr)
+        return source_code, False
+    except Exception as e:
+        print(f"Error patching transcribe call: {e}", file=sys.stderr)
+        return source_code, False
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("Usage: python vad_patcher.py <file_path>", file=sys.stderr)
+        sys.exit(1)
+
+    file_path = sys.argv[1]
+    try:
+        with open(file_path, 'r') as f:
+            original_code = f.read()
+
+        patched_code, was_modified = patch_transcribe_call(original_code)
+
+        if was_modified:
+            with open(file_path, 'w') as f:
+                f.write(patched_code)
+            print("VAD patch applied successfully")
+        else:
+            print("No transcribe calls found or already patched")
+
+    except Exception as e:
+        print(f"Error processing file: {e}", file=sys.stderr)
+        sys.exit(1)
+PYTHON_EOF
+
+    # Apply the patch using Python
+    if "$PYTHON_CMD" /tmp/vad_patcher.py "$stt_file"; then
         echo "[dream-whisper] VAD patch applied successfully"
+        rm -f /tmp/vad_patcher.py
+        return 0
     else
-        echo "[dream-whisper] WARNING: Patch verification failed" >&2
+        echo "[dream-whisper] VAD patch failed, continuing with defaults"
+        rm -f /tmp/vad_patcher.py
+        return 1
     fi
 }
 
-# Apply patch if file exists and is writable (non-fatal if it fails)
-if [ -f "$STT_FILE" ] && [ -w "$STT_FILE" ]; then
-    apply_patch
-elif [ ! -f "$STT_FILE" ]; then
-    echo "[dream-whisper] WARNING: $STT_FILE not found, skipping patch" >&2
-else
-    echo "[dream-whisper] WARNING: $STT_FILE not writable, skipping patch" >&2
+PYTHON_CMD="python3"
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(0)' >/dev/null 2>&1; then
+    PYTHON_CMD="python3"
+elif command -v python >/dev/null 2>&1 && python -c 'import sys; sys.exit(0)' >/dev/null 2>&1; then
+    PYTHON_CMD="python"
 fi
 
-# Always start the server (patch failure should not block startup)
+STT_FILE=$($PYTHON_CMD -c "import speaches.routers.stt as m; print(m.__file__)" 2>/dev/null || true)
+
+if [[ -n "$STT_FILE" ]]; then
+    # Apply VAD patch with safe multi-line handling
+    apply_vad_patch "$STT_FILE"
+else
+    echo "[dream-whisper] Could not locate STT module, skipping VAD patch"
+fi
+
+# Always start uvicorn (patch failure is non-fatal but logged)
 exec uvicorn --factory speaches.main:create_app --host 0.0.0.0 --port 8000

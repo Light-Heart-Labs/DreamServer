@@ -83,6 +83,31 @@ Copy `.env.example` to `.env` and set required values:
 | `DEFAULT_API_KEY` | | API key for upstream (if required) |
 | `TOKEN_SPY_PROXY_PORT` | | Proxy port (default: 8080) |
 | `TOKEN_SPY_DASHBOARD_PORT` | | Dashboard port (default: 3001) |
+| `DASHBOARD_ALLOWED_ORIGINS` | | Dashboard CORS allowlist (CSV or JSON array). Leave empty for secure default (no cross-origin access). |
+| `DASHBOARD_CORS_ALLOW_CREDENTIALS` | | Whether CORS allows credentials (default: `true`; requires explicit origins) |
+
+### Dashboard CORS Security
+
+Token Spy dashboard CORS is environment-driven via `DASHBOARD_ALLOWED_ORIGINS`.
+
+- **Secure default (recommended):** leave `DASHBOARD_ALLOWED_ORIGINS` empty to disable cross-origin browser access.
+- **Production:** set explicit trusted origins only.
+- **Local development override:** set localhost origins as a CSV or JSON array.
+
+Examples:
+
+```bash
+# Production
+DASHBOARD_ALLOWED_ORIGINS=https://dashboard.example.com
+
+# Local development (CSV)
+DASHBOARD_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+
+# Local development (JSON array)
+DASHBOARD_ALLOWED_ORIGINS=["http://localhost:3000","http://127.0.0.1:3000"]
+```
+
+> ⚠️ Startup validation rejects insecure combinations. If `DASHBOARD_CORS_ALLOW_CREDENTIALS=true`, wildcard `*` is not allowed in `DASHBOARD_ALLOWED_ORIGINS` and the dashboard will fail fast with an error log.
 
 ### Generating a Secure Password
 
@@ -117,6 +142,13 @@ openssl rand -base64 32
 - **Dashboard** (`:3001`): React frontend for analytics
 - **TimescaleDB**: Time-series database for metrics
 - **Redis**: Caching and rate limiting
+
+
+## Database Backend Modules
+
+- **Canonical DB layer:** `resources/products/token-spy/sidecar/db_backend.py` is the runtime backend API used by the sidecar (`get_db`, `DatabaseBackend`, pool lifecycle, usage/API/provider/tenant models).
+- **Deprecated compatibility module:** `resources/products/token-spy/db_backend.py` is now a thin import-forwarding shim for legacy scripts.
+- **Migration status:** new code should import from `sidecar.db_backend`; the top-level module remains only for backward compatibility and will be removed in a future cleanup once downstream scripts are migrated.
 
 ## Make Commands
 

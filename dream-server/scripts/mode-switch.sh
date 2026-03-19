@@ -26,10 +26,13 @@ warn() { echo -e "${YELLOW}⚠${NC} $1"; }
 error() { echo -e "${RED}✗${NC} $1" >&2; exit 1; }
 
 # Update or add a key=value in .env
+# Uses awk index() instead of sed to avoid delimiter collisions
 env_set() {
     local key="$1" val="$2"
     if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
-        sed -i "s|^${key}=.*|${key}=${val}|" "$ENV_FILE"
+        awk -v k="$key" -v v="$val" '{
+            if (index($0, k "=") == 1) print k "=" v; else print
+        }' "$ENV_FILE" > "${ENV_FILE}.tmp" && mv "${ENV_FILE}.tmp" "$ENV_FILE"
     else
         echo "${key}=${val}" >> "$ENV_FILE"
     fi

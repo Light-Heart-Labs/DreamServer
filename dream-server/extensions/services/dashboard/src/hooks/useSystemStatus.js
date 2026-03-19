@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 const POLL_INTERVAL = 5000 // 5 seconds
 
@@ -50,14 +50,24 @@ export function useSystemStatus() {
   })
   const [loading, setLoading] = useState(!USE_MOCK_DATA)
   const [error, setError] = useState(null)
+  // Guard against overlapping fetches — if the API is slow (e.g.
+  // llama-server under inference load) we skip the next poll rather
+  // than stacking concurrent requests that can amplify the problem.
+  const fetchInFlight = useRef(false)
 
   useEffect(() => {
     const fetchStatus = async () => {
-      // If using mock data, don't attempt API call
       if (USE_MOCK_DATA) {
         setLoading(false)
         return
       }
+
+      // Pause polling when the tab is hidden to save CPU/network
+      if (document.hidden) return
+
+      // Skip this tick if the previous fetch hasn't returned yet.
+      if (fetchInFlight.current) return
+      fetchInFlight.current = true
 
       try {
         const response = await fetch('/api/status')
@@ -67,15 +77,23 @@ export function useSystemStatus() {
         setError(null)
       } catch (err) {
         setError(err.message)
-        // No silent fallback - let error propagate to UI
       } finally {
+        fetchInFlight.current = false
         setLoading(false)
       }
     }
 
     fetchStatus()
     const interval = setInterval(fetchStatus, POLL_INTERVAL)
-    return () => clearInterval(interval)
+
+    // Resume immediately when the tab becomes visible again
+    const onVisibility = () => { if (!document.hidden) fetchStatus() }
+    document.addEventListener('visibilitychange', onVisibility)
+
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [])
 
   return { status, loading, error }

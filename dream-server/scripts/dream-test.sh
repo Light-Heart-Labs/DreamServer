@@ -36,12 +36,13 @@ if [[ -f "$_DT_DIR/lib/service-registry.sh" ]]; then
     export SCRIPT_DIR="$_DT_DIR"
     . "$_DT_DIR/lib/service-registry.sh"
     sr_load
-    [[ -f "$_DT_DIR/.env" ]] && set -a && . "$_DT_DIR/.env" && set +a
+    [[ -f "$_DT_DIR/lib/safe-env.sh" ]] && . "$_DT_DIR/lib/safe-env.sh"
+    load_env_file "$_DT_DIR/.env"
 fi
 
 # Service endpoints — resolved from registry
 LLM_HOST="${LLM_HOST:-localhost}"
-LLM_PORT="${LLM_PORT:-${SERVICE_PORTS[llama-server]:-8080}}"
+LLM_PORT="${LLM_PORT:-${SERVICE_PORTS[llama-server]:-11434}}"
 LLM_URL="http://${LLM_HOST}:${LLM_PORT}"
 WHISPER_HOST="${WHISPER_HOST:-localhost}"
 WHISPER_PORT="${WHISPER_PORT:-${SERVICE_PORTS[whisper]:-9000}}"
@@ -85,15 +86,17 @@ RESULTS_DETAILS=()
 #--------------------------------------------------------------------------
 
 load_env() {
-    if [[ -f "$ENV_FILE" ]]; then
-        set -a
-        source "$ENV_FILE" 2>/dev/null || true
-        set +a
-    fi
+    [[ -f "$_DT_DIR/lib/safe-env.sh" ]] && . "$_DT_DIR/lib/safe-env.sh"
+    load_env_file "$ENV_FILE"
 }
 
 log() {
     [[ "$VERBOSE" == "true" ]] && echo "$@" >&2
+}
+
+# Portable millisecond timestamp (macOS BSD date lacks %N)
+_now_ms() {
+    python3 -c 'import time; print(int(time.time() * 1000))' 2>/dev/null || echo "$(date +%s)000"
 }
 
 print_header() {
@@ -158,8 +161,8 @@ test_http() {
     local response_code
     local start_time end_time duration_ms
     
-    start_time=$(date +%s%N)
-    
+    start_time=$(_now_ms)
+
     if [[ -n "$payload" && "$method" == "POST" ]]; then
         response_code=$(curl -s -o /dev/null -w "%{http_code}" \
             --max-time "$custom_timeout" \
@@ -172,9 +175,9 @@ test_http() {
             "$url" 2>/dev/null || echo "000")
     fi
     
-    end_time=$(date +%s%N)
-    duration_ms=$(( (end_time - start_time) / 1000000 ))
-    
+    end_time=$(_now_ms)
+    duration_ms=$(( end_time - start_time ))
+
     if [[ "$response_code" == "$expected" ]]; then
         record_result "$name" "pass" "${duration_ms}ms"
         print_test "$name" "pass" "${duration_ms}ms"
@@ -347,7 +350,7 @@ test_whisper() {
     response=$(curl -s --max-time "$TIMEOUT" "$health_url" 2>/dev/null || echo "")
     
     if [[ -n "$response" ]]; then
-        if echo "$response" | grep -qi "ok\|healthy\|ready"; then
+        if echo "$response" | grep -qiE "ok|healthy|ready"; then
             record_result "Whisper Health" "pass"
             print_test "Whisper Health" "pass"
         else
@@ -355,7 +358,9 @@ test_whisper() {
             print_test "Whisper Health" "pass" "responding"
         fi
     else
-        test_http "Whisper HTTP" "http://${WHISPER_HOST}:${WHISPER_PORT}/" "200" || true
+        whisper_http_exit=0
+        test_http "Whisper HTTP" "http://${WHISPER_HOST}:${WHISPER_PORT}/" "200" || whisper_http_exit=$?
+        [[ $whisper_http_exit -ne 0 ]] && log "Whisper HTTP check failed (exit $whisper_http_exit)"
     fi
 }
 
@@ -375,7 +380,9 @@ test_tts() {
         record_result "TTS Voices" "pass" "$voice_count voices"
         print_test "TTS Voices" "pass" "$voice_count voices"
     else
-        test_http "TTS API" "http://${TTS_HOST}:${TTS_PORT}/" "200" || true
+        tts_api_exit=0
+        test_http "TTS API" "http://${TTS_HOST}:${TTS_PORT}/" "200" || tts_api_exit=$?
+        [[ $tts_api_exit -ne 0 ]] && log "TTS API check failed (exit $tts_api_exit)"
     fi
 }
 
@@ -394,7 +401,9 @@ test_embeddings() {
         print_test "Embeddings Health" "pass"
     else
         local payload='{"inputs": "test sentence"}'
-        test_http "Embeddings API" "http://${EMBEDDING_HOST}:${EMBEDDING_PORT}/embed" "200" "POST" "$payload" || true
+        embeddings_api_exit=0
+        test_http "Embeddings API" "http://${EMBEDDING_HOST}:${EMBEDDING_PORT}/embed" "200" "POST" "$payload" || embeddings_api_exit=$?
+        [[ $embeddings_api_exit -ne 0 ]] && log "Embeddings API check failed (exit $embeddings_api_exit)"
     fi
 }
 
@@ -439,8 +448,8 @@ test_voice_roundtrip() {
     fi
     
     local start_time end_time duration_ms
-    start_time=$(date +%s%N)
-    
+    start_time=$(_now_ms)
+
     local llm_payload='{"model": "Qwen/Qwen2.5-32B-Instruct-AWQ", "messages": [{"role": "user", "content": "What is the weather today?"}], "max_tokens": 50}'
     local llm_response
     llm_response=$(curl -s --max-time 15 \
@@ -462,9 +471,9 @@ test_voice_roundtrip() {
         -H "Content-Type: application/json" \
         -d "$tts_payload" 2>/dev/null)
     
-    end_time=$(date +%s%N)
-    duration_ms=$(( (end_time - start_time) / 1000000 ))
-    
+    end_time=$(_now_ms)
+    duration_ms=$(( end_time - start_time ))
+
     if [[ -n "$tts_response" ]] && [[ ${#tts_response} -gt 100 ]]; then
         record_result "Voice Round-Trip" "pass" "${duration_ms}ms"
         print_test "Voice Round-Trip" "pass" "${duration_ms}ms"
@@ -509,7 +518,9 @@ test_livekit() {
     echo "> LiveKit Voice Infrastructure"
     
     test_tcp "LiveKit Port" "$LIVEKIT_HOST" "$LIVEKIT_PORT"
-    test_http "LiveKit Health" "http://${LIVEKIT_HOST}:${LIVEKIT_PORT}/" "200" || true
+    livekit_health_exit=0
+    test_http "LiveKit Health" "http://${LIVEKIT_HOST}:${LIVEKIT_PORT}/" "200" || livekit_health_exit=$?
+    [[ $livekit_health_exit -ne 0 ]] && log "LiveKit health check failed (exit $livekit_health_exit)"
 }
 
 #--------------------------------------------------------------------------
@@ -532,7 +543,7 @@ _print_json_summary() {
     local elapsed="$1"
     
     echo "{"
-    echo "  \"timestamp\": \"$(date -Iseconds)\","
+    echo "  \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\","
     echo "  \"runtime_seconds\": $elapsed,"
     echo "  \"summary\": {"
     echo "    \"total\": $TOTAL_TESTS,"

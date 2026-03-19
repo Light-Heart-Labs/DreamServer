@@ -19,6 +19,7 @@ Endpoints:
 import os
 import asyncio
 import logging
+import json
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Optional, List, Dict, Any, Literal
@@ -51,6 +52,8 @@ class Settings(BaseSettings):
     dashboard_auth_enabled: bool = False
     dashboard_username: str = "admin"
     dashboard_password: Optional[str] = Field(default=None, description="Dashboard password (required when auth enabled)")
+    dashboard_allowed_origins: str = ""
+    dashboard_cors_allow_credentials: bool = True
     
     class Config:
         env_file = ".env"
@@ -96,6 +99,95 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger("token-spy-dashboard")
+
+
+def parse_allowed_origins(raw_origins: str) -> List[str]:
+    """Parse CORS origins from CSV or JSON array."""
+    value = (raw_origins or "").strip()
+    if not value:
+        return []
+
+    if value.startswith("{"):
+        raise ValueError(
+            "DASHBOARD_ALLOWED_ORIGINS JSON format must be an array, not an object"
+        )
+
+    if value.startswith("["):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                "DASHBOARD_ALLOWED_ORIGINS must be valid CSV or JSON array"
+            ) from exc
+
+        if not isinstance(parsed, list) or not all(isinstance(item, str) for item in parsed):
+            raise ValueError("DASHBOARD_ALLOWED_ORIGINS JSON format must be an array of strings")
+        return [origin.strip() for origin in parsed if origin.strip()]
+
+    return [origin.strip() for origin in value.split(",") if origin.strip()]
+
+
+def get_cors_settings() -> Dict[str, Any]:
+    """Return validated CORS settings from environment configuration."""
+    allow_origins = parse_allowed_origins(settings.dashboard_allowed_origins)
+    allow_credentials = settings.dashboard_cors_allow_credentials
+    has_wildcard = "*" in allow_origins
+
+    if allow_credentials and has_wildcard:
+        logger.error(
+            "Invalid CORS config: DASHBOARD_CORS_ALLOW_CREDENTIALS=true cannot be combined "
+            "with wildcard origin '*' in DASHBOARD_ALLOWED_ORIGINS."
+        )
+        raise ValueError(
+            "Refusing to start with insecure CORS config: credentials + wildcard origin"
+        )
+
+    if has_wildcard:
+        logger.warning(
+            "CORS is configured with wildcard origin '*'. This should only be used in controlled local development."
+        )
+    elif not allow_origins:
+        logger.info(
+            "CORS allowlist is empty; cross-origin browser requests are disabled. "
+            "Set DASHBOARD_ALLOWED_ORIGINS for explicit trusted origins."
+        )
+
+    return {
+        "allow_origins": allow_origins,
+        "allow_credentials": allow_credentials,
+    }
+
+
+def normalize_cost_and_speed_metrics(
+    total_tokens: Optional[int],
+    total_cost: Optional[float],
+    avg_latency_ms: Optional[float],
+    avg_ttft_ms: Optional[float] = None,
+) -> Dict[str, Optional[float]]:
+    """Mirror sidecar normalization logic for cost/speed model metrics."""
+    tokens_value = int(total_tokens) if total_tokens is not None else 0
+    cost_value = float(total_cost) if total_cost is not None else 0.0
+
+    cost_per_1k_tokens = (
+        (cost_value / tokens_value) * 1000 if tokens_value > 0 else None
+    )
+
+    total_time_ms = 0.0
+    if avg_ttft_ms is not None and avg_ttft_ms > 0:
+        total_time_ms += float(avg_ttft_ms)
+    if avg_latency_ms is not None and avg_latency_ms > 0:
+        total_time_ms += float(avg_latency_ms)
+
+    tokens_per_second = (
+        (tokens_value * 1000 / total_time_ms)
+        if tokens_value > 0 and total_time_ms > 0
+        else None
+    )
+
+    return {
+        "cost_per_1k_tokens": cost_per_1k_tokens,
+        "tokens_per_second": tokens_per_second,
+    }
 
 # ============================================
 # Database Connection Pool
@@ -149,10 +241,11 @@ app = FastAPI(
 )
 
 # CORS for React frontend
+cors_settings = get_cors_settings()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=cors_settings["allow_origins"],
+    allow_credentials=cors_settings["allow_credentials"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -1017,6 +1110,23 @@ async def get_overview(auth_user: Optional[str] = Depends(verify_auth)):
             """
             top_model = await conn.fetchval(top_model_query)
             
+            budget_row = await conn.fetchrow("""
+                SELECT
+                    SUM(tokens_used_this_month) AS tokens_used,
+                    SUM(monthly_token_limit) AS token_limit
+                FROM api_keys
+                WHERE is_active = TRUE
+                  AND monthly_token_limit IS NOT NULL
+                  AND monthly_token_limit > 0
+            """)
+            budget_used_percent = None
+            if budget_row and budget_row["token_limit"]:
+                budget_used_percent = (
+                    float(budget_row["tokens_used"] or 0)
+                    / float(budget_row["token_limit"])
+                    * 100
+                )
+
             return OverviewResponse(
                 total_requests_24h=row_24h["requests"] or 0,
                 total_tokens_24h=row_24h["tokens"] or 0,
@@ -1024,7 +1134,7 @@ async def get_overview(auth_user: Optional[str] = Depends(verify_auth)):
                 active_sessions=active_sessions,
                 avg_latency_ms=float(row_24h["latency"]) if row_24h["latency"] else None,
                 top_model=top_model,
-                budget_used_percent=None  # TODO: Calculate based on plan limits
+                budget_used_percent=budget_used_percent
             )
     except Exception as e:
         logger.error(f"Failed to get overview: {e}")
@@ -1110,19 +1220,28 @@ async def get_models_list(
             """ % days
             
             rows = await conn.fetch(query)
-            return [
-                ModelMetrics(
-                    provider=row["provider"],
-                    model=row["model"],
-                    request_count=row["request_count"],
+            model_metrics: List[ModelMetrics] = []
+            for row in rows:
+                avg_latency_ms = float(row["avg_latency_ms"]) if row["avg_latency_ms"] else None
+                normalized = normalize_cost_and_speed_metrics(
                     total_tokens=row["total_tokens"],
                     total_cost=float(row["total_cost"]),
-                    avg_latency_ms=float(row["avg_latency_ms"]) if row["avg_latency_ms"] else None,
-                    tokens_per_second=None,  # TODO: Calculate
-                    cost_per_1k_tokens=None  # TODO: Calculate
+                    avg_latency_ms=avg_latency_ms,
                 )
-                for row in rows
-            ]
+                model_metrics.append(
+                    ModelMetrics(
+                        provider=row["provider"],
+                        model=row["model"],
+                        request_count=row["request_count"],
+                        total_tokens=row["total_tokens"],
+                        total_cost=float(row["total_cost"]),
+                        avg_latency_ms=avg_latency_ms,
+                        tokens_per_second=normalized["tokens_per_second"],
+                        cost_per_1k_tokens=normalized["cost_per_1k_tokens"],
+                    )
+                )
+
+            return model_metrics
     except Exception as e:
         logger.error(f"Failed to get models: {e}")
         raise HTTPException(status_code=500, detail=str(e))

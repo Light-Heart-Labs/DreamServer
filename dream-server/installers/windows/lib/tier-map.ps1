@@ -55,6 +55,16 @@ function Resolve-TierConfig {
                 MaxContext = 131072
             }
         }
+        "0" {
+            return @{
+                TierName   = "Lightweight"
+                LlmModel   = "qwen3.5-2b"
+                GgufFile   = "Qwen3.5-2B-Q4_K_M.gguf"
+                GgufUrl    = "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf"
+                GgufSha256 = ""
+                MaxContext = 8192
+            }
+        }
         "1" {
             return @{
                 TierName   = "Entry Level"
@@ -96,7 +106,7 @@ function Resolve-TierConfig {
             }
         }
         default {
-            throw "Invalid tier: $Tier. Valid tiers: 1, 2, 3, 4, CLOUD, NV_ULTRA, SH_LARGE, SH_COMPACT"
+            throw "Invalid tier: $Tier. Valid tiers: 0, 1, 2, 3, 4, CLOUD, NV_ULTRA, SH_LARGE, SH_COMPACT"
         }
     }
 }
@@ -110,8 +120,10 @@ function ConvertTo-TierFromGpu {
     $backend = $GpuInfo.Backend
     $vramMB  = $GpuInfo.VramMB
 
-    # Cloud mode -- no GPU
+    # No GPU detected -- use Tier 0 for local inference on low-RAM machines,
+    # otherwise fall back to CLOUD (API) mode
     if ($backend -eq "none") {
+        if ($SystemRamGB -lt 12) { return "0" }
         return "CLOUD"
     }
 
@@ -119,6 +131,7 @@ function ConvertTo-TierFromGpu {
     if ($backend -eq "amd" -and $GpuInfo.MemoryType -eq "unified") {
         if ($SystemRamGB -ge 90) { return "SH_LARGE" }
         if ($SystemRamGB -ge 64) { return "SH_COMPACT" }
+        if ($SystemRamGB -lt 12) { return "0" }
         return "1"  # Fallback for small unified memory
     }
 
@@ -129,6 +142,7 @@ function ConvertTo-TierFromGpu {
     if ($vramGB -ge 40) { return "4" }
     if ($vramGB -ge 20) { return "3" }
     if ($vramGB -ge 12) { return "2" }
+    if ($vramGB -lt 4 -and $SystemRamGB -lt 12) { return "0" }
     return "1"
 }
 
@@ -141,6 +155,7 @@ function ConvertTo-ModelFromTier {
         "^NV_ULTRA$"             { return "qwen3-coder-next" }
         "^SH_LARGE$"             { return "qwen3-coder-next" }
         "^(SH_COMPACT|SH)$"     { return "qwen3-30b-a3b" }
+        "^(0|T0)$"               { return "qwen3.5-2b" }
         "^(1|T1)$"               { return "qwen3-8b" }
         "^(2|T2)$"               { return "qwen3-8b" }
         "^(3|T3)$"               { return "qwen3-30b-a3b" }

@@ -25,5 +25,11 @@ services:
           memory: 8G
 
   dashboard-api:
+    environment:
+      # Hard-code AMD backend so the dashboard uses amd sysfs GPU detection
+      # regardless of .env state (e.g. if the installer ran without sudo
+      # and couldn't write GPU_BACKEND=amd to .env).
+      - GPU_BACKEND=amd
     volumes:
       - /sys/class/drm:/sys/class/drm:ro
+      - /sys/class/hwmon:/sys/class/hwmon:ro

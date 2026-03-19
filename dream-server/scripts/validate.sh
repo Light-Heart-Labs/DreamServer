@@ -2,7 +2,7 @@
 # Dream Server Validation Script
 # Run after install to confirm everything is working
 
-set -e
+set -euo pipefail
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -18,14 +18,22 @@ export SCRIPT_DIR="$PROJECT_DIR"
 . "$PROJECT_DIR/lib/service-registry.sh"
 sr_load
 
-# Source .env for port overrides
-[[ -f "$PROJECT_DIR/.env" ]] && set -a && . "$PROJECT_DIR/.env" && set +a
+# Safe .env loading (no eval; use lib/safe-env.sh)
+[[ -f "$PROJECT_DIR/lib/safe-env.sh" ]] && . "$PROJECT_DIR/lib/safe-env.sh"
+load_env_file "$PROJECT_DIR/.env"
 
-# Resolve core ports from registry
-LLM_PORT="${SERVICE_PORTS[llama-server]:-8080}"
+# Resolve core ports from registry (honoring any env overrides)
+LLM_PORT="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-${SERVICE_PORTS[llama-server]:-11434}}}"
 LLM_HEALTH="${SERVICE_HEALTH[llama-server]:-/health}"
-WEBUI_PORT="${SERVICE_PORTS[open-webui]:-3000}"
-WEBUI_HEALTH="${SERVICE_HEALTH[open-webui]:-/}"
+WEBUI_PORT="${WEBUI_PORT:-${SERVICE_PORTS[open-webui]:-3000}}"
+WEBUI_HEALTH="${WEBUI_HEALTH:-${SERVICE_HEALTH[open-webui]:-/}}"
+
+# Resolve compose flags to match actual stack
+COMPOSE_FLAGS=""
+if [[ -x "$PROJECT_DIR/scripts/resolve-compose-stack.sh" ]]; then
+    COMPOSE_FLAGS=$("$PROJECT_DIR/scripts/resolve-compose-stack.sh" \
+        --script-dir "$PROJECT_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}")
+fi
 
 echo ""
 echo "╔═══════════════════════════════════════════╗"
@@ -40,7 +48,8 @@ check() {
     local name="$1"
     local cmd="$2"
     printf "  %-30s " "$name..."
-    if eval "$cmd" > /dev/null 2>&1; then
+    # Run fixed command string via bash -c (no eval)
+    if bash -c "$cmd" > /dev/null 2>&1; then
         echo -e "${GREEN}✓ PASS${NC}"
         ((PASSED++))
     else
@@ -51,24 +60,24 @@ check() {
 
 echo "1. Container Status"
 echo "───────────────────"
-check "llama-server running" "docker compose ps llama-server 2>/dev/null | grep -q 'Up\|running'"
-check "Open WebUI running" "docker compose ps open-webui 2>/dev/null | grep -q 'Up\|running'"
+check "llama-server running" "docker compose $COMPOSE_FLAGS ps llama-server 2>/dev/null | grep -qE 'Up|running'"
+check "Open WebUI running" "docker compose $COMPOSE_FLAGS ps open-webui 2>/dev/null | grep -qE 'Up|running'"
 
 echo ""
 echo "2. Health Endpoints"
 echo "───────────────────"
-check "llama-server health" "curl -sf http://localhost:${LLM_PORT}${LLM_HEALTH}"
-check "llama-server models" "curl -sf http://localhost:${LLM_PORT}/v1/models | grep -q model"
-check "WebUI reachable" "curl -sf http://localhost:${WEBUI_PORT}${WEBUI_HEALTH} -o /dev/null"
+check "llama-server health" "curl -sf --max-time 10 http://localhost:${LLM_PORT}${LLM_HEALTH}"
+check "llama-server models" "curl -sf --max-time 10 http://localhost:${LLM_PORT}/v1/models | grep -q model"
+check "WebUI reachable" "curl -sf --max-time 10 http://localhost:${WEBUI_PORT}${WEBUI_HEALTH} -o /dev/null"
 
 echo ""
 echo "3. Inference Test"
 echo "─────────────────"
 printf "  %-30s " "Chat completion..."
-RESPONSE=$(curl -sf "http://localhost:${LLM_PORT}/v1/chat/completions" \
+RESPONSE=$(curl -sf --max-time 30 "http://localhost:${LLM_PORT}/v1/chat/completions" \
     -H "Content-Type: application/json" \
     -d '{
-        "model": "'"$(curl -sf "http://localhost:${LLM_PORT}/v1/models" | jq -r '.data[0].id // "local"')"'",
+        "model": "'"$(curl -sf --max-time 10 "http://localhost:${LLM_PORT}/v1/models" | jq -r '.data[0].id // "local"')"'",
         "messages": [{"role": "user", "content": "Say OK"}],
         "max_tokens": 10
     }' 2>/dev/null)
@@ -108,8 +117,8 @@ for sid in "${SERVICE_IDS[@]}"; do
     [[ -z "$_health" || "$_port" == "0" ]] && continue
 
     # Check if container is running
-    if docker compose ps "$sid" 2>/dev/null | grep -q "Up\|running"; then
-        check "$_name" "curl -sf http://localhost:${_port}${_health}"
+    if docker compose $COMPOSE_FLAGS ps "$sid" 2>/dev/null | grep -qE "Up|running"; then
+        check "$_name" "curl -sf --max-time 10 http://localhost:${_port}${_health}"
     else
         printf "  %-30s ${YELLOW}○ SKIP (not enabled)${NC}\n" "$_name..."
     fi

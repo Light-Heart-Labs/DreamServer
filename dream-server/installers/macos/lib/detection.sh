@@ -53,7 +53,7 @@ get_apple_silicon_info() {
     APPLE_GPU_CORES=$(system_profiler SPDisplaysDataType 2>/dev/null | grep -i "Total Number of Cores" | awk '{print $NF}' || echo "unknown")
 
     # Neural Engine presence (all Apple Silicon has NE, but check anyway)
-    if system_profiler SPHardwareDataType 2>/dev/null | grep -qi "Neural Engine\|Apple M"; then
+    if system_profiler SPHardwareDataType 2>/dev/null | grep -qiE "Neural Engine|Apple M"; then
         APPLE_HAS_NEURAL_ENGINE=true
     else
         APPLE_HAS_NEURAL_ENGINE=false
@@ -110,6 +110,9 @@ test_docker_desktop() {
 test_disk_space() {
     local path="${1:-$HOME}"
     local required_gb="${2:-30}"
+
+    # Walk up to nearest existing parent if path doesn't exist yet (first install)
+    while [[ ! -d "$path" ]]; do path="$(dirname "$path")"; done
 
     # macOS df with -g flag shows GB
     local free_gb

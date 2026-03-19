@@ -28,7 +28,7 @@
   "tools": {
     "exec": {
       "enabled": true,
-      "allowedCommands": ["ls", "cat", "grep", "find", "head", "tail", "wc", "python3", "node"]
+      "allowedCommands": ["ls", "cat", "grep", "find", "head", "tail", "wc"]
     },
     "read": { "enabled": true },
     "write": { "enabled": true },
@@ -46,7 +46,7 @@
   },
   "gateway": {
     "port": 7860,
-    "host": "0.0.0.0",
+    "host": "127.0.0.1",
     "controlUi": {
       "allowInsecureAuth": true,
       "dangerouslyDisableDeviceAuth": true,

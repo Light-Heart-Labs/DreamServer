@@ -2,8 +2,17 @@
 # Delegates to dream-server/installers/windows/install-windows.ps1
 
 param(
-    [Parameter(ValueFromRemainingArguments=$true)]
-    [string[]]$RemainingArgs
+    [switch]$DryRun,
+    [switch]$Force,
+    [switch]$NonInteractive,
+    [string]$Tier = "",
+    [switch]$Voice,
+    [switch]$Workflows,
+    [switch]$Rag,
+    [switch]$OpenClaw,
+    [switch]$All,
+    [switch]$Cloud,
+    [string]$SummaryJsonPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,5 +29,5 @@ if (-not (Test-Path $DreamServerInstaller)) {
     exit 1
 }
 
-# Execute Windows installer with all passed arguments
-& $DreamServerInstaller @RemainingArgs
+# Forward all bound parameters to the real installer
+& $DreamServerInstaller @PSBoundParameters

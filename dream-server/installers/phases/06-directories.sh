@@ -23,6 +23,7 @@
 #   or change directory layout here.
 # ============================================================================
 
+dream_progress 38 "directories" "Preparing installation directory"
 chapter "SETTING UP INSTALLATION"
 
 if $DRY_RUN; then
@@ -34,11 +35,27 @@ if $DRY_RUN; then
     log "[DRY RUN] Would validate .env against schema"
 else
     # Create directories
+    dream_progress 38 "directories" "Creating directory structure"
     mkdir -p "$INSTALL_DIR"/{config,data,models}
     mkdir -p "$INSTALL_DIR"/data/{open-webui,whisper,tts,n8n,qdrant,models}
+    mkdir -p "$INSTALL_DIR"/data/langfuse/{postgres,clickhouse,redis,minio}
     mkdir -p "$INSTALL_DIR"/config/{n8n,litellm,openclaw,searxng}
 
+    # Fix ownership of data/config dirs that may have been created by containers
+    # (e.g. SearXNG runs as uid 977, ComfyUI data owned by root)
+    for _data_dir in "$INSTALL_DIR"/data/*/; do
+        if [[ -d "$_data_dir" ]] && ! [[ -w "$_data_dir" ]]; then
+            sudo chown -R "$(id -u):$(id -g)" "$_data_dir" 2>/dev/null || true
+        fi
+    done
+    for _cfg_dir in "$INSTALL_DIR"/config/*/; do
+        if [[ -d "$_cfg_dir" ]] && ! [[ -w "$_cfg_dir" ]]; then
+            sudo chown -R "$(id -u):$(id -g)" "$_cfg_dir" 2>/dev/null || true
+        fi
+    done
+
     # Copy entire source tree to install dir (skip if same directory)
+    dream_progress 39 "directories" "Copying source files"
     if [[ "$SCRIPT_DIR" != "$INSTALL_DIR" ]]; then
         ai "Copying source files to $INSTALL_DIR..."
         if command -v rsync &>/dev/null; then
@@ -88,9 +105,13 @@ else
         OPENCLAW_PROVIDER_URL="${OPENCLAW_PROVIDER_URL_DEFAULT}"
 
         # Replace model and provider placeholders to match what the inference backend actually serves
-        sed -i "s|__LLM_MODEL__|${OPENCLAW_MODEL}|g" "$INSTALL_DIR/config/openclaw/openclaw.json"
-        sed -i "s|Qwen/Qwen2.5-[^\"]*|${OPENCLAW_MODEL}|g" "$INSTALL_DIR/config/openclaw/openclaw.json"
-        sed -i "s|local-ollama|${OPENCLAW_PROVIDER_NAME}|g" "$INSTALL_DIR/config/openclaw/openclaw.json"
+        # Escape sed special chars in variable values to prevent injection
+        _sed_escape() { printf '%s\n' "$1" | sed 's/[&/\]/\\&/g'; }
+        _oc_model_esc=$(_sed_escape "$OPENCLAW_MODEL")
+        _oc_prov_esc=$(_sed_escape "$OPENCLAW_PROVIDER_NAME")
+        _sed_i "s|__LLM_MODEL__|${_oc_model_esc}|g" "$INSTALL_DIR/config/openclaw/openclaw.json"
+        _sed_i "s|Qwen/Qwen2.5-[^\"]*|${_oc_model_esc}|g" "$INSTALL_DIR/config/openclaw/openclaw.json"
+        _sed_i "s|local-ollama|${_oc_prov_esc}|g" "$INSTALL_DIR/config/openclaw/openclaw.json"
         log "Installed OpenClaw config: $OPENCLAW_CONFIG -> openclaw.json (model: $OPENCLAW_MODEL)"
         mkdir -p "$INSTALL_DIR/data/openclaw/home/agents/main/sessions"
         # Generate OpenClaw home config with local llama-server provider
@@ -206,19 +227,73 @@ MODELS_EOF
         chown -R 1000:1000 "$INSTALL_DIR/data/openclaw" "$INSTALL_DIR/config/openclaw/workspace" 2>/dev/null || true
     fi
 
-    # Generate secure secrets
-    WEBUI_SECRET=$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)
-    N8N_PASS=$(openssl rand -base64 16 2>/dev/null || head -c 16 /dev/urandom | base64)
-    LITELLM_KEY="sk-dream-$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)"
-    LIVEKIT_SECRET=$(openssl rand -base64 32 2>/dev/null || head -c 32 /dev/urandom | base64)
-    DASHBOARD_API_KEY=$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)
-    OPENCODE_SERVER_PASSWORD=
+    # ── .env merge logic: preserve user-configured values on re-install ──
+    dream_progress 40 "directories" "Generating secrets and configuration"
+    # If an existing .env exists, read user-editable values so we don't
+    # destroy API keys, custom ports, or manually-set secrets.
+    _env_existing=""
+    if [[ -f "$INSTALL_DIR/.env" ]]; then
+        _env_existing="$INSTALL_DIR/.env"
+        log "Found existing .env — preserving user-configured values"
+    fi
+
+    # Safe reader: extract a value from existing .env without sourcing it
+    _env_get() {
+        local key="$1" default="${2:-}"
+        if [[ -n "$_env_existing" ]]; then
+            local val
+            val=$(grep -m1 "^${key}=" "$_env_existing" 2>/dev/null | cut -d= -f2- || true)
+            # Strip surrounding quotes
+            val="${val%\"}" && val="${val#\"}"
+            val="${val%\'}" && val="${val#\'}"
+            if [[ -n "$val" ]]; then
+                echo "$val"
+                return
+            fi
+        fi
+        echo "$default"
+    }
+
+    # Secrets: reuse existing values, generate only if missing
+    WEBUI_SECRET=$(_env_get WEBUI_SECRET "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
+    N8N_PASS=$(_env_get N8N_PASS "$(openssl rand -base64 16 2>/dev/null || head -c 16 /dev/urandom | base64)")
+    LITELLM_KEY=$(_env_get LITELLM_KEY "sk-dream-$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
+    LIVEKIT_SECRET=$(_env_get LIVEKIT_API_SECRET "$(openssl rand -base64 32 2>/dev/null || head -c 32 /dev/urandom | base64)")
+    DASHBOARD_API_KEY=$(_env_get DASHBOARD_API_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
+    DIFY_SECRET_KEY=$(_env_get DIFY_SECRET_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
+    QDRANT_API_KEY=$(_env_get QDRANT_API_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
+    OPENCODE_SERVER_PASSWORD=$(_env_get OPENCODE_SERVER_PASSWORD "$(openssl rand -base64 16 2>/dev/null || head -c 16 /dev/urandom | base64)")
+
+    # Langfuse (LLM Observability)
+    LANGFUSE_PORT=$(_env_get LANGFUSE_PORT "3006")
+    LANGFUSE_ENABLED=$(_env_get LANGFUSE_ENABLED "false")
+    LANGFUSE_NEXTAUTH_SECRET=$(_env_get LANGFUSE_NEXTAUTH_SECRET "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p | tr -d '\n')")
+    LANGFUSE_SALT=$(_env_get LANGFUSE_SALT "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p | tr -d '\n')")
+    LANGFUSE_ENCRYPTION_KEY=$(_env_get LANGFUSE_ENCRYPTION_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p | tr -d '\n')")
+    LANGFUSE_DB_PASSWORD=$(_env_get LANGFUSE_DB_PASSWORD "$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
+    LANGFUSE_CLICKHOUSE_PASSWORD=$(_env_get LANGFUSE_CLICKHOUSE_PASSWORD "$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
+    LANGFUSE_REDIS_PASSWORD=$(_env_get LANGFUSE_REDIS_PASSWORD "$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
+    LANGFUSE_MINIO_ACCESS_KEY=$(_env_get LANGFUSE_MINIO_ACCESS_KEY "$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
+    LANGFUSE_MINIO_SECRET_KEY=$(_env_get LANGFUSE_MINIO_SECRET_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p | tr -d '\n')")
+    LANGFUSE_PROJECT_PUBLIC_KEY=$(_env_get LANGFUSE_PROJECT_PUBLIC_KEY "pk-lf-dream-$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
+    LANGFUSE_PROJECT_SECRET_KEY=$(_env_get LANGFUSE_PROJECT_SECRET_KEY "sk-lf-dream-$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
+    LANGFUSE_INIT_PROJECT_ID=$(_env_get LANGFUSE_INIT_PROJECT_ID "$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
+    LANGFUSE_INIT_USER_EMAIL=$(_env_get LANGFUSE_INIT_USER_EMAIL "admin@dreamserver.local")
+    LANGFUSE_INIT_USER_PASSWORD=$(_env_get LANGFUSE_INIT_USER_PASSWORD "$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
+
+    # Preserve user-supplied cloud API keys
+    ANTHROPIC_API_KEY=$(_env_get ANTHROPIC_API_KEY "${ANTHROPIC_API_KEY:-}")
+    OPENAI_API_KEY=$(_env_get OPENAI_API_KEY "${OPENAI_API_KEY:-}")
+    TOGETHER_API_KEY=$(_env_get TOGETHER_API_KEY "${TOGETHER_API_KEY:-}")
 
     # Generate .env file
     cat > "$INSTALL_DIR/.env" << ENV_EOF
 # Dream Server Configuration — ${TIER_NAME} Edition
-# Generated by installer v${VERSION} on $(date -Iseconds)
+# Generated by installer v${VERSION} on $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 # Tier: ${TIER} (${TIER_NAME})
+
+#=== Dream Server Version (used by dream-cli update for version-compat checks) ===
+DREAM_VERSION=${VERSION:-2.1.0}
 
 #=== LLM Backend Mode ===
 DREAM_MODE=${DREAM_MODE:-local}
@@ -235,7 +310,7 @@ GGUF_FILE=${GGUF_FILE}
 MAX_CONTEXT=${MAX_CONTEXT}
 CTX_SIZE=${MAX_CONTEXT}
 GPU_BACKEND=${GPU_BACKEND}
-LLAMA_SERVER_PORT=8080
+N_GPU_LAYERS=${N_GPU_LAYERS:-99}
 
 $(if [[ "$GPU_BACKEND" == "amd" ]]; then cat << AMD_ENV
 #=== GPU Group IDs (for container device access) ===
@@ -247,18 +322,32 @@ HSA_OVERRIDE_GFX_VERSION=11.5.1
 ROCBLAS_USE_HIPBLASLT=0
 AMD_ENV
 fi)
+$(if [[ "$GPU_BACKEND" == "sycl" ]]; then cat << INTEL_ENV
+#=== GPU Group IDs (for container device access) ===
+VIDEO_GID=$(getent group video 2>/dev/null | cut -d: -f3 || echo 44)
+RENDER_GID=$(getent group render 2>/dev/null | cut -d: -f3 || echo 992)
+
+#=== Intel Arc / oneAPI SYCL Settings ===
+ONEAPI_DEVICE_SELECTOR=level_zero:gpu
+SYCL_CACHE_PERSISTENT=1
+ZES_ENABLE_SYSMAN=1
+INTEL_ENV
+fi)
 
 #=== Ports ===
-LLAMA_SERVER_PORT=8080
+OLLAMA_PORT=11434
 WEBUI_PORT=3000
+SEARXNG_PORT=8888
+PERPLEXICA_PORT=3004
 WHISPER_PORT=9000
 TTS_PORT=8880
 N8N_PORT=5678
 QDRANT_PORT=6333
 QDRANT_GRPC_PORT=6334
+EMBEDDINGS_PORT=8090
 LITELLM_PORT=4000
 OPENCLAW_PORT=7860
-SEARXNG_PORT=8888
+LANGFUSE_PORT=${LANGFUSE_PORT}
 
 #=== Security (auto-generated, keep secret!) ===
 WEBUI_SECRET=${WEBUI_SECRET}
@@ -266,11 +355,12 @@ DASHBOARD_API_KEY=${DASHBOARD_API_KEY}
 N8N_USER=admin
 N8N_PASS=${N8N_PASS}
 LITELLM_KEY=${LITELLM_KEY}
-LIVEKIT_API_KEY=$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)
+LIVEKIT_API_KEY=$(_env_get LIVEKIT_API_KEY "$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
 LIVEKIT_API_SECRET=${LIVEKIT_SECRET}
 OPENCLAW_TOKEN=${OPENCLAW_TOKEN:-$(openssl rand -hex 24 2>/dev/null || head -c 24 /dev/urandom | xxd -p)}
+QDRANT_API_KEY=${QDRANT_API_KEY}
 OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD}
-OPENCODE_PORT=3003
+DIFY_SECRET_KEY=${DIFY_SECRET_KEY}
 
 #=== Voice Settings ===
 WHISPER_MODEL=base
@@ -286,6 +376,22 @@ N8N_AUTH=true
 N8N_HOST=localhost
 N8N_WEBHOOK_URL=http://localhost:5678
 TIMEZONE=${SYSTEM_TZ:-UTC}
+
+#=== Langfuse (LLM Observability) ===
+LANGFUSE_ENABLED=${LANGFUSE_ENABLED}
+LANGFUSE_NEXTAUTH_SECRET=${LANGFUSE_NEXTAUTH_SECRET}
+LANGFUSE_SALT=${LANGFUSE_SALT}
+LANGFUSE_ENCRYPTION_KEY=${LANGFUSE_ENCRYPTION_KEY}
+LANGFUSE_DB_PASSWORD=${LANGFUSE_DB_PASSWORD}
+LANGFUSE_CLICKHOUSE_PASSWORD=${LANGFUSE_CLICKHOUSE_PASSWORD}
+LANGFUSE_REDIS_PASSWORD=${LANGFUSE_REDIS_PASSWORD}
+LANGFUSE_MINIO_ACCESS_KEY=${LANGFUSE_MINIO_ACCESS_KEY}
+LANGFUSE_MINIO_SECRET_KEY=${LANGFUSE_MINIO_SECRET_KEY}
+LANGFUSE_PROJECT_PUBLIC_KEY=${LANGFUSE_PROJECT_PUBLIC_KEY}
+LANGFUSE_PROJECT_SECRET_KEY=${LANGFUSE_PROJECT_SECRET_KEY}
+LANGFUSE_INIT_PROJECT_ID=${LANGFUSE_INIT_PROJECT_ID}
+LANGFUSE_INIT_USER_EMAIL=${LANGFUSE_INIT_USER_EMAIL}
+LANGFUSE_INIT_USER_PASSWORD=${LANGFUSE_INIT_USER_PASSWORD}
 ENV_EOF
 
     chmod 600 "$INSTALL_DIR/.env"  # Secure secrets file
@@ -293,6 +399,7 @@ ENV_EOF
     ai_ok "Generated secure secrets in .env (permissions: 600)"
 
     # Validate generated .env against schema (fails fast on missing/unknown keys).
+    dream_progress 41 "directories" "Validating configuration"
     if [[ -f "$SCRIPT_DIR/scripts/validate-env.sh" && -f "$SCRIPT_DIR/.env.schema.json" ]]; then
         if bash "$SCRIPT_DIR/scripts/validate-env.sh" "$INSTALL_DIR/.env" "$SCRIPT_DIR/.env.schema.json" >> "$LOG_FILE" 2>&1; then
             ai_ok "Validated .env against .env.schema.json"

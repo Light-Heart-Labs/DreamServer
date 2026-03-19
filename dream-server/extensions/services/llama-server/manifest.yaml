@@ -1,5 +1,8 @@
 schema_version: dream.services.v1
 
+compatibility:
+  dream_min: "2.0.0"
+
 service:
   id: llama-server
   name: llama-server (LLM Inference)
@@ -11,6 +14,8 @@ service:
   external_port_env: OLLAMA_PORT
   external_port_default: 11434
   health: /health
+  ui_path: /
+  health_timeout: 15
   type: docker
   gpu_backends: [amd, nvidia]
   category: core

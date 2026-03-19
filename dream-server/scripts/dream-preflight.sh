@@ -2,7 +2,7 @@
 # dream-preflight.sh — Quick health check before first chat
 # Usage: ./scripts/dream-preflight.sh
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
@@ -11,8 +11,16 @@ cd "$SCRIPT_DIR"
 . "$SCRIPT_DIR/lib/service-registry.sh"
 sr_load
 
-# Source .env for port overrides
-[[ -f "$SCRIPT_DIR/.env" ]] && set -a && . "$SCRIPT_DIR/.env" && set +a
+# Safe .env loading for port overrides (no eval; use lib/safe-env.sh)
+[[ -f "$SCRIPT_DIR/lib/safe-env.sh" ]] && . "$SCRIPT_DIR/lib/safe-env.sh"
+load_env_file "$SCRIPT_DIR/.env"
+
+# Resolve compose flags for accurate status checks
+COMPOSE_FLAGS=""
+if [[ -x "$SCRIPT_DIR/scripts/resolve-compose-stack.sh" ]]; then
+    COMPOSE_FLAGS=$("$SCRIPT_DIR/scripts/resolve-compose-stack.sh" \
+        --script-dir "$SCRIPT_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}")
+fi
 
 # Colors
 RED='\033[0;31m'
@@ -25,8 +33,8 @@ echo -e "${CYAN}Dream Server Preflight Check${NC}"
 echo "=============================="
 echo ""
 
-# Resolve ports from registry
-LLM_PORT="${SERVICE_PORTS[llama-server]:-8080}"
+# Resolve ports from registry + env overrides
+LLM_PORT="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-${SERVICE_PORTS[llama-server]:-11434}}}"
 LLM_HEALTH="${SERVICE_HEALTH[llama-server]:-/health}"
 LLM_CONTAINER="${SERVICE_CONTAINERS[llama-server]:-dream-llama-server}"
 WEBUI_PORT="${SERVICE_PORTS[open-webui]:-3000}"
@@ -44,7 +52,7 @@ fi
 
 # Check containers are up
 echo -n "Core containers... "
-if docker compose ps | grep -q "$LLM_CONTAINER"; then
+if docker compose $COMPOSE_FLAGS ps | grep -q "$LLM_CONTAINER"; then
     echo -e "${GREEN}✓ running${NC}"
 else
     echo -e "${RED}✗ not running${NC}"
@@ -53,8 +61,10 @@ else
 fi
 
 # Check llama-server health
+CURL_HEALTH_FLAGS=(--connect-timeout 3 --max-time 10)
+
 echo -n "llama-server API (port $LLM_PORT)... "
-if curl -sf "http://localhost:${LLM_PORT}${LLM_HEALTH}" >/dev/null 2>&1; then
+if curl -sf "${CURL_HEALTH_FLAGS[@]}" "http://localhost:${LLM_PORT}${LLM_HEALTH}" >/dev/null 2>&1; then
     echo -e "${GREEN}✓ healthy${NC}"
 else
     echo -e "${YELLOW}⚠ starting up${NC}"
@@ -64,7 +74,7 @@ fi
 
 # Check WebUI
 echo -n "Open WebUI (port $WEBUI_PORT)... "
-if curl -sf "http://localhost:${WEBUI_PORT}${WEBUI_HEALTH}" >/dev/null 2>&1; then
+if curl -sf "${CURL_HEALTH_FLAGS[@]}" "http://localhost:${WEBUI_PORT}${WEBUI_HEALTH}" >/dev/null 2>&1; then
     echo -e "${GREEN}✓ accessible${NC}"
 else
     echo -e "${YELLOW}⚠ not ready${NC}"
@@ -83,7 +93,7 @@ fi
 for sid in "${SERVICE_IDS[@]}"; do
     [[ "${SERVICE_CATEGORIES[$sid]}" == "core" ]] && continue
     container="${SERVICE_CONTAINERS[$sid]}"
-    docker compose ps 2>/dev/null | grep -q "$container" || continue
+    docker compose $COMPOSE_FLAGS ps 2>/dev/null | grep -q "$container" || continue
 
     port="${SERVICE_PORTS[$sid]:-0}"
     health="${SERVICE_HEALTH[$sid]:-/}"
@@ -91,7 +101,7 @@ for sid in "${SERVICE_IDS[@]}"; do
     [[ "$port" == "0" ]] && continue
 
     echo -n "$name (port $port)... "
-    if curl -sf "http://localhost:${port}${health}" >/dev/null 2>&1; then
+    if curl -sf "${CURL_HEALTH_FLAGS[@]}" "http://localhost:${port}${health}" >/dev/null 2>&1; then
         echo -e "${GREEN}✓ ready${NC}"
     else
         echo -e "${YELLOW}⚠ not ready${NC}"

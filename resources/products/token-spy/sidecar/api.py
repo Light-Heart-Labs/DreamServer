@@ -51,8 +51,28 @@ from .audit_logger import (
 )
 from .audit_middleware import AuditMiddleware
 from .org_api import router as org_router
+from .metrics import normalize_cost_and_speed_metrics
 
 log = logging.getLogger("token-spy-api")
+
+ACTIVE_SESSION_WINDOW_MINUTES = 10
+
+
+def get_active_session_count(window_minutes: int = ACTIVE_SESSION_WINDOW_MINUTES) -> int:
+    """Count active sessions with activity in a recent time window."""
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*)
+                FROM sessions
+                WHERE ended_at IS NULL
+                  AND started_at >= NOW() - (%s * INTERVAL '1 minute')
+                """,
+                (window_minutes,),
+            )
+            row = cur.fetchone()
+            return int(row[0]) if row and row[0] is not None else 0
 
 
 # ── SSE Event Types ─────────────────────────────────────────────────────────
@@ -456,7 +476,7 @@ async def get_overview(
         total_requests_24h=stats.total_requests,
         total_tokens_24h=stats.total_tokens,
         total_cost_24h=stats.total_cost,
-        active_sessions=0,  # TODO: Implement session counting
+        active_sessions=get_active_session_count(ACTIVE_SESSION_WINDOW_MINUTES),
         avg_latency_ms=stats.avg_latency_ms,
         top_model=top_model,
         budget_used_percent=budget_percent
@@ -505,19 +525,28 @@ async def get_models(
         limit=50
     )
     
-    return [
-        ModelMetrics(
-            provider=m["provider"],
-            model=m["model"],
-            request_count=m["request_count"],
+    model_metrics: List[ModelMetrics] = []
+    for m in top_models:
+        avg_latency_ms = float(m["avg_latency_ms"]) if m["avg_latency_ms"] else None
+        normalized = normalize_cost_and_speed_metrics(
             total_tokens=m["total_tokens"],
             total_cost=float(m["total_cost"]),
-            avg_latency_ms=float(m["avg_latency_ms"]) if m["avg_latency_ms"] else None,
-            tokens_per_second=None,  # TODO: Calculate from latency
-            cost_per_1k_tokens=(float(m["total_cost"]) / m["total_tokens"] * 1000) if m["total_tokens"] > 0 else None
+            avg_latency_ms=avg_latency_ms,
         )
-        for m in top_models
-    ]
+        model_metrics.append(
+            ModelMetrics(
+                provider=m["provider"],
+                model=m["model"],
+                request_count=m["request_count"],
+                total_tokens=m["total_tokens"],
+                total_cost=float(m["total_cost"]),
+                avg_latency_ms=avg_latency_ms,
+                tokens_per_second=normalized["tokens_per_second"],
+                cost_per_1k_tokens=normalized["cost_per_1k_tokens"],
+            )
+        )
+
+    return model_metrics
 
 
 @app.get("/api/usage/hourly", response_model=List[HourlyUsage])

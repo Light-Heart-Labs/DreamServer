@@ -89,7 +89,7 @@ read_dream_env() {
             local key="${BASH_REMATCH[1]}"
             local val="${BASH_REMATCH[2]}"
             val=$(echo "$val" | sed 's/^["'"'"']//;s/["'"'"']$//')
-            declare -g "ENV_${key}=${val}"
+            export "ENV_${key}=${val}"
         fi
     done < "$env_file"
 }
@@ -114,7 +114,7 @@ get_native_llama_status() {
         NATIVE_LLAMA_PID="$saved_pid"
 
         # Health check
-        if curl -sf http://localhost:8080/health >/dev/null 2>&1; then
+        if curl -sf --max-time 10 http://localhost:8080/health >/dev/null 2>&1; then
             NATIVE_LLAMA_HEALTHY=true
         fi
     else
@@ -166,7 +166,7 @@ start_native_llama() {
     while [[ "$waited" -lt "$max_wait" ]]; do
         sleep 2
         waited=$((waited + 2))
-        if curl -sf http://localhost:8080/health >/dev/null 2>&1; then
+        if curl -sf --max-time 10 http://localhost:8080/health >/dev/null 2>&1; then
             ai_ok "Native llama-server healthy"
             return
         fi
@@ -240,7 +240,7 @@ cmd_status() {
         local name="${ep_names[$i]}"
         local url="${ep_urls[$i]}"
         local code
-        code=$(curl -s -o /dev/null -w "%{http_code}" "$url" 2>/dev/null || echo "000")
+        code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$url" 2>/dev/null || echo "000")
         if [[ "$code" -ge 200 ]] && [[ "$code" -lt 400 ]]; then
             ai_ok "${name}: healthy"
         elif [[ "$code" == "401" ]] || [[ "$code" == "403" ]]; then
@@ -402,30 +402,22 @@ cmd_chat() {
         return
     fi
 
-    local body
-    body=$(cat <<CHATEOF
-{"model":"default","messages":[{"role":"user","content":"${message}"}]}
-CHATEOF
-    )
+    # Use jq to safely construct JSON payload (prevents injection)
+    local payload
+    payload=$(jq -n --arg msg "$message" \
+        '{model: "default", messages: [{role: "user", content: $msg}], max_tokens: 500}')
 
     local response
     response=$(curl -sf -X POST "http://localhost:8080/v1/chat/completions" \
         -H "Content-Type: application/json" \
-        -d "$body" 2>/dev/null) || {
+        -d "$payload" 2>/dev/null) || {
         ai_err "Chat request failed."
         ai "Is llama-server running? Try: ./dream-macos.sh status"
         return
     }
 
     echo ""
-    echo "$response" | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin)
-    print(d['choices'][0]['message']['content'])
-except Exception as e:
-    print(f'Error parsing response: {e}', file=sys.stderr)
-" 2>/dev/null || echo "$response"
+    echo "$response" | jq -r '.choices[0].message.content // .error.message // "Error: no response"'
     echo ""
 }
 

@@ -1,6 +1,7 @@
 services:
   embeddings:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.1
+    platform: linux/amd64  # TEI has no arm64 image -- Rosetta 2 on Apple Silicon
     container_name: dream-embeddings
     restart: unless-stopped
     security_opt:
@@ -10,7 +11,7 @@ services:
     volumes:
       - ./data/embeddings:/data
     ports:
-      - "${EMBEDDINGS_PORT:-8090}:80"
+      - "127.0.0.1:${EMBEDDINGS_PORT:-8090}:80"
     deploy:
       resources:
         limits:

@@ -2,7 +2,7 @@
 
 Quick answers to common questions.
 
-> **Looking for troubleshooting?** See the main [`FAQ.md`](../FAQ.md) for installation issues, service logs, and technical fixes.
+> **Looking for install/runtime troubleshooting?** See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) and [INSTALL-TROUBLESHOOTING.md](INSTALL-TROUBLESHOOTING.md).
 
 ---
 
@@ -10,7 +10,13 @@ Quick answers to common questions.
 
 ### What hardware do I need?
 
-**Minimum (functional but slow):**
+**Lightweight (runs on anything):**
+- GPU: Any (or CPU-only)
+- RAM: 4GB+
+- Storage: 15GB free
+- Model: Qwen3.5 2B (auto-selected)
+
+**Minimum (comfortable):**
 - GPU: RTX 3060 12GB or RTX 4060 8GB
 - RAM: 32GB
 - Storage: 500GB NVMe SSD
@@ -169,7 +175,7 @@ Yes. Common use cases:
 **With install wizard:** Under 1 hour for someone comfortable with terminal.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/main/get-dream-server.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.1.0/get-dream-server.sh | bash
 ```
 
 The wizard:

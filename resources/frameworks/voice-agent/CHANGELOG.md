@@ -22,7 +22,7 @@
 ### Rollback Instructions
 \\\ash
 sudo systemctl stop hvac-grace-agent
-cp -r /home/michael/HVAC_Grace_Rollback/* /home/michael/HVAC_Grace/
+cp -r ./rollback/* ./
 sudo systemctl start hvac-grace-agent
 \\\
 

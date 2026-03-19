@@ -109,7 +109,7 @@ if (token && fs.existsSync(HTML_PATH)) {
       '  var k = "openclaw.control.settings.v1";',
       '  var s = {};',
       '  try { s = JSON.parse(localStorage.getItem(k) || "{}"); } catch(e) {}',
-      '  s.token = "' + token + '";',
+      '  s.token = ' + JSON.stringify(token) + ';',
       '  s.gatewayUrl = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;',
       '  localStorage.setItem(k, JSON.stringify(s));',
       '})();',
