@@ -213,7 +213,7 @@ def check_http(
                     body = resp.read(1024 * 1024)  # 1 MiB cap
                     try:
                         text = body.decode("utf-8", errors="replace")
-                    except Exception:
+                    except (UnicodeDecodeError, AttributeError):
                         text = str(body)
                     if not body_regex.search(text):
                         return (False, f"http {m}: body regex did not match", status)
