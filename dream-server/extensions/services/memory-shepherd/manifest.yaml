@@ -1,0 +1,36 @@
+schema_version: dream.services.v1
+
+service:
+  id: memory-shepherd
+  name: Memory Shepherd
+  aliases: [memory, shepherd]
+  container_name: dream-memory-shepherd
+  default_host: memory-shepherd
+  port: 7891
+  external_port_env: MEMORY_SHEPHERD_PORT
+  external_port_default: 7891
+  health: /health
+  type: docker
+  gpu_backends: [amd, nvidia, apple]
+  compose_file: compose.yaml
+  category: optional
+  depends_on: [openclaw]
+  description: >
+    Lifecycle manager for OpenClaw agent memory.  Prunes stale session
+    records and low-importance memory entries on a configurable schedule,
+    validates snapshot integrity, and exposes a REST API for flushing,
+    exporting, and inspecting all four memory layers (in-context window,
+    session records, agent memory files, Qdrant semantic collections).
+
+features:
+  - id: agent-memory-management
+    name: Agent Memory Management
+    description: Inspect, prune, flush, and export agent memory across all layers
+    icon: Brain
+    category: agents
+    requirements:
+      services: [openclaw]
+    enabled_services_any: [memory-shepherd]
+    setup_time: Ready
+    priority: 20
+    gpu_backends: [amd, nvidia, apple]

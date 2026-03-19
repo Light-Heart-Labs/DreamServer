@@ -1,0 +1,48 @@
+# Memory Shepherd — agent memory lifecycle manager
+#
+# Mounts the OpenClaw memory and session directories so it can prune,
+# flush, and export entries without the OpenClaw container needing to
+# be running.  Qdrant is an optional dependency: if the collection
+# endpoint is unreachable the service degrades gracefully.
+#
+# Key env vars (all have safe defaults):
+#   MEMORY_SHEPHERD_PORT       Host port to expose (default 7891)
+#   MEMORY_SESSION_TTL_DAYS    Days before session records are pruned (default 30)
+#   MEMORY_MAX_ENTRIES         Max agent-memory entries per namespace (default 500)
+#   MEMORY_PRUNE_THRESHOLD     Importance score below which entries are pruned (default 0.3)
+#   QDRANT_URL                 Qdrant endpoint (default http://qdrant:6333)
+
+services:
+  memory-shepherd:
+    build:
+      context: ./extensions/services/memory-shepherd
+      dockerfile: Dockerfile
+    container_name: dream-memory-shepherd
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - MEMORY_SHEPHERD_PORT=${MEMORY_SHEPHERD_PORT:-7891}
+      - MEMORY_SESSION_TTL_DAYS=${MEMORY_SESSION_TTL_DAYS:-30}
+      - MEMORY_MAX_ENTRIES=${MEMORY_MAX_ENTRIES:-500}
+      - MEMORY_PRUNE_THRESHOLD=${MEMORY_PRUNE_THRESHOLD:-0.3}
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
+    volumes:
+      - ./data/openclaw/memory:/data/memory
+      - ./data/openclaw/sessions:/data/sessions
+    ports:
+      - "127.0.0.1:${MEMORY_SHEPHERD_PORT:-7891}:7891"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:7891/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

@@ -191,4 +191,5 @@ SIDEBAR_ICONS = {
     "perplexica": "Search",
     "comfyui": "Image",
     "token-spy": "Terminal",
+    "memory-shepherd": "Brain",
 }
