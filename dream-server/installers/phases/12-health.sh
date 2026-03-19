@@ -150,9 +150,23 @@ if [[ "$ENABLE_VOICE" == "true" ]]; then
     # Only download if model isn't already loaded
     if ! curl -sf --max-time 10 "${WHISPER_URL}/v1/models/${STT_MODEL_ENCODED}" &>/dev/null; then
         ai "Downloading STT model (${STT_MODEL})..."
-        curl -sf --max-time 120 -X POST "${WHISPER_URL}/v1/models/${STT_MODEL_ENCODED}" >> "$LOG_FILE" 2>&1 && \
-            printf "\r  ${BGRN}✓${NC} %-60s\n" "STT model cached (${STT_MODEL})" || \
+        # Retry up to 3 times with exponential backoff (2s, 4s)
+        _stt_success=false
+        for _stt_attempt in 1 2 3; do
+            if [[ $_stt_attempt -gt 1 ]]; then
+                _stt_backoff=$((2 ** (_stt_attempt - 1)))
+                ai "Retry attempt $_stt_attempt/3 (waiting ${_stt_backoff}s)..."
+                sleep "$_stt_backoff"
+            fi
+            if curl -sf --max-time 120 -X POST "${WHISPER_URL}/v1/models/${STT_MODEL_ENCODED}" >> "$LOG_FILE" 2>&1; then
+                printf "\r  ${BGRN}✓${NC} %-60s\n" "STT model cached (${STT_MODEL})"
+                _stt_success=true
+                break
+            fi
+        done
+        if [[ "$_stt_success" != "true" ]]; then
             printf "\r  ${AMB}⚠${NC} %-60s\n" "STT model will download on first use"
+        fi
     else
         printf "\r  ${BGRN}✓${NC} %-60s\n" "STT model already cached (${STT_MODEL})"
     fi
