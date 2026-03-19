@@ -1,0 +1,58 @@
+# Memory Shepherd — agent memory lifecycle manager
+#
+# Connects to Qdrant via the internal dream-network for vector-backed memory
+# retrieval and collection management.  Mounts the OpenClaw memory and
+# session directories directly so pruning and flushing work even when the
+# OpenClaw container is not running.
+#
+# Required env vars (all have safe defaults):
+#   MEMORY_SHEPHERD_PORT   Host port (default 7891)
+#   MEMORY_SESSION_TTL_DAYS   Days before session records are pruned (default 30)
+#   MEMORY_MAX_ENTRIES         Max agent-memory entries per namespace (default 500)
+#   MEMORY_PRUNE_THRESHOLD     Importance score below which entries are pruned (default 0.3)
+#   QDRANT_URL                 Qdrant HTTP endpoint (default http://qdrant:6333)
+#   QDRANT_API_KEY             Qdrant API key if auth is enabled (default empty)
+
+services:
+  memory-shepherd:
+    build:
+      context: ./extensions/services/memory-shepherd
+      dockerfile: Dockerfile
+    container_name: dream-memory-shepherd
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - MEMORY_SHEPHERD_PORT=${MEMORY_SHEPHERD_PORT:-7891}
+      - MEMORY_SESSION_TTL_DAYS=${MEMORY_SESSION_TTL_DAYS:-30}
+      - MEMORY_MAX_ENTRIES=${MEMORY_MAX_ENTRIES:-500}
+      - MEMORY_PRUNE_THRESHOLD=${MEMORY_PRUNE_THRESHOLD:-0.3}
+      # Qdrant connection — resolved via Docker internal DNS
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
+      - QDRANT_API_KEY=${QDRANT_API_KEY:-}
+    volumes:
+      # Agent memory entries (Markdown files written by OpenClaw)
+      - ./data/openclaw/memory:/data/memory
+      # Session records (one JSON file per OpenClaw session)
+      - ./data/openclaw/sessions:/data/sessions
+      # Optional operator config (prune schedule, custom thresholds)
+      - ./config/memory-shepherd:/config:ro
+    ports:
+      - "127.0.0.1:${MEMORY_SHEPHERD_PORT:-7891}:7891"
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:7891/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
