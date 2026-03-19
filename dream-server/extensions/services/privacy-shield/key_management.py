@@ -18,7 +18,7 @@ def load_persisted_key(path: str) -> Optional[str]:
         with open(path, "r", encoding="utf-8") as f:
             key = f.read().strip()
         return key or None
-    except Exception:
+    except (FileNotFoundError, IOError, PermissionError):
         logging.exception("Failed to read persisted SHIELD_API_KEY")
         return None
 
@@ -30,10 +30,10 @@ def persist_key(path: str, key: str) -> None:
             f.write(key)
         try:
             os.chmod(path, 0o600)
-        except Exception:
+        except (OSError, PermissionError):
             # Best-effort only (may fail on some mounts/platforms)
             pass
-    except Exception:
+    except (IOError, PermissionError, OSError):
         logging.exception("Failed to persist generated SHIELD_API_KEY")
 
 
