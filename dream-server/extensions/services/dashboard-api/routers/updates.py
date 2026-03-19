@@ -21,6 +21,11 @@ router = APIRouter(tags=["updates"])
 _GITHUB_HEADERS = {"Accept": "application/vnd.github.v3+json"}
 
 
+def _utc_now_iso() -> str:
+    """Return an RFC 3339 UTC timestamp that JS Date can parse reliably."""
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def _read_version_state(install_dir: str | Path | None = None) -> tuple[str, dict[str, Any]]:
     """Read version metadata from `.version`.
 
@@ -107,7 +112,7 @@ async def resolve_version_info(install_dir: str | Path | None = None) -> dict[st
         "latest": None,
         "update_available": False,
         "changelog_url": None,
-        "checked_at": datetime.now(timezone.utc).isoformat() + "Z",
+        "checked_at": _utc_now_iso(),
     }
 
     try:
@@ -152,13 +157,13 @@ async def get_release_manifest():
                 {"version": r.get("tag_name", "").lstrip("v"), "date": r.get("published_at", ""), "title": r.get("name", ""), "changelog": r.get("body", "")[:500] + "..." if len(r.get("body", "")) > 500 else r.get("body", ""), "url": r.get("html_url", ""), "prerelease": r.get("prerelease", False)}
                 for r in releases
             ],
-            "checked_at": datetime.now(timezone.utc).isoformat() + "Z"
+            "checked_at": _utc_now_iso()
         }
     except (httpx.HTTPError, httpx.TimeoutException, json.JSONDecodeError, OSError):
         current, _ = await asyncio.to_thread(_read_version_state, INSTALL_DIR)
         return {
-            "releases": [{"version": current, "date": datetime.now(timezone.utc).isoformat() + "Z", "title": f"Dream Server {current}", "changelog": "Release information unavailable. Check GitHub directly.", "url": "https://github.com/Light-Heart-Labs/DreamServer/releases", "prerelease": False}],
-            "checked_at": datetime.now(timezone.utc).isoformat() + "Z",
+            "releases": [{"version": current, "date": _utc_now_iso(), "title": f"Dream Server {current}", "changelog": "Release information unavailable. Check GitHub directly.", "url": "https://github.com/Light-Heart-Labs/DreamServer/releases", "prerelease": False}],
+            "checked_at": _utc_now_iso(),
             "error": "Could not fetch release information"
         }
 

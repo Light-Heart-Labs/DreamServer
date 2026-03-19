@@ -289,20 +289,38 @@ async def api_status(api_key: str = Depends(verify_api_key)):
     sub-call (GPU, health checks, llama metrics …) never returns a raw 500
     to the dashboard — the frontend would flash "0/17" otherwise.
     """
+    return await _safe_api_status("/api/status")
+
+
+def _api_status_fallback() -> dict:
+    """Fallback payload shared by endpoints that depend on status aggregation."""
+    return {
+        "gpu": None,
+        "services": [],
+        "model": None,
+        "bootstrap": None,
+        "uptime": 0,
+        "version": app.version,
+        "tier": "Unknown",
+        "cpu": {"percent": 0, "temp_c": None},
+        "ram": {"used_gb": 0, "total_gb": 0, "percent": 0},
+        "inference": {
+            "tokensPerSecond": 0,
+            "lifetimeTokens": 0,
+            "loadedModel": None,
+            "contextSize": None,
+        },
+        "manifest_errors": MANIFEST_ERRORS,
+    }
+
+
+async def _safe_api_status(source: str) -> dict:
+    """Build API status with a stable fallback for dashboard consumers."""
     try:
         return await _build_api_status()
     except Exception:
-        logger.exception("/api/status handler failed — returning safe fallback")
-        return {
-            "gpu": None, "services": [], "model": None,
-            "bootstrap": None, "uptime": 0,
-            "version": app.version, "tier": "Unknown",
-            "cpu": {"percent": 0, "temp_c": None},
-            "ram": {"used_gb": 0, "total_gb": 0, "percent": 0},
-            "inference": {"tokensPerSecond": 0, "lifetimeTokens": 0,
-                          "loadedModel": None, "contextSize": None},
-            "manifest_errors": MANIFEST_ERRORS,
-        }
+        logger.exception("%s handler failed — returning safe fallback", source)
+        return _api_status_fallback()
 
 
 async def _build_api_status() -> dict:
@@ -536,7 +554,7 @@ async def api_storage(api_key: str = Depends(verify_api_key)):
 async def api_settings(api_key: str = Depends(verify_api_key)):
     """Return a consolidated Settings payload for the dashboard."""
     status_data, storage_data, version_data = await asyncio.gather(
-        _build_api_status(),
+        _safe_api_status("/api/settings"),
         _build_storage_payload(),
         updates.resolve_version_info(),
     )

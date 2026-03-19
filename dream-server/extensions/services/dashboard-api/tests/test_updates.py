@@ -1,5 +1,6 @@
 """Tests for updates router endpoints."""
 
+from datetime import datetime
 from unittest.mock import patch
 
 
@@ -18,6 +19,8 @@ def test_get_version_authenticated(test_client):
     assert "latest" in data
     assert "update_available" in data
     assert "checked_at" in data
+    assert "+00:00Z" not in data["checked_at"]
+    assert datetime.fromisoformat(data["checked_at"].replace("Z", "+00:00"))
 
 
 def test_get_version_with_mock_github(test_client):
@@ -58,6 +61,7 @@ def test_get_releases_manifest_authenticated(test_client):
     assert "releases" in data
     assert "checked_at" in data
     assert isinstance(data["releases"], list)
+    assert "+00:00Z" not in data["checked_at"]
 
 
 def test_trigger_update_requires_auth(test_client):
