@@ -76,6 +76,15 @@ class PersonaRequest(BaseModel):
     persona: str
 
 
+class SetupWizardStateRequest(BaseModel):
+    step: int | None = Field(None, ge=1, le=5)
+    user_name: str | None = Field(None, max_length=120)
+    voice: str | None = Field(None, max_length=120)
+    tested: bool | None = None
+    preflight_passed: bool | None = None
+    preflight_issues: list[str] | None = None
+
+
 class ChatRequest(BaseModel):
     message: str = Field(..., max_length=100000)
     system: Optional[str] = Field(None, max_length=10000)

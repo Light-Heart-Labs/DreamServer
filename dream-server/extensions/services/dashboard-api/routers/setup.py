@@ -12,12 +12,20 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from config import SERVICES, PERSONAS, SETUP_CONFIG_DIR, INSTALL_DIR
-from models import PersonaRequest, ChatRequest
+from models import PersonaRequest, ChatRequest, SetupWizardStateRequest
 from security import verify_api_key
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["setup"])
+
+DEFAULT_VOICES = [
+    {"id": "af_heart", "name": "Heart", "desc": "Warm, friendly female"},
+    {"id": "af_bella", "name": "Bella", "desc": "Professional female"},
+    {"id": "af_sky", "name": "Sky", "desc": "Casual female"},
+    {"id": "am_adam", "name": "Adam", "desc": "Natural male"},
+    {"id": "am_michael", "name": "Michael", "desc": "Deep male"},
+]
 
 
 def get_active_persona_prompt() -> str:
@@ -33,20 +41,79 @@ def get_active_persona_prompt() -> str:
     return PERSONAS["general"]["system_prompt"]
 
 
+def _wizard_state_path() -> Path:
+    return SETUP_CONFIG_DIR / "wizard-state.json"
+
+
+def _default_wizard_state() -> dict:
+    return {
+        "step": 1,
+        "user_name": "",
+        "voice": DEFAULT_VOICES[0]["id"],
+        "tested": False,
+        "preflight_passed": False,
+        "preflight_issues": [],
+    }
+
+
+def _read_wizard_state() -> dict:
+    state = _default_wizard_state()
+    wizard_state_file = _wizard_state_path()
+    if not wizard_state_file.exists():
+        return state
+
+    try:
+        with open(wizard_state_file) as f:
+            raw = json.load(f)
+    except (FileNotFoundError, PermissionError, json.JSONDecodeError):
+        logger.debug("Failed to read wizard-state.json, using defaults")
+        return state
+
+    if not isinstance(raw, dict):
+        return state
+
+    state.update(
+        {
+            "step": raw.get("step", state["step"]),
+            "user_name": raw.get("user_name", state["user_name"]),
+            "voice": raw.get("voice", state["voice"]),
+            "tested": raw.get("tested", state["tested"]),
+            "preflight_passed": raw.get("preflight_passed", state["preflight_passed"]),
+            "preflight_issues": raw.get("preflight_issues", state["preflight_issues"]),
+        }
+    )
+    return state
+
+
+def _write_wizard_state(state: dict) -> None:
+    SETUP_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    with open(_wizard_state_path(), "w") as f:
+        json.dump(state, f, indent=2)
+
+
+def _build_wizard_payload() -> dict:
+    setup_complete_file = SETUP_CONFIG_DIR / "setup-complete.json"
+    state = _read_wizard_state()
+    return {
+        "firstRun": not setup_complete_file.exists(),
+        "completed": setup_complete_file.exists(),
+        "step": state["step"],
+        "config": {
+            "userName": state["user_name"],
+            "voice": state["voice"],
+            "tested": state["tested"],
+            "preflightPassed": state["preflight_passed"],
+            "preflightIssues": state["preflight_issues"],
+        },
+        "voices": DEFAULT_VOICES,
+    }
+
+
 @router.get("/api/setup/status")
 async def setup_status(api_key: str = Depends(verify_api_key)):
     """Check if this is a first-run scenario."""
-    setup_complete_file = SETUP_CONFIG_DIR / "setup-complete.json"
-    first_run = not setup_complete_file.exists()
-
-    step = 0
-    progress_file = SETUP_CONFIG_DIR / "setup-progress.json"
-    if progress_file.exists():
-        try:
-            with open(progress_file) as f:
-                step = json.load(f).get("step", 0)
-        except (FileNotFoundError, PermissionError, json.JSONDecodeError):
-            logger.debug("Failed to read setup-progress.json")
+    wizard = _build_wizard_payload()
+    step = wizard["step"]
 
     persona = None
     persona_file = SETUP_CONFIG_DIR / "persona.json"
@@ -57,7 +124,40 @@ async def setup_status(api_key: str = Depends(verify_api_key)):
         except (FileNotFoundError, PermissionError, json.JSONDecodeError):
             logger.debug("Failed to read persona.json for setup status")
 
-    return {"first_run": first_run, "step": step, "persona": persona, "personas_available": list(PERSONAS.keys())}
+    return {
+        "first_run": wizard["firstRun"],
+        "step": step,
+        "persona": persona,
+        "personas_available": list(PERSONAS.keys()),
+    }
+
+
+@router.get("/api/setup/wizard")
+async def setup_wizard(api_key: str = Depends(verify_api_key)):
+    """Return persistent setup wizard state for the dashboard UI."""
+    return _build_wizard_payload()
+
+
+@router.post("/api/setup/wizard")
+async def update_setup_wizard(request: SetupWizardStateRequest, api_key: str = Depends(verify_api_key)):
+    """Persist dashboard wizard progress between reloads."""
+    state = _read_wizard_state()
+
+    if request.step is not None:
+        state["step"] = request.step
+    if request.user_name is not None:
+        state["user_name"] = request.user_name.strip()
+    if request.voice is not None:
+        state["voice"] = request.voice
+    if request.tested is not None:
+        state["tested"] = request.tested
+    if request.preflight_passed is not None:
+        state["preflight_passed"] = request.preflight_passed
+    if request.preflight_issues is not None:
+        state["preflight_issues"] = request.preflight_issues
+
+    _write_wizard_state(state)
+    return {"success": True, **_build_wizard_payload()}
 
 
 @router.post("/api/setup/persona")
@@ -91,9 +191,9 @@ async def setup_complete(api_key: str = Depends(verify_api_key)):
     with open(SETUP_CONFIG_DIR / "setup-complete.json", "w") as f:
         json.dump({"completed_at": datetime.now(timezone.utc).isoformat(), "version": "1.0.0"}, f, indent=2)
 
-    progress_file = SETUP_CONFIG_DIR / "setup-progress.json"
-    if progress_file.exists():
-        progress_file.unlink()
+    state = _read_wizard_state()
+    state["step"] = 5
+    _write_wizard_state(state)
 
     return {"success": True, "redirect": "/", "message": "Setup complete! Welcome to Dream Server."}
 
