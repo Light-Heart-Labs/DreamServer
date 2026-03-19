@@ -31,14 +31,16 @@ for arg in "$@"; do
 done
 
 # Config (defaults; .env overrides after load_env_file below)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" 
+if [[ -f "$SCRIPT_DIR/lib/service-registry.sh" ]]; then 
+    . "$SCRIPT_DIR/lib/service-registry.sh" 
+    sr_load 
+fi
 INSTALL_DIR="${INSTALL_DIR:-$HOME/dream-server}"
 LLM_HOST="${LLM_HOST:-localhost}"
 LLM_PORT="${LLM_PORT:-8080}"
 TIMEOUT="${TIMEOUT:-5}"
 
-# Source service registry
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-. "$SCRIPT_DIR/lib/service-registry.sh"
 sr_load
 
 # Safe .env loading for port overrides (no eval; use lib/safe-env.sh)
@@ -93,12 +95,15 @@ _now_ms() {
 
 # llama-server: critical path — performs an actual inference test
 test_llm() {
-    local start=$(_now_ms)
-    local response=$(curl -sf --max-time $TIMEOUT \
+    local start
+    start=$(_now_ms)
+    local response
+    response=$(curl -sf --max-time $TIMEOUT \
         -H "Content-Type: application/json" \
         -d '{"model":"default","prompt":"Hi","max_tokens":1}' \
         "http://${LLM_HOST}:${LLM_PORT}/v1/completions" 2>/dev/null)
-    local end=$(_now_ms)
+    local end
+    end=$(_now_ms)
 
     if echo "$response" | grep -q '"text"'; then
         result_set "llm" "ok"
@@ -111,12 +116,48 @@ test_llm() {
     return 1
 }
 
+# Check Docker container state for a service
+# Returns: container state string (or empty if docker unavailable/container name missing)
+check_container_state() {
+    local sid="$1"
+    local container="${SERVICE_CONTAINERS[$sid]}"
+
+    # Guard: empty container name
+    [[ -z "$container" ]] && return 0
+
+    # Skip if docker not available
+    if ! command -v docker &>/dev/null; then
+        return 0
+    fi
+
+    # Get container state via docker inspect
+    local state
+    state=$(docker inspect --format '{{.State.Status}}' "$container" 2>&1)
+    local inspect_exit=$?
+
+    if [[ $inspect_exit -ne 0 ]]; then
+        echo "not_found"
+        return 1
+    elif [[ "$state" == "running" ]]; then
+        echo "running"
+        return 0
+    elif [[ "$state" == "restarting" ]]; then
+        echo "restarting"
+        return 1
+    else
+        # exited, paused, dead, created
+        echo "$state"
+        return 1
+    fi
+}
+
 # Generic registry-driven service health check
 test_service() {
     local sid="$1"
     local port_env="${SERVICE_PORT_ENVS[$sid]}"
     local default_port="${SERVICE_PORTS[$sid]}"
     local health="${SERVICE_HEALTH[$sid]}"
+    local timeout="${SERVICE_HEALTH_TIMEOUTS[$sid]:-$TIMEOUT}"
 
     # Resolve port
     local port="$default_port"
@@ -124,7 +165,16 @@ test_service() {
 
     [[ -z "$health" || "$port" == "0" ]] && return 1
 
-    if curl -sf --max-time $TIMEOUT "http://localhost:${port}${health}" >/dev/null 2>&1; then
+    # Check container state first (if docker available)
+    local container_state
+    container_state=$(check_container_state "$sid")
+    if [[ -n "$container_state" && "$container_state" != "running" ]]; then
+        result_set "$sid" "fail"
+        ANY_FAIL=true
+        return 1
+    fi
+
+    if curl -sf --max-time "$timeout" "http://localhost:${port}${health}" >/dev/null 2>&1; then
         result_set "$sid" "ok"
         return 0
     fi
@@ -136,7 +186,8 @@ test_service() {
 # System-level: GPU
 test_gpu() {
     if command -v nvidia-smi &>/dev/null; then
-        local gpu_info=$(nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu,temperature.gpu --format=csv,noheader,nounits 2>/dev/null | head -1)
+        local gpu_info
+        gpu_info=$(nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu,temperature.gpu --format=csv,noheader,nounits 2>/dev/null | head -1)
         if [ -n "$gpu_info" ]; then
             IFS=',' read -r mem_used mem_total gpu_util temp <<< "$gpu_info"
             result_set "gpu" "ok"
@@ -161,7 +212,8 @@ test_gpu() {
 
 # System-level: Disk
 test_disk() {
-    local usage=$(df -h "$INSTALL_DIR" 2>/dev/null | tail -1 | awk '{print $5}' | tr -d '%')
+    local usage
+    usage=$(df -h "$INSTALL_DIR" 2>/dev/null | tail -1 | awk '{print $5}' | tr -d '%')
     if [ -n "$usage" ]; then
         result_set "disk" "ok"
         result_set "disk_usage" "$usage"
@@ -191,10 +243,15 @@ check_service() {
 check_service_async() {
     local sid="$1"
     local result_file="$2"
+
+    # Check container state first
+    local container_state
+    container_state=$(check_container_state "$sid")
+
     if test_service "$sid" 2>/dev/null; then
-        echo "ok:$sid" > "$result_file"
+        echo "ok:$sid:$container_state" > "$result_file"
     else
-        echo "fail:$sid" > "$result_file"
+        echo "fail:$sid:$container_state" > "$result_file"
     fi
 }
 
@@ -241,10 +298,31 @@ for sid in "${CORE_SIDS[@]}"; do
     if [[ -f "$result_file" ]]; then
         result=$(cat "$result_file")
         name="${SERVICE_NAMES[$sid]:-$sid}"
-        if [[ "$result" == "ok:$sid" ]]; then
+
+        # Parse result format: status:sid:container_state
+        IFS=':' read -r status sid_check container_state <<< "$result"
+
+        if [[ "$status" == "ok" ]]; then
             log "  ${GREEN}✓${NC} $name - healthy"
         else
-            log "  ${YELLOW}!${NC} $name - not responding"
+            # Use container state for better error message
+            case "$container_state" in
+                not_found)
+                    log "  ${YELLOW}!${NC} $name - container not found"
+                    ;;
+                exited|stopped)
+                    log "  ${YELLOW}!${NC} $name - container stopped"
+                    ;;
+                restarting)
+                    log "  ${YELLOW}!${NC} $name - container restarting"
+                    ;;
+                running)
+                    log "  ${YELLOW}!${NC} $name - not responding (container running)"
+                    ;;
+                *)
+                    log "  ${YELLOW}!${NC} $name - not responding"
+                    ;;
+            esac
         fi
     fi
 done
@@ -274,10 +352,31 @@ for sid in "${EXT_SIDS[@]}"; do
     if [[ -f "$result_file" ]]; then
         result=$(cat "$result_file")
         name="${SERVICE_NAMES[$sid]:-$sid}"
-        if [[ "$result" == "ok:$sid" ]]; then
+
+        # Parse result format: status:sid:container_state
+        IFS=':' read -r status sid_check container_state <<< "$result"
+
+        if [[ "$status" == "ok" ]]; then
             log "  ${GREEN}✓${NC} $name - healthy"
         else
-            log "  ${YELLOW}!${NC} $name - not responding"
+            # Use container state for better error message
+            case "$container_state" in
+                not_found)
+                    log "  ${YELLOW}!${NC} $name - container not found"
+                    ;;
+                exited|stopped)
+                    log "  ${YELLOW}!${NC} $name - container stopped"
+                    ;;
+                restarting)
+                    log "  ${YELLOW}!${NC} $name - container restarting"
+                    ;;
+                running)
+                    log "  ${YELLOW}!${NC} $name - not responding (container running)"
+                    ;;
+                *)
+                    log "  ${YELLOW}!${NC} $name - not responding"
+                    ;;
+            esac
         fi
     fi
 done

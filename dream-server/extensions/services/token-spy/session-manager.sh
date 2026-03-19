@@ -174,7 +174,8 @@ manage_remote_agent() {
   log "Checking $agent (remote: $host, local model, \$0.00/turn)"
 
   local remote_info
-  remote_info=$(ssh -o ConnectTimeout=5 -o BatchMode=yes "${host}" bash << 'REMOTESCRIPT'
+  # Unquoted heredoc: ${remote_dir} must expand locally before remote execution
+  remote_info=$(ssh -o ConnectTimeout=5 -o BatchMode=yes "${host}" bash << REMOTESCRIPT
     SESSIONS_DIR="${remote_dir}"
     if [ ! -d "\$SESSIONS_DIR" ]; then
       echo "NO_DIR"
@@ -198,7 +199,7 @@ manage_remote_agent() {
     find "\$SESSIONS_DIR" -name '*.deleted.*' -delete 2>/dev/null || true
     find "\$SESSIONS_DIR" -name '*.bak*' -mmin +60 -delete 2>/dev/null || true
 REMOTESCRIPT
-  ) || remote_info="SSH_FAILED"
+) || remote_info="SSH_FAILED"
 
   if [ "$remote_info" = "SSH_FAILED" ]; then
     log "  [WARN] SSH to $host failed — skipping $agent"
@@ -280,7 +281,7 @@ for agent_entry in "${AGENTS[@]}"; do
   log "Checking $agent (port $port)"
 
   status_json=$(query_status "$agent" "$port")
-  local pycmd="python3"
+  pycmd="python3"
   if [[ -f "$(dirname "$0")/../../../lib/python-cmd.sh" ]]; then
     . "$(dirname "$0")/../../../lib/python-cmd.sh"
     pycmd="$(ds_detect_python_cmd)"

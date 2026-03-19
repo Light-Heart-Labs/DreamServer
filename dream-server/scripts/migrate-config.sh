@@ -91,19 +91,21 @@ compare_versions() {
 cmd_backup() {
     log_info "Backing up current configuration..."
     
-    local backup_name="config-$(date +%Y%m%d-%H%M%S)"
-    local backup_path="${BACKUP_DIR}/${backup_name}"
+    local backup_name backup_path
+    backup_name="config-$(date +%Y%m%d-%H%M%S)"
+    backup_path="${BACKUP_DIR}/${backup_name}"
     
     mkdir -p "$backup_path"
     
     # Backup key config files
-    cp "${INSTALL_DIR}/.env" "$backup_path/" 2>/dev/null || true
-    cp "${INSTALL_DIR}/.version" "$backup_path/" 2>/dev/null || true
-    cp "${INSTALL_DIR}/docker-compose.yml" "$backup_path/" 2>/dev/null || true
-    cp -r "${INSTALL_DIR}/config" "$backup_path/" 2>/dev/null || true
-    
+    local cp_exit=0
+    cp "${INSTALL_DIR}/.env" "$backup_path/" 2>&1 || cp_exit=$?
+    cp "${INSTALL_DIR}/.version" "$backup_path/" 2>&1 || cp_exit=$?
+    cp "${INSTALL_DIR}/docker-compose.yml" "$backup_path/" 2>&1 || cp_exit=$?
+    cp -r "${INSTALL_DIR}/config" "$backup_path/" 2>&1 || cp_exit=$?
+
     # Backup user data references
-    cp -r "${DATA_DIR}" "$backup_path/data/" 2>/dev/null || true
+    cp -r "${DATA_DIR}" "$backup_path/data/" 2>&1 || cp_exit=$?
     
     log_success "Configuration backed up to: $backup_path"
     echo "$backup_path"
@@ -134,16 +136,20 @@ cmd_diff() {
     echo "New variables (add these to your .env):"
     while IFS='=' read -r key value; do
         [[ -z "$key" || "$key" =~ ^# ]] && continue
-        if ! grep -q "^${key}=" "$current_env" 2>/dev/null; then
+        local grep_exit=0
+        grep -q "^${key}=" "$current_env" 2>&1 || grep_exit=$?
+        if [[ $grep_exit -ne 0 ]]; then
             echo "  + $key=$value"
         fi
     done < "$example_env"
-    
+
     echo ""
     echo "Deprecated variables (remove from your .env):"
     while IFS='=' read -r key value; do
         [[ -z "$key" || "$key" =~ ^# ]] && continue
-        if ! grep -q "^${key}=" "$example_env" 2>/dev/null; then
+        local grep_exit=0
+        grep -q "^${key}=" "$example_env" 2>&1 || grep_exit=$?
+        if [[ $grep_exit -ne 0 ]]; then
             echo "  - $key"
         fi
     done < "$current_env"
@@ -161,8 +167,9 @@ cmd_check() {
     log_info "Last migrated: $last_migrated"
     
     compare_versions "$current_version" "$last_migrated"
-    local result=$?
-    
+    local result
+    result=$?
+
     if [[ $result -eq 2 ]]; then
         log_warn "Migration needed: $last_migrated → $current_version"
         
@@ -211,7 +218,15 @@ cmd_migrate() {
     
     # Run migrations in order
     local failed=0
-    for migration in $(ls -1 "$MIGRATIONS_DIR"/migrate-v*.sh 2>/dev/null | sort -V); do
+    local ls_exit=0
+    local migrations
+    migrations=$(ls -1 "$MIGRATIONS_DIR"/migrate-v*.sh 2>&1 | sort -V) || ls_exit=$?
+    if [[ $ls_exit -ne 0 ]]; then
+        log_success "No migration scripts found"
+        return 0
+    fi
+
+    for migration in $migrations; do
         if [[ -f "$migration" ]]; then
             local migration_version
             migration_version=$(basename "$migration" | sed 's/migrate-v//;s/.sh//')

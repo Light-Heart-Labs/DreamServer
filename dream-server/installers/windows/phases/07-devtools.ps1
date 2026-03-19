@@ -1,0 +1,251 @@
+# ============================================================================
+# Dream Server Windows Installer -- Phase 07: Developer Tools
+# ============================================================================
+# Part of: installers/windows/phases/
+# Purpose: Install OpenCode (AI coding IDE), Claude Code CLI, and Codex CLI.
+#          Configures OpenCode to point at the local llama-server. Adds
+#          OpenCode to Windows Startup so it persists across reboots.
+#
+# Reads:
+#   $dryRun, $cloudMode         -- from orchestrator context
+#   $installDir                 -- from orchestrator context
+#   $tierConfig                 -- from phase 02 (LlmModel, MaxContext, GgufFile)
+#   $envResult                  -- from phase 06 (OpenclawToken, DashboardKey)
+#   $script:OPENCODE_*          -- from lib/constants.ps1
+#
+# Writes:
+#   (none -- tools installed to $env:USERPROFILE\.opencode)
+#
+# Modder notes:
+#   Add new developer tools as separate helper blocks following the OpenCode
+#   pattern (check → download → validate zip → extract → configure).
+#   Node.js is checked and optionally installed for npm-based tools.
+# ============================================================================
+
+Write-Phase -Phase 7 -Total 13 -Name "DEVELOPER TOOLS" -Estimate "~2-5 minutes"
+
+if ($dryRun) {
+    Write-AI "[DRY RUN] Would install OpenCode v$($script:OPENCODE_VERSION) to $($script:OPENCODE_EXE)"
+    Write-AI "[DRY RUN] Would configure OpenCode for local llama-server (model: $($tierConfig.LlmModel))"
+    Write-AI "[DRY RUN] Would add OpenCode to Windows Startup folder"
+    if (-not $cloudMode) {
+        Write-AI "[DRY RUN] Would check for Node.js and install Claude Code + Codex CLI via npm"
+    }
+    return
+}
+
+# ── OpenCode ──────────────────────────────────────────────────────────────────
+Write-AI "Setting up OpenCode AI coding assistant..."
+
+if (-not (Test-Path $script:OPENCODE_EXE)) {
+    Write-AI "Downloading OpenCode v$($script:OPENCODE_VERSION)..."
+    $_ocZip = Join-Path $env:TEMP $script:OPENCODE_ZIP
+
+    # Download with retry (resume-capable via curl.exe -C -)
+    if (-not (Test-Path $_ocZip)) {
+        $dlOk = Invoke-DownloadWithRetry `
+            -Url         $script:OPENCODE_URL `
+            -Destination $_ocZip `
+            -Label       "OpenCode v$($script:OPENCODE_VERSION)"
+        if (-not $dlOk) {
+            Write-AIWarn "OpenCode download failed after retries -- skipping (install manually later)."
+            Write-AI "  Manual: https://github.com/anomalyco/opencode/releases"
+        }
+    }
+
+    if (Test-Path $_ocZip) {
+        # Validate zip before extraction
+        $_zipCheck = Test-ZipIntegrity -Path $_ocZip
+        if (-not $_zipCheck.Valid) {
+            Write-AIWarn "OpenCode archive is corrupt: $($_zipCheck.ErrorMessage)"
+            Remove-Item $_ocZip -Force -ErrorAction SilentlyContinue
+            Write-AIWarn "Skipping OpenCode (re-run installer to retry)"
+        } else {
+            # Extract to ~/.opencode/bin/
+            New-Item -ItemType Directory -Path $script:OPENCODE_BIN -Force | Out-Null
+            if (Invoke-ExtractionWithRetry -ZipPath $_ocZip -DestinationPath $script:OPENCODE_BIN) {
+                # Zip may contain a subdirectory -- locate opencode.exe
+                $_ocExeFound = Get-ChildItem -Path $script:OPENCODE_BIN -Recurse -Filter "opencode.exe" |
+                    Select-Object -First 1
+                if ($_ocExeFound -and $_ocExeFound.FullName -ne $script:OPENCODE_EXE) {
+                    Move-Item -Path $_ocExeFound.FullName -Destination $script:OPENCODE_EXE -Force
+                }
+                if (Test-Path $script:OPENCODE_EXE) {
+                    Write-AISuccess "OpenCode v$($script:OPENCODE_VERSION) installed"
+                } else {
+                    Write-AIWarn "opencode.exe not found after extraction -- skipping"
+                }
+            } else {
+                Write-AIWarn "OpenCode extraction failed -- skipping"
+            }
+        }
+    }
+} else {
+    Write-AISuccess "OpenCode already installed ($($script:OPENCODE_EXE))"
+}
+
+# ── OpenCode configuration ────────────────────────────────────────────────────
+if (Test-Path $script:OPENCODE_EXE) {
+    New-Item -ItemType Directory -Path $script:OPENCODE_CONFIG_DIR -Force | Out-Null
+    $_ocConfigFile = Join-Path $script:OPENCODE_CONFIG_DIR "opencode.json"
+
+    if (-not (Test-Path $_ocConfigFile)) {
+        # llama-server is always on port 8080 (OLLAMA_PORT in .env)
+        # AMD native + NVIDIA Docker both expose on 127.0.0.1:8080
+        $_llamaPort = "8080"
+
+        # Read OLLAMA_PORT from generated .env in case it was overridden
+        $_envPath = Join-Path $installDir ".env"
+        if (Test-Path $_envPath) {
+            $_portLine = Get-Content $_envPath |
+                Where-Object { $_ -match "^OLLAMA_PORT=" } |
+                Select-Object -First 1
+            if ($_portLine) {
+                $_llamaPort = ($_portLine -split "=", 2)[1].Trim()
+            }
+        }
+
+        # NOTE: llama-server exposes models by GGUF filename (not the LlmModel alias)
+        $_ocModelId = $tierConfig.GgufFile
+
+        $ocConfig = @"
+{
+  "`$schema": "https://opencode.ai/config.json",
+  "model": "llama-server/$_ocModelId",
+  "provider": {
+    "llama-server": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "llama-server (local)",
+      "options": {
+        "baseURL": "http://127.0.0.1:${_llamaPort}/v1",
+        "apiKey": "no-key"
+      },
+      "models": {
+        "$_ocModelId": {
+          "name": "$($tierConfig.LlmModel)",
+          "limit": {
+            "context": $($tierConfig.MaxContext),
+            "output": 32768
+          }
+        }
+      }
+    }
+  }
+}
+"@
+        Write-Utf8NoBom -Path $_ocConfigFile -Content $ocConfig
+        Write-AISuccess "OpenCode configured for local llama-server (model: $($tierConfig.LlmModel))"
+    } else {
+        Write-AISuccess "OpenCode config already exists -- preserving existing configuration"
+    }
+
+    # ── VBS launcher (no console window on startup) ───────────────────────────
+    # Uses VBScript rather than a .ps1 shortcut to avoid the PowerShell window
+    # flashing on Windows login. WshShell.Run 0=hidden, False=async.
+    $_vbsContent = @"
+' Dream Server -- OpenCode Web Server (silent startup launcher)
+' Starts opencode.exe in web mode without a visible console window on login.
+Set WshShell = CreateObject("WScript.Shell")
+WshShell.CurrentDirectory = WshShell.ExpandEnvironmentStrings("%USERPROFILE%\.opencode")
+WshShell.Run """%USERPROFILE%\.opencode\bin\opencode.exe"" web --port $($script:OPENCODE_PORT) --hostname 127.0.0.1", 0, False
+"@
+    $_vbsPath = Join-Path $script:OPENCODE_DIR "start-opencode.vbs"
+    Write-Utf8NoBom -Path $_vbsPath -Content $_vbsContent
+
+    # Copy VBS launcher to Windows Startup folder so it runs on next login
+    $_startupDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup"
+    $_startupVbs = Join-Path $_startupDir "DreamServer-OpenCode.vbs"
+    Copy-Item -Path $_vbsPath -Destination $_startupVbs -Force
+    Write-AISuccess "Added OpenCode to Windows Startup (launches on next login)"
+
+    # ── Start OpenCode now (for this session) ─────────────────────────────────
+    # Stop any stale OpenCode process first
+    $null = Get-Process -Name "opencode" -ErrorAction SilentlyContinue |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 500
+
+    Write-AI "Starting OpenCode web server on port $($script:OPENCODE_PORT)..."
+    $ocProc = Start-Process `
+        -FilePath    $script:OPENCODE_EXE `
+        -ArgumentList "web --port $($script:OPENCODE_PORT) --hostname 127.0.0.1" `
+        -WindowStyle Hidden `
+        -PassThru
+    if ($ocProc) {
+        Write-AISuccess "OpenCode started (PID $($ocProc.Id)) -- http://localhost:$($script:OPENCODE_PORT)"
+    } else {
+        Write-AIWarn "OpenCode may not have started. Check manually: $($script:OPENCODE_EXE) web --port $($script:OPENCODE_PORT)"
+    }
+}
+
+# ── Node.js / npm tools (Claude Code + Codex CLI) ────────────────────────────
+# These are optional developer tools that require Node.js and npm.
+# Installation is best-effort: failures are non-fatal and clearly reported.
+
+Write-AI "Checking for Node.js (needed for Claude Code + Codex CLI)..."
+$_npmCmd  = Get-Command npm  -ErrorAction SilentlyContinue
+$_nodeCmd = Get-Command node -ErrorAction SilentlyContinue
+
+if (-not $_npmCmd -or -not $_nodeCmd) {
+    # Attempt to install Node.js LTS silently via winget (Windows 10 1809+ built-in)
+    Write-AIWarn "Node.js not found. Attempting to install via winget..."
+    $_winget = Get-Command winget -ErrorAction SilentlyContinue
+    if ($_winget) {
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = "SilentlyContinue"
+        & winget install OpenJS.NodeJS.LTS --silent --accept-source-agreements --accept-package-agreements 2>&1 | Out-Null
+        $ErrorActionPreference = $prevEAP
+
+        # Refresh PATH so npm/node are visible in this session without a new shell
+        $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" +
+                    [System.Environment]::GetEnvironmentVariable("PATH", "User")
+        $_npmCmd  = Get-Command npm  -ErrorAction SilentlyContinue
+        $_nodeCmd = Get-Command node -ErrorAction SilentlyContinue
+    }
+
+    if (-not $_npmCmd) {
+        Write-AIWarn "Node.js not installed. Claude Code and Codex CLI will be skipped."
+        Write-AI "  Install manually: https://nodejs.org/en/download"
+        Write-AI "  Then run: npm install -g @anthropic-ai/claude-code @openai/codex"
+    }
+}
+
+if ($_npmCmd) {
+    $_npmVer = & npm --version 2>$null
+    Write-AISuccess "Node.js / npm $_npmVer available"
+
+    # Install Claude Code (Anthropic's terminal agent)
+    $_claudeCmd = Get-Command claude -ErrorAction SilentlyContinue
+    if (-not $_claudeCmd) {
+        Write-AI "Installing Claude Code (@anthropic-ai/claude-code)..."
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = "SilentlyContinue"
+        & npm install -g "@anthropic-ai/claude-code" 2>&1 | Out-Null
+        $ErrorActionPreference = $prevEAP
+        if (Get-Command claude -ErrorAction SilentlyContinue) {
+            Write-AISuccess "Claude Code installed (run: claude)"
+        } else {
+            Write-AIWarn "Claude Code install failed -- install later: npm install -g @anthropic-ai/claude-code"
+        }
+    } else {
+        Write-AISuccess "Claude Code already installed"
+    }
+
+    # Install Codex CLI (OpenAI's terminal agent)
+    $_codexCmd = Get-Command codex -ErrorAction SilentlyContinue
+    if (-not $_codexCmd) {
+        Write-AI "Installing Codex CLI (@openai/codex)..."
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = "SilentlyContinue"
+        & npm install -g "@openai/codex" 2>&1 | Out-Null
+        $ErrorActionPreference = $prevEAP
+        if (Get-Command codex -ErrorAction SilentlyContinue) {
+            Write-AISuccess "Codex CLI installed (run: codex)"
+        } else {
+            Write-AIWarn "Codex CLI install failed -- install later: npm install -g @openai/codex"
+        }
+    } else {
+        Write-AISuccess "Codex CLI already installed"
+    }
+}
+
+Write-AISuccess "Developer tools setup complete"

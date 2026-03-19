@@ -1,13 +1,21 @@
 """Tests for helpers.py — model info, bootstrap status, token tracking, system metrics."""
 
+import asyncio
 import json
+from unittest.mock import AsyncMock, MagicMock
 
+import aiohttp
+import httpx
+import pytest
 
 from helpers import (
     get_model_info, get_bootstrap_status, _update_lifetime_tokens,
     get_uptime, get_cpu_metrics, get_ram_metrics,
+    check_service_health, get_all_services,
+    get_llama_metrics, get_loaded_model, get_llama_context_size,
+    get_disk_usage,
 )
-from models import BootstrapStatus
+from models import BootstrapStatus, ServiceStatus, DiskUsage
 
 
 # --- get_model_info ---
@@ -212,3 +220,327 @@ class TestGetRamMetrics:
         monkeypatch.setattr("helpers.platform.system", lambda: "UnknownOS")
         result = get_ram_metrics()
         assert result == {"used_gb": 0, "total_gb": 0, "percent": 0}
+
+
+# --- check_service_health ---
+
+
+class TestCheckServiceHealth:
+
+    _CONFIG = {
+        "name": "test-svc",
+        "port": 8080,
+        "external_port": 8080,
+        "health": "/health",
+        "host": "localhost",
+    }
+
+    @pytest.mark.asyncio
+    async def test_healthy_on_200(self, mock_aiohttp_session, monkeypatch):
+        session = mock_aiohttp_session(status=200)
+        monkeypatch.setattr("helpers._get_aio_session", AsyncMock(return_value=session))
+
+        result = await check_service_health("test-svc", self._CONFIG)
+        assert result.status == "healthy"
+        assert result.id == "test-svc"
+        assert result.port == 8080
+
+    @pytest.mark.asyncio
+    async def test_unhealthy_on_500(self, mock_aiohttp_session, monkeypatch):
+        session = mock_aiohttp_session(status=500)
+        monkeypatch.setattr("helpers._get_aio_session", AsyncMock(return_value=session))
+
+        result = await check_service_health("test-svc", self._CONFIG)
+        assert result.status == "unhealthy"
+
+    @pytest.mark.asyncio
+    async def test_degraded_on_timeout(self, monkeypatch):
+        session = MagicMock()
+        session.get = MagicMock(side_effect=asyncio.TimeoutError())
+        monkeypatch.setattr("helpers._get_aio_session", AsyncMock(return_value=session))
+
+        result = await check_service_health("test-svc", self._CONFIG)
+        assert result.status == "degraded"
+
+    @pytest.mark.asyncio
+    async def test_not_deployed_on_dns_failure(self, monkeypatch):
+        from collections import namedtuple
+        ConnKey = namedtuple('ConnectionKey', ['host', 'port', 'is_ssl', 'ssl', 'proxy', 'proxy_auth', 'proxy_headers_hash'])
+        conn_key = ConnKey('test-svc', 8080, False, None, None, None, None)
+        os_err = OSError("Name or service not known")
+        os_err.strerror = "Name or service not known"
+        exc = aiohttp.ClientConnectorError(conn_key, os_err)
+        session = MagicMock()
+        session.get = MagicMock(side_effect=exc)
+        monkeypatch.setattr("helpers._get_aio_session", AsyncMock(return_value=session))
+
+        result = await check_service_health("test-svc", self._CONFIG)
+        assert result.status == "not_deployed"
+
+    @pytest.mark.asyncio
+    async def test_down_on_connection_refused(self, monkeypatch):
+        conn_key = MagicMock()
+        exc = aiohttp.ClientConnectorError(conn_key, OSError("Connection refused"))
+        session = MagicMock()
+        session.get = MagicMock(side_effect=exc)
+        monkeypatch.setattr("helpers._get_aio_session", AsyncMock(return_value=session))
+
+        result = await check_service_health("test-svc", self._CONFIG)
+        assert result.status == "down"
+
+    @pytest.mark.asyncio
+    async def test_down_on_os_error(self, monkeypatch):
+        session = MagicMock()
+        session.get = MagicMock(side_effect=OSError("connection refused"))
+        monkeypatch.setattr("helpers._get_aio_session", AsyncMock(return_value=session))
+
+        result = await check_service_health("test-svc", self._CONFIG)
+        assert result.status == "down"
+
+
+# --- get_all_services ---
+
+
+class TestGetAllServices:
+
+    @pytest.mark.asyncio
+    async def test_returns_all_statuses(self, monkeypatch):
+        fake_services = {
+            "svc-a": {"name": "Service A", "port": 8001, "external_port": 8001, "health": "/health", "host": "localhost"},
+            "svc-b": {"name": "Service B", "port": 8002, "external_port": 8002, "health": "/health", "host": "localhost"},
+        }
+        monkeypatch.setattr("helpers.SERVICES", fake_services)
+
+        async def fake_health(sid, cfg):
+            return ServiceStatus(id=sid, name=cfg["name"], port=cfg["port"],
+                                 external_port=cfg["external_port"], status="healthy")
+
+        monkeypatch.setattr("helpers.check_service_health", fake_health)
+
+        result = await get_all_services()
+        assert len(result) == 2
+        ids = {s.id for s in result}
+        assert ids == {"svc-a", "svc-b"}
+
+    @pytest.mark.asyncio
+    async def test_exception_in_one_service_returns_down(self, monkeypatch):
+        fake_services = {
+            "ok-svc": {"name": "OK", "port": 8001, "external_port": 8001, "health": "/health", "host": "localhost"},
+            "bad-svc": {"name": "Bad", "port": 8002, "external_port": 8002, "health": "/health", "host": "localhost"},
+        }
+        monkeypatch.setattr("helpers.SERVICES", fake_services)
+
+        async def fake_health(sid, cfg):
+            if sid == "bad-svc":
+                raise RuntimeError("unexpected failure")
+            return ServiceStatus(id=sid, name=cfg["name"], port=cfg["port"],
+                                 external_port=cfg["external_port"], status="healthy")
+
+        monkeypatch.setattr("helpers.check_service_health", fake_health)
+
+        result = await get_all_services()
+        assert len(result) == 2
+        bad = next(s for s in result if s.id == "bad-svc")
+        assert bad.status == "down"
+        ok = next(s for s in result if s.id == "ok-svc")
+        assert ok.status == "healthy"
+
+    @pytest.mark.asyncio
+    async def test_empty_services_returns_empty(self, monkeypatch):
+        monkeypatch.setattr("helpers.SERVICES", {})
+        result = await get_all_services()
+        assert result == []
+
+
+# --- get_llama_metrics ---
+
+
+class TestGetLlamaMetrics:
+
+    @pytest.mark.asyncio
+    async def test_parses_prometheus_metrics(self, monkeypatch):
+        from conftest import load_golden_fixture
+        prom_text = load_golden_fixture("prometheus_metrics.txt")
+
+        fake_services = {
+            "llama-server": {"host": "localhost", "port": 8080, "health": "/health", "name": "llama-server"},
+        }
+        monkeypatch.setattr("helpers.SERVICES", fake_services)
+
+        # Reset the previous token state so TPS calculation is fresh
+        import helpers
+        helpers._prev_tokens.update({"count": 0, "time": 0.0, "tps": 0.0})
+
+        mock_response = MagicMock()
+        mock_response.text = prom_text
+        mock_response.status_code = 200
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        monkeypatch.setattr("helpers.httpx.AsyncClient", lambda **kw: mock_client)
+
+        result = await get_llama_metrics(model_hint="test-model")
+        assert "tokens_per_second" in result
+        assert "lifetime_tokens" in result
+        assert isinstance(result["tokens_per_second"], (int, float))
+
+    @pytest.mark.asyncio
+    async def test_returns_zero_on_failure(self, monkeypatch):
+        fake_services = {
+            "llama-server": {"host": "localhost", "port": 8080, "health": "/health", "name": "llama-server"},
+        }
+        monkeypatch.setattr("helpers.SERVICES", fake_services)
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=OSError("connection refused"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        monkeypatch.setattr("helpers.httpx.AsyncClient", lambda **kw: mock_client)
+
+        result = await get_llama_metrics(model_hint="test-model")
+        assert result["tokens_per_second"] == 0
+
+
+# --- get_loaded_model ---
+
+
+class TestGetLoadedModel:
+
+    @pytest.mark.asyncio
+    async def test_returns_model_with_loaded_status(self, monkeypatch):
+        fake_services = {
+            "llama-server": {"host": "localhost", "port": 8080, "health": "/health", "name": "llama-server"},
+        }
+        monkeypatch.setattr("helpers.SERVICES", fake_services)
+
+        mock_response = MagicMock()
+        mock_response.json = MagicMock(return_value={
+            "data": [
+                {"id": "idle-model", "status": {"value": "idle"}},
+                {"id": "loaded-model", "status": {"value": "loaded"}},
+            ]
+        })
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        monkeypatch.setattr("helpers.httpx.AsyncClient", lambda **kw: mock_client)
+
+        result = await get_loaded_model()
+        assert result == "loaded-model"
+
+    @pytest.mark.asyncio
+    async def test_returns_first_model_when_no_loaded(self, monkeypatch):
+        fake_services = {
+            "llama-server": {"host": "localhost", "port": 8080, "health": "/health", "name": "llama-server"},
+        }
+        monkeypatch.setattr("helpers.SERVICES", fake_services)
+
+        mock_response = MagicMock()
+        mock_response.json = MagicMock(return_value={
+            "data": [
+                {"id": "only-model", "status": {"value": "idle"}},
+            ]
+        })
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        monkeypatch.setattr("helpers.httpx.AsyncClient", lambda **kw: mock_client)
+
+        result = await get_loaded_model()
+        assert result == "only-model"
+
+    @pytest.mark.asyncio
+    async def test_returns_none_on_failure(self, monkeypatch):
+        fake_services = {
+            "llama-server": {"host": "localhost", "port": 8080, "health": "/health", "name": "llama-server"},
+        }
+        monkeypatch.setattr("helpers.SERVICES", fake_services)
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("unreachable"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        monkeypatch.setattr("helpers.httpx.AsyncClient", lambda **kw: mock_client)
+
+        result = await get_loaded_model()
+        assert result is None
+
+
+# --- get_llama_context_size ---
+
+
+class TestGetLlamaContextSize:
+
+    @pytest.mark.asyncio
+    async def test_returns_n_ctx(self, monkeypatch):
+        fake_services = {
+            "llama-server": {"host": "localhost", "port": 8080, "health": "/health", "name": "llama-server"},
+        }
+        monkeypatch.setattr("helpers.SERVICES", fake_services)
+
+        mock_response = MagicMock()
+        mock_response.json = MagicMock(return_value={
+            "default_generation_settings": {"n_ctx": 32768}
+        })
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        monkeypatch.setattr("helpers.httpx.AsyncClient", lambda **kw: mock_client)
+
+        result = await get_llama_context_size(model_hint="test-model")
+        assert result == 32768
+
+    @pytest.mark.asyncio
+    async def test_returns_none_on_failure(self, monkeypatch):
+        fake_services = {
+            "llama-server": {"host": "localhost", "port": 8080, "health": "/health", "name": "llama-server"},
+        }
+        monkeypatch.setattr("helpers.SERVICES", fake_services)
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("unreachable"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        monkeypatch.setattr("helpers.httpx.AsyncClient", lambda **kw: mock_client)
+
+        result = await get_llama_context_size(model_hint="test-model")
+        assert result is None
+
+
+# --- get_disk_usage ---
+
+
+class TestGetDiskUsage:
+
+    def test_returns_disk_usage(self, monkeypatch):
+        monkeypatch.setattr("helpers.INSTALL_DIR", "/tmp")
+
+        result = get_disk_usage()
+        assert isinstance(result, DiskUsage)
+        assert result.total_gb > 0
+        assert result.used_gb >= 0
+        assert 0 <= result.percent <= 100
+
+    def test_falls_back_to_home_dir(self, monkeypatch):
+        monkeypatch.setattr("helpers.INSTALL_DIR", "/nonexistent/path/that/does/not/exist")
+
+        import os
+        result = get_disk_usage()
+        assert isinstance(result, DiskUsage)
+        assert result.path == os.path.expanduser("~")
+        assert result.total_gb > 0

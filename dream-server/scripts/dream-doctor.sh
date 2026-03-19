@@ -92,6 +92,9 @@ COMPOSE_CLI="false"
 DASHBOARD_HTTP="false"
 WEBUI_HTTP="false"
 
+# Extension diagnostics (JSON array of objects)
+EXT_DIAGNOSTICS="[]"
+
 if command -v docker >/dev/null 2>&1; then
     DOCKER_CLI="true"
     if docker info >/dev/null 2>&1; then
@@ -111,6 +114,97 @@ if command -v curl >/dev/null 2>&1; then
     fi
 fi
 
+# Collect extension diagnostics (wrapped in function to allow local variables)
+collect_extension_diagnostics() {
+    # Use outer GPU_BACKEND or default to nvidia (don't make local to avoid set -u issues)
+    local backend="${GPU_BACKEND-nvidia}"
+    local EXT_DIAG_ITEMS=()
+
+    for sid in "${SERVICE_IDS[@]}"; do
+        # Skip core services
+        [[ "${SERVICE_CATEGORIES[$sid]:-}" == "core" ]] && continue
+
+        # Check if extension is enabled
+        local compose_file="${SERVICE_COMPOSE[$sid]:-}"
+        [[ -z "$compose_file" || ! -f "$compose_file" ]] && continue
+
+        # Build diagnostic entry
+        local container="${SERVICE_CONTAINERS[$sid]:-}"
+        local container_state="unknown"
+        local health_status="unknown"
+        local issues=()
+
+        # Check container state
+        if [[ "$DOCKER_DAEMON" == "true" && -n "$container" ]]; then
+            local inspect_output
+            inspect_output=$(docker inspect --format '{{.State.Status}}' "$container" 2>&1)
+            if [[ $? -eq 0 ]]; then
+                container_state="$inspect_output"
+            else
+                container_state="not_found"
+            fi
+
+            # Check health endpoint if container running
+            if [[ "$container_state" == "running" ]]; then
+                local port="${SERVICE_PORTS[$sid]:-0}"
+                local health="${SERVICE_HEALTH[$sid]:-}"
+                if [[ "$port" != "0" && -n "$health" ]]; then
+                    if curl -sf --max-time 5 "http://localhost:${port}${health}" >/dev/null 2>&1; then
+                        health_status="healthy"
+                    else
+                        health_status="unhealthy"
+                        issues+=("health_check_failed")
+                    fi
+                fi
+            else
+                issues+=("container_not_running")
+            fi
+        fi
+
+        # Check GPU backend compatibility (only if SERVICE_GPU_BACKENDS array exists from PR #357)
+        if declare -p SERVICE_GPU_BACKENDS &>/dev/null; then
+            local gpu_backends="${SERVICE_GPU_BACKENDS[$sid]:-}"
+            if [[ -n "$gpu_backends" && ! " $gpu_backends " =~ " $backend " ]]; then
+                issues+=("gpu_backend_incompatible")
+            fi
+        fi
+
+        # Check dependencies
+        local deps="${SERVICE_DEPENDS[$sid]:-}"
+        if [[ -n "$deps" ]]; then
+            local dep
+            for dep in $deps; do
+                local dep_compose="${SERVICE_COMPOSE[$dep]:-}"
+                local dep_cat="${SERVICE_CATEGORIES[$dep]:-}"
+                if [[ "$dep_cat" != "core" && ! -f "$dep_compose" ]]; then
+                    issues+=("missing_dependency:$dep")
+                fi
+            done
+        fi
+
+        # Build JSON object (escape quotes in values)
+        local issues_json="[]"
+        if [[ ${#issues[@]} -gt 0 ]]; then
+            # Use printf with newline separator, then convert to JSON array
+            issues_json="[\"$(printf '%s\n' "${issues[@]}" | sed 's/"/\\"/g' | tr '\n' ',' | sed 's/,$//' | sed 's/,/","/g')\"]"
+        fi
+
+        EXT_DIAG_ITEMS+=("{\"id\":\"$sid\",\"container_state\":\"$container_state\",\"health_status\":\"$health_status\",\"issues\":$issues_json}")
+    done
+
+    if [[ ${#EXT_DIAG_ITEMS[@]} -gt 0 ]]; then
+        echo "[$(IFS=,; echo "${EXT_DIAG_ITEMS[*]}")]"
+    else
+        echo "[]"
+    fi
+}
+
+# Collect extension diagnostics if service registry loaded
+EXT_DIAGNOSTICS="[]"
+if [[ "${#SERVICE_IDS[@]}" -gt 0 ]]; then
+    EXT_DIAGNOSTICS=$(collect_extension_diagnostics)
+fi
+
 PYTHON_CMD="python3"
 if [[ -f "$ROOT_DIR/lib/python-cmd.sh" ]]; then
     . "$ROOT_DIR/lib/python-cmd.sh"
@@ -119,16 +213,17 @@ elif command -v python >/dev/null 2>&1; then
     PYTHON_CMD="python"
 fi
 
-"$PYTHON_CMD" - "$CAP_FILE" "$PREFLIGHT_FILE" "$REPORT_FILE" "$DOCKER_CLI" "$DOCKER_DAEMON" "$COMPOSE_CLI" "$DASHBOARD_HTTP" "$WEBUI_HTTP" "$_DASHBOARD_PORT" "$_WEBUI_PORT" <<'PY'
+"$PYTHON_CMD" - "$CAP_FILE" "$PREFLIGHT_FILE" "$REPORT_FILE" "$DOCKER_CLI" "$DOCKER_DAEMON" "$COMPOSE_CLI" "$DASHBOARD_HTTP" "$WEBUI_HTTP" "$_DASHBOARD_PORT" "$_WEBUI_PORT" "$EXT_DIAGNOSTICS" <<'PY'
 import json
 import pathlib
 import sys
 from datetime import datetime, timezone
 
-cap_file, preflight_file, report_file, docker_cli, docker_daemon, compose_cli, dashboard_http, webui_http, dashboard_port, webui_port = sys.argv[1:]
+cap_file, preflight_file, report_file, docker_cli, docker_daemon, compose_cli, dashboard_http, webui_http, dashboard_port, webui_port, ext_diagnostics_json = sys.argv[1:]
 
 cap = json.load(open(cap_file, "r", encoding="utf-8"))
 pre = json.load(open(preflight_file, "r", encoding="utf-8"))
+ext_diagnostics = json.loads(ext_diagnostics_json)
 
 report = {
     "version": "1",
@@ -143,10 +238,14 @@ report = {
         "dashboard_http": dashboard_http == "true",
         "webui_http": webui_http == "true",
     },
+    "extensions": ext_diagnostics,
     "summary": {
         "preflight_blockers": pre.get("summary", {}).get("blockers", 0),
         "preflight_warnings": pre.get("summary", {}).get("warnings", 0),
         "runtime_ready": (docker_daemon == "true" and compose_cli == "true"),
+        "extensions_total": len(ext_diagnostics),
+        "extensions_healthy": sum(1 for e in ext_diagnostics if e.get("health_status") == "healthy"),
+        "extensions_issues": sum(1 for e in ext_diagnostics if len(e.get("issues", [])) > 0),
     },
 }
 
@@ -168,6 +267,22 @@ if runtime["docker_daemon"] and not runtime["dashboard_http"]:
     fix_hints.append(f"Run installer/start command, then verify dashboard on http://localhost:{dashboard_port}.")
 if runtime["docker_daemon"] and not runtime["webui_http"]:
     fix_hints.append(f"Verify Open WebUI container and port {webui_port} mapping.")
+
+# Extension-specific hints
+for ext in ext_diagnostics:
+    ext_id = ext.get("id", "unknown")
+    issues = ext.get("issues", [])
+    for issue in issues:
+        if issue == "container_not_running":
+            fix_hints.append(f"Extension {ext_id}: container not running. Run 'dream start {ext_id}'.")
+        elif issue == "health_check_failed":
+            fix_hints.append(f"Extension {ext_id}: health check failed. Check logs with 'docker logs dream-{ext_id}'.")
+        elif issue == "gpu_backend_incompatible":
+            fix_hints.append(f"Extension {ext_id}: incompatible with current GPU backend. Consider disabling.")
+        elif issue.startswith("missing_dependency:"):
+            dep = issue.split(":", 1)[1]
+            fix_hints.append(f"Extension {ext_id}: missing dependency '{dep}'. Run 'dream enable {dep}'.")
+
 
 # Deduplicate while preserving order
 seen = set()
@@ -199,9 +314,19 @@ try:
     data = json.load(open(path, "r", encoding="utf-8"))
 except Exception:
     raise SystemExit(0)
+
+# Show extension summary
+summary = data.get("summary", {})
+ext_total = summary.get("extensions_total", 0)
+ext_healthy = summary.get("extensions_healthy", 0)
+ext_issues = summary.get("extensions_issues", 0)
+
+if ext_total > 0:
+    print(f"  Extensions:    {ext_healthy}/{ext_total} healthy, {ext_issues} with issues")
+
 hints = data.get("autofix_hints") or []
 if hints:
     print("  Suggested fixes:")
-    for hint in hints[:6]:
+    for hint in hints[:10]:
         print(f"    - {hint}")
 PY

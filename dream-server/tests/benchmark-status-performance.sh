@@ -60,22 +60,25 @@ trap cleanup_mock_services EXIT
 
 # Simulate sequential health checks (old implementation)
 benchmark_sequential() {
-    local start=$(_now_ms)
+    local start
+    start=$(_now_ms)
 
     # Simulate 13 sequential curl calls with 1 second timeout each
     for i in {1..13}; do
         curl -sf --max-time 1 http://localhost:8080/health > /dev/null 2>&1 || true
     done
 
-    local end=$(_now_ms)
-    local duration=$(( end - start ))
+    local end duration
+    end=$(_now_ms)
+    duration=$(( end - start ))
     echo $duration
 }
 
 # Simulate parallel health checks (new implementation)
 benchmark_parallel() {
-    local start=$(_now_ms)
-    local tmpdir=$(mktemp -d)
+    local start tmpdir
+    start=$(_now_ms)
+    tmpdir=$(mktemp -d)
     local -a pids=()
 
     # Launch 13 parallel curl calls
@@ -89,8 +92,9 @@ benchmark_parallel() {
         wait "$pid" 2>/dev/null || true
     done
 
-    local end=$(_now_ms)
-    local duration=$(( end - start ))
+    local end duration
+    end=$(_now_ms)
+    duration=$(( end - start ))
     rm -rf "$tmpdir"
     echo $duration
 }

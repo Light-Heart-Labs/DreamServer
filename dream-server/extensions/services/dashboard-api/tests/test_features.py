@@ -94,3 +94,141 @@ class TestApiFeaturesAppleFallback:
         assert response.status_code == 200
         data = response.json()
         assert data["gpu"]["vramGb"] == 16.0
+
+
+# --- calculate_feature_status general cases ---
+
+
+class TestCalculateFeatureStatusGeneral:
+
+    def _make_feature(self, vram_gb=0, services=None, services_any=None,
+                      enabled_all=None, enabled_any=None):
+        return {
+            "id": "test-feat",
+            "name": "Test Feature",
+            "description": "A test feature",
+            "icon": "Zap",
+            "category": "inference",
+            "setup_time": "5 min",
+            "priority": 1,
+            "requirements": {
+                "vram_gb": vram_gb,
+                "services": services or [],
+                "services_any": services_any or [],
+            },
+            "enabled_services_all": enabled_all if enabled_all is not None else (services or []),
+            "enabled_services_any": enabled_any if enabled_any is not None else (services_any or []),
+        }
+
+    def _make_service_status(self, sid, status="healthy"):
+        from models import ServiceStatus
+        return ServiceStatus(
+            id=sid, name=sid, port=8080, external_port=8080, status=status,
+        )
+
+    def test_enabled_when_all_services_healthy(self):
+        from routers.features import calculate_feature_status
+        from models import GPUInfo
+
+        gpu = GPUInfo(
+            name="RTX 4090", memory_used_mb=2048, memory_total_mb=24576,
+            memory_percent=8.3, utilization_percent=35, temperature_c=62,
+            gpu_backend="nvidia",
+        )
+        feature = self._make_feature(vram_gb=8, services=["llama-server"],
+                                     enabled_all=["llama-server"])
+        services = [self._make_service_status("llama-server", "healthy")]
+
+        with patch("routers.features.GPU_BACKEND", "nvidia"):
+            result = calculate_feature_status(feature, services, gpu)
+        assert result["status"] == "enabled"
+        assert result["enabled"] is True
+
+    def test_insufficient_vram(self):
+        from routers.features import calculate_feature_status
+        from models import GPUInfo
+
+        gpu = GPUInfo(
+            name="GTX 1050", memory_used_mb=1024, memory_total_mb=4096,
+            memory_percent=25.0, utilization_percent=10, temperature_c=50,
+            gpu_backend="nvidia",
+        )
+        # enabled_all must reference a service not in the service list so
+        # is_enabled is False, allowing the vram check to be reached.
+        feature = self._make_feature(vram_gb=16, services=[],
+                                     enabled_all=["llama-server"])
+
+        with patch("routers.features.GPU_BACKEND", "nvidia"):
+            result = calculate_feature_status(feature, [], gpu)
+        assert result["status"] == "insufficient_vram"
+        assert result["requirements"]["vramOk"] is False
+
+    def test_services_needed_when_deps_missing(self):
+        from routers.features import calculate_feature_status
+        from models import GPUInfo
+
+        gpu = GPUInfo(
+            name="RTX 4090", memory_used_mb=2048, memory_total_mb=24576,
+            memory_percent=8.3, utilization_percent=35, temperature_c=62,
+            gpu_backend="nvidia",
+        )
+        feature = self._make_feature(vram_gb=8, services=["whisper", "tts"],
+                                     enabled_all=["whisper", "tts"])
+        services = [self._make_service_status("whisper", "healthy")]
+
+        with patch("routers.features.GPU_BACKEND", "nvidia"):
+            result = calculate_feature_status(feature, services, gpu)
+        assert result["status"] == "services_needed"
+        assert "tts" in result["requirements"]["servicesMissing"]
+
+    def test_available_when_vram_ok_but_not_enabled(self):
+        from routers.features import calculate_feature_status
+        from models import GPUInfo
+
+        gpu = GPUInfo(
+            name="RTX 4090", memory_used_mb=2048, memory_total_mb=24576,
+            memory_percent=8.3, utilization_percent=35, temperature_c=62,
+            gpu_backend="nvidia",
+        )
+        feature = self._make_feature(vram_gb=8, services=[],
+                                     enabled_all=["some-service"])
+        services = []
+
+        with patch("routers.features.GPU_BACKEND", "nvidia"):
+            result = calculate_feature_status(feature, services, gpu)
+        assert result["status"] == "available"
+
+
+# --- /api/features/{feature_id}/enable ---
+
+
+class TestFeatureEnableInstructions:
+
+    def test_returns_instructions_for_known_feature(self, test_client, monkeypatch):
+        test_features = [
+            {"id": "chat", "name": "Chat", "description": "AI Chat",
+             "icon": "MessageSquare", "category": "inference",
+             "setup_time": "1 min", "priority": 1,
+             "requirements": {"vram_gb": 0, "services": [], "services_any": []},
+             "enabled_services_all": [], "enabled_services_any": []}
+        ]
+        monkeypatch.setattr("routers.features.FEATURES", test_features)
+
+        resp = test_client.get(
+            "/api/features/chat/enable",
+            headers=test_client.auth_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["featureId"] == "chat"
+        assert "instructions" in data
+        assert "steps" in data["instructions"]
+
+    def test_404_for_unknown_feature(self, test_client, monkeypatch):
+        monkeypatch.setattr("routers.features.FEATURES", [])
+
+        resp = test_client.get(
+            "/api/features/nonexistent/enable",
+            headers=test_client.auth_headers,
+        )
+        assert resp.status_code == 404

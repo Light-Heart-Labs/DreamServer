@@ -19,10 +19,12 @@ declare -A SERVICE_COMPOSE      # service_id → compose file path
 declare -A SERVICE_CATEGORIES   # service_id → core|recommended|optional
 declare -A SERVICE_DEPENDS      # service_id → space-separated dependency IDs
 declare -A SERVICE_HEALTH       # service_id → health endpoint path
+declare -A SERVICE_HEALTH_TIMEOUTS  # service_id → health check timeout in seconds
 declare -A SERVICE_PORTS        # service_id → external port (what the user hits on localhost)
 declare -A SERVICE_PORT_ENVS    # service_id → env var name for the external port
 declare -A SERVICE_NAMES        # service_id → display name
 declare -A SERVICE_SETUP_HOOKS  # service_id → absolute path to setup script
+declare -A SERVICE_GPU_BACKENDS # service_id → space-separated GPU backends (amd, nvidia, apple, cpu)
 declare -a SERVICE_IDS          # ordered list of all service IDs
 
 sr_load() {
@@ -126,9 +128,11 @@ for service_dir in sorted(ext_dir.iterdir()):
         print(f'SERVICE_CATEGORIES["{_esc(sid)}"]="{_esc(category)}"')
         print(f'SERVICE_DEPENDS["{_esc(sid)}"]="{_esc(" ".join(str(d) for d in depends))}"')
         health = s.get("health", "/health")
+        health_timeout = s.get("health_timeout", 5)  # Default 5 seconds
         port = s.get("external_port_default", s.get("port", 0))
         port_env = s.get("external_port_env", "")
         print(f'SERVICE_HEALTH["{_esc(sid)}"]="{_esc(health)}"')
+        print(f'SERVICE_HEALTH_TIMEOUTS["{_esc(sid)}"]="{_esc(health_timeout)}"')
         print(f'SERVICE_PORTS["{_esc(sid)}"]="{_esc(port)}"')
         print(f'SERVICE_PORT_ENVS["{_esc(sid)}"]="{_esc(port_env)}"')
         print(f'SERVICE_NAMES["{_esc(sid)}"]="{_esc(s.get("name", sid))}"')
@@ -139,6 +143,10 @@ for service_dir in sorted(ext_dir.iterdir()):
             if full.exists():
                 setup_path = str(full)
         print(f'SERVICE_SETUP_HOOKS["{_esc(sid)}"]="{_esc(setup_path)}"')
+        # GPU backends (default to amd/nvidia/apple, consistent with dashboard-api)
+        gpu_backends = s.get("gpu_backends", ["amd", "nvidia", "apple"])
+        backends_str = " ".join(str(b) for b in gpu_backends)
+        print(f'SERVICE_GPU_BACKENDS["{_esc(sid)}"]="{_esc(backends_str)}"')
     except Exception as exc:
         print(f'# ERROR: failed to parse {manifest_path}: {exc}', file=sys.stderr)
         continue

@@ -7,7 +7,7 @@ service:
   container_name: dream-milvus
   host_env: MILVUS_HOST
   default_host: milvus
-  port: 19530
+  port: 9091
   external_port_env: MILVUS_PORT
   external_port_default: 19530
   health: /healthz
