@@ -36,7 +36,10 @@ read_env_value() {
     local env_path="$1"
     local key="$2"
     [[ -f "$env_path" ]] || { echo ""; return 0; }
-    grep -E "^${key}=" "$env_path" 2>/dev/null | head -n 1 | cut -d'=' -f2- | tr -d '\r' || true
+    local grep_exit=0
+    grep -E "^${key}=" "$env_path" 2>/dev/null | head -n 1 | cut -d'=' -f2- | tr -d '\r' || grep_exit=$?
+    # grep returns 1 when no match found, which is expected
+    return 0
 }
 
 # Read SearXNG secret_key from an existing settings.yml file.
@@ -47,10 +50,13 @@ read_searxng_secret() {
     local settings_path="$1"
     [[ -f "$settings_path" ]] || { echo ""; return 0; }
     # Expected line format: secret_key: "...."
+    local grep_exit=0
     grep -E '^[[:space:]]*secret_key:[[:space:]]*"' "$settings_path" 2>/dev/null \
         | head -n 1 \
         | sed -E 's/^[[:space:]]*secret_key:[[:space:]]*"([^"]+)".*$/\1/' \
-        | tr -d '\r' || true
+        | tr -d '\r' || grep_exit=$?
+    # grep returns 1 when no match found, which is expected
+    return 0
 }
 
 # Detect system timezone (macOS-specific)
