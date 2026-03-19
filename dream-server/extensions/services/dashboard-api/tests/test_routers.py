@@ -345,6 +345,35 @@ def test_api_settings_authenticated(test_client, tmp_path, monkeypatch):
     assert "model" in data
 
 
+def test_api_settings_degrades_when_status_builder_fails(test_client, monkeypatch):
+    """GET /api/settings should stay available when status aggregation throws."""
+    monkeypatch.setattr("main._build_api_status", AsyncMock(side_effect=RuntimeError("boom")))
+    monkeypatch.setattr(
+        "main._build_storage_payload",
+        AsyncMock(return_value={"models": {}, "vector_db": {}, "total_data": {}, "disk": {}}),
+    )
+
+    async def fake_resolve_version_info(install_dir=None):
+        return {
+            "current": "1.2.3",
+            "latest": None,
+            "update_available": False,
+            "changelog_url": None,
+            "checked_at": "2026-03-19T00:00:00Z",
+        }
+
+    monkeypatch.setattr("main.updates.resolve_version_info", fake_resolve_version_info)
+    monkeypatch.setattr("main.updates.resolve_install_date", lambda install_dir=None: "2026-03-10")
+
+    resp = test_client.get("/api/settings", headers=test_client.auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["version"] == "1.2.3"
+    assert data["tier"] == "Unknown"
+    assert data["services"] == []
+    assert data["model"]["loadedModel"] is None
+
+
 def test_api_external_links_authenticated(test_client):
     """GET /api/external-links with auth → 200, returns sidebar links."""
     resp = test_client.get("/api/external-links", headers=test_client.auth_headers)
@@ -496,4 +525,3 @@ def test_agents_throughput_authenticated(test_client):
     assert data["peak"] == 55.0  # Max of all samples
     assert data["average"] == (42.0 + 55.0 + 38.0) / 3  # Average of all samples
     assert len(data["history"]) == 3
-
