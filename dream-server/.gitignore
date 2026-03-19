@@ -8,6 +8,13 @@
 .target-model
 .target-quantization
 
+# Secret files (security)
+*.key
+*.pem
+secrets.*
+private.*
+credentials.*
+
 # Install-time data directories
 data/
 models/
@@ -25,14 +32,21 @@ presets/
 config/openclaw/workspace/
 
 # Dashboard build artifacts
-dashboard/node_modules/
-dashboard/dist/
+**/node_modules/
+**/dist/
+
+# Test coverage
+.coverage
+*.coverage
 
 # Preflight logs
 preflight-*.log
 
 # Internal dev
 internal/
+
+# BATS test framework (dev dependency, auto-installed by tests/run-bats.sh)
+tests/bats/
 
 # OS junk
 .DS_Store

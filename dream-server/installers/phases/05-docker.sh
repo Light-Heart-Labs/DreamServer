@@ -16,6 +16,7 @@
 #   Multi-distro: uses packaging.sh for distro-agnostic package installs.
 # ============================================================================
 
+dream_progress 30 "docker" "Setting up Docker"
 show_phase 3 6 "Docker Setup" "~2 minutes"
 ai "Preparing container runtime..."
 
@@ -50,6 +51,7 @@ if [[ "$SKIP_DOCKER" == "true" ]]; then
 elif command -v docker &> /dev/null; then
     ai_ok "Docker already installed: $(docker --version)"
 else
+    dream_progress 31 "docker" "Installing Docker engine"
     ai "Installing Docker..."
 
     if $DRY_RUN; then
@@ -97,6 +99,7 @@ DOCKER_CMD="${DOCKER_CMD:-docker}"
 DOCKER_COMPOSE_CMD="${DOCKER_COMPOSE_CMD:-docker compose}"
 
 # Docker Compose check (v2 preferred, v1 fallback)
+dream_progress 33 "docker" "Checking Docker Compose"
 if docker_compose_run version &> /dev/null 2>&1; then
     ai_ok "Docker Compose v2 available"
 elif command -v docker-compose &> /dev/null; then
@@ -252,10 +255,12 @@ _docker_post_install_checks() {
     fi
 }
 
+dream_progress 35 "docker" "Running Docker post-install checks"
 _docker_post_install_checks
 
 # NVIDIA Container Toolkit (skip for AMD — uses /dev/dri + /dev/kfd passthrough)
 if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "nvidia" ]]; then
+    dream_progress 36 "docker" "Checking NVIDIA Container Toolkit"
     if command -v nvidia-container-cli &> /dev/null 2>&1; then
         ai_ok "NVIDIA Container Toolkit installed"
         # Always regenerate CDI spec — driver version may have changed since last run

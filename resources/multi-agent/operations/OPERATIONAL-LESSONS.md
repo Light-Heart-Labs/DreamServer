@@ -29,7 +29,7 @@ field contains JSON-looking text instead of proper `tool_calls`.
 | Qwen2.5 Instruct | `hermes` |
 | Qwen3-8B/32B | `hermes` |
 
-The tool proxy (see [ARCHITECTURE.md](ARCHITECTURE.md)) catches some of these
+The tool proxy (see [ARCHITECTURE.md](../architecture/ARCHITECTURE.md)) catches some of these
 as a safety net — it extracts tool calls from text content — but native parsing
 is always more reliable.
 
@@ -48,7 +48,7 @@ See the README for the four critical compat flags.
 ### Pre-Compaction Memory Flush
 
 Before the session watchdog or Token Spy resets a session (see
-[TOKEN-SPY.md](TOKEN-SPY.md)), any durable memories need to be externalized.
+[TOKEN-SPY.md](../../docs/TOKEN-SPY.md)), any durable memories need to be externalized.
 Agents should:
 
 1. Write important findings to persistent files (daily logs, project docs)
@@ -56,13 +56,13 @@ Agents should:
 3. Only then allow the session to reset
 
 If your agent operates on a timer (heartbeat or cron), build the flush into
-the schedule. Memory Shepherd (see [memory-shepherd/README.md](../memory-shepherd/README.md))
+the schedule. Memory Shepherd (see [memory-shepherd/README.md](../../products/memory-shepherd/README.md))
 handles the MEMORY.md reset cycle, but agents need to be taught to externalize
 *before* the reset fires.
 
 **Tip:** Include a brief explanation of the memory system in your baseline so
 the agent knows to externalize important findings. See
-[WRITING-BASELINES.md](../memory-shepherd/docs/WRITING-BASELINES.md) for how.
+[WRITING-BASELINES.md](../../products/memory-shepherd/docs/WRITING-BASELINES.md) for how.
 
 ### Three-Tier Memory Persistence
 
@@ -262,11 +262,11 @@ Every testing task a local model handles saves cloud API credits. The savings
 compound — a single day of local testing can save $50-100+ in API calls.
 
 For a more detailed division of labor in multi-agent setups, see
-[MULTI-AGENT-PATTERNS.md](MULTI-AGENT-PATTERNS.md).
+[MULTI-AGENT-PATTERNS.md](../patterns/MULTI-AGENT-PATTERNS.md).
 
 ### Burn Rate Awareness
 
-With Token Spy tracking costs (see [TOKEN-SPY.md](TOKEN-SPY.md)), establish a
+With Token Spy tracking costs (see [TOKEN-SPY.md](../../docs/TOKEN-SPY.md)), establish a
 baseline burn rate for your workload. Know what "normal" looks like so you can
 spot anomalies:
 
@@ -352,7 +352,7 @@ what to test — is already done.
 ### Briefing Enrichment
 
 Before generating a daily briefing (see the supervisor pattern in
-[MULTI-AGENT-PATTERNS.md](MULTI-AGENT-PATTERNS.md)), pass raw health data
+[MULTI-AGENT-PATTERNS.md](../patterns/MULTI-AGENT-PATTERNS.md)), pass raw health data
 through the local model for pre-analysis:
 
 - Error classification (transient vs. systemic)
@@ -384,9 +384,9 @@ transparently).
 
 ## Further Reading
 
-- [research/HARDWARE-GUIDE.md](research/HARDWARE-GUIDE.md) — GPU buying guide
+- [research/HARDWARE-GUIDE.md](../../research/HARDWARE-GUIDE.md) — GPU buying guide
   with tier rankings and price-performance analysis
-- [research/GPU-TTS-BENCHMARK.md](research/GPU-TTS-BENCHMARK.md) — TTS latency
+- [research/GPU-TTS-BENCHMARK.md](../../research/GPU-TTS-BENCHMARK.md) — TTS latency
   benchmarks (GPU vs CPU, concurrency scaling)
-- [research/OSS-MODEL-LANDSCAPE-2026-02.md](research/OSS-MODEL-LANDSCAPE-2026-02.md) —
+- [research/OSS-MODEL-LANDSCAPE-2026-02.md](../../research/OSS-MODEL-LANDSCAPE-2026-02.md) —
   Open-source model comparison with tool-calling success rates

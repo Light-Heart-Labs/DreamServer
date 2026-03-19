@@ -28,7 +28,7 @@ services:
       - ./data/models:/models
       - ./config/llama-server/models.ini:/config/models.ini:ro
     ports:
-      - "127.0.0.1:${OLLAMA_PORT:-11434}:8080"
+      - "127.0.0.1:${OLLAMA_PORT:-8080}:8080"
     command:
       - --model
       - /models/${GGUF_FILE:-Qwen3-8B-Q4_K_M.gguf}
@@ -40,6 +40,12 @@ services:
       - "999"
       - --ctx-size
       - "${CTX_SIZE:-16384}"
+      - --batch-size
+      - "${LLAMA_BATCH_SIZE:-2048}"
+      - --threads
+      - "${LLAMA_THREADS:-4}"
+      - --parallel
+      - "${LLAMA_PARALLEL:-1}"
       - --metrics
     security_opt:
       - no-new-privileges:true
@@ -47,7 +53,7 @@ services:
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
       interval: 15s
-      timeout: 5s
+      timeout: 10s
       retries: 5
       start_period: 120s
 
@@ -69,7 +75,7 @@ services:
       OPENAI_API_BASE_URL: "${LLM_API_URL:-http://llama-server:8080}/v1"
       OPENAI_API_KEY: ""
       WEBUI_AUTH: "${WEBUI_AUTH:-true}"
-      WEBUI_SECRET_KEY: "${WEBUI_SECRET:?Set WEBUI_SECRET in .env}"
+      WEBUI_SECRET_KEY: "${WEBUI_SECRET:-changeme}"
       ENABLE_WEB_SEARCH: "true"
       WEB_SEARCH_ENGINE: "searxng"
       SEARXNG_QUERY_URL: "http://searxng:8080/search?q=<query>&format=json"
@@ -215,6 +221,4 @@ services:
 
 networks:
   default:
-    name: dream-network
-  dream-network:
     name: dream-network

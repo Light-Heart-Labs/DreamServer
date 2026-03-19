@@ -42,7 +42,7 @@ fi
 
 # Service endpoints — resolved from registry
 LLM_HOST="${LLM_HOST:-localhost}"
-LLM_PORT="${LLM_PORT:-${SERVICE_PORTS[llama-server]:-8080}}"
+LLM_PORT="${LLM_PORT:-${SERVICE_PORTS[llama-server]:-11434}}"
 LLM_URL="http://${LLM_HOST}:${LLM_PORT}"
 WHISPER_HOST="${WHISPER_HOST:-localhost}"
 WHISPER_PORT="${WHISPER_PORT:-${SERVICE_PORTS[whisper]:-9000}}"
@@ -358,7 +358,9 @@ test_whisper() {
             print_test "Whisper Health" "pass" "responding"
         fi
     else
-        test_http "Whisper HTTP" "http://${WHISPER_HOST}:${WHISPER_PORT}/" "200" || true
+        whisper_http_exit=0
+        test_http "Whisper HTTP" "http://${WHISPER_HOST}:${WHISPER_PORT}/" "200" || whisper_http_exit=$?
+        [[ $whisper_http_exit -ne 0 ]] && log "Whisper HTTP check failed (exit $whisper_http_exit)"
     fi
 }
 
@@ -378,7 +380,9 @@ test_tts() {
         record_result "TTS Voices" "pass" "$voice_count voices"
         print_test "TTS Voices" "pass" "$voice_count voices"
     else
-        test_http "TTS API" "http://${TTS_HOST}:${TTS_PORT}/" "200" || true
+        tts_api_exit=0
+        test_http "TTS API" "http://${TTS_HOST}:${TTS_PORT}/" "200" || tts_api_exit=$?
+        [[ $tts_api_exit -ne 0 ]] && log "TTS API check failed (exit $tts_api_exit)"
     fi
 }
 
@@ -397,7 +401,9 @@ test_embeddings() {
         print_test "Embeddings Health" "pass"
     else
         local payload='{"inputs": "test sentence"}'
-        test_http "Embeddings API" "http://${EMBEDDING_HOST}:${EMBEDDING_PORT}/embed" "200" "POST" "$payload" || true
+        embeddings_api_exit=0
+        test_http "Embeddings API" "http://${EMBEDDING_HOST}:${EMBEDDING_PORT}/embed" "200" "POST" "$payload" || embeddings_api_exit=$?
+        [[ $embeddings_api_exit -ne 0 ]] && log "Embeddings API check failed (exit $embeddings_api_exit)"
     fi
 }
 
@@ -512,7 +518,9 @@ test_livekit() {
     echo "> LiveKit Voice Infrastructure"
     
     test_tcp "LiveKit Port" "$LIVEKIT_HOST" "$LIVEKIT_PORT"
-    test_http "LiveKit Health" "http://${LIVEKIT_HOST}:${LIVEKIT_PORT}/" "200" || true
+    livekit_health_exit=0
+    test_http "LiveKit Health" "http://${LIVEKIT_HOST}:${LIVEKIT_PORT}/" "200" || livekit_health_exit=$?
+    [[ $livekit_health_exit -ne 0 ]] && log "LiveKit health check failed (exit $livekit_health_exit)"
 }
 
 #--------------------------------------------------------------------------

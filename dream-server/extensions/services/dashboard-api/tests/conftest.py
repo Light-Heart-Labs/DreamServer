@@ -1,8 +1,10 @@
 """Shared fixtures for dashboard-api unit tests."""
 
+import json
 import os
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -18,6 +20,8 @@ os.environ.setdefault("DREAM_INSTALL_DIR", "/tmp/dream-test-install")
 os.environ.setdefault("DREAM_DATA_DIR", "/tmp/dream-test-data")
 os.environ.setdefault("DREAM_EXTENSIONS_DIR", "/tmp/dream-test-extensions")
 os.environ.setdefault("GPU_BACKEND", "nvidia")
+
+FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
 
 @pytest.fixture()
@@ -64,3 +68,46 @@ def test_client(monkeypatch):
     client = TestClient(app, raise_server_exceptions=True)
     client.auth_headers = {"Authorization": f"Bearer {_TEST_API_KEY}"}
     return client
+
+
+def load_golden_fixture(name: str):
+    """Load a JSON or text fixture from tests/fixtures/.
+
+    Returns parsed JSON for .json files, raw text for anything else.
+    """
+    path = FIXTURES_DIR / name
+    text = path.read_text()
+    if path.suffix == ".json":
+        return json.loads(text)
+    return text
+
+
+@pytest.fixture()
+def mock_aiohttp_session():
+    """Return a factory that creates a mock aiohttp.ClientSession.
+
+    Usage::
+
+        session = mock_aiohttp_session(status=200, json_data={"ok": True})
+        monkeypatch.setattr("helpers._get_aio_session", AsyncMock(return_value=session))
+    """
+
+    def _factory(status: int = 200, json_data=None, text_data: str = "",
+                 raise_on_get=None):
+        response = AsyncMock()
+        response.status = status
+        response.json = AsyncMock(return_value=json_data or {})
+        response.text = AsyncMock(return_value=text_data)
+
+        ctx = AsyncMock()
+        ctx.__aenter__ = AsyncMock(return_value=response)
+        ctx.__aexit__ = AsyncMock(return_value=False)
+
+        session = MagicMock()
+        if raise_on_get:
+            session.get = MagicMock(side_effect=raise_on_get)
+        else:
+            session.get = MagicMock(return_value=ctx)
+        return session
+
+    return _factory

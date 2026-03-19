@@ -1,5 +1,7 @@
 # Dream Server Documentation Index
 
+Links from this directory use `../` for the repo root (e.g. `../README.md`, `../QUICKSTART.md`) and bare filenames for other docs in this directory (e.g. `EXTENSIONS.md`, `TROUBLESHOOTING.md`). **FAQ:** `../FAQ.md` is the installation and usage FAQ at repo root; `FAQ.md` in this directory is the hardware and requirements FAQ.
+
 ## Getting Started
 
 | Doc | Audience | Description |

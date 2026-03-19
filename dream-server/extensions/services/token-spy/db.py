@@ -68,12 +68,23 @@ def init_db():
     conn.commit()
 
     # Add filter metric columns (idempotent — safe on existing databases)
-    for col, typedef in [
-        ("filter_chars_saved", "INTEGER DEFAULT 0"),
-        ("filter_tokens_saved", "INTEGER DEFAULT 0"),
-        ("filter_tools_removed", "INTEGER DEFAULT 0"),
-    ]:
+    # Allowlist for security: only these columns can be added
+    ALLOWED_COLUMNS = {
+        "filter_chars_saved": "INTEGER DEFAULT 0",
+        "filter_tokens_saved": "INTEGER DEFAULT 0",
+        "filter_tools_removed": "INTEGER DEFAULT 0",
+    }
+
+    import re
+    # Regex to validate SQL identifiers: alphanumeric + underscore only
+    SAFE_IDENTIFIER = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+
+    for col, typedef in ALLOWED_COLUMNS.items():
         try:
+            # Defense in depth: validate column name is a safe SQL identifier
+            # even though col comes from a hardcoded dict (protects against future refactoring)
+            if not SAFE_IDENTIFIER.match(col):
+                raise ValueError(f"Invalid column name: {col}")
             conn.execute(f"ALTER TABLE usage ADD COLUMN {col} {typedef}")
             conn.commit()
         except sqlite3.OperationalError as e:

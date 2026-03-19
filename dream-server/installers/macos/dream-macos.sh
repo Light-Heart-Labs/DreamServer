@@ -89,7 +89,7 @@ read_dream_env() {
             local key="${BASH_REMATCH[1]}"
             local val="${BASH_REMATCH[2]}"
             val=$(echo "$val" | sed 's/^["'"'"']//;s/["'"'"']$//')
-            declare -g "ENV_${key}=${val}"
+            export "ENV_${key}=${val}"
         fi
     done < "$env_file"
 }

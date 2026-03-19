@@ -1,0 +1,5 @@
+services:
+  dashboard:
+    depends_on:
+      dashboard-api:
+        condition: service_healthy

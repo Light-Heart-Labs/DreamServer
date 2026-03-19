@@ -61,3 +61,7 @@ services:
         condition: service_healthy
     environment:
       OPENAI_API_BASE_URL: "http://host.docker.internal:8080/v1"
+
+  litellm:
+    extra_hosts:
+      - "llama-server:host-gateway"
