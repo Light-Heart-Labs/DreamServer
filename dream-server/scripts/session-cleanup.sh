@@ -107,7 +107,7 @@ for f in "$SESSIONS_DIR"/*.jsonl; do
         REMOVED_INACTIVE=$((REMOVED_INACTIVE + 1))
     else
         # Portable stat: Linux uses -c%s, macOS uses -f%z
-        local stat_exit=0
+        stat_exit=0
         if [ "$(uname -s)" = "Darwin" ]; then
             SIZE_BYTES=$(stat -f%z "$f" 2>&1) || stat_exit=$?
         else
