@@ -91,8 +91,10 @@ Environment variables (set in `.env`):
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/api/setup/status` | Yes | First-run check and current step |
+| `GET` | `/api/setup/wizard` | Yes | Persistent dashboard setup wizard state |
 | `GET` | `/api/setup/personas` | Yes | List available personas |
 | `GET` | `/api/setup/persona/{id}` | Yes | Get persona details |
+| `POST` | `/api/setup/wizard` | Yes | Save wizard step, voice, diagnostics, and preflight state |
 | `POST` | `/api/setup/persona` | Yes | Select a persona |
 | `POST` | `/api/setup/complete` | Yes | Mark setup complete |
 | `POST` | `/api/setup/test` | Yes | Run diagnostic tests (streaming) |

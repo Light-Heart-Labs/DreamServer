@@ -2,6 +2,14 @@ import { useState, useEffect, useCallback } from 'react'
 import { CheckCircle, Circle, ChevronRight, ChevronLeft, Mic, User, Settings, Play, Shield } from 'lucide-react'
 import { PreFlightChecks } from './PreFlightChecks'
 
+const fallbackVoices = [
+  { id: 'af_heart', name: 'Heart', desc: 'Warm, friendly female' },
+  { id: 'af_bella', name: 'Bella', desc: 'Professional female' },
+  { id: 'af_sky', name: 'Sky', desc: 'Casual female' },
+  { id: 'am_adam', name: 'Adam', desc: 'Natural male' },
+  { id: 'am_michael', name: 'Michael', desc: 'Deep male' }
+]
+
 export default function SetupWizard({ onComplete }) {
   const [step, setStep] = useState(1)
   const [config, setConfig] = useState({
@@ -12,24 +20,113 @@ export default function SetupWizard({ onComplete }) {
   })
   const [testStatus, setTestStatus] = useState({ running: false, output: [], done: false, success: false })
   const [preflightIssues, setPreflightIssues] = useState([])
+  const [voices, setVoices] = useState(fallbackVoices)
+  const [stateError, setStateError] = useState(null)
   const totalSteps = 5
 
-  const voices = [
-    { id: 'af_heart', name: 'Heart', desc: 'Warm, friendly female' },
-    { id: 'af_bella', name: 'Bella', desc: 'Professional female' },
-    { id: 'af_sky', name: 'Sky', desc: 'Casual female' },
-    { id: 'am_adam', name: 'Adam', desc: 'Natural male' },
-    { id: 'am_michael', name: 'Michael', desc: 'Deep male' }
-  ]
+  const persistWizardState = useCallback(async (overrides = {}) => {
+    const nextConfig = {
+      ...config,
+      ...(overrides.userName !== undefined ? { userName: overrides.userName } : {}),
+      ...(overrides.voice !== undefined ? { voice: overrides.voice } : {}),
+      ...(overrides.tested !== undefined ? { tested: overrides.tested } : {}),
+      ...(overrides.preflightPassed !== undefined ? { preflightPassed: overrides.preflightPassed } : {})
+    }
+    const nextIssues = overrides.preflightIssues ?? preflightIssues
+    const nextStep = overrides.step ?? step
+
+    localStorage.setItem('dream-config', JSON.stringify(nextConfig))
+
+    try {
+      const response = await fetch('/api/setup/wizard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          step: nextStep,
+          user_name: nextConfig.userName,
+          voice: nextConfig.voice,
+          tested: nextConfig.tested,
+          preflight_passed: nextConfig.preflightPassed,
+          preflight_issues: nextIssues
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to save setup progress')
+      }
+
+      setStateError(null)
+    } catch (err) {
+      setStateError('Could not save setup progress to the dashboard API. Your choices are still cached locally.')
+    }
+  }, [config, preflightIssues, step])
+
+  useEffect(() => {
+    const cachedConfig = localStorage.getItem('dream-config')
+    if (cachedConfig) {
+      try {
+        const parsed = JSON.parse(cachedConfig)
+        setConfig(c => ({ ...c, ...parsed }))
+      } catch {
+        // Ignore corrupt local cache and fall back to API/defaults.
+      }
+    }
+
+    let active = true
+
+    const loadWizardState = async () => {
+      try {
+        const response = await fetch('/api/setup/wizard')
+        if (!response.ok) {
+          throw new Error('Failed to load setup wizard state')
+        }
+
+        const data = await response.json()
+        if (!active) {
+          return
+        }
+
+        setStep(data.step || 1)
+        setVoices(Array.isArray(data.voices) && data.voices.length > 0 ? data.voices : fallbackVoices)
+        setConfig(c => ({
+          ...c,
+          ...(data.config || {})
+        }))
+        setPreflightIssues(data.config?.preflightIssues || [])
+        setStateError(null)
+
+        if (data.config?.tested) {
+          setTestStatus({
+            running: false,
+            output: ['Diagnostics already completed.'],
+            done: true,
+            success: true
+          })
+        }
+      } catch (err) {
+        if (active) {
+          setStateError('Could not load saved setup state. Using local defaults for now.')
+        }
+      }
+    }
+
+    loadWizardState()
+
+    return () => {
+      active = false
+    }
+  }, [])
 
   // Stable callbacks so PreFlightChecks doesn't re-run on parent re-render
   const handlePreflightComplete = useCallback(() => {
     setConfig(c => ({ ...c, preflightPassed: true }))
-  }, [])
+    persistWizardState({ preflightPassed: true })
+  }, [persistWizardState])
 
   const handlePreflightIssues = useCallback((issues) => {
     setPreflightIssues(issues)
-  }, [])
+    persistWizardState({ preflightIssues: issues })
+  }, [persistWizardState])
 
   const runDiagnostics = async () => {
     setTestStatus({ running: true, output: ['Starting diagnostic tests...'], done: false, success: false })
@@ -49,14 +146,28 @@ export default function SetupWizard({ onComplete }) {
 
       setTestStatus(prev => ({ ...prev, running: false, done: true, success: true }))
       setConfig(c => ({ ...c, tested: true }))
+      await persistWizardState({ tested: true })
     } catch (err) {
       setTestStatus(prev => ({ ...prev, running: false, done: true, success: false, output: [...prev.output, `Error: ${err.message}`] }))
     }
   }
 
-  const saveConfig = () => {
+  const moveStep = async (nextStep) => {
+    setStep(nextStep)
+    await persistWizardState({ step: nextStep })
+  }
+
+  const saveConfig = async () => {
     localStorage.setItem('dream-config', JSON.stringify(config))
     localStorage.setItem('dream-dashboard-visited', 'true')
+    await persistWizardState({ step: totalSteps })
+
+    try {
+      await fetch('/api/setup/complete', { method: 'POST' })
+    } catch {
+      // The local completion marker still lets the dashboard continue offline.
+    }
+
     onComplete()
   }
 
@@ -79,6 +190,12 @@ export default function SetupWizard({ onComplete }) {
               </div>
             ))}
           </div>
+
+          {stateError && (
+            <div className="max-w-2xl mx-auto mb-6 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+              {stateError}
+            </div>
+          )}
 
           {/* Step 1: Preflight */}
           {step === 1 && (
@@ -139,6 +256,7 @@ export default function SetupWizard({ onComplete }) {
                 type="text"
                 value={config.userName}
                 onChange={(e) => setConfig(c => ({ ...c, userName: e.target.value }))}
+                onBlur={(e) => persistWizardState({ userName: e.target.value })}
                 placeholder="Enter your name"
                 className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500"
                 autoFocus
@@ -160,7 +278,10 @@ export default function SetupWizard({ onComplete }) {
                 {voices.map(voice => (
                   <button
                     key={voice.id}
-                    onClick={() => setConfig(c => ({ ...c, voice: voice.id }))}
+                    onClick={() => {
+                      setConfig(c => ({ ...c, voice: voice.id }))
+                      persistWizardState({ voice: voice.id })
+                    }}
                     className={`flex items-center gap-4 p-4 rounded-xl border transition-all text-left ${
                       config.voice === voice.id
                         ? 'border-indigo-500 bg-indigo-500/10'
@@ -223,7 +344,7 @@ export default function SetupWizard({ onComplete }) {
         <div className="p-6 border-t border-zinc-800">
           <div className="max-w-4xl mx-auto flex items-center justify-between">
             <button
-              onClick={() => setStep(s => Math.max(1, s - 1))}
+              onClick={() => moveStep(Math.max(1, step - 1))}
               disabled={step === 1}
               className="flex items-center gap-2 px-4 py-2 text-zinc-400 hover:text-white disabled:opacity-0 transition-colors"
             >
@@ -237,7 +358,7 @@ export default function SetupWizard({ onComplete }) {
 
             {step < totalSteps ? (
               <button
-                onClick={() => setStep(s => s + 1)}
+                onClick={() => moveStep(Math.min(totalSteps, step + 1))}
                 disabled={step === 3 && !config.userName.trim()}
                 className="flex items-center gap-2 px-6 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
               >
