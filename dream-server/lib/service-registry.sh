@@ -24,6 +24,7 @@ declare -A SERVICE_PORTS        # service_id → external port (what the user hi
 declare -A SERVICE_PORT_ENVS    # service_id → env var name for the external port
 declare -A SERVICE_NAMES        # service_id → display name
 declare -A SERVICE_SETUP_HOOKS  # service_id → absolute path to setup script
+declare -A SERVICE_GPU_BACKENDS # service_id → space-separated GPU backends (amd, nvidia, apple, cpu)
 declare -a SERVICE_IDS          # ordered list of all service IDs
 
 sr_load() {
@@ -142,6 +143,10 @@ for service_dir in sorted(ext_dir.iterdir()):
             if full.exists():
                 setup_path = str(full)
         print(f'SERVICE_SETUP_HOOKS["{_esc(sid)}"]="{_esc(setup_path)}"')
+        # GPU backends (default to amd/nvidia/apple, consistent with dashboard-api)
+        gpu_backends = s.get("gpu_backends", ["amd", "nvidia", "apple"])
+        backends_str = " ".join(str(b) for b in gpu_backends)
+        print(f'SERVICE_GPU_BACKENDS["{_esc(sid)}"]="{_esc(backends_str)}"')
     except Exception as exc:
         print(f'# ERROR: failed to parse {manifest_path}: {exc}', file=sys.stderr)
         continue

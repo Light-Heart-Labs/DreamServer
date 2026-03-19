@@ -520,6 +520,7 @@ async def get_external_links(api_key: str = Depends(verify_api_key)):
             continue
         links.append({
             "id": sid, "label": cfg.get("name", sid), "port": ext_port,
+            "ui_path": cfg.get("ui_path", "/"),
             "icon": SIDEBAR_ICONS.get(sid, "ExternalLink"),
             "healthNeedles": [sid, cfg.get("name", sid).lower()],
         })

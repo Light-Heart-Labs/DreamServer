@@ -10,6 +10,7 @@ service:
   external_port_env: LITELLM_PORT
   external_port_default: 4000
   health: /health/readiness
+  ui_path: /ui/
   type: docker
   gpu_backends: [amd, nvidia]
   compose_file: compose.yaml

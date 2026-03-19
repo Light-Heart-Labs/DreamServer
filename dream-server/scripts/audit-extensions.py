@@ -613,7 +613,7 @@ def validate_records(
 
         definitions, source_paths = load_compose_definitions(record)
         if not service_has_runtime_definition(definitions):
-            if record.category != "core":
+            if record.category != "core" and record.compose_enabled:
                 record.add_issue(
                     "error",
                     "compose-service-missing",

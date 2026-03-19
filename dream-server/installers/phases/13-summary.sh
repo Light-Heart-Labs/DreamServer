@@ -81,9 +81,9 @@ echo "  • Chat UI:       http://localhost:${SERVICE_PORTS[open-webui]:-3000}"
 echo "  • Dashboard:     http://localhost:${SERVICE_PORTS[dashboard]:-3001}"
 echo "  • Perplexica:    http://localhost:${SERVICE_PORTS[perplexica]:-3004}"
 echo "  • ComfyUI:       http://localhost:${SERVICE_PORTS[comfyui]:-8188}"
-echo "  • LLM API:       http://localhost:${SERVICE_PORTS[llama-server]:-8080}/v1  (llama-server)"
+echo "  • LLM API:       http://localhost:${SERVICE_PORTS[llama-server]:-11434}/v1  (llama-server)"
 [[ "$ENABLE_OPENCLAW" == "true" ]] && echo "  • OpenClaw:      http://localhost:${SERVICE_PORTS[openclaw]:-7860}"
-systemctl is-active opencode-web &>/dev/null && echo "  • OpenCode:      http://localhost:3003"
+systemctl --user is-active opencode-web &>/dev/null && echo "  • OpenCode:      http://localhost:3003"
 [[ "$ENABLE_VOICE" == "true" ]] && echo "  • Whisper STT:   http://localhost:${SERVICE_PORTS[whisper]:-9000}"
 [[ "$ENABLE_VOICE" == "true" ]] && echo "  • TTS (Kokoro):  http://localhost:${SERVICE_PORTS[tts]:-8880}"
 [[ "$ENABLE_WORKFLOWS" == "true" ]] && echo "  • n8n:           http://localhost:${SERVICE_PORTS[n8n]:-5678}"
@@ -218,7 +218,7 @@ echo -e "  ${BGRN}Dashboard${NC}    ${WHT}http://localhost:${DASHBOARD_PORT}${NC
 echo -e "  ${BGRN}Chat${NC}         ${WHT}http://localhost:${WEBUI_PORT}${NC}"
 [[ "$ENABLE_OPENCLAW" == "true" ]] && \
 echo -e "  ${BGRN}OpenClaw${NC}     ${WHT}http://localhost:${OPENCLAW_PORT}${NC}"
-systemctl is-active opencode-web &>/dev/null && \
+systemctl --user is-active opencode-web &>/dev/null && \
 echo -e "  ${BGRN}OpenCode${NC}     ${WHT}http://localhost:3003${NC}"
 echo ""
 if [[ -n "$LOCAL_IP" ]]; then

@@ -5,11 +5,14 @@ Collects real-time metrics on agent swarms, sessions, and throughput.
 
 import asyncio
 import json
+import logging
 from datetime import datetime, timedelta
 from typing import List
 import os
 
 import aiohttp
+
+logger = logging.getLogger(__name__)
 
 TOKEN_SPY_URL = os.environ.get("TOKEN_SPY_URL", "http://token-spy:8080")
 TOKEN_SPY_API_KEY = os.environ.get("TOKEN_SPY_API_KEY", "")

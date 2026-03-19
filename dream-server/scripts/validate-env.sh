@@ -131,7 +131,8 @@ while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
     continue
   fi
 
-  read -r key value < <(split_kv "$line")
+  key="$(trim "${line%%=*}")"
+  value="$(trim "${line#*=}")"
 
   if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
     log_warn "Ignoring line $line_no (invalid key '$key')"

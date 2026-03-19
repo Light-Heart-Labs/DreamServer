@@ -10,6 +10,7 @@ service:
   external_port_env: TOKEN_SPY_PORT
   external_port_default: 3005
   health: /health
+  ui_path: /dashboard
   type: docker
   gpu_backends: [amd, nvidia]
   compose_file: compose.yaml

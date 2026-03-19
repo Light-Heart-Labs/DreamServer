@@ -8,10 +8,10 @@ import aiohttp
 from fastapi import APIRouter, Depends
 
 from config import SERVICES, INSTALL_DIR
-
-logger = logging.getLogger(__name__)
 from models import PrivacyShieldStatus, PrivacyShieldToggle
 from security import verify_api_key
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["privacy"])
 

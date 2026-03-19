@@ -10,6 +10,7 @@ service:
   external_port_env: LANGFUSE_PORT
   external_port_default: 3006
   health: /api/public/health
+  ui_path: /
   type: docker
   gpu_backends: [amd, nvidia]
   compose_file: compose.yaml

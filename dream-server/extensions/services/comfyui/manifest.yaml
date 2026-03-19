@@ -10,6 +10,7 @@ service:
   external_port_env: COMFYUI_PORT
   external_port_default: 8188
   health: /
+  ui_path: /
   health_timeout: 30  # ComfyUI can be slow to start, especially on Tier 0/1 hardware
   type: docker
   gpu_backends: [amd, nvidia]

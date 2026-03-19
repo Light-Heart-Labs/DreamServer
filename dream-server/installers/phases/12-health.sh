@@ -130,7 +130,7 @@ fi
 # Extension service health checks with adaptive timeouts
 dream_progress 94 "health" "Checking extension services"
 [[ "$ENABLE_OPENCLAW" == "true" ]] && _check_health "OpenClaw" "http://localhost:${SERVICE_PORTS[openclaw]:-7860}${SERVICE_HEALTH[openclaw]:-/}" 20 10
-systemctl is-active opencode-web &>/dev/null && _check_health "OpenCode Web" "http://localhost:3003/" 10 5
+systemctl --user is-active opencode-web &>/dev/null && _check_health "OpenCode Web" "http://localhost:3003/" 10 5
 # Whisper: 40 attempts * adaptive backoff = up to 3 minutes (model download on first start)
 dream_progress 95 "health" "Checking voice services"
 [[ "$ENABLE_VOICE" == "true" ]] && _check_health "Whisper (STT)" "http://localhost:${SERVICE_PORTS[whisper]:-9000}${SERVICE_HEALTH[whisper]:-/health}" 40 10

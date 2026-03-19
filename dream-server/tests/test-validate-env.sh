@@ -54,27 +54,27 @@ pass "jq available"
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-# 2. Missing .env → exit 1
+# 2. Missing .env → exit 3
 set +e
 "$ROOT_DIR/scripts/validate-env.sh" "$TMP_DIR/nonexistent.env" "$ROOT_DIR/.env.schema.json" >/dev/null 2>&1
 r=$?
 set -e
-if [[ $r -eq 1 ]]; then
-    pass "Missing .env yields exit 1"
+if [[ $r -eq 3 ]]; then
+    pass "Missing .env yields exit 3"
 else
-    fail "Missing .env should yield exit 1, got $r"
+    fail "Missing .env should yield exit 3, got $r"
 fi
 
-# 3. Missing schema → exit 1
+# 3. Missing schema → exit 3
 touch "$TMP_DIR/empty.env"
 set +e
 "$ROOT_DIR/scripts/validate-env.sh" "$TMP_DIR/empty.env" "$TMP_DIR/nonexistent.json" >/dev/null 2>&1
 r=$?
 set -e
-if [[ $r -eq 1 ]]; then
-    pass "Missing schema yields exit 1"
+if [[ $r -eq 3 ]]; then
+    pass "Missing schema yields exit 3"
 else
-    fail "Missing schema should yield exit 1, got $r"
+    fail "Missing schema should yield exit 3, got $r"
 fi
 
 # 4. .env with all required keys (minimal) → exit 0

@@ -10,6 +10,7 @@ service:
   external_port_env: DASHBOARD_PORT
   external_port_default: 3001
   health: /
+  ui_path: /
   type: docker
   gpu_backends: [amd, nvidia]
   category: core

@@ -36,6 +36,9 @@ jobs:
           bash scripts/check-compatibility.sh
           bash scripts/check-release-claims.sh
 
+      - name: BATS Unit Tests
+        run: bash tests/run-bats.sh
+
       - name: Tier Map Unit Tests
         run: bash tests/test-tier-map.sh
 

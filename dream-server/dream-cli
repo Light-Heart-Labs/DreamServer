@@ -53,6 +53,191 @@ check_install() {
     fi
 }
 
+# Extract the major component of a semver string (e.g. "2.1.0" → "2").
+# Used only for counting major-version jumps; not for ordering comparisons.
+_semver_major() {
+    echo "${1%%.*}"
+}
+
+# Full 3-component semver less-than: returns 0 (true) if v1 < v2.
+# Strips any leading "v" and ignores pre-release suffixes.
+_semver_lt() {
+    local v1="${1#v}" v2="${2#v}"
+    local IFS='.'
+    local -a a=($v1) b=($v2)
+    local i
+    for i in 0 1 2; do
+        local n1="${a[$i]:-0}" n2="${b[$i]:-0}"
+        n1="${n1%%[!0-9]*}" n2="${n2%%[!0-9]*}"
+        if (( n1 < n2 )); then return 0; fi
+        if (( n1 > n2 )); then return 1; fi
+    done
+    return 1  # equal → not less-than
+}
+
+# Read a top-level or nested string field from a JSON file.
+# Usage: _manifest_field <file> <field>   e.g. _manifest_field manifest.json dream_version
+# Logs a warning to stderr on parse failure rather than silently returning empty.
+_manifest_field() {
+    local file="$1" field="$2" value=""
+    if [[ ! -f "$file" ]]; then
+        warn "_manifest_field: file not found: ${file}" >&2
+        return 1
+    fi
+    if command -v jq &>/dev/null; then
+        if ! value=$(jq -r --arg f "$field" '.[$f] // .release.version // empty' "$file"); then
+            warn "_manifest_field: jq failed to parse ${file}" >&2
+        fi
+    fi
+    if [[ -z "$value" ]] && command -v python3 &>/dev/null; then
+        # Pass file and field as argv to avoid shell-injection via string interpolation.
+        if ! value=$(python3 -c '
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    f = sys.argv[2]
+    print(d.get(f) or d.get("release", {}).get("version") or "")
+except Exception as e:
+    sys.stderr.write("_manifest_field: " + str(e) + "\n")
+' "$file" "$field"); then
+            warn "_manifest_field: python3 failed to parse ${file}" >&2
+        fi
+    fi
+    echo "$value"
+}
+
+# Version compatibility check for dream update.
+# Returns 0 (ok) or 1 (user aborted / hard-blocked).
+# Sets _COMPAT_INSTALLED_VER and _COMPAT_TARGET_VER as side-effects.
+#
+# Version source precedence (single source of truth policy):
+#   installed: DREAM_VERSION in .env  >  .version file  >  manifest.json dream_version
+#   target:    manifest.json dream_version  (post-pull reflects the incoming release)
+_check_version_compat() {
+    local force="${1:-false}"
+
+    # 1. Installed version
+    _COMPAT_INSTALLED_VER=$(grep '^DREAM_VERSION=' "$INSTALL_DIR/.env" 2>/dev/null \
+        | head -1 | cut -d= -f2 | tr -d '[:space:]')
+    # Fall back to .version file (written by dream-update.sh / PR #349 convention)
+    if [[ -z "$_COMPAT_INSTALLED_VER" && -f "$INSTALL_DIR/.version" ]]; then
+        _COMPAT_INSTALLED_VER=$(jq -r '.version // empty' "$INSTALL_DIR/.version" 2>/dev/null \
+            || grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' \
+                "$INSTALL_DIR/.version" 2>/dev/null | cut -d'"' -f4)
+    fi
+    if [[ -z "$_COMPAT_INSTALLED_VER" && -f "$INSTALL_DIR/manifest.json" ]]; then
+        _COMPAT_INSTALLED_VER=$(_manifest_field "$INSTALL_DIR/manifest.json" "dream_version")
+    fi
+    [[ -z "$_COMPAT_INSTALLED_VER" ]] && _COMPAT_INSTALLED_VER="$VERSION"
+
+    # 2. Target version — from manifest.json (reflects the incoming release after pull)
+    _COMPAT_TARGET_VER=""
+    if [[ -f "$INSTALL_DIR/manifest.json" ]]; then
+        _COMPAT_TARGET_VER=$(_manifest_field "$INSTALL_DIR/manifest.json" "dream_version")
+    fi
+
+    # 3. min_compatible_dream_version — read via _manifest_field to avoid 2>/dev/null + injection
+    local min_compat_ver=""
+    if [[ -f "$INSTALL_DIR/manifest.json" ]]; then
+        min_compat_ver=$(_manifest_field "$INSTALL_DIR/manifest.json" "min_compatible_dream_version")
+    fi
+
+    # Skip checks if we can't determine versions
+    if [[ -z "$_COMPAT_INSTALLED_VER" || -z "$_COMPAT_TARGET_VER" ]]; then
+        return 0
+    fi
+    # Skip if installed == target (no actual update)
+    [[ "$_COMPAT_INSTALLED_VER" == "$_COMPAT_TARGET_VER" ]] && return 0
+
+    local cur_major new_major
+    cur_major=$(_semver_major "$_COMPAT_INSTALLED_VER")
+    new_major=$(_semver_major "$_COMPAT_TARGET_VER")
+    # major_jump may be negative (downgrade); use arithmetic not regex for sign-aware logic
+    local major_jump=$(( new_major - cur_major ))
+
+    # 4. Downgrade detection — warn and confirm before proceeding
+    if (( major_jump < 0 )); then
+        echo ""
+        echo -e "${YELLOW}┌──────────────────────────────────────────────────────────┐${NC}"
+        echo -e "${YELLOW}│  Downgrade detected                                      │${NC}"
+        echo -e "${YELLOW}└──────────────────────────────────────────────────────────┘${NC}"
+        echo ""
+        warn "Installed : v${_COMPAT_INSTALLED_VER}  (major ${cur_major})"
+        warn "Target    : v${_COMPAT_TARGET_VER}  (major ${new_major})"
+        echo ""
+        log "Downgrading may corrupt data or break your installation."
+        log "Consider restoring a backup instead: dream rollback"
+        echo ""
+        if [[ "$force" == "true" ]]; then
+            warn "--force specified: proceeding with downgrade."
+        else
+            read -p "  Proceed with downgrade? [y/N] " -n 1 -r
+            echo ""
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                log "Update cancelled."
+                return 1
+            fi
+        fi
+        echo ""
+    fi
+
+    # 5. Hard block: installed version is below min_compatible_dream_version.
+    #    Uses full 3-component comparison — major-only was insufficient
+    #    (e.g. 1.2.0 vs min 1.5.0 both have major 1 but 1.2.0 < 1.5.0).
+    if [[ -n "$min_compat_ver" ]] && _semver_lt "$_COMPAT_INSTALLED_VER" "$min_compat_ver"; then
+        echo ""
+        echo -e "${RED}╔══════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${RED}║  UPGRADE BLOCKED — installed version is too old          ║${NC}"
+        echo -e "${RED}╚══════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        warn "Installed : v${_COMPAT_INSTALLED_VER}"
+        warn "Target    : v${_COMPAT_TARGET_VER}"
+        warn "Minimum   : v${min_compat_ver} (min_compatible_dream_version)"
+        echo ""
+        log "Your installation is below the minimum supported upgrade version."
+        log "Upgrade incrementally: first update to v${min_compat_ver}, then re-run."
+        log "See CHANGELOG.md for migration steps."
+        echo ""
+        if [[ "$force" == "true" ]]; then
+            warn "--force specified: proceeding despite compatibility block. DATA LOSS RISK."
+        else
+            log "Use 'dream update --force' to override (not recommended)."
+            return 1
+        fi
+    fi
+
+    # 6. Warn: major version jump > 1
+    if (( major_jump > 1 )); then
+        echo ""
+        echo -e "${YELLOW}┌──────────────────────────────────────────────────────────┐${NC}"
+        echo -e "${YELLOW}│  Major version jump detected                             │${NC}"
+        echo -e "${YELLOW}└──────────────────────────────────────────────────────────┘${NC}"
+        echo ""
+        warn "Installed  : v${_COMPAT_INSTALLED_VER}  (major ${cur_major})"
+        warn "Target     : v${_COMPAT_TARGET_VER}  (major ${new_major})"
+        warn "Jump       : ${major_jump} major versions"
+        echo ""
+        log "Skipping more than 1 major version may introduce breaking changes."
+        log "Recommended: upgrade step-by-step (v${cur_major} → v$((cur_major+1)) → … → v${new_major})."
+        log "Review CHANGELOG.md for each major version before proceeding."
+        echo ""
+        if [[ "$force" == "true" ]]; then
+            warn "--force specified: skipping confirmation."
+        else
+            read -p "  Proceed with v${_COMPAT_INSTALLED_VER} → v${_COMPAT_TARGET_VER} anyway? [y/N] " -n 1 -r
+            echo ""
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                log "Update cancelled."
+                return 1
+            fi
+            warn "Proceeding — back up your data first: dream backup"
+        fi
+        echo ""
+    fi
+
+    return 0
+}
+
 #=============================================================================
 # Safe .env loading (no eval; use lib/safe-env.sh)
 #=============================================================================
@@ -379,19 +564,47 @@ cmd_update() {
     check_install
     cd "$INSTALL_DIR"
 
+    local force_flag="false"
+    local args=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --force|-f) force_flag="true"; shift ;;
+            *) args+=("$1"); shift ;;
+        esac
+    done
+
     local flags_str
     flags_str=$(get_compose_flags)
     local -a flags
     read -ra flags <<< "$flags_str"
 
-    # Create automatic backup before update
-    log "Creating pre-update backup..."
-    local backup_id
-    if backup_id=$("$INSTALL_DIR/dream-backup.sh" --type config --description "Pre-update backup $(date)" 2>&1 | grep -o '[0-9]\{8\}-[0-9]\{6\}' | tail -1); then
-        log "Pre-update backup created: $backup_id"
-        echo "$backup_id" > "$INSTALL_DIR/.last-backup-id"
+    # Version compatibility check — warn on major version jumps before touching anything
+    if ! _check_version_compat "$force_flag"; then
+        exit 0
+    fi
+
+    # Show what we're updating from/to (if versions were resolved)
+    if [[ -n "${_COMPAT_INSTALLED_VER:-}" && -n "${_COMPAT_TARGET_VER:-}" \
+          && "$_COMPAT_INSTALLED_VER" != "$_COMPAT_TARGET_VER" ]]; then
+        log "Updating: v${_COMPAT_INSTALLED_VER} → v${_COMPAT_TARGET_VER}"
+    fi
+
+    # Pre-update snapshot — safety net before any images are pulled.
+    # Delegates to dream-update.sh (which writes to data/backups/ and includes
+    # extension configs) when available; falls back to dream-backup.sh.
+    local _snap_label="pre-update-$(date +%Y%m%d-%H%M%S)"
+    if [[ -x "$INSTALL_DIR/dream-update.sh" ]]; then
+        log "Creating pre-update snapshot (${_snap_label})..."
+        if ! bash "$INSTALL_DIR/dream-update.sh" backup "$_snap_label"; then
+            warn "Pre-update snapshot failed; proceeding without safety net."
+        fi
+    elif [[ -x "$INSTALL_DIR/dream-backup.sh" ]]; then
+        log "Creating pre-update backup (${_snap_label})..."
+        if ! "$INSTALL_DIR/dream-backup.sh" "$_snap_label"; then
+            warn "Pre-update backup failed; proceeding without safety net."
+        fi
     else
-        log_warn "Failed to create pre-update backup, continuing anyway..."
+        warn "dream-update.sh and dream-backup.sh not found; skipping pre-update snapshot."
     fi
 
     log "Pulling latest images..."
@@ -434,10 +647,12 @@ cmd_update() {
         exit 1
     fi
 
-    success "Update complete and verified ($total_services services running)"
+    # Persist the new installed version in .env so future runs know what's installed
+    if [[ -n "${_COMPAT_TARGET_VER:-}" ]]; then
+        _env_set "DREAM_VERSION" "$_COMPAT_TARGET_VER"
+    fi
 
-    # Clean up backup ID file on successful update
-    rm -f "$INSTALL_DIR/.last-backup-id"
+    success "Update complete"
 
     cmd_status
 }
@@ -512,7 +727,7 @@ cmd_chat() {
     local model="${2:-}"
 
     # Resolve llama-server port once, regardless of how the model is provided
-    local _llm_port="${SERVICE_PORTS[llama-server]:-8080}"
+    local _llm_port="${SERVICE_PORTS[llama-server]:-11434}"
     _llm_port="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-$_llm_port}}"
 
     # Get model from llama-server if not specified
@@ -787,6 +1002,43 @@ cmd_enable() {
     # Check it's not a core service
     local cat="${SERVICE_CATEGORIES[$service_id]:-optional}"
     [[ "$cat" == "core" ]] && { success "$service_id is a core service (always enabled)."; return 0; }
+
+    # Check GPU backend compatibility
+    local gpu_backends="${SERVICE_GPU_BACKENDS[$service_id]:-}"
+    if [[ -n "$gpu_backends" ]]; then
+        # Load current GPU_BACKEND from .env
+        local current_backend="${GPU_BACKEND:-nvidia}"
+        if [[ -f "$INSTALL_DIR/.env" ]]; then
+            local env_backend
+            env_backend=$(grep "^GPU_BACKEND=" "$INSTALL_DIR/.env" | cut -d= -f2 | tr -d '"')
+            if [[ -n "$env_backend" ]]; then
+                current_backend="$env_backend"
+            else
+                warn "Could not read GPU_BACKEND from .env, using default: nvidia"
+            fi
+        fi
+
+        # Handle "all" sentinel - services that work on any backend
+        if [[ " $gpu_backends " =~ " all " ]]; then
+            # Service works on all backends, skip compatibility check
+            :
+        # Apple Silicon exemption - all Docker services work on macOS regardless of gpu_backends
+        elif [[ "$current_backend" == "apple" ]]; then
+            # All Docker services run on macOS regardless of gpu_backends declaration
+            :
+        # Check if current backend is in the supported list
+        elif [[ ! " $gpu_backends " =~ " $current_backend " ]]; then
+            warn "$service_id may not work with GPU backend: $current_backend"
+            warn "  Supported backends: $gpu_backends"
+            warn "  Current backend: $current_backend"
+            read -p "  Continue anyway? [y/N] " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                log "Cancelled."
+                return 1
+            fi
+        fi
+    fi
 
     # Check inter-extension dependencies
     local deps="${SERVICE_DEPENDS[$service_id]}"
@@ -1517,7 +1769,7 @@ ${CYAN}Commands:${NC}
   restart [service]   Restart services (all if no service specified)
   start [service]     Start services
   stop [service]      Stop services
-  update              Pull latest images and restart
+  update [--force]    Pull latest images and restart (--force skips version-compat confirmation)
   shell <service>     Open shell in container
   config [show|edit|validate]
                       View, edit, or validate configuration
@@ -1619,7 +1871,7 @@ case "${1:-help}" in
     restart|r)   shift; cmd_restart "$@" ;;
     start)       shift; cmd_start "$@" ;;
     stop)        shift; cmd_stop "$@" ;;
-    update|u)    cmd_update ;;
+    update|u)    shift; cmd_update "$@" ;;
     shell|sh)    shift; cmd_shell "$@" ;;
     config|cfg)  shift; cmd_config "$@" ;;
     chat|c)      shift; cmd_chat "$@" ;;

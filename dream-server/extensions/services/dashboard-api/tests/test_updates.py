@@ -66,11 +66,11 @@ def test_trigger_update_requires_auth(test_client):
     assert resp.status_code == 401
 
 
-def test_trigger_update_unknown_action(test_client):
-    """POST /api/update with unknown action → 400."""
+def test_trigger_update_no_script(test_client):
+    """POST /api/update when update script is missing → 501."""
     resp = test_client.post(
         "/api/update",
-        json={"action": "invalid"},
+        json={"action": "check"},
         headers=test_client.auth_headers
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 501
