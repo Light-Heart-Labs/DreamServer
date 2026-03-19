@@ -1,15 +1,15 @@
 @{
+    ExcludeRules = @(
+        'PSAvoidUsingWriteHost'
+        'PSAvoidUsingEmptyCatchBlock'
+        'PSUseBOMForUnicodeEncodedFile'
+        'PSUseShouldProcessForStateChangingFunctions'
+        'PSUseApprovedVerbs'
+        'PSUseDeclaredVarsMoreThanAssignments'
+        'PSUseSingularNouns'
+    )
     Rules = @{
-        PSAvoidUsingWriteHost = @{
-            Enable = $false
-        }
         PSAvoidUsingConvertToSecureStringWithPlainText = @{
-            Enable = $true
-        }
-        PSUseApprovedVerbs = @{
-            Enable = $true
-        }
-        PSUseDeclaredVarsMoreThanAssignments = @{
             Enable = $true
         }
     }

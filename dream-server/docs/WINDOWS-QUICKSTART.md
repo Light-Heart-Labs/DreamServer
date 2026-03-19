@@ -16,7 +16,7 @@ The Windows installer (`install.ps1`) checks your system readiness and generates
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/main/install.ps1" -OutFile install.ps1; .\install.ps1
 ```
 
-**Prerequisites:** Windows 10 2004+ or Windows 11, NVIDIA GPU, 16GB+ RAM.
+**Prerequisites:** Windows 10 2004+ or Windows 11. NVIDIA GPU recommended but not required (CPU-only works with smaller models). 4GB+ RAM minimum, 16GB+ recommended.
 
 This will verify:
 - WSL2 is installed and set to version 2

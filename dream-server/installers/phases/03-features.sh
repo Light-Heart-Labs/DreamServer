@@ -15,6 +15,7 @@
 #   Add new optional features to the Custom menu here.
 # ============================================================================
 
+dream_progress 18 "features" "Selecting features"
 if $INTERACTIVE && ! $DRY_RUN; then
     show_phase 2 6 "Feature Selection" "~1 minute"
     show_install_menu

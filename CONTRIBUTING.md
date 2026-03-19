@@ -1,6 +1,6 @@
 # Contributing to Dream Server
 
-First off, thanks for wanting to contribute! Dream Server is an open source project and we welcome help from everyone -- whether you're fixing a typo, adding a cookbook recipe, or tackling a full feature.
+Thanks for wanting to contribute. Dream Server is open source and we welcome help from everyone — whether you're fixing a bug, adding a service integration, or tackling a full feature.
 
 ## Quick Start
 
@@ -12,43 +12,20 @@ First off, thanks for wanting to contribute! Dream Server is an open source proj
 3. Make your changes, test them locally, and commit.
 4. Open a **pull request** against `main`.
 
-That's it. No CLA, no hoops.
+No CLA, no hoops.
 
-## What We're Looking For
+## Full Contributor Guide
 
-All kinds of contributions are valuable. Here are some great places to start:
+For current priorities, validation checklists, PR expectations, and style guidelines, see the detailed guide:
 
-- **Bug fixes** -- something broken? Fix it and send a PR.
-- **Documentation improvements** -- clearer install instructions, better troubleshooting guides, typo fixes.
-- **New cookbook recipes** -- workflows, prompt templates, or integration examples that help other users.
-- **Test coverage** -- more tests means fewer surprises.
-- **Feature work** -- check the issue tracker for ideas, or propose your own.
+**[dream-server/CONTRIBUTING.md](dream-server/CONTRIBUTING.md)**
 
-If you're new here, look for issues labeled **`good first issue`**. These are scoped, well-defined tasks that are a great way to get familiar with the codebase.
-
-## Code Style
-
-Nothing exotic:
-
-- **Shell scripts** are written in Bash. Use `shellcheck` if you can.
-- **Python** uses standard formatting (we're not picky -- just be consistent with the file you're editing).
-- Keep things readable. Comments are welcome where intent isn't obvious.
-
-## Pull Request Process
-
-1. **Describe your changes** in the PR description. A sentence or two is fine for small changes; more detail helps for larger ones.
-2. **Link related issues** if they exist (e.g. "Fixes #42").
-3. Make sure existing functionality isn't broken.
-4. A maintainer will review your PR and may suggest changes. We try to be responsive.
+That's where we document what we need most, what gets merged fast, and what will get bounced back. Read it before your first PR — it'll save you a review cycle.
 
 ## Where to Ask Questions
 
-Not sure about something? Open a thread in [GitHub Discussions](https://github.com/Light-Heart-Labs/DreamServer/discussions). We're happy to help you figure out the best approach before you write any code.
+Not sure about something? Open a thread in [GitHub Discussions](https://github.com/Light-Heart-Labs/DreamServer/discussions) or an issue. We're happy to help you figure out the right approach before you write code.
 
 ## License
 
-By contributing to Dream Server, you agree that your contributions will be licensed under the [Apache License 2.0](LICENSE), the same license that covers this project.
-
----
-
-Thanks for helping make local AI infrastructure better for everyone.
+By contributing, you agree that your work will be licensed under the [Apache License 2.0](LICENSE).

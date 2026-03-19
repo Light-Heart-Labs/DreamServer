@@ -10,21 +10,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DREAM_DIR="$SCRIPT_DIR"
 LOG_FILE="$DREAM_DIR/preflight-$(date +%Y%m%d-%H%M%S).log"
 
-# Load config from .env safely (line-by-line, no eval/source)
-if [ -f "$DREAM_DIR/.env" ]; then
-    while IFS='=' read -r key value; do
-        # Skip comments and empty lines
-        [[ "$key" =~ ^[[:space:]]*# ]] && continue
-        [[ -z "$key" ]] && continue
-        # Only allow safe variable names
-        key=$(echo "$key" | xargs)  # trim whitespace
-        [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-        # Strip surrounding quotes from value
-        value="${value%\"}" && value="${value#\"}"
-        value="${value%\'}" && value="${value#\'}"
-        export "$key=$value"
-    done < "$DREAM_DIR/.env"
-fi
+# Safe .env loading (no eval; use lib/safe-env.sh)
+[[ -f "$DREAM_DIR/lib/safe-env.sh" ]] && . "$DREAM_DIR/lib/safe-env.sh"
+load_env_file "$DREAM_DIR/.env"
+
 SERVICE_HOST="${SERVICE_HOST:-localhost}"
 
 # Auto-detect backend from .env or hardware probing.
@@ -173,14 +162,14 @@ log ""
 # 4. LLM Endpoint check — backend-aware
 log "[4/8] Checking LLM endpoint..."
 if [[ "$BACKEND" == "amd" ]]; then
-    LLM_PORT="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-8080}}"
+    LLM_PORT="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-11434}}"
     # llama-server may be mapped to a different external port
     EXTERNAL_PORT=$(docker port dream-llama-server 8080/tcp 2>/dev/null | head -1 | cut -d: -f2 || echo "$LLM_PORT")
     LLM_ENDPOINTS=("http://${SERVICE_HOST}:${EXTERNAL_PORT}" "http://localhost:${EXTERNAL_PORT}" "http://localhost:${LLM_PORT}")
     LLM_SERVICE_NAME="llama-server"
     LLM_START_CMD="docker compose up -d llama-server"
 else
-    LLM_PORT="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-8080}}"
+    LLM_PORT="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-11434}}"
     EXTERNAL_PORT=$(docker port dream-llama-server 8080/tcp 2>/dev/null | head -1 | cut -d: -f2 || echo "$LLM_PORT")
     LLM_ENDPOINTS=("http://${SERVICE_HOST}:${EXTERNAL_PORT}" "http://localhost:${EXTERNAL_PORT}" "http://localhost:${LLM_PORT}")
     LLM_SERVICE_NAME="llama-server"

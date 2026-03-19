@@ -1,0 +1,24 @@
+{
+  "data": [
+    {
+      "id": "1",
+      "name": "Document Q&A",
+      "active": true,
+      "statistics": {
+        "executions": {
+          "total": 42
+        }
+      }
+    },
+    {
+      "id": "2",
+      "name": "Web Scraper",
+      "active": false,
+      "statistics": {
+        "executions": {
+          "total": 7
+        }
+      }
+    }
+  ]
+}

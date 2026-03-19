@@ -36,7 +36,7 @@ def load_workflow_catalog() -> dict:
         if not isinstance(categories, dict):
             categories = {}
         return {"workflows": workflows, "categories": categories}
-    except Exception as e:
+    except (json.JSONDecodeError, OSError, KeyError) as e:
         logger.warning("Failed to load workflow catalog from %s: %s", WORKFLOW_CATALOG_FILE, e)
         return DEFAULT_WORKFLOW_CATALOG
 
@@ -52,22 +52,28 @@ async def get_n8n_workflows() -> list[dict]:
                 if resp.status == 200:
                     data = await resp.json()
                     return data.get("data", [])
-    except Exception as e:
+    except (aiohttp.ClientError, OSError, json.JSONDecodeError) as e:
         logger.warning(f"Failed to fetch workflows from n8n: {e}")
     return []
 
 
-async def check_workflow_dependencies(deps: list[str]) -> dict[str, bool]:
-    """Check if required services are running."""
+async def check_workflow_dependencies(deps: list[str], health_cache: dict[str, bool] | None = None) -> dict[str, bool]:
+    """Check if required services are running. Uses health_cache to avoid duplicate checks."""
     from helpers import check_service_health
 
     _DEP_ALIASES = {"ollama": "llama-server"}
+    if health_cache is None:
+        health_cache = {}
     results = {}
     for dep in deps:
         resolved = _DEP_ALIASES.get(dep, dep)
-        if resolved in SERVICES:
+        if resolved in health_cache:
+            results[dep] = health_cache[resolved]
+        elif resolved in SERVICES:
             status = await check_service_health(resolved, SERVICES[resolved])
-            results[dep] = status.status == "healthy"
+            healthy = status.status == "healthy"
+            health_cache[resolved] = healthy
+            results[dep] = healthy
         else:
             results[dep] = True
     return results
@@ -79,11 +85,25 @@ async def check_n8n_available() -> bool:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3)) as session:
             async with session.get(f"{N8N_URL}/healthz") as resp:
                 return resp.status < 500
-    except Exception:
+    except (aiohttp.ClientError, OSError):
         return False
 
 
 # --- Endpoints ---
+
+@router.get("/api/workflows/categories")
+async def api_workflow_categories(api_key: str = Depends(verify_api_key)):
+    """Return workflow categories from the catalog."""
+    catalog = load_workflow_catalog()
+    return {"categories": catalog.get("categories", {})}
+
+
+@router.get("/api/workflows/n8n/status")
+async def api_n8n_status(api_key: str = Depends(verify_api_key)):
+    """Check n8n availability and return basic status."""
+    available = await check_n8n_available()
+    return {"available": available, "url": N8N_URL}
+
 
 @router.get("/api/workflows")
 async def api_workflows(api_key: str = Depends(verify_api_key)):
@@ -93,6 +113,7 @@ async def api_workflows(api_key: str = Depends(verify_api_key)):
     n8n_by_name = {w.get("name", "").lower(): w for w in n8n_workflows}
 
     workflows = []
+    health_cache: dict[str, bool] = {}
     for wf in catalog.get("workflows", []):
         wf_name_lower = wf["name"].lower()
         installed = None
@@ -101,7 +122,7 @@ async def api_workflows(api_key: str = Depends(verify_api_key)):
                 installed = n8n_wf
                 break
 
-        dep_status = await check_workflow_dependencies(wf.get("dependencies", []))
+        dep_status = await check_workflow_dependencies(wf.get("dependencies", []), health_cache)
         all_deps_met = all(dep_status.values())
 
         executions = 0
@@ -160,7 +181,7 @@ async def enable_workflow(workflow_id: str, api_key: str = Depends(verify_api_ke
             raise HTTPException(status_code=400, detail="Invalid workflow file path")
     except HTTPException:
         raise
-    except Exception:
+    except (OSError, ValueError):
         raise HTTPException(status_code=400, detail="Invalid workflow file path")
 
     if not workflow_file.exists():
@@ -169,7 +190,7 @@ async def enable_workflow(workflow_id: str, api_key: str = Depends(verify_api_ke
     try:
         with open(workflow_file) as f:
             workflow_data = json.load(f)
-    except Exception as e:
+    except (OSError, json.JSONDecodeError) as e:
         raise HTTPException(status_code=500, detail=f"Failed to read workflow: {e}")
 
     try:
@@ -194,9 +215,8 @@ async def enable_workflow(workflow_id: str, api_key: str = Depends(verify_api_ke
         raise HTTPException(status_code=503, detail=f"Cannot reach n8n: {e}")
 
 
-@router.delete("/api/workflows/{workflow_id}")
-async def disable_workflow(workflow_id: str, api_key: str = Depends(verify_api_key)):
-    """Remove a workflow from n8n."""
+async def _remove_workflow(workflow_id: str):
+    """Shared logic for disabling/removing a workflow from n8n."""
     n8n_workflows = await get_n8n_workflows()
     catalog = load_workflow_catalog()
     wf_info = next((wf for wf in catalog.get("workflows", []) if wf["id"] == workflow_id), None)
@@ -225,6 +245,18 @@ async def disable_workflow(workflow_id: str, api_key: str = Depends(verify_api_k
                     raise HTTPException(status_code=resp.status, detail=f"n8n API error: {error_text}")
     except aiohttp.ClientError as e:
         raise HTTPException(status_code=503, detail=f"Cannot reach n8n: {e}")
+
+
+@router.post("/api/workflows/{workflow_id}/disable")
+async def disable_workflow_post(workflow_id: str, api_key: str = Depends(verify_api_key)):
+    """Remove a workflow from n8n (POST /disable)."""
+    return await _remove_workflow(workflow_id)
+
+
+@router.delete("/api/workflows/{workflow_id}")
+async def disable_workflow(workflow_id: str, api_key: str = Depends(verify_api_key)):
+    """Remove a workflow from n8n (DELETE)."""
+    return await _remove_workflow(workflow_id)
 
 
 @router.get("/api/workflows/{workflow_id}/executions")
@@ -256,6 +288,6 @@ async def workflow_executions(workflow_id: str, limit: int = 20, api_key: str = 
                     return {"workflowId": workflow_id, "n8nId": n8n_wf["id"], "executions": data.get("data", [])}
                 else:
                     return {"executions": [], "error": "Failed to fetch executions"}
-    except Exception as e:
+    except (aiohttp.ClientError, OSError, json.JSONDecodeError):
         logger.exception("Failed to fetch workflow executions")
         return {"executions": [], "error": "Failed to fetch executions"}

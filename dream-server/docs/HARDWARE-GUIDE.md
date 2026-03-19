@@ -10,6 +10,7 @@ What to buy for local AI at different budgets.
 
 | Tier | GPU | RAM | What You Get |
 |------|-----|-----|--------------|
+| Lightweight (any) | Any GPU or CPU-only | 4GB+ | 2B model, personal chat |
 | Entry ($800-1,200) | RTX 3060 12GB | 32GB | 7B-14B models, basic chat |
 | Prosumer ($2,000-3,000) | RTX 4070 Ti Super 16GB | 64GB | 32B models, voice, 5-8 users |
 | Pro ($4,000-6,000) | RTX 4090 24GB | 128GB | 70B models, 10-20 users |
@@ -193,7 +194,7 @@ Rule: 2x your model size minimum
 ❌ **AMD discrete GPUs (RX 7900 etc.)** — ROCm support limited; AMD Strix Halo APUs are fully supported (see README)
 ❌ **Intel Arc** — Driver problems, limited support
 ❌ **Cloud GPUs (H100/A100)** — Can't buy, rental only
-❌ **8GB cards** — Too limited for serious use  
+⚠️ **8GB cards** — Limited to smaller models (2B-7B) but functional with Tier 0
 
 ---
 
