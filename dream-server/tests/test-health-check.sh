@@ -81,6 +81,28 @@ if [[ -x "$ROOT_DIR/scripts/health-check.sh" ]] || true; then
     pass "health-check.sh is runnable (bash or executable)"
 fi
 
+# 5. Container state checking function exists
+if grep -q "check_container_state" "$ROOT_DIR/scripts/health-check.sh"; then
+    pass "check_container_state function present"
+else
+    fail "check_container_state function missing"
+fi
+
+# 6. Container state messages are present in output logic
+if grep -q "container not found\|container stopped\|container restarting" "$ROOT_DIR/scripts/health-check.sh"; then
+    pass "Container state error messages present"
+else
+    fail "Container state error messages missing"
+fi
+
+# 7. Verify graceful handling when docker unavailable (mock test)
+# The function should return 0 (success) when docker command not found
+if grep -A15 "check_container_state" "$ROOT_DIR/scripts/health-check.sh" | grep -q "command -v docker"; then
+    pass "check_container_state checks for docker availability"
+else
+    fail "check_container_state missing docker availability check"
+fi
+
 echo ""
 echo "Result: $PASSED passed, $FAILED failed"
 [[ $FAILED -eq 0 ]]

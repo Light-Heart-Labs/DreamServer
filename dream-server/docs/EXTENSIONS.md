@@ -5,7 +5,7 @@
 | I want to... | Type | Start here |
 |---|---|---|
 | Add a Docker service (new container, health check, dashboard tile) | Service extension | This guide (below) |
-| Change the installer itself (new tier, swap theme, add/skip phase) | Installer mod | [docs/INSTALLER-ARCHITECTURE.md](INSTALLER-ARCHITECTURE.md) |
+| Change the installer itself (new tier, swap theme, add/skip phase) | Installer mod | [INSTALLER-ARCHITECTURE.md](INSTALLER-ARCHITECTURE.md) |
 
 This guide is the fastest path to extend Dream Server without editing core internals.
 

@@ -81,9 +81,15 @@ async def get_release_manifest():
         }
 
 
+_VALID_ACTIONS = {"check", "backup", "update"}
+
+
 @router.post("/api/update")
 async def trigger_update(action: UpdateAction, background_tasks: BackgroundTasks, api_key: str = Depends(verify_api_key)):
-    """Trigger update actions via dashboard (non-blocking subprocess)."""
+    """Trigger update actions via dashboard."""
+    if action.action not in _VALID_ACTIONS:
+        raise HTTPException(status_code=400, detail=f"Unknown action: {action.action}")
+
     script_path = Path(INSTALL_DIR).parent / "scripts" / "dream-update.sh"
     if not script_path.exists():
         install_script = Path(INSTALL_DIR) / "install.sh"
@@ -131,5 +137,3 @@ async def trigger_update(action: UpdateAction, background_tasks: BackgroundTasks
             await proc.communicate()
         background_tasks.add_task(run_update)
         return {"success": True, "message": "Update started in background. Check logs for progress."}
-    else:
-        raise HTTPException(status_code=400, detail=f"Unknown action: {action.action}")

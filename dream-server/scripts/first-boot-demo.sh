@@ -31,7 +31,7 @@ if [[ -f "$_DEMO_DIR/lib/service-registry.sh" ]]; then
     load_env_file "$_DEMO_DIR/.env"
 fi
 
-LLM_URL="${LLM_URL:-http://localhost:${SERVICE_PORTS[llama-server]:-8080}}"
+LLM_URL="${LLM_URL:-http://localhost:${SERVICE_PORTS[llama-server]:-11434}}"
 WHISPER_URL="${WHISPER_URL:-http://localhost:${SERVICE_PORTS[whisper]:-9000}}"
 PIPER_URL="${PIPER_URL:-http://localhost:${SERVICE_PORTS[tts]:-8880}}"
 N8N_URL="${N8N_URL:-http://localhost:${SERVICE_PORTS[n8n]:-5678}}"

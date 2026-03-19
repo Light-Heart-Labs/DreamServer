@@ -75,7 +75,7 @@ services:
       OPENAI_API_BASE_URL: "${LLM_API_URL:-http://llama-server:8080}/v1"
       OPENAI_API_KEY: ""
       WEBUI_AUTH: "${WEBUI_AUTH:-true}"
-      WEBUI_SECRET_KEY: "${WEBUI_SECRET:?Set WEBUI_SECRET in .env}"
+      WEBUI_SECRET_KEY: "${WEBUI_SECRET:-changeme}"
       ENABLE_WEB_SEARCH: "true"
       WEB_SEARCH_ENGINE: "searxng"
       SEARXNG_QUERY_URL: "http://searxng:8080/search?q=<query>&format=json"

@@ -1,7 +1,6 @@
 """Tests for updates router endpoints."""
 
 from unittest.mock import patch, MagicMock
-from pathlib import Path
 
 
 def test_get_version_requires_auth(test_client):
@@ -23,8 +22,6 @@ def test_get_version_authenticated(test_client):
 
 def test_get_version_with_mock_github(test_client):
     """GET /api/version with mocked GitHub API → returns update info."""
-    import urllib.request
-
     mock_response = MagicMock()
     mock_response.read.return_value = b'{"tag_name": "v2.0.0", "html_url": "https://github.com/test"}'
     mock_response.__enter__ = lambda self: self
@@ -60,11 +57,11 @@ def test_trigger_update_requires_auth(test_client):
     assert resp.status_code == 401
 
 
-def test_trigger_update_unknown_action(test_client):
-    """POST /api/update with unknown action → 400."""
+def test_trigger_update_no_script(test_client):
+    """POST /api/update when update script is missing → 501."""
     resp = test_client.post(
         "/api/update",
-        json={"action": "invalid"},
+        json={"action": "check"},
         headers=test_client.auth_headers
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 501

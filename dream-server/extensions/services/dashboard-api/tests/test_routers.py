@@ -52,6 +52,24 @@ def test_workflows_requires_auth(test_client):
     assert resp.status_code == 401
 
 
+def test_agents_metrics_requires_auth(test_client):
+    """GET /api/agents/metrics without auth header → 401."""
+    resp = test_client.get("/api/agents/metrics")
+    assert resp.status_code == 401
+
+
+def test_agents_cluster_requires_auth(test_client):
+    """GET /api/agents/cluster without auth header → 401."""
+    resp = test_client.get("/api/agents/cluster")
+    assert resp.status_code == 401
+
+
+def test_agents_throughput_requires_auth(test_client):
+    """GET /api/agents/throughput without auth header → 401."""
+    resp = test_client.get("/api/agents/throughput")
+    assert resp.status_code == 401
+
+
 # ---------------------------------------------------------------------------
 # Setup router
 # ---------------------------------------------------------------------------

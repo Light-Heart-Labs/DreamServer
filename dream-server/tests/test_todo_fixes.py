@@ -5,22 +5,13 @@ Ensures the fixes work correctly and prevent regressions.
 """
 
 import ast
-import tempfile
-import os
 import sys
-from pathlib import Path
 
 def test_vad_patch_single_line():
     """Test VAD patch on single-line transcribe call."""
     test_code = '''
 def transcribe_audio(file):
     result = model.transcribe(file)
-    return result
-'''
-
-    expected_code = '''
-def transcribe_audio(file):
-    result = model.transcribe(file, vad_filter=True, vad_parameters={"threshold": 0.5})
     return result
 '''
 
@@ -66,8 +57,8 @@ def test_sample_code_validation():
     def validate_response(data, fields):
         return all(field in data for field in fields)
 
-    assert validate_response(valid_response, required_fields) == True
-    assert validate_response(invalid_response, required_fields) == False
+    assert validate_response(valid_response, required_fields)
+    assert not validate_response(invalid_response, required_fields)
     print("✓ API response validation test passed")
 
     # Test error handling
