@@ -262,6 +262,19 @@ MODELS_INI_EOF
         ai_ok "All service dependencies satisfied"
     fi
 
+    # Validate compose stack syntax before launching
+    dream_progress 80 "services" "Validating compose stack"
+    ai "Validating Docker Compose configuration..."
+    if $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" config --quiet >> "$LOG_FILE" 2>&1; then
+        ai_ok "Compose stack validated"
+    else
+        ai_bad "Compose stack validation failed"
+        ai "Check compose files for syntax errors:"
+        ai "  $DOCKER_COMPOSE_CMD ${COMPOSE_FLAGS} config"
+        ai "Log: $LOG_FILE"
+        exit 1
+    fi
+
     # Launch containers
     dream_progress 81 "services" "Launching containers"
     echo ""
