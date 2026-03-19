@@ -30,7 +30,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import SERVICES, DATA_DIR, SIDEBAR_ICONS
 from models import (
     GPUInfo, ServiceStatus, DiskUsage, ModelInfo, BootstrapStatus,
-    FullStatus, PortCheckRequest,
+    FullStatus, PortCheckRequest, SettingsResponse, SettingsPatch,
 )
 from security import verify_api_key
 from gpu import get_gpu_info
@@ -43,7 +43,7 @@ from helpers import (
 from agent_monitor import collect_metrics
 
 # --- Router imports ---
-from routers import workflows, features, setup, updates, agents, privacy
+from routers import workflows, features, setup, updates, agents, privacy, settings
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +92,7 @@ app.include_router(setup.router)
 app.include_router(updates.router)
 app.include_router(agents.router)
 app.include_router(privacy.router)
+app.include_router(settings.router)
 
 
 # ================================================================

@@ -104,3 +104,22 @@ class PrivacyShieldStatus(BaseModel):
 
 class PrivacyShieldToggle(BaseModel):
     enable: bool
+
+
+class SettingsResponse(BaseModel):
+    llm_model: str
+    mode: str                       # "local" | "cloud" | "hybrid"
+    tier: str
+    gpu_backend: str
+    dream_version: str
+    enabled_services: list[str]     # extension service IDs with compose.yaml present
+    voice_enabled: bool             # whisper or tts enabled, or VOICE_ENABLED=true
+    rag_enabled: bool               # qdrant enabled, or RAG_ENABLED=true
+
+
+class SettingsPatch(BaseModel):
+    llm_model: Optional[str] = None
+    mode: Optional[str] = None      # "local" | "cloud" | "hybrid"
+    tier: Optional[str] = None
+    voice_enabled: Optional[bool] = None
+    rag_enabled: Optional[bool] = None
