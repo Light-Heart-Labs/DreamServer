@@ -14,6 +14,7 @@
 #   Add new developer tools or change installation methods here.
 # ============================================================================
 
+dream_progress 42 "devtools" "Installing developer tools"
 if $DRY_RUN; then
     log "[DRY RUN] Would install AI developer tools (Claude Code, Codex CLI, OpenCode)"
     log "[DRY RUN] Would configure OpenCode for local llama-server (user-level systemd service on port 3003)"
@@ -27,21 +28,21 @@ else
             apt)
                 tmpfile=$(mktemp /tmp/nodesource-setup.XXXXXX.sh)
                 if curl -fsSL --max-time 300 https://deb.nodesource.com/setup_22.x -o "$tmpfile" 2>/dev/null; then
-                    sudo -E bash "$tmpfile" >> "$LOG_FILE" 2>&1 || true
+                    sudo -E bash "$tmpfile" 2>&1 | tee -a "$LOG_FILE" || true
                 fi
                 rm -f "$tmpfile"
-                sudo apt-get install -y nodejs >> "$LOG_FILE" 2>&1 || true
+                sudo apt-get install -y nodejs 2>&1 | tee -a "$LOG_FILE" || true
                 ;;
             dnf)
-                sudo dnf module install -y nodejs:22 >> "$LOG_FILE" 2>&1 || \
-                    sudo dnf install -y nodejs >> "$LOG_FILE" 2>&1 || true
+                sudo dnf module install -y nodejs:22 2>&1 | tee -a "$LOG_FILE" || \
+                    sudo dnf install -y nodejs 2>&1 | tee -a "$LOG_FILE" || true
                 ;;
             pacman)
-                sudo pacman -S --noconfirm --needed nodejs npm >> "$LOG_FILE" 2>&1 || true
+                sudo pacman -S --noconfirm --needed nodejs npm 2>&1 | tee -a "$LOG_FILE" || true
                 ;;
             zypper)
-                sudo zypper --non-interactive install nodejs22 >> "$LOG_FILE" 2>&1 || \
-                    sudo zypper --non-interactive install nodejs >> "$LOG_FILE" 2>&1 || true
+                sudo zypper --non-interactive install nodejs22 2>&1 | tee -a "$LOG_FILE" || \
+                    sudo zypper --non-interactive install nodejs 2>&1 | tee -a "$LOG_FILE" || true
                 ;;
             *)
                 ai_warn "Unknown package manager — cannot install Node.js automatically"

@@ -124,4 +124,4 @@ Extensions declare compatibility with Dream Server versions via `compatibility.d
 | Windows + Docker Desktop + WSL2 | Yes | GPU if configured. |
 | Windows without WSL2       | No        | Containers need WSL2. |
 
-For the latest tier and platform status, see [SUPPORT-MATRIX.md](SUPPORT-MATRIX.md). For install steps, see [INSTALL.md](INSTALL.md).
+For the latest tier and platform status, see [SUPPORT-MATRIX.md](SUPPORT-MATRIX.md). For install steps, see [QUICKSTART.md](../QUICKSTART.md).

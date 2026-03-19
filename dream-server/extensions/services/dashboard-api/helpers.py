@@ -6,7 +6,6 @@ import logging
 import os
 import platform
 import shutil
-import subprocess
 import time
 from pathlib import Path
 from typing import Optional
@@ -19,12 +18,12 @@ from models import ServiceStatus, DiskUsage, ModelInfo, BootstrapStatus
 
 logger = logging.getLogger(__name__)
 
-# --- Shared HTTP session (connection pooling) ---
-# Re-using a single ClientSession avoids creating/destroying 17+ TCP
-# connections every poll cycle and prevents file-descriptor exhaustion.
+# --- Shared HTTP sessions (connection pooling) ---
+# Re-using sessions avoids creating/destroying TCP connections every
+# poll cycle and prevents file-descriptor exhaustion.
 
 _aio_session: Optional[aiohttp.ClientSession] = None
-_HEALTH_TIMEOUT = aiohttp.ClientTimeout(total=5)   # match Docker's own 5 s timeout
+_HEALTH_TIMEOUT = aiohttp.ClientTimeout(total=5)
 
 
 async def _get_aio_session() -> aiohttp.ClientSession:
@@ -33,6 +32,18 @@ async def _get_aio_session() -> aiohttp.ClientSession:
     if _aio_session is None or _aio_session.closed:
         _aio_session = aiohttp.ClientSession(timeout=_HEALTH_TIMEOUT)
     return _aio_session
+
+
+# Shared httpx client for llama-server requests (connection pooling)
+_httpx_client: Optional[httpx.AsyncClient] = None
+
+
+async def _get_httpx_client() -> httpx.AsyncClient:
+    """Return (and lazily create) a module-level httpx async client."""
+    global _httpx_client
+    if _httpx_client is None or _httpx_client.is_closed:
+        _httpx_client = httpx.AsyncClient(timeout=5.0)
+    return _httpx_client
 
 
 # --- Token Tracking ---
@@ -85,8 +96,8 @@ async def get_llama_metrics(model_hint: Optional[str] = None) -> dict:
         model_name = model_hint if model_hint is not None else (await get_loaded_model() or "")
         url = f"http://{host}:{port}/metrics"
         params = {"model": model_name} if model_name else {}
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(url, params=params)
+        client = await _get_httpx_client()
+        resp = await client.get(url, params=params)
 
         metrics = {}
         for line in resp.text.split("\n"):
@@ -120,8 +131,8 @@ async def get_loaded_model() -> Optional[str]:
     try:
         host = SERVICES["llama-server"]["host"]
         port = SERVICES["llama-server"]["port"]
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"http://{host}:{port}/v1/models")
+        client = await _get_httpx_client()
+        resp = await client.get(f"http://{host}:{port}/v1/models")
         models = resp.json().get("data", [])
         for m in models:
             status = m.get("status", {})
@@ -147,8 +158,8 @@ async def get_llama_context_size(model_hint: Optional[str] = None) -> Optional[i
         url = f"http://{host}:{port}/props"
         if loaded:
             url += f"?model={loaded}"
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(url)
+        client = await _get_httpx_client()
+        resp = await client.get(url)
         n_ctx = resp.json().get("default_generation_settings", {}).get("n_ctx")
         return int(n_ctx) if n_ctx else None
     except (httpx.HTTPError, httpx.TimeoutException, ValueError) as e:
@@ -331,12 +342,12 @@ def get_bootstrap_status() -> BootstrapStatus:
 def get_uptime() -> int:
     """Get system uptime in seconds (cross-platform)."""
     _system = platform.system()
+    import subprocess
     try:
         if _system == "Linux":
             with open("/proc/uptime") as f:
                 return int(float(f.read().split()[0]))
         elif _system == "Darwin":
-            import subprocess
             result = subprocess.run(
                 ["sysctl", "-n", "kern.boottime"],
                 capture_output=True, text=True, timeout=5,

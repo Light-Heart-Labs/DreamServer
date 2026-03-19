@@ -14,6 +14,7 @@ service:
   external_port_env: WEBUI_PORT
   external_port_default: 3000
   health: /health
+  ui_path: /
   type: docker
   gpu_backends: [amd, nvidia]
   category: core

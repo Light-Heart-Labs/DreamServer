@@ -10,7 +10,8 @@
 # Falls back to plain text if qrencode not available
 print_dashboard_qr() {
     local url=${1:-"http://localhost:3001"}
-    local hostname=$(hostname 2>/dev/null || echo "localhost")
+    local hostname
+    hostname=$(hostname 2>/dev/null || echo "localhost")
     
     # Try to get LAN IP for remote access
     local lan_ip=""
@@ -125,7 +126,8 @@ print_install_summary() {
     local end_time=$4
     
     local duration=$((end_time - start_time))
-    local duration_str=$(format_duration $duration)
+    local duration_str
+    duration_str=$(format_duration $duration)
     
     echo ""
     echo -e "${GREEN}═══════════════════════════════════════════════════════════════${NC}"

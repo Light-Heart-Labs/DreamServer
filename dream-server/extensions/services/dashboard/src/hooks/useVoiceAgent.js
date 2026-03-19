@@ -9,7 +9,8 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 
 // Auto-detect host for remote access - use env vars if set, otherwise derive from window.location
 const getHost = () => typeof window !== 'undefined' ? window.location.hostname : 'localhost'
-const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || `ws://${getHost()}:7880`
+const getProtocol = () => typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || `${getProtocol()}//${getHost()}:7880`
 const API_BASE = import.meta.env.VITE_API_URL || `${typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3001'}`
 
 export function useVoiceAgent() {

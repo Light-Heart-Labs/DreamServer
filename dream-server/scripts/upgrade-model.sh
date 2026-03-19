@@ -27,7 +27,7 @@ STATE_FILE="$DREAM_DIR/model-state.json"
 BACKUP_FILE="$DREAM_DIR/model-state.backup.json"
 LOG_FILE="$DREAM_DIR/upgrade-model.log"
 
-OLLAMA_PORT="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-8080}}"
+OLLAMA_PORT="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-11434}}"
 LLAMA_SERVER_CONTAINER="${LLAMA_SERVER_CONTAINER:-dream-llama-server}"
 
 HEALTH_CHECK_TIMEOUT=120  # seconds
@@ -88,25 +88,29 @@ NC='\033[0m'
 #-----------------------------------------------------------------------------
 
 log() {
-    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+    local msg
+    msg="[$(date '+%Y-%m-%d %H:%M:%S')] $1"
     echo "$msg" >> "$LOG_FILE"
     echo -e "${BLUE}[INFO]${NC} $1"
 }
 
 success() {
-    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] SUCCESS: $1"
+    local msg
+    msg="[$(date '+%Y-%m-%d %H:%M:%S')] SUCCESS: $1"
     echo "$msg" >> "$LOG_FILE"
     echo -e "${GREEN}[OK]${NC} $1"
 }
 
 warn() {
-    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] WARN: $1"
+    local msg
+    msg="[$(date '+%Y-%m-%d %H:%M:%S')] WARN: $1"
     echo "$msg" >> "$LOG_FILE"
     echo -e "${YELLOW}[WARN]${NC} $1"
 }
 
 error() {
-    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $1"
+    local msg
+    msg="[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $1"
     echo "$msg" >> "$LOG_FILE"
     echo -e "${RED}[ERROR]${NC} $1" >&2
 }
@@ -271,9 +275,10 @@ cmd_list() {
     if [[ -d "$MODELS_DIR" ]]; then
         for model_dir in "$MODELS_DIR"/*/; do
             if [[ -f "${model_dir}config.json" ]]; then
-                local model_name=$(basename "$model_dir")
-                local size=$(du -sh "$model_dir" 2>/dev/null | cut -f1)
-                local current=$(get_current_model)
+                local model_name size current
+                model_name=$(basename "$model_dir")
+                size=$(du -sh "$model_dir" 2>/dev/null | cut -f1)
+                current=$(get_current_model)
                 
                 if [[ "$model_name" == "$current" ]]; then
                     echo -e "  ${GREEN}● $model_name${NC} ($size) [ACTIVE]"
@@ -444,7 +449,7 @@ Examples:
 
 Environment Variables:
   MODELS_DIR             Models directory (default: $MODELS_DIR)
-  OLLAMA_PORT            llama-server port (default: 8080)
+  OLLAMA_PORT            llama-server port (default: 11434)
   LLAMA_SERVER_CONTAINER Docker container name (default: dream-llama-server)
 
 EOF

@@ -51,7 +51,7 @@ normalize_profile_tier() {
         T2) echo "2" ;;
         T3) echo "3" ;;
         T4) echo "4" ;;
-        NV_ULTRA|SH_LARGE|SH_COMPACT) echo "$1" ;;
+        NV_ULTRA|SH_LARGE|SH_COMPACT|ARC|ARC_LITE) echo "$1" ;;
         *) echo "" ;;
     esac
 }
@@ -61,8 +61,8 @@ tier_rank() {
         NV_ULTRA|SH_LARGE) echo 5 ;;
         4) echo 4 ;;
         SH_COMPACT|3) echo 3 ;;
-        2) echo 2 ;;
-        1) echo 1 ;;
+        ARC|2) echo 2 ;;
+        ARC_LITE|1) echo 1 ;;
         0) echo 0 ;;
         *) echo 1 ;;
     esac
