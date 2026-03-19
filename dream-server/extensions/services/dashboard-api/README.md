@@ -21,6 +21,8 @@ It runs at `http://localhost:3002` and is the single backend used by the React d
 - **Privacy Shield control**: Enable/disable container, fetch PII scrubbing statistics
 - **Version checking**: GitHub releases integration for update notifications
 - **Storage reporting**: Breakdown of disk usage by models, vector DB, and total data
+- **Voice runtime APIs**: Voice service health, persisted voice preferences, and LiveKit token minting
+- **Feature diagnostics**: Lightweight `/api/test/*` endpoints for setup/success validation flows
 
 ## Configuration
 
@@ -69,6 +71,25 @@ Environment variables (set in `.env`):
 | `GET` | `/api/service-tokens` | Yes | Service auth tokens (e.g. OpenClaw) |
 | `GET` | `/api/external-links` | Yes | Sidebar links from service manifests |
 | `GET` | `/api/storage` | Yes | Storage breakdown (models, vector DB, total) |
+| `GET` | `/api/settings` | Yes | Dynamic settings payload (version, install date, tier, uptime, storage) |
+
+### Voice Runtime
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/voice/settings` | Yes | Read persisted voice preferences |
+| `POST` | `/api/voice/settings` | Yes | Save voice preferences |
+| `GET` | `/api/voice/status` | Yes | Voice pipeline health (STT, TTS, LiveKit) |
+| `POST` | `/api/voice/token` | Yes | Mint short-lived LiveKit access token |
+
+### Diagnostics
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/test/llm` | Yes | LLM service diagnostic |
+| `GET` | `/api/test/voice` | Yes | Voice pipeline diagnostic |
+| `GET` | `/api/test/rag` | Yes | RAG dependency diagnostic (Qdrant + LLM) |
+| `GET` | `/api/test/workflows` | Yes | n8n workflow service diagnostic |
 
 ### Workflows (n8n integration)
 

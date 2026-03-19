@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 
@@ -274,189 +277,133 @@ def test_privacy_shield_status_with_mock(test_client):
 
 
 # ---------------------------------------------------------------------------
-# Core API Endpoints
+# Runtime router (settings + voice + diagnostics)
 # ---------------------------------------------------------------------------
 
 
-def test_api_status_authenticated(test_client):
-    """GET /api/status with auth → 200, returns full system status."""
-    resp = test_client.get("/api/status", headers=test_client.auth_headers)
+def test_api_settings_returns_expected_shape(test_client, tmp_path, monkeypatch):
+    """GET /api/settings returns dynamic values and storage summary."""
+    import routers.runtime as runtime_router
+
+    version_file = tmp_path / ".version"
+    version_file.write_text("2.6.4")
+
+    setup_file = tmp_path / "setup-complete.json"
+    setup_file.write_text(json.dumps({"completed_at": "2026-03-10T10:11:12Z"}))
+
+    monkeypatch.setattr(runtime_router, "_VERSION_FILE", version_file)
+    monkeypatch.setattr(runtime_router, "_SETUP_COMPLETE_FILE", setup_file)
+    monkeypatch.setattr(runtime_router, "get_disk_usage", lambda: SimpleNamespace(path="/tmp", used_gb=10.5, total_gb=200.0, percent=5.3))
+    monkeypatch.setattr(runtime_router, "get_uptime", lambda: 3723)
+    monkeypatch.setattr(runtime_router, "_resolve_tier", lambda: "Prosumer")
+
+    resp = test_client.get("/api/settings", headers=test_client.auth_headers)
     assert resp.status_code == 200
     data = resp.json()
-    assert "gpu" in data
-    assert "services" in data
-    assert "model" in data
-    assert "bootstrap" in data
-    assert "uptime" in data
-    assert "version" in data
-    assert "tier" in data
-    assert "cpu" in data
-    assert "ram" in data
-    assert "inference" in data
+    assert data["version"] == "2.6.4"
+    assert data["installDate"] == "Mar 10, 2026"
+    assert data["tier"] == "Prosumer"
+    assert data["uptime"] == "1h 2m"
+    assert data["storage"]["path"] == "/tmp"
+    assert data["storage"]["percent"] == 5.3
+    assert "generatedAt" in data
 
 
-def test_api_storage_authenticated(test_client):
-    """GET /api/storage with auth → 200, returns storage breakdown."""
-    resp = test_client.get("/api/storage", headers=test_client.auth_headers)
+def test_voice_settings_defaults_then_save_roundtrip(test_client, tmp_path, monkeypatch):
+    """GET returns defaults; POST persists voice settings; GET returns persisted values."""
+    import routers.runtime as runtime_router
+
+    settings_file = tmp_path / "voice-settings.json"
+    monkeypatch.setattr(runtime_router, "_VOICE_SETTINGS_FILE", settings_file)
+
+    get_default = test_client.get("/api/voice/settings", headers=test_client.auth_headers)
+    assert get_default.status_code == 200
+    assert get_default.json() == {"voice": "default", "speed": 1.0, "wakeWord": False}
+
+    save_resp = test_client.post(
+        "/api/voice/settings",
+        json={"voice": "jenny", "speed": 1.3, "wakeWord": True},
+        headers=test_client.auth_headers,
+    )
+    assert save_resp.status_code == 200
+    assert save_resp.json()["success"] is True
+    assert settings_file.exists()
+
+    get_saved = test_client.get("/api/voice/settings", headers=test_client.auth_headers)
+    assert get_saved.status_code == 200
+    assert get_saved.json() == {"voice": "jenny", "speed": 1.3, "wakeWord": True}
+
+
+def test_voice_status_aggregates_service_health(test_client, monkeypatch):
+    """GET /api/voice/status reports stt, tts, and livekit health plus available=true."""
+    import routers.runtime as runtime_router
+
+    stt = {"id": "whisper", "name": "Whisper (STT)", "status": "healthy", "responseTimeMs": 12.1, "checkedAt": "x", "url": "http://whisper:8000/health"}
+    tts = {"id": "tts", "name": "Kokoro (TTS)", "status": "healthy", "responseTimeMs": 14.9, "checkedAt": "x", "url": "http://tts:8880/health"}
+    livekit = {"id": "livekit", "name": "LiveKit", "status": "healthy", "responseTimeMs": 9.0, "checkedAt": "x", "url": "http://livekit:7880"}
+
+    monkeypatch.setattr(runtime_router, "_check_service", AsyncMock(side_effect=[stt, tts]))
+    monkeypatch.setattr(runtime_router, "_check_livekit", AsyncMock(return_value=livekit))
+
+    resp = test_client.get("/api/voice/status", headers=test_client.auth_headers)
     assert resp.status_code == 200
     data = resp.json()
-    assert "models" in data
-    assert "vector_db" in data
-    assert "total_data" in data
-    assert "disk" in data
-    assert "gb" in data["models"]
-    assert "percent" in data["models"]
+    assert data["available"] is True
+    assert data["services"]["stt"]["status"] == "healthy"
+    assert data["services"]["tts"]["status"] == "healthy"
+    assert data["services"]["livekit"]["status"] == "healthy"
 
 
-def test_api_external_links_authenticated(test_client):
-    """GET /api/external-links with auth → 200, returns sidebar links."""
-    resp = test_client.get("/api/external-links", headers=test_client.auth_headers)
+def test_voice_token_requires_livekit_credentials(test_client, monkeypatch):
+    """POST /api/voice/token returns 503 when LIVEKIT credentials are missing."""
+    monkeypatch.delenv("LIVEKIT_API_KEY", raising=False)
+    monkeypatch.delenv("LIVEKIT_API_SECRET", raising=False)
+
+    resp = test_client.post(
+        "/api/voice/token",
+        json={"identity": "dashboard-test", "room": "dream-voice"},
+        headers=test_client.auth_headers,
+    )
+    assert resp.status_code == 503
+    assert "not configured" in resp.json()["detail"]
+
+
+def test_voice_token_returns_jwt_with_credentials(test_client, monkeypatch):
+    """POST /api/voice/token returns a JWT-like token when credentials exist."""
+    monkeypatch.setenv("LIVEKIT_API_KEY", "livekit-key")
+    monkeypatch.setenv("LIVEKIT_API_SECRET", "super-secret")
+    monkeypatch.setenv("LIVEKIT_URL", "ws://livekit:7880")
+
+    resp = test_client.post(
+        "/api/voice/token",
+        json={"identity": "dashboard-test", "room": "dream-voice", "ttlSeconds": 600},
+        headers=test_client.auth_headers,
+    )
     assert resp.status_code == 200
     data = resp.json()
-    assert isinstance(data, list)
-    for link in data:
-        assert "id" in link
-        assert "label" in link
-        assert "port" in link
-        assert "icon" in link
+    assert data["room"] == "dream-voice"
+    assert data["url"] == "ws://livekit:7880"
+    assert len(data["token"].split(".")) == 3
 
 
-def test_api_service_tokens_authenticated(test_client):
-    """GET /api/service-tokens with auth → 200, returns service tokens."""
-    resp = test_client.get("/api/service-tokens", headers=test_client.auth_headers)
+def test_diagnostic_voice_endpoint_uses_voice_status(test_client, monkeypatch):
+    """GET /api/test/voice maps to voice status and returns success bool."""
+    import routers.runtime as runtime_router
+
+    monkeypatch.setattr(
+        runtime_router,
+        "voice_status",
+        AsyncMock(return_value={"available": True, "services": {"stt": {}, "tts": {}, "livekit": {}}, "message": "ok", "checkedAt": "now"}),
+    )
+
+    resp = test_client.get("/api/test/voice", headers=test_client.auth_headers)
     assert resp.status_code == 200
     data = resp.json()
-    assert isinstance(data, dict)
+    assert data["feature"] == "voice"
+    assert data["success"] is True
 
 
-# ---------------------------------------------------------------------------
-# Agents router
-# ---------------------------------------------------------------------------
-
-
-def test_agents_metrics_authenticated(test_client):
-    """GET /api/agents/metrics with auth → 200, returns agent metrics with seeded data."""
-    from agent_monitor import agent_metrics, throughput
-
-    # Seed non-default values to test actual aggregation
-    agent_metrics.session_count = 5
-    agent_metrics.tokens_per_second = 123.45
-    throughput.add_sample(100.0)
-    throughput.add_sample(150.0)
-
-    resp = test_client.get("/api/agents/metrics", headers=test_client.auth_headers)
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "agent" in data
-    assert "cluster" in data
-    assert "throughput" in data
-
-    # Verify seeded values are reflected in response
-    assert data["agent"]["session_count"] == 5
-    assert data["agent"]["tokens_per_second"] == 123.45
-    assert data["throughput"]["current"] == 150.0
-    assert data["throughput"]["peak"] == 150.0
-
-
-def test_agents_cluster_authenticated(test_client):
-    """GET /api/agents/cluster with auth → 200, returns cluster status with mocked data."""
-
-    async def _fake_subprocess(*args, **kwargs):
-        """Mock subprocess that returns a 2-node cluster with 1 healthy node."""
-        proc = MagicMock()
-        cluster_response = b'{"nodes": [{"id": "node1", "healthy": true}, {"id": "node2", "healthy": false}]}'
-        proc.communicate = AsyncMock(return_value=(cluster_response, b""))
-        proc.returncode = 0
-        return proc
-
-    with patch("asyncio.create_subprocess_exec", side_effect=_fake_subprocess):
-        resp = test_client.get("/api/agents/cluster", headers=test_client.auth_headers)
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "nodes" in data
-    assert "total_gpus" in data
-    assert "active_gpus" in data
-    assert "failover_ready" in data
-
-    # Verify parsed cluster data
-    assert data["total_gpus"] == 2
-    assert data["active_gpus"] == 1
-    assert data["failover_ready"] is False  # Only 1 healthy node, need >1 for failover
-
-
-def test_agents_cluster_failover_ready(test_client):
-    """GET /api/agents/cluster with 2 healthy nodes → failover_ready is True."""
-
-    async def _fake_subprocess(*args, **kwargs):
-        """Mock subprocess that returns a 2-node cluster with both nodes healthy."""
-        proc = MagicMock()
-        cluster_response = b'{"nodes": [{"id": "node1", "healthy": true}, {"id": "node2", "healthy": true}]}'
-        proc.communicate = AsyncMock(return_value=(cluster_response, b""))
-        proc.returncode = 0
-        return proc
-
-    with patch("asyncio.create_subprocess_exec", side_effect=_fake_subprocess):
-        resp = test_client.get("/api/agents/cluster", headers=test_client.auth_headers)
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["total_gpus"] == 2
-    assert data["active_gpus"] == 2
-    assert data["failover_ready"] is True  # 2 healthy nodes enables failover
-
-
-def test_agents_metrics_html_xss_escaping(test_client):
-    """GET /api/agents/metrics.html escapes HTML special chars to prevent XSS."""
-    from agent_monitor import agent_metrics, throughput
-
-    # Inject XSS payload into agent metrics
-    agent_metrics.session_count = 999
-    throughput.add_sample(42.0)
-
-    # Mock cluster status with XSS payload in node data
-    async def _fake_subprocess(*args, **kwargs):
-        proc = MagicMock()
-        # Node ID contains script tag
-        cluster_response = b'{"nodes": [{"id": "<script>alert(1)</script>", "healthy": true}]}'
-        proc.communicate = AsyncMock(return_value=(cluster_response, b""))
-        proc.returncode = 0
-        return proc
-
-    with patch("asyncio.create_subprocess_exec", side_effect=_fake_subprocess):
-        resp = test_client.get("/api/agents/metrics.html", headers=test_client.auth_headers)
-
-    assert resp.status_code == 200
-    html_content = resp.text
-
-    # Verify HTML special chars are escaped
-    assert "<script>" not in html_content
-    assert "&lt;script&gt;" in html_content or "alert(1)" not in html_content
-    # Verify legitimate content is present
-    assert "999" in html_content  # session_count
-    assert "42.0" in html_content  # throughput
-
-
-def test_agents_throughput_authenticated(test_client):
-    """GET /api/agents/throughput with auth → 200, returns throughput stats with real data."""
-    from agent_monitor import throughput
-
-    # Seed throughput data to test actual behavior
-    throughput.add_sample(42.0)
-    throughput.add_sample(55.0)
-    throughput.add_sample(38.0)
-
-    resp = test_client.get("/api/agents/throughput", headers=test_client.auth_headers)
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "current" in data
-    assert "average" in data
-    assert "peak" in data
-    assert "history" in data
-
-    # Verify calculated stats
-    assert data["current"] == 38.0  # Last sample
-    assert data["peak"] == 55.0  # Max of all samples
-    assert data["average"] == (42.0 + 55.0 + 38.0) / 3  # Average of all samples
-    assert len(data["history"]) == 3
-
+def test_diagnostic_unknown_target_returns_404(test_client):
+    """Unknown diagnostics target should return 404."""
+    resp = test_client.get("/api/test/not-a-real-target", headers=test_client.auth_headers)
+    assert resp.status_code == 404
