@@ -374,9 +374,157 @@ cmd_start() {
     fi
 }
 
+cmd_dry_run() {
+    check_install
+    cd "$INSTALL_DIR"
+
+    echo -e "${BLUE}━━━ Dream Update — Dry Run ━━━${NC}"
+    echo -e "${CYAN}Preview only. No changes will be applied.${NC}"
+    echo ""
+
+    # ── version ──────────────────────────────────────────────────────────────
+    local cur_ver="0.0.0"
+    if [[ -f "$INSTALL_DIR/.env" ]]; then
+        local _v
+        _v=$(grep '^DREAM_VERSION=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')
+        [[ -n "$_v" ]] && cur_ver="$_v"
+    fi
+    if [[ "$cur_ver" == "0.0.0" && -f "$INSTALL_DIR/.version" ]]; then
+        local _vf
+        _vf=$(jq -r '.version // empty' "$INSTALL_DIR/.version" 2>/dev/null)
+        [[ -n "$_vf" ]] && cur_ver="$_vf"
+    fi
+
+    # Try dashboard API first; fall back to direct GitHub query.
+    local api_json=""
+    local dashboard_port="${DASHBOARD_PORT:-3002}"
+    local api_key=""
+    api_key=$(grep '^DASHBOARD_API_KEY=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')
+    if [[ -n "$api_key" ]]; then
+        api_json=$(curl -sf --max-time 5 \
+            -H "X-API-Key: ${api_key}" \
+            "http://localhost:${dashboard_port}/api/update/dry-run" 2>/dev/null || true)
+    fi
+
+    local latest_ver="" changelog_url="" update_status=""
+    if [[ -n "$api_json" ]] && echo "$api_json" | jq -e '.current_version' >/dev/null 2>&1; then
+        latest_ver=$(echo "$api_json" | jq -r '.latest_version // empty')
+        changelog_url=$(echo "$api_json" | jq -r '.changelog_url // empty')
+        local api_available
+        api_available=$(echo "$api_json" | jq -r '.update_available // false')
+        [[ "$api_available" == "true" ]] && update_status="update available" || update_status="up to date"
+    else
+        # Direct GitHub fallback
+        local gh_resp
+        gh_resp=$(curl -sf --max-time 8 \
+            "https://api.github.com/repos/Light-Heart-Labs/DreamServer/releases/latest" 2>/dev/null || true)
+        latest_ver=$(echo "$gh_resp" | jq -r '.tag_name // empty' 2>/dev/null | sed 's/^v//')
+        changelog_url=$(echo "$gh_resp" | jq -r '.html_url // empty' 2>/dev/null)
+        if [[ -n "$latest_ver" ]]; then
+            if _semver_lt "$cur_ver" "$latest_ver"; then
+                update_status="update available"
+            else
+                update_status="up to date"
+            fi
+        fi
+    fi
+
+    echo -e "${CYAN}Version:${NC}"
+    echo "  Installed : v${cur_ver}"
+    if [[ -n "$latest_ver" ]]; then
+        echo "  Available : v${latest_ver}"
+        if [[ "$update_status" == "update available" ]]; then
+            echo -e "  Status    : ${YELLOW}${update_status}${NC}"
+        else
+            echo -e "  Status    : ${GREEN}${update_status}${NC}"
+        fi
+        [[ -n "$changelog_url" ]] && echo "  Changelog : ${changelog_url}"
+    else
+        echo "  Available : (could not reach GitHub)"
+    fi
+    echo ""
+
+    # ── image tags ────────────────────────────────────────────────────────────
+    echo -e "${CYAN}Configured image tags (would be pulled):${NC}"
+    local flags_str
+    flags_str=$(get_compose_flags)
+    local -a flags
+    read -ra flags <<< "$flags_str"
+
+    # Prefer API response; fall back to parsing compose files directly.
+    local images_shown=false
+    if [[ -n "$api_json" ]] && echo "$api_json" | jq -e '.images | length > 0' >/dev/null 2>&1; then
+        echo "$api_json" | jq -r '.images[]' | sort -u | while read -r img; do
+            echo "  ${img}"
+        done
+        images_shown=true
+    fi
+    if [[ "$images_shown" == "false" ]]; then
+        if docker compose "${flags[@]}" config 2>/dev/null \
+                | grep -E '^\s+image:' | sed 's/.*image:\s*//' | sort -u \
+                | while read -r img; do echo "  ${img}"; done; then
+            images_shown=true
+        fi
+    fi
+    [[ "$images_shown" == "false" ]] && echo "  (could not resolve compose config)"
+
+    echo ""
+    echo -e "${CYAN}Currently running image digests:${NC}"
+    docker compose "${flags[@]}" images 2>/dev/null \
+        | awk 'NR>1 {printf "  %-30s %s\n", $1, $4}' \
+        || echo "  (services not running)"
+    echo ""
+
+    # ── model / GGUF ─────────────────────────────────────────────────────────
+    echo -e "${CYAN}Model configuration (.env):${NC}"
+    local -a model_keys=(TIER LLM_MODEL GGUF_FILE CTX_SIZE GPU_BACKEND N_GPU_LAYERS)
+    local key
+    for key in "${model_keys[@]}"; do
+        local val
+        val=$(grep "^${key}=" "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')
+        printf "  %-16s %s\n" "${key}:" "${val:-(not set)}"
+    done
+    echo ""
+
+    # ── .env keys the update path reads/writes ────────────────────────────────
+    echo -e "${CYAN}.env keys the update path will read or write:${NC}"
+    local -a update_keys=(DREAM_VERSION TIER LLM_MODEL GGUF_FILE CTX_SIZE GPU_BACKEND N_GPU_LAYERS)
+
+    if [[ -n "$api_json" ]] && echo "$api_json" | jq -e '.env_keys' >/dev/null 2>&1; then
+        echo "$api_json" | jq -r '.env_keys | to_entries[] | "  \(.key): \(.value)"' 2>/dev/null \
+            || true
+    else
+        for key in "${update_keys[@]}"; do
+            local val
+            val=$(grep "^${key}=" "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')
+            printf "  %-16s %s\n" "${key}:" "${val:-(not set)}"
+        done
+    fi
+    echo ""
+
+    # ── summary ───────────────────────────────────────────────────────────────
+    echo -e "${CYAN}To apply this update:${NC}  dream update"
+    echo ""
+    echo -e "${YELLOW}Dry run complete. Nothing was changed.${NC}"
+}
+
 cmd_update() {
     check_install
     cd "$INSTALL_DIR"
+
+    # Parse flags
+    local dry_run="false"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dry-run|-n) dry_run="true"; shift ;;
+            *) shift ;;
+        esac
+    done
+
+    if [[ "$dry_run" == "true" ]]; then
+        cmd_dry_run
+        return 0
+    fi
 
     local flags_str
     flags_str=$(get_compose_flags)
@@ -1443,6 +1591,7 @@ ${CYAN}Examples:${NC}
                                   # Export preset for sharing
   dream preset import shared.tar.gz
                                   # Import preset from file
+  dream update --dry-run          # Preview changes without applying
   dream backup                    # Create a backup
   dream backup -c                 # Create compressed backup
   dream backup -l                 # List all backups
@@ -1479,7 +1628,7 @@ case "${1:-help}" in
     restart|r)   shift; cmd_restart "$@" ;;
     start)       shift; cmd_start "$@" ;;
     stop)        shift; cmd_stop "$@" ;;
-    update|u)    cmd_update ;;
+    update|u)    shift; cmd_update "$@" ;;
     shell|sh)    shift; cmd_shell "$@" ;;
     config|cfg)  shift; cmd_config "$@" ;;
     chat|c)      shift; cmd_chat "$@" ;;
