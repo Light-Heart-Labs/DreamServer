@@ -69,26 +69,38 @@ error() { echo -e "${RED}[ERROR]${NC} $1" >&2; }
 
 check_dependencies() {
     local missing=()
-    
-    if ! command -v python3 &>/dev/null; then
-        missing+=("python3")
+
+    local pycmd="python3"
+    if command -v python3 &>/dev/null && python3 -c "import sys; sys.exit(0)" &>/dev/null; then
+        pycmd="python3"
+    elif command -v python &>/dev/null && python -c "import sys; sys.exit(0)" &>/dev/null; then
+        pycmd="python"
+    else
+        missing+=("python (or python3)")
     fi
-    
-    if ! command -v pip3 &>/dev/null && ! command -v pip &>/dev/null; then
+
+    local pipcmd=""
+    if command -v pip3 &>/dev/null; then
+        pipcmd="pip3"
+    elif command -v pip &>/dev/null; then
+        pipcmd="pip"
+    else
         missing+=("pip")
     fi
-    
+
     if [[ ${#missing[@]} -gt 0 ]]; then
         error "Missing dependencies: ${missing[*]}"
         echo "Please install them first."
         exit 1
     fi
-    
+
     # Ensure huggingface_hub is installed
-    if ! python3 -c "import huggingface_hub" 2>/dev/null; then
+    if ! "$pycmd" -c "import huggingface_hub" 2>/dev/null; then
         log "Installing huggingface_hub..."
-        pip3 install -q huggingface_hub
+        "$pipcmd" install -q huggingface_hub
     fi
+
+    export DREAM_PYTHON_CMD="$pycmd"
 }
 
 #=============================================================================
@@ -114,8 +126,9 @@ detect_ram_gb() {
 }
 
 recommend_tier() {
-    local vram=$(detect_vram_gb)
-    local ram=$(detect_ram_gb)
+    local vram ram
+    vram=$(detect_vram_gb)
+    ram=$(detect_ram_gb)
     
     if [[ $vram -ge 40 ]]; then
         echo "cluster"
@@ -138,7 +151,7 @@ download_model() {
     
     log "Downloading $label: $model"
     
-    python3 << EOF
+    "${DREAM_PYTHON_CMD:-python3}" << EOF
 from huggingface_hub import snapshot_download
 import sys
 
@@ -166,7 +179,7 @@ EOF
 verify_model() {
     local model="$1"
     
-    python3 << EOF
+    "${DREAM_PYTHON_CMD:-python3}" << EOF
 from huggingface_hub import try_to_load_from_cache, get_hf_file_metadata
 import sys
 
@@ -213,8 +226,8 @@ verify_cache() {
     local missing=0
     
     for tier in nano edge pro cluster; do
-        local model="${TIER_MODELS[$tier]}"
-        if verify_model "$model" 2>/dev/null; then
+        local tier_model="${TIER_MODELS[$tier]}"
+        if verify_model "$tier_model" 2>/dev/null; then
             ((found++))
         else
             echo -e "  ${RED}✗${NC} $tier: Not cached"
@@ -258,7 +271,8 @@ download_tier() {
     echo ""
     
     # Estimate time
-    local est_minutes=$((size * 2))  # ~0.5GB/min on average connection
+    local est_minutes
+    est_minutes=$((size * 2))  # ~0.5GB/min on average connection
     warn "Estimated download time: ${est_minutes}-$((est_minutes * 2)) minutes (depends on connection)"
     echo ""
     
@@ -290,9 +304,10 @@ interactive_menu() {
     print_banner
     check_dependencies
     
-    local recommended=$(recommend_tier)
-    local vram=$(detect_vram_gb)
-    local ram=$(detect_ram_gb)
+    local recommended vram ram
+    recommended=$(recommend_tier)
+    vram=$(detect_vram_gb)
+    ram=$(detect_ram_gb)
     
     echo -e "${BOLD}Detected Hardware:${NC}"
     echo "  RAM:  ${ram}GB"

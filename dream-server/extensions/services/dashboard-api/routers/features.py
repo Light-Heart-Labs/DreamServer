@@ -1,13 +1,17 @@
 """Feature discovery endpoints."""
 
+import logging
+import os
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from config import FEATURES, SERVICES
+from config import FEATURES, GPU_BACKEND, SERVICES
 from gpu import get_gpu_info, get_gpu_tier
 from models import GPUInfo
 from security import verify_api_key
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["features"])
 
@@ -17,6 +21,15 @@ def calculate_feature_status(feature: dict, services: list, gpu_info: Optional[G
     gpu_vram_gb = (gpu_info.memory_total_mb / 1024) if gpu_info else 0
     gpu_vram_used_gb = (gpu_info.memory_used_mb / 1024) if gpu_info else 0
     gpu_vram_free_gb = gpu_vram_gb - gpu_vram_used_gb
+
+    # On Apple Silicon, when HOST_CHIP is missing (get_gpu_info_apple returned None),
+    # fall back to HOST_RAM_GB. Unified memory = VRAM on Apple Silicon.
+    if gpu_vram_gb == 0 and GPU_BACKEND == "apple":
+        try:
+            gpu_vram_gb = float(os.environ.get("HOST_RAM_GB", "0") or "0")
+        except (ValueError, TypeError):
+            pass
+        gpu_vram_free_gb = gpu_vram_gb  # assumes zero current usage; Docker can't measure host memory pressure
 
     req = feature["requirements"]
     vram_ok = gpu_vram_gb >= req.get("vram_gb", 0)
@@ -61,9 +74,9 @@ def calculate_feature_status(feature: dict, services: list, gpu_info: Optional[G
     return {
         "id": feature["id"],
         "name": feature["name"],
-        "description": feature["description"],
-        "icon": feature["icon"],
-        "category": feature["category"],
+        "description": feature.get("description", ""),
+        "icon": feature.get("icon", "Package"),
+        "category": feature.get("category", "other"),
         "status": status,
         "enabled": is_enabled,
         "requirements": {
@@ -77,17 +90,20 @@ def calculate_feature_status(feature: dict, services: list, gpu_info: Optional[G
             "servicesMissing": services_missing,
             "servicesOk": services_ok,
         },
-        "setupTime": feature["setup_time"],
-        "priority": feature["priority"]
+        "setupTime": feature.get("setup_time", "Unknown"),
+        "priority": feature.get("priority", 99)
     }
 
 
 @router.get("/api/features")
 async def api_features(api_key: str = Depends(verify_api_key)):
     """Get feature discovery data."""
+    import asyncio
     from helpers import get_all_services
-    gpu_info = get_gpu_info()
-    service_list = await get_all_services()
+    gpu_info, service_list = await asyncio.gather(
+        asyncio.to_thread(get_gpu_info),
+        get_all_services(),
+    )
 
     feature_statuses = [calculate_feature_status(f, service_list, gpu_info) for f in FEATURES]
     feature_statuses.sort(key=lambda x: x["priority"])
@@ -114,6 +130,19 @@ async def api_features(api_key: str = Depends(verify_api_key)):
 
     gpu_vram_gb = (gpu_info.memory_total_mb / 1024) if gpu_info else 0
     memory_type = gpu_info.memory_type if gpu_info else "discrete"
+
+    # Apply Apple Silicon fallback for endpoint-level GPU summary (mirrors calculate_feature_status)
+    if gpu_vram_gb == 0 and GPU_BACKEND == "apple":
+        try:
+            gpu_vram_gb = float(os.environ.get("HOST_RAM_GB", "0") or "0")
+        except (ValueError, TypeError):
+            pass
+        if gpu_vram_gb == 0:
+            logger.warning(
+                "Apple Silicon VRAM fallback: HOST_RAM_GB is 0 or unset; "
+                "all features will show insufficient_vram"
+            )
+        memory_type = "unified"
 
     tier_recommendations = []
     if memory_type == "unified" and gpu_info and gpu_info.gpu_backend == "amd":
@@ -168,6 +197,7 @@ async def feature_enable_instructions(feature_id: str, api_key: str = Depends(ve
         "workflows": {"steps": [f"Ensure n8n is running on port {_svc_port('n8n')}", "Open the Workflows page to see available automations", "Click 'Enable' on any workflow to import it"], "links": [{"label": "n8n Dashboard", "url": n8n_url}, {"label": "Workflows", "url": f"{dashboard_url}/workflows"}]},
         "images": {"steps": ["Image generation requires additional setup", "Coming soon in a future update"], "links": []},
         "coding": {"steps": ["Switch to the Qwen2.5-Coder model for best results", "Use the model manager to download and load it", "Chat will now be optimized for code"], "links": [{"label": "Model Manager", "url": f"{dashboard_url}/models"}]},
+        "observability": {"steps": [f"Langfuse is running on port {_svc_port('langfuse')}", "Open Langfuse to view LLM traces and evaluations", "LiteLLM automatically sends traces — no additional configuration needed"], "links": [{"label": "Open Langfuse", "url": _svc_url("langfuse")}]},
     }
 
     return {"featureId": feature_id, "name": feature["name"], "instructions": instructions.get(feature_id, {"steps": [], "links": []})}

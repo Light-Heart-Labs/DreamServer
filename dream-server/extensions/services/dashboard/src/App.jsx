@@ -1,5 +1,5 @@
 import { Routes, Route } from 'react-router-dom'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense, useMemo, useCallback } from 'react'
 import Sidebar from './components/Sidebar'
 import SetupWizard from './components/SetupWizard'
 import { useSystemStatus } from './hooks/useSystemStatus'
@@ -30,14 +30,15 @@ function App() {
     setFirstRun(false)
   }
 
-  const routes = getInternalRoutes({ status, loading })
+  const routes = useMemo(() => getInternalRoutes({ status, loading }), [status, loading])
+  const handleToggle = useCallback(() => setSidebarCollapsed(c => !c), [])
 
   return (
     <div className="flex min-h-screen bg-[#0f0f13]">
       <Sidebar
         status={status}
         collapsed={sidebarCollapsed}
-        onToggle={() => setSidebarCollapsed(c => !c)}
+        onToggle={handleToggle}
       />
 
       <main className={`flex-1 transition-all duration-200 ${sidebarCollapsed ? 'ml-20' : 'ml-64'}`}>
@@ -49,19 +50,28 @@ function App() {
           <BootstrapBanner bootstrap={status.bootstrap} />
         )}
 
-        <Routes>
-          {routes.map(route => {
-            const Component = route.component
-            const props = typeof route.getProps === 'function' ? route.getProps({ status, loading }) : {}
-            return (
-              <Route
-                key={route.id || route.path}
-                path={route.path}
-                element={<Component {...props} />}
-              />
-            )
-          })}
-        </Routes>
+        <Suspense fallback={
+          <div className="p-8 animate-pulse">
+            <div className="h-8 bg-zinc-800 rounded w-1/3 mb-4" />
+            <div className="grid grid-cols-3 gap-6">
+              {[...Array(6)].map((_, i) => <div key={i} className="h-40 bg-zinc-800 rounded-xl" />)}
+            </div>
+          </div>
+        }>
+          <Routes>
+            {routes.map(route => {
+              const Component = route.component
+              const props = typeof route.getProps === 'function' ? route.getProps({ status, loading }) : {}
+              return (
+                <Route
+                  key={route.id || route.path}
+                  path={route.path}
+                  element={<Component {...props} />}
+                />
+              )
+            })}
+          </Routes>
+        </Suspense>
       </main>
     </div>
   )

@@ -2,11 +2,33 @@
 # ============================================================================
 # Dream Server — Safe environment loading (no eval)
 # ============================================================================
-# Parses KEY="value" lines (with \" and \\ escapes) from stdin and exports
-# them in the current shell. Use instead of eval for output from
-# build-capability-profile.sh, preflight-engine.sh, resolve-compose-stack.sh,
-# load-backend-contract.sh, etc.
+# Scripts that need to load .env should use load_env_file from this script.
+# Do not use eval or "export $(grep ... .env | xargs)" — they allow injection.
+#
+# - load_env_file <path>  — parse a .env file and export vars (safe keys, no eval)
+# - load_env_from_output  — parse KEY="value" lines from stdin (for script output)
 # ============================================================================
+
+# Load a .env file safely: comments and empty lines skipped; key names must be
+# valid identifiers; values may be unquoted or quoted; no eval or word-splitting.
+load_env_file() {
+    local path="$1"
+    [[ -f "$path" ]] || return 0
+    local key value
+    while IFS='=' read -r key value; do
+        [[ "$key" =~ ^[[:space:]]*# ]] && continue
+        key="${key#"${key%%[![:space:]]*}"}"
+        key="${key%"${key##*[![:space:]]}"}"
+        [[ -z "$key" ]] && continue
+        [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+        value="${value# }"
+        value="${value%\"}"
+        value="${value#\"}"
+        value="${value%\'}"
+        value="${value#\'}"
+        export "$key=$value"
+    done < "$path"
+}
 
 load_env_from_output() {
     local line key value

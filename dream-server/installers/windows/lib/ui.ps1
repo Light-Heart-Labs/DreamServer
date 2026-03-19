@@ -103,6 +103,132 @@ function Show-ProgressDownload {
     }
 }
 
+function Invoke-DownloadWithRetry {
+    <#
+    .SYNOPSIS
+        Download a file with automatic retry on failure.
+    .DESCRIPTION
+        Wraps Show-ProgressDownload with exponential backoff retry logic.
+        Retries up to MaxRetries times with increasing delays (2s, 5s, 10s).
+    .PARAMETER Url
+        URL to download from.
+    .PARAMETER Destination
+        Local file path to save to.
+    .PARAMETER Label
+        Display label for progress messages (default: "Downloading").
+    .PARAMETER MaxRetries
+        Maximum number of retry attempts (default: 3).
+    .OUTPUTS
+        $true on success, $false on final failure.
+    #>
+    param(
+        [string]$Url,
+        [string]$Destination,
+        [string]$Label = "Downloading",
+        [int]$MaxRetries = 3
+    )
+
+    for ($attempt = 1; $attempt -le $MaxRetries; $attempt++) {
+        if ($attempt -gt 1) {
+            $delay = @(2, 5, 10)[$attempt - 2]
+            Write-AI "Retry attempt $attempt of $MaxRetries (waiting ${delay}s)..."
+            Start-Sleep -Seconds $delay
+        }
+
+        $success = Show-ProgressDownload -Url $Url -Destination $Destination -Label $Label
+
+        if ($success) {
+            # Verify file exists and has content
+            if ((Test-Path $Destination) -and ((Get-Item $Destination).Length -gt 0)) {
+                return $true
+            } else {
+                Write-AIWarn "Download reported success but file is missing or empty"
+            }
+        }
+    }
+
+    Write-AIError "Download failed after $MaxRetries attempts"
+    return $false
+}
+
+function Invoke-ExtractionWithRetry {
+    <#
+    .SYNOPSIS
+        Extract a zip file with validation and retry on failure.
+    .DESCRIPTION
+        Validates zip integrity before extraction, retries on failure,
+        and cleans up partial extractions. Uses Test-ZipIntegrity to
+        catch corrupted downloads before attempting extraction.
+    .PARAMETER ZipPath
+        Path to the zip file to extract.
+    .PARAMETER DestinationPath
+        Directory to extract files into.
+    .PARAMETER MaxRetries
+        Maximum number of extraction attempts (default: 3).
+    .OUTPUTS
+        $true on success, $false on final failure.
+    #>
+    param(
+        [string]$ZipPath,
+        [string]$DestinationPath,
+        [int]$MaxRetries = 3
+    )
+
+    for ($attempt = 1; $attempt -le $MaxRetries; $attempt++) {
+        if ($attempt -gt 1) {
+            Write-AI "Extraction retry attempt $attempt of $MaxRetries..."
+        }
+
+        # Validate zip integrity before attempting extraction
+        $zipValid = Test-ZipIntegrity -Path $ZipPath
+        if (-not $zipValid.Valid) {
+            Write-AIWarn "Zip validation failed: $($zipValid.ErrorMessage)"
+            if ($attempt -lt $MaxRetries) {
+                Write-AI "Zip file may be corrupted, will retry..."
+                Start-Sleep -Seconds 2
+                continue
+            } else {
+                Write-AIError "Zip file is corrupt after $MaxRetries attempts"
+                return $false
+            }
+        }
+
+        # Attempt extraction
+        try {
+            # Remove partial extraction if it exists
+            if (Test-Path $DestinationPath) {
+                Write-AI "Cleaning up previous extraction attempt..."
+                Remove-Item -Path $DestinationPath -Recurse -Force -ErrorAction Stop
+            }
+
+            # Create parent directory if needed
+            $parentDir = Split-Path -Parent $DestinationPath
+            if (-not (Test-Path $parentDir)) {
+                New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
+            }
+
+            # Extract
+            Expand-Archive -Path $ZipPath -DestinationPath $DestinationPath -Force -ErrorAction Stop
+
+            # Verify extraction succeeded (check if directory exists and has content)
+            if ((Test-Path $DestinationPath) -and ((Get-ChildItem $DestinationPath).Count -gt 0)) {
+                return $true
+            } else {
+                Write-AIWarn "Extraction completed but destination is empty"
+            }
+        }
+        catch {
+            Write-AIWarn "Extraction failed: $($_.Exception.Message)"
+            if ($attempt -lt $MaxRetries) {
+                Start-Sleep -Seconds 2
+            }
+        }
+    }
+
+    Write-AIError "Extraction failed after $MaxRetries attempts"
+    return $false
+}
+
 function Write-SuccessCard {
     param(
         [string]$WebUIPort = "3000",

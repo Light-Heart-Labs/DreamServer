@@ -4,10 +4,15 @@
 
 KOKORO_URL="http://localhost:8880"
 
+# Portable millisecond timestamp (macOS BSD date lacks %N)
+_now_ms() {
+    python3 -c 'import time; print(int(time.time() * 1000))' 2>/dev/null || echo "$(date +%s)000"
+}
+
 echo "=== M8 Test: TTS Full (Kokoro Inference) ==="
 
 # Test TTS endpoint with simple text
-START=$(date +%s%N)
+START=$(_now_ms)
 RESPONSE=$(curl -s -X POST "$KOKORO_URL/v1/audio/speech" \
   -H "Content-Type: application/json" \
   -d '{
@@ -16,8 +21,8 @@ RESPONSE=$(curl -s -X POST "$KOKORO_URL/v1/audio/speech" \
     "voice": "af_bella",
     "response_format": "mp3"
   }' 2>/dev/null)
-END=$(date +%s%N)
-LATENCY=$(( (END - START) / 1000000 ))
+END=$(_now_ms)
+LATENCY=$(( END - START ))
 
 # Check if we got audio data (MP3 starts with ID3 or empty binary)
 if echo "$RESPONSE" | head -c 10 | xxd | grep -qE "ID3|fffb|5249"; then

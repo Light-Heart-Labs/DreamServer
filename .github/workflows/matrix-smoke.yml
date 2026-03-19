@@ -75,14 +75,16 @@ jobs:
 
       - name: Verify /etc/os-release
         working-directory: /
+        shell: bash
         run: |
           echo "=== /etc/os-release ==="
           cat /etc/os-release
-          source /etc/os-release
+          . /etc/os-release
           echo "ID=$ID"
           echo "ID_LIKE=${ID_LIKE:-none}"
 
       - name: Test packaging.sh detection
+        shell: bash
         run: |
           # Source the packaging library and verify detection
           export LOG_FILE=/dev/null
@@ -102,6 +104,7 @@ jobs:
           echo "PASS: package manager detection correct"
 
       - name: Test pkg_install (install jq + rsync)
+        shell: bash
         run: |
           export LOG_FILE=/dev/null
           log() { echo "[INFO] $1"; }

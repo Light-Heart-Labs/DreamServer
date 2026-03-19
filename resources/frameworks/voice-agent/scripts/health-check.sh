@@ -19,9 +19,9 @@ done
 
 # Check endpoints
 echo -e "\n--- Endpoint Health ---"
-curl -s --max-time 5 http://localhost:8000/v1/models > /dev/null && echo "vLLM (8000): OK" || echo "vLLM (8000): FAILED"
-curl -s --max-time 5 http://localhost:8001/ > /dev/null && echo "Whisper (8001): OK" || echo "Whisper (8001): FAILED"
-curl -s --max-time 5 http://localhost:8002/ > /dev/null && echo "TTS (8002): OK" || echo "TTS (8002): FAILED"
+curl -s --max-time 5 http://localhost:8080/v1/models > /dev/null && echo "vLLM (8000): OK" || echo "vLLM (8000): FAILED"
+curl -s --max-time 5 http://localhost:9000/ > /dev/null && echo "Whisper (8001): OK" || echo "Whisper (8001): FAILED"
+curl -s --max-time 5 http://localhost:8880/ > /dev/null && echo "TTS (8002): OK" || echo "TTS (8002): FAILED"
 
 # Check resources
 echo -e "\n--- Resources ---"
@@ -29,29 +29,6 @@ free -h | grep Mem
 df -h / | tail -1
 nvidia-smi --query-gpu=temperature.gpu,memory.used,memory.total --format=csv,noheader 2>/dev/null || echo "GPU: N/A"
 
-# Check ~/.openclaw directory
-echo -e "\n--- OpenClaw Directory ---"
-if [ -d "$HOME/.openclaw" ]; then
-  echo "~/.openclaw: EXISTS"
-  du -sh "$HOME/.openclaw" 2>/dev/null | awk '{print "Size: " $1}'
-  
-  # Check OpenClaw gateway if running
-  if pgrep -f "openclaw" > /dev/null; then
-    echo "OpenClaw gateway: RUNNING"
-  else
-    echo "OpenClaw gateway: NOT RUNNING"
-  fi
-  
-  # Check workspace
-  if [ -d "$HOME/.openclaw/workspace" ]; then
-    echo "Workspace: EXISTS"
-    git -C "$HOME/.openclaw/workspace" status --short 2>/dev/null | wc -l | xargs -I {} echo "Uncommitted changes: {}"
-  else
-    echo "Workspace: NOT FOUND"
-  fi
-else
-  echo "~/.openclaw: NOT FOUND"
-fi
 
 # Check recent errors
 echo -e "\n--- Recent Errors (last 5 min) ---"

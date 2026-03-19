@@ -171,13 +171,20 @@ fi
 # ═══════════════════════════════════════════════════════════════
 
 if $STRESS; then
-    if [[ -f "$TESTS_DIR/voice-stress-test.py" ]] && command -v python3 &>/dev/null; then
+    PYTHON_CMD="python3"
+    if command -v python3 &>/dev/null && python3 -c 'import sys; sys.exit(0)' &>/dev/null; then
+        PYTHON_CMD="python3"
+    elif command -v python &>/dev/null && python -c 'import sys; sys.exit(0)' &>/dev/null; then
+        PYTHON_CMD="python"
+    fi
+
+    if [[ -f "$TESTS_DIR/voice-stress-test.py" ]] && command -v "$PYTHON_CMD" &>/dev/null; then
         echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo -e "${BOLD}Stress Test (10 concurrent, 1 round)${NC}"
         echo ""
         
         cd "$TESTS_DIR"
-        if python3 voice-stress-test.py --concurrent 10 --rounds 1 --skip-check; then
+        if "$PYTHON_CMD" voice-stress-test.py --concurrent 10 --rounds 1 --skip-check; then
             ((SUITE_PASSED++))
         else
             ((SUITE_FAILED++))

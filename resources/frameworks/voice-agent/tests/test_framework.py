@@ -24,9 +24,9 @@ from typing import Optional, List, Dict, Any
 from pathlib import Path
 
 # Configuration
-LLM_URL = os.getenv("LLM_BASE_URL", "http://192.168.0.122:8000/v1")
-API_URL = os.getenv("API_BASE_URL", "http://192.168.0.122:8097")
-N8N_TICKET_URL = os.getenv("N8N_TICKET_URL", "https://n8n.lightheartcloud.com/webhook/ticket")
+LLM_URL = os.getenv("LLM_BASE_URL", "http://localhost:8080/v1")
+API_URL = os.getenv("API_BASE_URL", "http://localhost:8097")
+N8N_TICKET_URL = os.getenv("N8N_TICKET_URL", "http://localhost:5679/webhook/ticket")
 COMPANY_NAME = os.getenv("COMPANY_NAME", "Light Heart Mechanical")
 
 # Import V2 scenarios

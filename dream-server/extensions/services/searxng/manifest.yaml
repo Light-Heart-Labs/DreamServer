@@ -11,6 +11,7 @@ service:
   external_port_env: SEARXNG_PORT
   external_port_default: 8888
   health: /healthz
+  ui_path: /
   type: docker
   gpu_backends: [amd, nvidia]
   compose_file: compose.yaml
