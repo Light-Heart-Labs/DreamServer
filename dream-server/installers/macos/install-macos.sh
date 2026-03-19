@@ -131,7 +131,9 @@ if $OLLAMA_RUNNING; then
     if ! $NON_INTERACTIVE; then
         read -r -p "  Stop Ollama for this session? [Y/n] " ollama_choice
         if [[ ! "$ollama_choice" =~ ^[nN] ]]; then
-            kill "$OLLAMA_PID" 2>/dev/null || true
+            kill_exit=0
+            kill "$OLLAMA_PID" 2>/dev/null || kill_exit=$?
+            [[ $kill_exit -ne 0 ]] && ai_warn "Failed to kill Ollama (exit $kill_exit)"
             sleep 2
             if pgrep -x ollama >/dev/null 2>&1; then
                 ai_warn "Ollama restarted automatically. You may need to quit it from the menu bar."
