@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Errors | Dream Server</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" crossorigin="anonymous">
+    <style>
+        body {
+            background: #0f1117;
+        }
+        .shell {
+            max-width: 1080px;
+            margin: 0 auto;
+            padding: 2rem 1rem 4rem;
+        }
+        .hero {
+            display: grid;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .hero-card {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.18), rgba(15, 23, 42, 0.92));
+            border: 1px solid rgba(248, 113, 113, 0.25);
+            border-radius: 20px;
+            padding: 1.5rem;
+        }
+        .hero-card h1 {
+            margin-bottom: 0.5rem;
+        }
+        .hint-grid {
+            display: grid;
+            gap: 1rem;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            margin-top: 1rem;
+        }
+        .hint {
+            background: rgba(15, 23, 42, 0.72);
+            border: 1px solid rgba(148, 163, 184, 0.12);
+            border-radius: 16px;
+            padding: 1rem;
+        }
+        #errors-fragment {
+            min-height: 220px;
+        }
+        .loading {
+            opacity: 0.72;
+        }
+    </style>
+</head>
+<body>
+    <main class="shell">
+        <section class="hero">
+            <div class="hero-card">
+                <h1>Operational Errors</h1>
+                <p>One place to review broken manifests, unhealthy services, and the next things to fix before users feel it.</p>
+                <div class="hint-grid">
+                    <article class="hint">
+                        <strong>Manifest issues</strong>
+                        <p>Usually point to bad extension metadata or schema drift.</p>
+                    </article>
+                    <article class="hint">
+                        <strong>Runtime issues</strong>
+                        <p>Usually mean a container is down, degraded, or blocked on a dependency.</p>
+                    </article>
+                    <article class="hint">
+                        <strong>Refresh cadence</strong>
+                        <p>This page refreshes every 10 seconds, so it works well as a wallboard during installs.</p>
+                    </article>
+                </div>
+            </div>
+        </section>
+
+        <section
+            id="errors-fragment"
+            class="loading"
+            hx-get="/api/fragments/errors"
+            hx-trigger="load, every 10s"
+            hx-swap="innerHTML"
+        >
+            <article aria-busy="true">Loading current error summary…</article>
+        </section>
+    </main>
+
+    <script>
+        document.body.addEventListener('htmx:beforeRequest', function (event) {
+            if (event.detail.elt && event.detail.elt.id === 'errors-fragment') {
+                event.detail.elt.classList.add('loading');
+            }
+        });
+
+        document.body.addEventListener('htmx:afterSwap', function (event) {
+            if (event.detail.target && event.detail.target.id === 'errors-fragment') {
+                event.detail.target.classList.remove('loading');
+            }
+        });
+    </script>
+</body>
+</html>

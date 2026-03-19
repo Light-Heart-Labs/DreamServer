@@ -11,7 +11,7 @@ Modules:
   security.py     — API key authentication
   gpu.py          — GPU detection (NVIDIA + AMD)
   helpers.py      — Service health, LLM metrics, system metrics
-  routers/        — Endpoint modules (workflows, features, setup, updates, agents, privacy)
+  routers/        — Endpoint modules (workflows, features, setup, updates, agents, privacy, fragments)
 """
 
 import asyncio
@@ -76,7 +76,7 @@ _STATUS_CACHE_TTL = 2.0
 _STORAGE_CACHE_TTL = 30.0
 
 # --- Router imports ---
-from routers import workflows, features, setup, updates, agents, privacy
+from routers import workflows, features, setup, updates, agents, privacy, fragments_errors
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +125,7 @@ app.include_router(setup.router)
 app.include_router(updates.router)
 app.include_router(agents.router)
 app.include_router(privacy.router)
+app.include_router(fragments_errors.router)
 
 
 # ================================================================

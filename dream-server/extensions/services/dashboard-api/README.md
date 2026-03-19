@@ -107,6 +107,16 @@ Environment variables (set in `.env`):
 | `GET` | `/api/agents/cluster` | Yes | Cluster health and GPU node status |
 | `GET` | `/api/agents/throughput` | Yes | Throughput stats (tokens/sec) |
 
+### HTML Fragments
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/fragments/errors` | Yes | Consolidated manifest and service health error summary |
+
+The dashboard service can expose these fragments directly inside lightweight ops pages such as `public/errors.html`.
+That keeps error triage available even when the full React dashboard is unavailable.
+It is especially handy during installs and extension bring-up.
+
 ### Privacy Shield
 
 | Method | Path | Auth | Description |
