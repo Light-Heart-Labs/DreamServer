@@ -19,6 +19,7 @@
 | [INTEGRATION-GUIDE.md](INTEGRATION-GUIDE.md) | Developers | Connect apps via OpenAI SDK, LangChain, n8n |
 | [BACKEND-CONTRACT.md](BACKEND-CONTRACT.md) | Developers | Backend runtime contract JSON schema |
 | [OPENCLAW-INTEGRATION.md](OPENCLAW-INTEGRATION.md) | Developers | OpenClaw agent framework setup |
+| [MEMORY-SHEPHERD.md](MEMORY-SHEPHERD.md) | Developers | Agent memory layers, retention policy, flush/export, OpenClaw integration |
 
 ## Hardware & Configuration
 
