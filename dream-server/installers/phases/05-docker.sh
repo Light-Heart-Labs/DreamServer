@@ -258,6 +258,27 @@ _docker_post_install_checks() {
 dream_progress 35 "docker" "Running Docker post-install checks"
 _docker_post_install_checks
 
+# Clean up stale Dream Server containers from previous failed installations
+dream_progress 37 "docker" "Cleaning up stale containers"
+if ! $DRY_RUN; then
+    ai "Checking for stale Dream Server containers..."
+    # Find all containers with 'dream-' prefix (our naming convention)
+    STALE_CONTAINERS=$(docker_run ps -a --filter "name=dream-" --format "{{.Names}}" 2>/dev/null || true)
+    if [[ -n "$STALE_CONTAINERS" ]]; then
+        STALE_COUNT=$(echo "$STALE_CONTAINERS" | wc -l)
+        ai_warn "Found $STALE_COUNT stale container(s) from previous installation"
+        # Stop and remove stale containers
+        echo "$STALE_CONTAINERS" | xargs -r docker_run rm -f >> "$LOG_FILE" 2>&1 || true
+        ai_ok "Cleaned up stale containers"
+    fi
+
+    # Clean up stale networks (dream-server_default, etc.)
+    STALE_NETWORKS=$(docker_run network ls --filter "name=dream-server" --format "{{.Name}}" 2>/dev/null | grep -v "^bridge$\|^host$\|^none$" || true)
+    if [[ -n "$STALE_NETWORKS" ]]; then
+        echo "$STALE_NETWORKS" | xargs -r docker_run network rm >> "$LOG_FILE" 2>&1 || true
+    fi
+fi
+
 # NVIDIA Container Toolkit (skip for AMD — uses /dev/dri + /dev/kfd passthrough)
 if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "nvidia" ]]; then
     dream_progress 36 "docker" "Checking NVIDIA Container Toolkit"
