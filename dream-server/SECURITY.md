@@ -159,6 +159,80 @@ tar -cz data/ | gpg -c > dream-backup-$(date +%Y%m%d).tar.gz.gpg
 gpg -d dream-backup-YYYYMMDD.tar.gz.gpg | tar -xz
 ```
 
+### Model Download Integrity
+
+The installer verifies GGUF model downloads using SHA256 checksums to prevent:
+- Corrupted downloads from network issues
+- Truncated files from interrupted transfers
+- Potential supply chain attacks
+
+**How it works:**
+1. Before installation: checks existing model files against known checksums
+2. After download: verifies freshly downloaded models
+3. On mismatch: removes corrupt file and prompts for re-download
+
+**Verification happens automatically** during installation. If a model fails verification:
+```bash
+# The installer will show:
+# ✗ Downloaded file is corrupt (SHA256 mismatch)
+#   Expected: 9f1a24700a339b09c06009b729b5c809e0b64c213b8af5b711b3dbdfd0c5ba48
+#   Got:      [actual hash]
+# Corrupt file removed. Re-run installer to download again.
+
+# Simply re-run the installer:
+./install.sh
+```
+
+**Manual verification:**
+```bash
+# Check a model file manually
+sha256sum data/models/Qwen3-8B-Q4_K_M.gguf
+
+# Compare against expected hash in installers/lib/tier-map.sh
+grep -A 2 "Qwen3-8B" installers/lib/tier-map.sh | grep GGUF_SHA256
+```
+
+**Note:** Some models (like Qwen3-14B and qwen3-coder-next) don't have checksums yet. The installer will skip verification for these but still download them successfully.
+
+### Network Timeout Hardening
+
+All network operations (downloads, health checks, API calls) include timeout protection to prevent indefinite hangs.
+
+**Important semantic note:**
+- `curl --max-time` is a **total wall-clock timeout** for the entire request.
+- `wget --timeout/--read-timeout` are **per-connection / idle (no-progress) timeouts**.
+
+Because of this difference, **large model downloads must not use a low `curl --max-time`**, or they will abort on slow-but-progressing links.
+
+**Timeout policy:**
+- **Health checks / small API calls**: use `curl --connect-timeout` + `--max-time` (short total timeout)
+- **Script downloads / small metadata**: use `curl --connect-timeout` + `--max-time` (bounded total time)
+- **Large model downloads**: fail fast on unreachable servers, and fail on *stalled* transfers, but do **not** impose a low total wall-clock cap
+
+**Why this matters:**
+- Prevents installer hangs on slow/unresponsive networks
+- Keeps slow-but-progressing multi-GB downloads running
+- Provides predictable failure modes instead of indefinite blocking
+
+**Examples:**
+```bash
+# Health check (total timeout is OK)
+curl -fsS --connect-timeout 3 --max-time 10 http://localhost:8080/health
+
+# Script download (bounded total timeout is OK)
+curl -fsSL --connect-timeout 10 --max-time 300 https://get.docker.com -o script.sh
+
+# Large download (stall detection; no low total max-time)
+# - speed-limit/time = "consider it stalled if below 10KiB/s for 30s"
+curl -C - -L --progress-bar --connect-timeout 10 \
+  --speed-time 30 --speed-limit 10240 \
+  -o model.gguf.part https://example.com/model.gguf
+```
+
+On Linux, `wget -c` with `--timeout`/`--read-timeout` provides similar stall protection semantics for large downloads.
+
+All timeout values are tuned for typical network conditions while allowing for slower connections.
+
 ---
 
 ## API Security

@@ -20,6 +20,28 @@ SESSIONS_DIR="${SESSIONS_DIR:-$OPENCLAW_DIR/agents/main/sessions}"
 SESSIONS_JSON="$SESSIONS_DIR/sessions.json"
 MAX_SIZE="${MAX_SIZE:-256000}"
 
+usage() {
+    echo "Usage: $0 [OPTIONS]"
+    echo ""
+    echo "Prevents context overflow by pruning OpenClaw session files: removes inactive"
+    echo "sessions and deletes bloated ones (over size threshold), then updates"
+    echo "sessions.json so the gateway creates a fresh session."
+    echo ""
+    echo "Options:"
+    echo "  -h, --help   Show this help and exit."
+    echo ""
+    echo "Environment:"
+    echo "  OPENCLAW_DIR   Base OpenClaw dir (default: \$HOME/dream-server/data/openclaw/home/.openclaw)"
+    echo "  SESSIONS_DIR   Sessions directory (default: \$OPENCLAW_DIR/agents/main/sessions)"
+    echo "  MAX_SIZE       Max session file size in bytes (default: 256000)"
+    echo ""
+    echo "Exit: 0 (always; missing paths are skipped with a log message)."
+}
+
+case "${1:-}" in
+    -h|--help) usage; exit 0 ;;
+esac
+
 # ── Preflight ──────────────────────────────────────────────────
 if [ ! -f "$SESSIONS_JSON" ]; then
     echo "[$(date)] No sessions.json found at $SESSIONS_JSON, skipping"
@@ -31,8 +53,12 @@ if [ ! -d "$SESSIONS_DIR" ]; then
     exit 0
 fi
 
-# ── Extract active session IDs ─────────────────────────────────
-ACTIVE_IDS=$(grep -oP '"sessionId":\s*"\K[^"]+' "$SESSIONS_JSON" 2>/dev/null || true)
+# ── Extract active session IDs (portable: no grep -P) ─────────
+ACTIVE_IDS_EXIT=0
+ACTIVE_IDS=$(grep -oE '"sessionId"[[:space:]]*:[[:space:]]*"[^"]+"' "$SESSIONS_JSON" 2>&1 | sed -E 's/.*"sessionId"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/') || ACTIVE_IDS_EXIT=$?
+if [[ $ACTIVE_IDS_EXIT -ne 0 ]]; then
+    ACTIVE_IDS=""
+fi
 
 echo "[$(date)] Session cleanup starting"
 echo "[$(date)] Sessions dir: $SESSIONS_DIR"
@@ -40,8 +66,18 @@ echo "[$(date)] Max size threshold: $MAX_SIZE bytes"
 echo "[$(date)] Active sessions found: $(echo "$ACTIVE_IDS" | wc -w)"
 
 # ── Clean up debris ────────────────────────────────────────────
-DELETED_COUNT=$(find "$SESSIONS_DIR" -name '*.deleted.*' -delete -print 2>/dev/null | wc -l)
-BAK_COUNT=$(find "$SESSIONS_DIR" -name '*.bak*' -not -name '*.bak-cleanup' -delete -print 2>/dev/null | wc -l)
+DELETED_EXIT=0
+DELETED_COUNT=$(find "$SESSIONS_DIR" -name '*.deleted.*' -delete -print 2>&1 | wc -l) || DELETED_EXIT=$?
+if [[ $DELETED_EXIT -ne 0 ]]; then
+    DELETED_COUNT=0
+fi
+
+BAK_EXIT=0
+BAK_COUNT=$(find "$SESSIONS_DIR" -name '*.bak*' -not -name '*.bak-cleanup' -delete -print 2>&1 | wc -l) || BAK_EXIT=$?
+if [[ $BAK_EXIT -ne 0 ]]; then
+    BAK_COUNT=0
+fi
+
 if [ "$DELETED_COUNT" -gt 0 ] || [ "$BAK_COUNT" -gt 0 ]; then
     echo "[$(date)] Cleaned up $DELETED_COUNT .deleted files, $BAK_COUNT .bak files"
 fi
@@ -70,10 +106,20 @@ for f in "$SESSIONS_DIR"/*.jsonl; do
         rm -f "$f"
         REMOVED_INACTIVE=$((REMOVED_INACTIVE + 1))
     else
-        SIZE_BYTES=$(stat -c%s "$f" 2>/dev/null || echo 0)
+        # Portable stat: Linux uses -c%s, macOS uses -f%z
+        local stat_exit=0
+        if [ "$(uname -s)" = "Darwin" ]; then
+            SIZE_BYTES=$(stat -f%z "$f" 2>&1) || stat_exit=$?
+        else
+            SIZE_BYTES=$(stat -c%s "$f" 2>&1) || stat_exit=$?
+        fi
+        if [[ $stat_exit -ne 0 ]]; then
+            SIZE_BYTES=0
+        fi
         if [ "$SIZE_BYTES" -gt "$MAX_SIZE" ]; then
             SIZE=$(du -h "$f" | cut -f1)
-            echo "[$(date)] Session $BASENAME is bloated ($SIZE > $(numfmt --to=iec $MAX_SIZE 2>/dev/null || echo "${MAX_SIZE}B")), deleting to force fresh session"
+            SIZE_LABEL=$(command -v numfmt >/dev/null 2>&1 && numfmt --to=iec "$MAX_SIZE" || echo "${MAX_SIZE}B")
+            echo "[$(date)] Session $BASENAME is bloated ($SIZE > ${SIZE_LABEL}), deleting to force fresh session"
             rm -f "$f"
             WIPE_IDS="$WIPE_IDS $BASENAME"
             REMOVED_BLOATED=$((REMOVED_BLOATED + 1))
@@ -87,7 +133,15 @@ if [ -n "$WIPE_IDS" ]; then
     cp "$SESSIONS_JSON" "$SESSIONS_JSON.bak-cleanup"
 
     for ID in $WIPE_IDS; do
-        python3 -c "
+        PYTHON_CMD="python3"
+        if [[ -f "$(dirname "$0")/../lib/python-cmd.sh" ]]; then
+            . "$(dirname "$0")/../lib/python-cmd.sh"
+            PYTHON_CMD="$(ds_detect_python_cmd)"
+        elif command -v python >/dev/null 2>&1; then
+            PYTHON_CMD="python"
+        fi
+
+        "$PYTHON_CMD" -c "
 import json, sys
 with open('$SESSIONS_JSON', 'r') as f:
     data = json.load(f)
@@ -106,10 +160,15 @@ fi
 
 # ── Summary ────────────────────────────────────────────────────
 echo "[$(date)] Cleanup complete: removed $REMOVED_INACTIVE inactive, $REMOVED_BLOATED bloated"
-REMAINING=$(find "$SESSIONS_DIR" -maxdepth 1 -name '*.jsonl' 2>/dev/null | wc -l)
+REMAINING_EXIT=0
+REMAINING=$(find "$SESSIONS_DIR" -maxdepth 1 -name '*.jsonl' 2>&1 | wc -l) || REMAINING_EXIT=$?
+if [[ $REMAINING_EXIT -ne 0 ]]; then
+    REMAINING=0
+fi
 echo "[$(date)] Remaining session files: $REMAINING"
 if [ "$REMAINING" -gt 0 ]; then
-    ls -lhS "$SESSIONS_DIR"/*.jsonl 2>/dev/null | while read -r line; do
+    ls_exit=0
+    ls -lhS "$SESSIONS_DIR"/*.jsonl 2>&1 | while read -r line; do
         echo "  $line"
-    done
+    done || ls_exit=$?
 fi

@@ -68,4 +68,11 @@ fi
 #-----------------------------------------------------------------------------
 echo "[startup] Starting ComfyUI server..."
 cd "$COMFYUI_DIR"
-exec python3 main.py --listen 0.0.0.0 --port 8188
+PYTHON_CMD="python3"
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(0)' >/dev/null 2>&1; then
+    PYTHON_CMD="python3"
+elif command -v python >/dev/null 2>&1 && python -c 'import sys; sys.exit(0)' >/dev/null 2>&1; then
+    PYTHON_CMD="python"
+fi
+
+exec "$PYTHON_CMD" main.py --listen 0.0.0.0 --port 8188

@@ -8,6 +8,23 @@
     "schema_version": {
       "const": "dream.services.v1"
     },
+    "compatibility": {
+      "type": "object",
+      "description": "Dream Server version compatibility; used by validate-manifests.sh for version checks",
+      "properties": {
+        "dream_min": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Minimum Dream Server version this extension supports (e.g. 2.0.0)"
+        },
+        "dream_max": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Maximum Dream Server version this extension was tested against (optional)"
+        }
+      },
+      "additionalProperties": false
+    },
     "service": {
       "type": "object",
       "required": ["id", "name", "port", "health"],

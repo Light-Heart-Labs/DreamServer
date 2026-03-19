@@ -216,9 +216,35 @@ git sparse-checkout set dream-server 2>/dev/null || {
     cd "$TEMP_DIR/repo"
 }
 
-# Move dream-server to install location
+# Move dream-server to install location (exclude dev-only files)
 if [[ -d "$TEMP_DIR/repo/dream-server" ]]; then
-    cp -r "$TEMP_DIR/repo/dream-server" "$INSTALL_DIR"
+    # Use rsync to exclude development files not needed at runtime
+    if command -v rsync >/dev/null 2>&1; then
+        rsync -a \
+            --exclude='tests/' \
+            --exclude='docs/' \
+            --exclude='examples/' \
+            --exclude='.github/' \
+            --exclude='*.md' \
+            --exclude='.shellcheckrc' \
+            --exclude='PSScriptAnalyzerSettings.psd1' \
+            --exclude='test-stack.sh' \
+            --exclude='.gitignore' \
+            --exclude='__pycache__/' \
+            --exclude='*.pyc' \
+            --exclude='.pytest_cache/' \
+            --exclude='node_modules/' \
+            --include='LICENSE' \
+            "$TEMP_DIR/repo/dream-server/" "$INSTALL_DIR/"
+    else
+        # Fallback to cp if rsync not available
+        cp -r "$TEMP_DIR/repo/dream-server" "$INSTALL_DIR"
+        # Remove dev-only files after copy
+        rm -rf "$INSTALL_DIR/tests" "$INSTALL_DIR/docs" "$INSTALL_DIR/examples" "$INSTALL_DIR/.github" 2>/dev/null || true
+        rm -f "$INSTALL_DIR"/*.md "$INSTALL_DIR/.shellcheckrc" "$INSTALL_DIR/PSScriptAnalyzerSettings.psd1" "$INSTALL_DIR/test-stack.sh" "$INSTALL_DIR/.gitignore" 2>/dev/null || true
+        # Keep LICENSE file
+        [[ -f "$TEMP_DIR/repo/dream-server/LICENSE" ]] && cp "$TEMP_DIR/repo/dream-server/LICENSE" "$INSTALL_DIR/" 2>/dev/null || true
+    fi
 else
     error "dream-server directory not found in repository."
 fi
@@ -229,7 +255,7 @@ success "Cloned to $INSTALL_DIR"
 chmod +x "$INSTALL_DIR/install.sh" 2>/dev/null || true
 chmod +x "$INSTALL_DIR/dream-cli" 2>/dev/null || true
 chmod +x "$INSTALL_DIR/scripts/"*.sh 2>/dev/null || true
-chmod +x "$INSTALL_DIR/tests/"*.sh 2>/dev/null || true
+# Note: tests/ directory excluded from installation
 
 # ── Run installer ──────────────────────────────
 echo ""

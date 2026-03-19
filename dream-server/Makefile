@@ -3,7 +3,7 @@
 
 SHELL_FILES := $(shell find . -name '*.sh' -not -path './node_modules/*' -not -path './.git/*' -not -path './data/*' -not -path './token-spy/*')
 
-.PHONY: help lint test smoke simulate gate doctor
+.PHONY: help lint test bats smoke simulate gate doctor
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -13,7 +13,7 @@ lint: ## Syntax check all shell scripts + Python compile check
 	@echo "=== Shell syntax ==="
 	@fail=0; for f in $(SHELL_FILES); do bash -n "$$f" || fail=1; done; [ $$fail -eq 0 ]
 	@echo "=== Python compile ==="
-	@python3 -m py_compile dashboard-api/main.py dashboard-api/agent_monitor.py
+	@python3 -m py_compile extensions/services/dashboard-api/main.py extensions/services/dashboard-api/agent_monitor.py
 	@echo "All lint checks passed."
 
 test: ## Run unit and contract tests
@@ -23,6 +23,10 @@ test: ## Run unit and contract tests
 	@echo "=== Installer contracts ==="
 	@bash tests/contracts/test-installer-contracts.sh
 	@bash tests/contracts/test-preflight-fixtures.sh
+
+bats: ## Run BATS unit tests for shell libraries
+	@echo "=== BATS unit tests ==="
+	@bash tests/run-bats.sh
 
 smoke: ## Run platform smoke tests
 	@echo "=== Smoke tests ==="
@@ -38,6 +42,6 @@ simulate: ## Run installer simulation harness
 doctor: ## Run diagnostic report
 	@bash scripts/dream-doctor.sh
 
-gate: lint test smoke simulate ## Full pre-release validation (lint + test + smoke + simulate)
+gate: lint test bats smoke simulate ## Full pre-release validation (lint + test + bats + smoke + simulate)
 	@echo ""
 	@echo "Release gate passed."

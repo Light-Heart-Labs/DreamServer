@@ -22,6 +22,7 @@
 #   Change tier auto-detection thresholds or add new hardware classes here.
 # ============================================================================
 
+dream_progress 12 "detection" "Detecting GPU hardware"
 chapter "SYSTEM DETECTION"
 
 # Cloud mode: skip GPU detection entirely
@@ -33,7 +34,20 @@ if [[ "${DREAM_MODE:-local}" == "cloud" ]]; then
     GPU_COUNT=0
     GPU_MEMORY_TYPE="none"
     TIER="CLOUD"
-    RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+    if grep -qi microsoft /proc/version 2>/dev/null; then
+        _wsl_ram_bytes=""
+        if command -v powershell.exe &>/dev/null; then
+            _wsl_ram_bytes=$(powershell.exe -NoProfile -Command \
+                "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory" 2>/dev/null | tr -d '\r')
+        fi
+        if [[ -n "$_wsl_ram_bytes" && "$_wsl_ram_bytes" =~ ^[0-9]+$ ]]; then
+            RAM_KB=$((_wsl_ram_bytes / 1024))
+        else
+            RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+        fi
+    else
+        RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+    fi
     RAM_GB=$((RAM_KB / 1024 / 1024))
     DISK_AVAIL=$(df -BG "$HOME" | tail -1 | awk '{print $4}' | tr -d 'G')
     BACKEND_ID="cpu"
@@ -55,21 +69,50 @@ ai "Reading hardware telemetry..."
 
 load_capability_profile || true
 
-# RAM Detection
-RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
-RAM_GB=$((RAM_KB / 1024 / 1024))
-log "RAM: ${RAM_GB}GB"
+# RAM Detection (WSL2-aware: query Windows host RAM if available)
+if grep -qi microsoft /proc/version 2>/dev/null; then
+    _wsl_ram_kb=""
+    if command -v powershell.exe &>/dev/null; then
+        _wsl_ram_bytes=$(powershell.exe -NoProfile -Command \
+            "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory" 2>/dev/null | tr -d '\r')
+        if [[ -n "$_wsl_ram_bytes" && "$_wsl_ram_bytes" =~ ^[0-9]+$ ]]; then
+            _wsl_ram_kb=$((_wsl_ram_bytes / 1024))
+        fi
+    fi
+    if [[ -z "$_wsl_ram_kb" ]] && command -v wmic.exe &>/dev/null; then
+        _wsl_ram_kb=$(wmic.exe OS get TotalVisibleMemorySize /value 2>/dev/null \
+            | grep -oE '[0-9]+' | sed -n '1p')
+    fi
+    if [[ -n "$_wsl_ram_kb" && "$_wsl_ram_kb" =~ ^[0-9]+$ ]]; then
+        RAM_KB="$_wsl_ram_kb"
+        RAM_GB=$((RAM_KB / 1024 / 1024))
+        _wsl_vm_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+        _wsl_vm_gb=$((_wsl_vm_kb / 1024 / 1024))
+        log "WSL2 detected — Windows host RAM: ${RAM_GB}GB (WSL2 VM sees: ${_wsl_vm_gb}GB)"
+    else
+        RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+        RAM_GB=$((RAM_KB / 1024 / 1024))
+        log "WSL2 detected — could not query Windows host RAM (VM sees: ${RAM_GB}GB)"
+        log "For correct tier selection: use --tier N or configure .wslconfig"
+    fi
+else
+    RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+    RAM_GB=$((RAM_KB / 1024 / 1024))
+    log "RAM: ${RAM_GB}GB"
+fi
 
 # Disk Detection
 DISK_AVAIL=$(df -BG "$HOME" | tail -1 | awk '{print $4}' | tr -d 'G')
 log "Available disk: ${DISK_AVAIL}GB"
 
 # GPU Detection
+ai "Detecting GPU..."
 detect_gpu || true
 
 if [[ "${CAP_PROFILE_LOADED:-false}" == "true" ]]; then
     case "${CAP_LLM_BACKEND:-}" in
-        amd) GPU_BACKEND="amd" ;;
+        amd)   GPU_BACKEND="amd" ;;
+        intel) GPU_BACKEND="intel" ;;
         *) GPU_BACKEND="nvidia" ;;
     esac
     [[ -n "${CAP_GPU_MEMORY_TYPE:-}" ]] && GPU_MEMORY_TYPE="${CAP_GPU_MEMORY_TYPE}"
@@ -146,11 +189,113 @@ if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "nvidia" ]]; then
     fi
 fi
 
+#-----------------------------------------------------------------------------
+# Intel Arc validation (lspci cross-check, Level Zero, intel_gpu_top)
+#-----------------------------------------------------------------------------
+if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "intel" ]]; then
+
+    # 1. Cross-validate with lspci — confirm the Arc card is visible to the PCI bus
+    #    detect_gpu() already confirmed it via sysfs; this adds a human-readable log line.
+    _arc_pci_name=""
+    if command -v lspci &>/dev/null; then
+        _arc_pci_name=$(lspci 2>/dev/null \
+            | grep -i 'VGA\|Display\|3D' \
+            | grep -i 'Intel.*Arc\|Arc.*Intel\|Intel.*A[0-9][0-9][0-9]\|Intel.*B[0-9][0-9][0-9]' \
+            | head -1 \
+            | sed 's/.*: //')
+        if [[ -n "$_arc_pci_name" ]]; then
+            ai_ok "lspci: $_arc_pci_name"
+        else
+            # Broader fallback: any Intel VGA/3D controller (covers cards lspci names without "Arc")
+            _arc_pci_name=$(lspci 2>/dev/null \
+                | grep -i 'VGA\|Display\|3D' \
+                | grep -i 'Intel' \
+                | head -1 \
+                | sed 's/.*: //')
+            [[ -n "$_arc_pci_name" ]] && ai_ok "lspci: $_arc_pci_name (Intel GPU)" \
+                || ai_warn "lspci: Intel Arc sysfs entry found but lspci VGA entry not visible — IOMMU or PCIe bridge may obscure it"
+        fi
+    else
+        ai_warn "lspci not found (install pciutils for richer GPU info); sysfs detection succeeded"
+    fi
+
+    # 2. Check Level Zero runtime — required for SYCL inference
+    #    level-zero-loader provides /usr/lib/libze_loader.so.1 or the ze_info binary.
+    _level_zero_ok=false
+    if command -v ze_info &>/dev/null; then
+        _level_zero_ok=true
+        _ze_version=$(ze_info 2>/dev/null | grep -i 'driver version\|Driver Version' | head -1 | xargs || true)
+        ai_ok "Level Zero: available${_ze_version:+ — $_ze_version}"
+    elif ldconfig -p 2>/dev/null | grep -q 'libze_loader'; then
+        _level_zero_ok=true
+        ai_ok "Level Zero: libze_loader found"
+    elif [[ -f /usr/lib/x86_64-linux-gnu/libze_loader.so.1 || \
+            -f /usr/lib/libze_loader.so.1 ]]; then
+        _level_zero_ok=true
+        ai_ok "Level Zero: libze_loader.so.1 present"
+    fi
+    if [[ "$_level_zero_ok" == "false" ]]; then
+        ai_warn "Level Zero runtime not detected."
+        ai "  The SYCL backend requires Level Zero to offload inference to the Arc GPU."
+        ai "  Install: sudo apt install intel-level-zero-gpu level-zero"
+        ai "  Without it, llama-server will fall back to CPU-only mode inside the container."
+    fi
+
+    # 3. Check /dev/dri — device node needed for Docker passthrough
+    if [[ -c /dev/dri/renderD128 || -d /dev/dri ]]; then
+        _render_node=$(ls /dev/dri/renderD* 2>/dev/null | head -1 || true)
+        ai_ok "/dev/dri: ${_render_node:-/dev/dri present} (GPU device pass-through available)"
+    else
+        ai_warn "/dev/dri not found — Docker GPU device pass-through may fail."
+        ai "  Ensure the Intel i915/xe kernel module is loaded: modprobe i915"
+    fi
+
+    # 4. Check intel_gpu_top (from intel-gpu-tools) — non-fatal, used for monitoring
+    if command -v intel_gpu_top &>/dev/null; then
+        _igt_ver=$(intel_gpu_top --version 2>/dev/null | head -1 || true)
+        ai_ok "intel_gpu_top: available${_igt_ver:+ ($_igt_ver)}"
+    else
+        log "intel_gpu_top not found (optional — used for GPU utilisation monitoring)"
+        log "  Install: sudo apt install intel-gpu-tools"
+    fi
+
+    # 5. Check video/render group membership (needed for rootless Docker device access)
+    _missing_groups=()
+    for _grp in video render; do
+        if ! id -nG 2>/dev/null | grep -qw "$_grp"; then
+            _missing_groups+=("$_grp")
+        fi
+    done
+    if [[ ${#_missing_groups[@]} -gt 0 ]]; then
+        ai_warn "Current user is not in group(s): ${_missing_groups[*]}"
+        ai "  Run: sudo usermod -aG ${_missing_groups[*]} \$USER   (then re-login)"
+        ai "  Without this, Docker cannot access /dev/dri inside the container."
+    else
+        ai_ok "User groups: video + render membership confirmed"
+    fi
+
+    # 6. Log final Arc summary
+    _arc_vram_gb=$((GPU_VRAM / 1024))
+    ai_ok "Intel Arc detected: $GPU_NAME (${_arc_vram_gb} GB VRAM, device ${GPU_DEVICE_ID:-unknown})"
+    log "Intel Arc backend: GPU_BACKEND=intel, VRAM=${GPU_VRAM}MB, Level Zero=${_level_zero_ok}"
+fi
+
 # Auto-detect tier if not specified
 if [[ -z "$TIER" ]]; then
     PROFILE_TIER="$(normalize_profile_tier "${CAP_RECOMMENDED_TIER:-}")"
     if [[ -n "$PROFILE_TIER" ]]; then
         TIER="$PROFILE_TIER"
+    elif [[ "$GPU_BACKEND" == "intel" ]]; then
+        # Intel Arc discrete GPU — SYCL backend via llama.cpp
+        # A770 = 16 GB  → ARC  (≥12 GB)
+        # A750 =  8 GB  → ARC_LITE
+        # A380 =  6 GB  → ARC_LITE
+        arc_vram_gb=$((GPU_VRAM / 1024))
+        if [[ $arc_vram_gb -ge 12 ]]; then
+            TIER="ARC"
+        else
+            TIER="ARC_LITE"
+        fi
     elif [[ "$GPU_BACKEND" == "amd" && "$GPU_MEMORY_TYPE" == "unified" ]]; then
         # Strix Halo binary tier system
         unified_gb=$((GPU_VRAM / 1024))
@@ -167,6 +312,8 @@ if [[ -z "$TIER" ]]; then
         TIER=3
     elif [[ $GPU_VRAM -ge 12000 ]] || [[ $RAM_GB -ge 48 ]]; then
         TIER=2
+    elif [[ $GPU_VRAM -lt 4000 ]] && [[ $RAM_GB -lt 12 ]]; then
+        TIER=0
     else
         TIER=1
     fi
@@ -177,6 +324,20 @@ fi
 
 # Resolve compose overlay files
 resolve_compose_config
+
+# Validate compose stack syntax before proceeding (skip on fresh install — .env
+# is not generated until phase 06, so variable interpolation would fail)
+if [[ -n "${COMPOSE_FLAGS:-}" ]] && [[ -f "$INSTALL_DIR/.env" ]]; then
+    ai "Validating compose stack configuration..."
+    if "$SCRIPT_DIR/scripts/validate-compose-stack.sh" --compose-flags "$COMPOSE_FLAGS" --env-file "$INSTALL_DIR/.env" --quiet >> "$LOG_FILE" 2>&1; then
+        ai_ok "Compose stack validated"
+    else
+        ai_bad "Compose stack validation failed"
+        ai "Check log file for details: $LOG_FILE"
+        ai "This usually means a service manifest or compose file has syntax errors."
+        exit 1
+    fi
+fi
 
 # Resolve tier → model/GGUF/context
 resolve_tier_config
@@ -191,10 +352,14 @@ if [[ "$INTERACTIVE" == "true" ]]; then
         NV_ULTRA)   SPEED_EST=50; USERS_EST="10-20" ;;
         SH_LARGE)   SPEED_EST=40; USERS_EST="5-10" ;;
         SH_COMPACT) SPEED_EST=80; USERS_EST="5-10" ;;
+        ARC)        SPEED_EST=35; USERS_EST="3-5" ;;
+        ARC_LITE)   SPEED_EST=20; USERS_EST="1-2" ;;
+        0) SPEED_EST=50; USERS_EST="1" ;;
         1) SPEED_EST=25; USERS_EST="1-2" ;;
         2) SPEED_EST=45; USERS_EST="3-5" ;;
         3) SPEED_EST=55; USERS_EST="5-8" ;;
         4) SPEED_EST=40; USERS_EST="10-15" ;;
+        *)          SPEED_EST=30;  USERS_EST="varies" ;;
     esac
     show_tier_recommendation "$TIER" "$LLM_MODEL" "$SPEED_EST" "$USERS_EST"
 else

@@ -1,5 +1,7 @@
 # Dream Server Documentation Index
 
+Links from this directory use `../` for the repo root (e.g. `../README.md`, `../QUICKSTART.md`) and bare filenames for other docs in this directory (e.g. `EXTENSIONS.md`, `TROUBLESHOOTING.md`). **FAQ:** `../FAQ.md` is the installation and usage FAQ at repo root; `FAQ.md` in this directory is the hardware and requirements FAQ.
+
 ## Getting Started
 
 | Doc | Audience | Description |
@@ -7,7 +9,7 @@
 | [HOW-DREAM-SERVER-WORKS.md](HOW-DREAM-SERVER-WORKS.md) | **Everyone** | **The friendly guide — what Dream Server is, why it exists, how every piece fits together, and how to make it your own. No technical background required.** |
 | [../README.md](../README.md) | Everyone | Project overview, quickstart, architecture |
 | [../QUICKSTART.md](../QUICKSTART.md) | Operators | Step-by-step first install |
-| [../EDGE-QUICKSTART.md](../EDGE-QUICKSTART.md) | Operators | Pi 5 / Mac Mini / edge devices (planned) |
+| [../EDGE-QUICKSTART.md](../EDGE-QUICKSTART.md) | Operators | Edge devices (planned — do not follow yet; use cloud mode for CPU-only today) |
 | [../.env.example](../.env.example) | Operators | All environment variables with defaults |
 
 ## Building & Extending

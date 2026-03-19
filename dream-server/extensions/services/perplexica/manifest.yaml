@@ -11,6 +11,7 @@ service:
   external_port_env: PERPLEXICA_PORT
   external_port_default: 3004
   health: /
+  ui_path: /
   type: docker
   gpu_backends: [amd, nvidia]
   compose_file: compose.yaml

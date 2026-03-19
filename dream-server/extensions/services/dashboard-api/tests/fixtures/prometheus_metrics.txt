@@ -1,0 +1,12 @@
+# HELP llamacpp_tokens_predicted_total Number of tokens predicted (total)
+# TYPE llamacpp_tokens_predicted_total counter
+llamacpp_tokens_predicted_total 1500.0
+# HELP llamacpp_tokens_predicted_seconds_total Time spent generating tokens (total)
+# TYPE llamacpp_tokens_predicted_seconds_total counter
+llamacpp_tokens_predicted_seconds_total 50.0
+# HELP llamacpp_prompt_tokens_total Number of prompt tokens processed (total)
+# TYPE llamacpp_prompt_tokens_total counter
+llamacpp_prompt_tokens_total 3000.0
+# HELP llamacpp_prompt_tokens_seconds_total Time spent processing prompt tokens (total)
+# TYPE llamacpp_prompt_tokens_seconds_total counter
+llamacpp_prompt_tokens_seconds_total 10.0

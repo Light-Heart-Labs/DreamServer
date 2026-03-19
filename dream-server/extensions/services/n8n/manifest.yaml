@@ -1,5 +1,8 @@
 schema_version: dream.services.v1
 
+compatibility:
+  dream_min: "2.0.0"
+
 service:
   id: n8n
   name: n8n (Workflows)
@@ -11,6 +14,8 @@ service:
   external_port_env: N8N_PORT
   external_port_default: 5678
   health: /healthz
+  ui_path: /
+  health_timeout: 15  # n8n can take time to initialize database and workflows
   type: docker
   gpu_backends: [amd, nvidia]
   compose_file: compose.yaml

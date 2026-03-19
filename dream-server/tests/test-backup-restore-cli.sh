@@ -154,7 +154,9 @@ test_restore_delegation() {
 # Test 11: Verify argument passing
 test_argument_passing() {
     info "Test 11: Checking if arguments are passed through"
-    if grep -A10 "^cmd_backup()" "$DREAM_CLI" 2>/dev/null | grep -q '\$@'; then
+    # cmd_backup may special-case subcommands (e.g. verify) but should still pass args through
+    # in its default path.
+    if grep -A25 "^cmd_backup()" "$DREAM_CLI" 2>/dev/null | grep -q '\$@'; then
         pass "cmd_backup passes arguments correctly"
         return 0
     else

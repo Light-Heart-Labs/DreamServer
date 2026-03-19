@@ -7,8 +7,10 @@ service:
   container_name: dream-dashboard
   default_host: dashboard
   port: 3001
+  external_port_env: DASHBOARD_PORT
   external_port_default: 3001
   health: /
+  ui_path: /
   type: docker
   gpu_backends: [amd, nvidia]
   category: core
