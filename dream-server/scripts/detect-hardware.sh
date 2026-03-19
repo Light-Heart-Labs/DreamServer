@@ -27,8 +27,11 @@ require_cmd() {
 }
 
 # Safe command execution: returns empty string on failure
+# Note: This function intentionally tolerates failures for optional hardware detection
 try() {
-    "$@" 2>/dev/null || true
+    local exit_code=0
+    "$@" 2>/dev/null || exit_code=$?
+    return $exit_code
 }
 
 # Safer head -1 that doesn't error under pipefail
@@ -141,8 +144,8 @@ detect_nvidia() {
 # Parse PCI device id from nvidia-smi output, normalize to 0x1234
 nvidia_device_id() {
     if command -v nvidia-smi &>/dev/null; then
-        local pci_id
-        pci_id=$(nvidia-smi --query-gpu=pci.device_id --format=csv,noheader 2>/dev/null | first_line | xargs || true)
+        local pci_id pci_exit=0
+        pci_id=$(nvidia-smi --query-gpu=pci.device_id --format=csv,noheader 2>/dev/null | first_line | xargs) || pci_exit=$?
         # Example: 0x26B110DE => device part is first 6 chars => 0x26B1
         if [[ -n "$pci_id" && "$pci_id" == 0x* && ${#pci_id} -ge 6 ]]; then
             echo "${pci_id:0:6}"
@@ -156,8 +159,8 @@ nvidia_device_id() {
 # Parse nvidia-smi memory.total robustly (MB)
 parse_nvidia_vram_mb() {
     local output="$1"
-    local mb
-    mb=$(echo "$output" | awk -F',' '{gsub(/^[ \t]+|[ \t]+$/,"",$2); print $2}' | xargs || true)
+    local mb parse_exit=0
+    mb=$(echo "$output" | awk -F',' '{gsub(/^[ \t]+|[ \t]+$/,"",$2); print $2}' | xargs) || parse_exit=$?
     as_int "$mb"
 }
 
@@ -221,7 +224,8 @@ detect_amd_sysfs() {
             gpu_name=""
             # Try marketing name first
             if [[ -f "$card_dir/product_name" ]]; then
-                gpu_name=$(cat "$card_dir/product_name" 2>/dev/null) || true
+                local read_exit=0
+                gpu_name=$(cat "$card_dir/product_name" 2>/dev/null) || read_exit=$?
             fi
             # Fall back to device ID lookup
             if [[ -z "$gpu_name" ]]; then
@@ -447,15 +451,17 @@ main() {
     ram=$(clamp_int "$ram" 1 4096)
 
     # Try NVIDIA first
-    local nvidia_out=""
-    nvidia_out=$(detect_nvidia || true)
+    local nvidia_out="" nvidia_detect_exit=0
+    nvidia_out=$(detect_nvidia) || nvidia_detect_exit=$?
     if [[ -n "$nvidia_out" ]]; then
-        gpu_name=$(echo "$nvidia_out" | awk -F',' '{gsub(/^[ \t]+|[ \t]+$/,"",$1); print $1}' | xargs || true)
+        local parse_exit=0
+        gpu_name=$(echo "$nvidia_out" | awk -F',' '{gsub(/^[ \t]+|[ \t]+$/,"",$1); print $1}' | xargs) || parse_exit=$?
         gpu_vram_mb=$(parse_nvidia_vram_mb "$nvidia_out")
         gpu_type="nvidia"
         gpu_architecture="cuda"
         memory_type="discrete"
-        device_id="$(nvidia_device_id || true)"
+        local device_id_exit=0
+        device_id="$(nvidia_device_id)" || device_id_exit=$?
     fi
 
     # Try AMD if no NVIDIA
@@ -498,8 +504,8 @@ main() {
 
     # Try Apple Silicon if macOS
     if [[ -z "$gpu_name" && "$os" == "macos" ]]; then
-        local apple_out
-        apple_out=$(detect_apple || true)
+        local apple_out apple_detect_exit=0
+        apple_out=$(detect_apple) || apple_detect_exit=$?
         if [[ -n "$apple_out" ]]; then
             gpu_name="Apple Silicon (Unified Memory)"
             gpu_vram_mb=$((ram * 1024))
