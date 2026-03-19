@@ -109,7 +109,7 @@
    - Hold Shift + Right-click in the folder → "Open PowerShell window here"
 3. Run these commands:
    ```powershell
-   Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/main/install.ps1" -OutFile install.ps1
+   Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.1.0/install.ps1" -OutFile install.ps1
    ```
 4. Then run:
    ```powershell
@@ -119,7 +119,7 @@
 **If PowerShell gives an error about execution policy:**
 - Use the batch file method instead:
   ```powershell
-  Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/main/install-windows.bat" -OutFile install-windows.bat
+  Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.1.0/install-windows.bat" -OutFile install-windows.bat
   ```
 - Then double-click `install-windows.bat` (or right-click → Run as administrator)
 

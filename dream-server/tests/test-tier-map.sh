@@ -36,6 +36,7 @@ run_tier() {
     TIER="$tier_val"
     # Reset globals
     TIER_NAME="" LLM_MODEL="" GGUF_FILE="" GGUF_URL="" MAX_CONTEXT=""
+    GPU_BACKEND="" N_GPU_LAYERS=""
     resolve_tier_config
 }
 
@@ -113,6 +114,28 @@ assert_eq "GGUF_FILE"   "Qwen3-30B-A3B-Q4_K_M.gguf"          "$GGUF_FILE"
 assert_eq "MAX_CONTEXT"  "131072"                               "$MAX_CONTEXT"
 echo ""
 
+# --- ARC ---
+echo "ARC (Intel Arc ≥12 GB, e.g. A770 16 GB):"
+run_tier ARC
+assert_eq "TIER_NAME"    "Intel Arc"                           "$TIER_NAME"
+assert_eq "LLM_MODEL"    "qwen3-8b"                           "$LLM_MODEL"
+assert_eq "GGUF_FILE"    "Qwen3-8B-Q4_K_M.gguf"              "$GGUF_FILE"
+assert_eq "MAX_CONTEXT"  "32768"                               "$MAX_CONTEXT"
+assert_eq "GPU_BACKEND"  "sycl"                                "$GPU_BACKEND"
+assert_eq "N_GPU_LAYERS" "99"                                  "$N_GPU_LAYERS"
+echo ""
+
+# --- ARC_LITE ---
+echo "ARC_LITE (Intel Arc <12 GB, e.g. A750 8 GB / A380 6 GB):"
+run_tier ARC_LITE
+assert_eq "TIER_NAME"    "Intel Arc Lite"                      "$TIER_NAME"
+assert_eq "LLM_MODEL"    "qwen3-4b"                           "$LLM_MODEL"
+assert_eq "GGUF_FILE"    "Qwen3-4B-Q4_K_M.gguf"              "$GGUF_FILE"
+assert_eq "MAX_CONTEXT"  "16384"                               "$MAX_CONTEXT"
+assert_eq "GPU_BACKEND"  "sycl"                                "$GPU_BACKEND"
+assert_eq "N_GPU_LAYERS" "99"                                  "$N_GPU_LAYERS"
+echo ""
+
 # --- Invalid tier should fail ---
 echo "Invalid tier (should fail):"
 if TIER="INVALID" resolve_tier_config 2>/dev/null; then
@@ -126,7 +149,7 @@ echo ""
 
 # --- GGUF_URL should be set for all tiers ---
 echo "GGUF_URL populated for all tiers:"
-for t in 0 1 2 3 4 NV_ULTRA SH_LARGE SH_COMPACT; do
+for t in 0 1 2 3 4 NV_ULTRA SH_LARGE SH_COMPACT ARC ARC_LITE; do
     run_tier "$t"
     if [[ -n "$GGUF_URL" && "$GGUF_URL" == https://* ]]; then
         echo "  PASS: Tier $t has valid GGUF_URL"

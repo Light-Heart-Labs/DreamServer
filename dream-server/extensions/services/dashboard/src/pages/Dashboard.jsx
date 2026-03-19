@@ -16,7 +16,7 @@ import {
   Image,
   Code,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { FeatureDiscoveryBanner } from '../components/FeatureDiscovery'
 
@@ -334,14 +334,13 @@ export default function Dashboard({ status, loading }) {
         ))}
       </div>
 
-      {/* Feature Discovery — only show if features remain to enable */}
-      <FeatureDiscoveryBanner />
+      {/* Feature Discovery is already shown at the top */}
     </div>
   )
 }
 
 
-function FeatureCard({ icon: Icon, title, description, href, status, hint }) {
+const FeatureCard = memo(function FeatureCard({ icon: Icon, title, description, href, status, hint }) {
   const isExternal = href?.startsWith('http')
   const statusColors = {
     ready: 'border-indigo-500/20 hover:border-indigo-500/35',
@@ -387,9 +386,9 @@ function FeatureCard({ icon: Icon, title, description, href, status, hint }) {
   }
 
   return <Link to={href}>{content}</Link>
-}
+})
 
-function MetricCard({ icon: Icon, label, value, subvalue, percent, alert }) {
+const MetricCard = memo(function MetricCard({ icon: Icon, label, value, subvalue, percent, alert }) {
   return (
     <div className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-xl overflow-hidden min-w-0">
       <div className="flex items-center gap-3 mb-2">
@@ -408,9 +407,9 @@ function MetricCard({ icon: Icon, label, value, subvalue, percent, alert }) {
       )}
     </div>
   )
-}
+})
 
-function ServiceCard({ service }) {
+const ServiceCard = memo(function ServiceCard({ service }) {
   const statusColors = {
     healthy: 'bg-green-500',
     degraded: 'bg-yellow-500',
@@ -437,6 +436,6 @@ function ServiceCard({ service }) {
       </div>
     </div>
   )
-}
+})
 
 // BootstrapBanner moved to App.jsx for app-wide visibility

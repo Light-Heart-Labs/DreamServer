@@ -11,6 +11,7 @@ service:
   external_port_env: EMBEDDINGS_PORT
   external_port_default: 8090
   health: /health
+  ui_path: /info
   type: docker
   gpu_backends: [amd, nvidia]
   compose_file: compose.yaml

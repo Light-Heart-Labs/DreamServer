@@ -13,7 +13,7 @@
 The Windows installer (`install.ps1`) checks your system readiness and generates a preflight report:
 
 ```powershell
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/main/install.ps1" -OutFile install.ps1; .\install.ps1
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.1.0/install.ps1" -OutFile install.ps1; .\install.ps1
 ```
 
 **Prerequisites:** Windows 10 2004+ or Windows 11. NVIDIA GPU recommended but not required (CPU-only works with smaller models). 4GB+ RAM minimum, 16GB+ recommended.

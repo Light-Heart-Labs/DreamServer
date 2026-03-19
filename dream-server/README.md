@@ -39,7 +39,7 @@ Known-good version baselines: [`docs/KNOWN-GOOD-VERSIONS.md`](docs/KNOWN-GOOD-VE
 
 ```bash
 # One-line install (Linux — NVIDIA or AMD)
-curl -fsSL https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/main/get-dream-server.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.1.0/get-dream-server.sh | bash
 ```
 
 Or manually:

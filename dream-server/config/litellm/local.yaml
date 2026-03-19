@@ -17,3 +17,5 @@ general_settings:
 litellm_settings:
   drop_params: true
   set_verbose: false
+  request_timeout: 120
+  stream_timeout: 60

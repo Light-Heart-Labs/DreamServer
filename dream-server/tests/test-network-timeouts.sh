@@ -42,7 +42,8 @@ test_file_has_timeout() {
     fi
 
     # Find lines matching the pattern
-    local matches=$(grep -n "$pattern" "$file" 2>/dev/null || true)
+    local matches
+    matches=$(grep -n "$pattern" "$file" 2>/dev/null || true)
 
     if [[ -z "$matches" ]]; then
         echo -e "${YELLOW}SKIP (no matches)${NC}"
@@ -52,8 +53,9 @@ test_file_has_timeout() {
     # Check if timeout is present on the same line or nearby
     local has_timeout=false
     while IFS= read -r line; do
-        local line_num=$(echo "$line" | cut -d: -f1)
-        local line_content=$(echo "$line" | cut -d: -f2-)
+        local line_num line_content
+        line_num=$(echo "$line" | cut -d: -f1)
+        line_content=$(echo "$line" | cut -d: -f2-)
 
         # Check if timeout is on the same line (use grep -F for fixed string)
         if echo "$line_content" | grep -qF -- "$timeout_pattern"; then
@@ -63,8 +65,9 @@ test_file_has_timeout() {
 
         # Check next 2 lines for multiline commands
         for offset in 1 2; do
-            local check_line=$((line_num + offset))
-            local next_line=$(sed -n "${check_line}p" "$file" 2>/dev/null || true)
+            local check_line next_line
+            check_line=$((line_num + offset))
+            next_line=$(sed -n "${check_line}p" "$file" 2>/dev/null || true)
             if echo "$next_line" | grep -qF -- "$timeout_pattern"; then
                 has_timeout=true
                 break 2

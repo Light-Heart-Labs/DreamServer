@@ -14,7 +14,7 @@
 set -euo pipefail
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-BOOTSTRAP_URL="https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/main/dream-server/get-dream-server.sh"
+BOOTSTRAP_URL="https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.1.0/dream-server/get-dream-server.sh"
 MIN_DOCKER_COMPOSE_V=2
 
 # ── Colors & UI ───────────────────────────────────────────────────────────────

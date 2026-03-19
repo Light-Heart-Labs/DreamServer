@@ -2,14 +2,136 @@
 # ============================================================================
 # DreamServer Whisper Entrypoint
 # ============================================================================
-# VAD patch disabled — the sed/perl replacement can break Python syntax
-# in newer versions of speaches where the transcribe() call spans multiple
-# lines. Using upstream defaults until patch can handle multi-line safely.
+# VAD patch implementation with safe multi-line function call handling.
+# Uses Python AST parsing to safely modify transcribe() calls.
 # ============================================================================
 
-apply_patch() {
+apply_vad_patch() {
     local stt_file="$1"
-    echo "[dream-whisper] apply_patch called for $stt_file (no-op)"
+    echo "[dream-whisper] Applying VAD patch to $stt_file"
+
+    if [[ ! -f "$stt_file" ]]; then
+        echo "[dream-whisper] Warning: STT file not found: $stt_file"
+        return 1
+    fi
+
+    # Create Python script to safely patch the transcribe call
+    cat > /tmp/vad_patcher.py << 'PYTHON_EOF'
+import ast
+import sys
+import re
+
+def patch_transcribe_call(source_code):
+    """Safely patch transcribe() calls to add VAD parameters."""
+    try:
+        # Parse the AST to find function calls
+        tree = ast.parse(source_code)
+
+        # Track line numbers of transcribe calls
+        transcribe_lines = []
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call) and
+                isinstance(node.func, ast.Attribute) and
+                node.func.attr == 'transcribe'):
+                transcribe_lines.append(node.lineno)
+
+        if not transcribe_lines:
+            return source_code, False
+
+        lines = source_code.splitlines()
+        modified = False
+
+        for line_num in transcribe_lines:
+            # Convert to 0-based index
+            idx = line_num - 1
+            if idx >= len(lines):
+                continue
+
+            line = lines[idx]
+
+            # Check if VAD parameters already exist
+            if 'vad_filter=' in line or 'vad_parameters=' in line:
+                continue
+
+            # Find the transcribe call and add VAD parameters
+            # Handle both single-line and multi-line calls
+            if 'transcribe(' in line:
+                # Simple single-line case
+                if line.strip().endswith(')'):
+                    # Insert VAD parameters before the LAST closing paren only
+                    # Use rfind to replace only the rightmost ')' to avoid breaking nested calls
+                    last_paren_idx = line.rfind(')')
+                    if last_paren_idx != -1:
+                        new_line = line[:last_paren_idx] + ', vad_filter=True, vad_parameters={"threshold": 0.5}' + line[last_paren_idx:]
+                        lines[idx] = new_line
+                        modified = True
+                else:
+                    # Multi-line call - find the closing parenthesis
+                    paren_count = line.count('(') - line.count(')')
+                    search_idx = idx + 1
+
+                    while search_idx < len(lines) and paren_count > 0:
+                        search_line = lines[search_idx]
+                        paren_count += search_line.count('(') - search_line.count(')')
+
+                        if paren_count == 0:
+                            # Found the closing line
+                            if search_line.strip() == ')':
+                                # Closing paren on its own line
+                                lines.insert(search_idx, '    vad_filter=True,')
+                                lines.insert(search_idx + 1, '    vad_parameters={"threshold": 0.5},')
+                            else:
+                                # Closing paren with other content - replace only the last ')'
+                                last_paren_idx = search_line.rfind(')')
+                                if last_paren_idx != -1:
+                                    lines[search_idx] = search_line[:last_paren_idx] + ', vad_filter=True, vad_parameters={"threshold": 0.5}' + search_line[last_paren_idx:]
+                            modified = True
+                            break
+                        search_idx += 1
+
+        return '\n'.join(lines), modified
+
+    except SyntaxError as e:
+        print(f"Syntax error in source file: {e}", file=sys.stderr)
+        return source_code, False
+    except Exception as e:
+        print(f"Error patching transcribe call: {e}", file=sys.stderr)
+        return source_code, False
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("Usage: python vad_patcher.py <file_path>", file=sys.stderr)
+        sys.exit(1)
+
+    file_path = sys.argv[1]
+    try:
+        with open(file_path, 'r') as f:
+            original_code = f.read()
+
+        patched_code, was_modified = patch_transcribe_call(original_code)
+
+        if was_modified:
+            with open(file_path, 'w') as f:
+                f.write(patched_code)
+            print("VAD patch applied successfully")
+        else:
+            print("No transcribe calls found or already patched")
+
+    except Exception as e:
+        print(f"Error processing file: {e}", file=sys.stderr)
+        sys.exit(1)
+PYTHON_EOF
+
+    # Apply the patch using Python
+    if "$PYTHON_CMD" /tmp/vad_patcher.py "$stt_file"; then
+        echo "[dream-whisper] VAD patch applied successfully"
+        rm -f /tmp/vad_patcher.py
+        return 0
+    else
+        echo "[dream-whisper] VAD patch failed, continuing with defaults"
+        rm -f /tmp/vad_patcher.py
+        return 1
+    fi
 }
 
 PYTHON_CMD="python3"
@@ -21,9 +143,12 @@ fi
 
 STT_FILE=$($PYTHON_CMD -c "import speaches.routers.stt as m; print(m.__file__)" 2>/dev/null || true)
 
-# VAD patch disabled — upstream compatibility, using defaults
-# TODO: Fix patch to handle multi-line function calls safely.
-echo "[dream-whisper] VAD patch disabled (upstream compatibility), using defaults"
+if [[ -n "$STT_FILE" ]]; then
+    # Apply VAD patch with safe multi-line handling
+    apply_vad_patch "$STT_FILE"
+else
+    echo "[dream-whisper] Could not locate STT module, skipping VAD patch"
+fi
 
 # Always start uvicorn (patch failure is non-fatal but logged)
 exec uvicorn --factory speaches.main:create_app --host 0.0.0.0 --port 8000

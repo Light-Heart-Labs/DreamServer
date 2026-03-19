@@ -162,14 +162,14 @@ log ""
 # 4. LLM Endpoint check — backend-aware
 log "[4/8] Checking LLM endpoint..."
 if [[ "$BACKEND" == "amd" ]]; then
-    LLM_PORT="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-8080}}"
+    LLM_PORT="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-11434}}"
     # llama-server may be mapped to a different external port
     EXTERNAL_PORT=$(docker port dream-llama-server 8080/tcp 2>/dev/null | head -1 | cut -d: -f2 || echo "$LLM_PORT")
     LLM_ENDPOINTS=("http://${SERVICE_HOST}:${EXTERNAL_PORT}" "http://localhost:${EXTERNAL_PORT}" "http://localhost:${LLM_PORT}")
     LLM_SERVICE_NAME="llama-server"
     LLM_START_CMD="docker compose up -d llama-server"
 else
-    LLM_PORT="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-8080}}"
+    LLM_PORT="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-11434}}"
     EXTERNAL_PORT=$(docker port dream-llama-server 8080/tcp 2>/dev/null | head -1 | cut -d: -f2 || echo "$LLM_PORT")
     LLM_ENDPOINTS=("http://${SERVICE_HOST}:${EXTERNAL_PORT}" "http://localhost:${EXTERNAL_PORT}" "http://localhost:${LLM_PORT}")
     LLM_SERVICE_NAME="llama-server"

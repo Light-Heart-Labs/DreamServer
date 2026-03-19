@@ -76,7 +76,7 @@ Download latest drivers from https://www.nvidia.com/drivers
 
 ```powershell
 # Download and run
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/main/install.ps1" -OutFile install.ps1
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.1.0/install.ps1" -OutFile install.ps1
 .\install.ps1
 ```
 

@@ -10,7 +10,7 @@
 #   - The top-level key MUST be "services:" (standard Compose format)
 #   - The service name MUST match the "id" in your manifest.yaml
 #   - Use ${VAR:-default} syntax for user-configurable values
-#   - Join the shared network: dream-network (defined in base.yml)
+#   - Services join dream-network automatically via the default network in base.yml
 #   - Mount data under ./data/<service-name>/ (relative to project root)
 #   - Always set restart, security_opt, and a healthcheck
 #
@@ -60,9 +60,6 @@ services:
       # External port (user-facing) : Internal port (container)
       - "${MY_SERVICE_PORT:-1234}:1234"
 
-    networks:
-      - dream-network
-
     deploy:
       resources:
         limits:
@@ -86,6 +83,5 @@ services:
 #   my-service-data:
 #     driver: local
 
-networks:
-  dream-network:
-    external: true
+# No networks section needed — services join the default network
+# (named "dream-network" in docker-compose.base.yml) automatically.

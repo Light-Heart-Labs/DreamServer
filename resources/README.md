@@ -8,6 +8,10 @@ Production-tested tools, frameworks, research, and recipes from building a local
 
 ## What's Inside
 
+### [`multi-agent/`](multi-agent/) — How We Ran a Self-Organizing AI Team
+
+**Start here if you're interested in multi-agent systems.** Complete documentation of the OpenClaw Collective — 4 AI agents that self-organized on consumer GPUs, producing 3,464 commits in 8 days with 10 human commits. Covers architecture, six transferable patterns (deterministic supervision, workspace-as-brain, mission governance, session lifecycle, memory stratification, self-healing infrastructure), the governance files loaded into every agent session, operational lessons from 24/7 production, swarm playbooks with reliability math, and design decisions with full rationale. Framework-agnostic — the patterns apply to any multi-agent setup.
+
 ### [`products/`](products/) — Deployable Tools (97 files)
 
 Ready-to-run software you can drop into your stack today.
@@ -20,14 +24,11 @@ Ready-to-run software you can drop into your stack today.
 | [`guardian/`](products/guardian/) | System resource watchdog | Monitors GPU/CPU/memory, triggers actions on thresholds. Systemd-native. |
 | [`memory-shepherd/`](products/memory-shepherd/) | Memory leak detector | Tracks service memory over time, catches slow leaks before OOM kills. Baseline comparison system. |
 
-### [`frameworks/`](frameworks/) — Architectures to Study (60 files)
-
-Production-tested patterns for multi-agent systems.
+### [`frameworks/`](frameworks/) — Reference Architectures
 
 | Framework | What You'll Learn |
 |-----------|------------------|
 | [`voice-agent/`](frameworks/voice-agent/) | **Complete multi-agent voice system** built on LiveKit. 8 specialist agents with shared state, intent-based routing, TTS filtering, transcript capture. Built for HVAC customer service but domain-agnostic. Includes 9 research docs on handoff architecture and 15 LiveKit SDK guides. |
-| [`agent-coordination/`](frameworks/agent-coordination/) | **How 4 AI agents self-organize.** Autonomy tiers (Just Do It / Peer Review / Escalate), GitHub-as-memory, sync protocol, mission-driven development. The actual operating system that ran our agent team. |
 
 ### [`research/`](research/) — 56 Deep Dives
 
@@ -65,9 +66,9 @@ GPU temperature monitoring, service health checks, concurrency benchmarks, LiveK
 
 Ready-to-polish content: "Why Self-Host AI in 2026", "Dream Server vs Cloud AI", "Running 32B Models on Consumer Hardware", "The Hidden Costs of Cloud AI", "Privacy-First AI", and more.
 
-### [`docs/`](docs/) — 19 Infrastructure Guides
+### [`docs/`](docs/) — Infrastructure Guides
 
-GPU cluster setup, deployment runbooks, golden build reference, LiveKit deployment, zero-cloud recipes, ship-readiness audits, architecture decisions, and operational patterns.
+GPU cluster setup, deployment runbooks, golden build reference, LiveKit deployment, zero-cloud recipes, ship-readiness audits, and product portfolio docs.
 
 ### [`dev/`](dev/) — Active Development Builds
 
@@ -82,7 +83,7 @@ GPU cluster setup, deployment runbooks, golden build reference, LiveKit deployme
 
 These are actively being tested and used internally but not yet cleared for production. See [`dev/README.md`](dev/README.md) for usage instructions and the full roadmap.
 
-### [`legacy/`](legacy/) — 14 Historical Files
+### [`legacy/`](legacy/) — Historical Files
 
 Old compose files, systemd units, and configs from earlier DreamServer iterations. Kept for reference.
 
@@ -96,7 +97,7 @@ Old compose files, systemd units, and configs from earlier DreamServer iteration
 
 **Planning your hardware?** → [`research/`](research/) — start with the GPU hardware guide and VRAM limits docs
 
-**Running a multi-agent team?** → [`frameworks/agent-coordination/`](frameworks/agent-coordination/)
+**Running a multi-agent team?** → [`multi-agent/`](multi-agent/) — architecture, patterns, governance, swarm playbooks
 
 **Need capacity numbers?** → [`research/`](research/) — look for the capacity baseline and cluster benchmark docs
 
@@ -109,7 +110,7 @@ Old compose files, systemd units, and configs from earlier DreamServer iteration
 This content was extracted from three Light Heart Labs repositories:
 
 - **[GLO](https://github.com/Light-Heart-Labs/GLO)** — Multi-voice agent framework (→ `frameworks/voice-agent/`)
-- **[Android Labs](https://github.com/Light-Heart-Labs/Android-Labs)** — AI agent collective workspace (→ `products/`, `frameworks/agent-coordination/`, `research/`, `cookbooks/`, `tools/`, `blog/`)
+- **[Android Labs](https://github.com/Light-Heart-Labs/Android-Labs)** — AI agent collective workspace (→ `multi-agent/`, `products/`, `research/`, `cookbooks/`, `tools/`, `blog/`)
 - **DreamServer development** — Infrastructure and operational tools (→ `docs/`, `legacy/`)
 
 All content was produced by local AI agents running on consumer GPU hardware as part of DreamServer development.

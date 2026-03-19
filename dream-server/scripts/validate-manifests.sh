@@ -77,8 +77,8 @@ else
   warn "python3 not found — skipping schema validation (compatibility checks only)"
 fi
 
-set +e
-python3 - "$ROOT_DIR" "$EXT_DIR_REL" "$SCHEMA_PATH_REL" "$CORE_VERSION" "$PYTHON_OK" <<'PY'
+py_exit=0
+python3 - "$ROOT_DIR" "$EXT_DIR_REL" "$SCHEMA_PATH_REL" "$CORE_VERSION" "$PYTHON_OK" <<'PY' || py_exit=$?
 import json
 import sys
 import textwrap
@@ -261,8 +261,6 @@ if schema_errors or errors:
     sys.exit(1)
 sys.exit(0)
 PY
-py_exit=$?
-set -e
 
 if [[ "$py_exit" -eq 0 ]]; then
   pass "Extension manifests validated"

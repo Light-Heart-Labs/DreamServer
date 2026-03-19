@@ -175,7 +175,7 @@ Yes. Common use cases:
 **With install wizard:** Under 1 hour for someone comfortable with terminal.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/main/get-dream-server.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.1.0/get-dream-server.sh | bash
 ```
 
 The wizard:
