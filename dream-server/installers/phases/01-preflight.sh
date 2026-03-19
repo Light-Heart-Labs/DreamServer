@@ -66,6 +66,29 @@ if [[ ! -f "$SCRIPT_DIR/docker-compose.yml" ]] && [[ ! -f "$SCRIPT_DIR/docker-co
     error "No compose files found in $SCRIPT_DIR. Please run from the dream-server directory."
 fi
 
+# Disk space check - require minimum 50GB free for installation
+INSTALL_PARENT=$(dirname "$INSTALL_DIR")
+if [[ -d "$INSTALL_PARENT" ]]; then
+    AVAILABLE_GB=$(df -BG "$INSTALL_PARENT" 2>/dev/null | awk 'NR==2 {print $4}' | sed 's/G//')
+    if [[ -n "$AVAILABLE_GB" && "$AVAILABLE_GB" =~ ^[0-9]+$ ]]; then
+        if [[ "$AVAILABLE_GB" -lt 50 ]]; then
+            error "Insufficient disk space. Need at least 50GB free, found ${AVAILABLE_GB}GB at $INSTALL_PARENT"
+        fi
+        log "Disk space check: ${AVAILABLE_GB}GB available at $INSTALL_PARENT"
+    else
+        warn "Could not determine available disk space at $INSTALL_PARENT"
+    fi
+else
+    # Parent doesn't exist yet, check root filesystem
+    AVAILABLE_GB=$(df -BG / 2>/dev/null | awk 'NR==2 {print $4}' | sed 's/G//')
+    if [[ -n "$AVAILABLE_GB" && "$AVAILABLE_GB" =~ ^[0-9]+$ ]]; then
+        if [[ "$AVAILABLE_GB" -lt 50 ]]; then
+            error "Insufficient disk space. Need at least 50GB free, found ${AVAILABLE_GB}GB on root filesystem"
+        fi
+        log "Disk space check: ${AVAILABLE_GB}GB available on root filesystem"
+    fi
+fi
+
 # Existing installation — update in place (secrets and data are preserved)
 if [[ -d "$INSTALL_DIR" ]]; then
     log "Existing installation found at $INSTALL_DIR — updating in place"
