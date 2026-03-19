@@ -62,12 +62,14 @@ if [[ "${DREAM_MODE:-local}" == "cloud" ]]; then
         log "  RAM: ${RAM_GB}GB, Disk: ${DISK_AVAIL}GB"
     fi
     # Skip rest of detection phase
-    return 0 2>/dev/null || true
+    return 0
 fi
 
 ai "Reading hardware telemetry..."
 
-load_capability_profile || true
+if ! load_capability_profile; then
+    log "Capability profile loading failed (using installer-local detection)"
+fi
 
 # RAM Detection (WSL2-aware: query Windows host RAM if available)
 if grep -qi microsoft /proc/version 2>/dev/null; then
@@ -107,7 +109,9 @@ log "Available disk: ${DISK_AVAIL}GB"
 
 # GPU Detection
 ai "Detecting GPU..."
-detect_gpu || true
+if ! detect_gpu; then
+    log "GPU detection returned non-zero (CPU fallback mode active)"
+fi
 
 if [[ "${CAP_PROFILE_LOADED:-false}" == "true" ]]; then
     case "${CAP_LLM_BACKEND:-}" in
@@ -126,7 +130,9 @@ BACKEND_ID="$GPU_BACKEND"
 if [[ "${CAP_LLM_BACKEND:-}" == "cpu" || "${CAP_LLM_BACKEND:-}" == "apple" ]]; then
     BACKEND_ID="${CAP_LLM_BACKEND}"
 fi
-load_backend_contract "$BACKEND_ID" || true
+if ! load_backend_contract "$BACKEND_ID"; then
+    log "Backend contract loading failed for '$BACKEND_ID' (using built-in defaults)"
+fi
 LLM_HEALTHCHECK_URL="${BACKEND_PUBLIC_HEALTH_URL:-http://localhost:8080/health}"
 LLM_PUBLIC_API_PORT="${BACKEND_PUBLIC_API_PORT:-8080}"
 OPENCLAW_PROVIDER_NAME_DEFAULT="${BACKEND_PROVIDER_NAME:-local-llama}"
@@ -138,7 +144,9 @@ OPENCLAW_PROVIDER_URL_DEFAULT="${BACKEND_PROVIDER_URL:-http://llama-server:8080/
 # If detect_gpu found no working GPU, check if it's a fixable driver/Secure Boot issue
 # (Only for NVIDIA — AMD APU is handled above)
 if [[ $GPU_COUNT -eq 0 && "$GPU_BACKEND" != "amd" ]] && ! $DRY_RUN; then
-    fix_nvidia_secure_boot || true
+    if ! fix_nvidia_secure_boot; then
+        log "NVIDIA Secure Boot fix not applicable or failed (continuing with CPU mode)"
+    fi
 fi
 
 # NVIDIA Driver Compatibility Check
@@ -155,10 +163,14 @@ if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "nvidia" ]]; then
             ai "Attempting to install a compatible driver..."
             if ! $DRY_RUN; then
                 if command -v ubuntu-drivers &> /dev/null; then
-                    sudo ubuntu-drivers install nvidia:${MIN_DRIVER_VERSION}-server 2>>"$LOG_FILE" || \
-                    sudo apt-get install -y nvidia-driver-${MIN_DRIVER_VERSION} 2>>"$LOG_FILE" || true
+                    if ! sudo ubuntu-drivers install nvidia:${MIN_DRIVER_VERSION}-server 2>>"$LOG_FILE"; then
+                        log "ubuntu-drivers install failed, trying apt-get fallback"
+                        sudo apt-get install -y nvidia-driver-${MIN_DRIVER_VERSION} 2>>"$LOG_FILE" || \
+                            warn "Driver installation failed via both ubuntu-drivers and apt-get"
+                    fi
                 else
-                    sudo apt-get install -y nvidia-driver-${MIN_DRIVER_VERSION} 2>>"$LOG_FILE" || true
+                    sudo apt-get install -y nvidia-driver-${MIN_DRIVER_VERSION} 2>>"$LOG_FILE" || \
+                        warn "Driver installation failed via apt-get"
                 fi
                 # Check if upgrade succeeded
                 if dpkg -l "nvidia-driver-${MIN_DRIVER_VERSION}"* 2>/dev/null | grep -q "^ii"; then

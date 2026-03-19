@@ -35,7 +35,7 @@ if $DRY_RUN; then
     echo ""
     signal "All systems nominal. (dry run)"
     ai_ok "Sovereign intelligence is online. (dry run)"
-    return 0 2>/dev/null || true
+    return 0
 fi
 
 ai "Linking services... standby."

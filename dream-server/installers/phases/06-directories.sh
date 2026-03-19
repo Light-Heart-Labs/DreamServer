@@ -45,12 +45,16 @@ else
     # (e.g. SearXNG runs as uid 977, ComfyUI data owned by root)
     for _data_dir in "$INSTALL_DIR"/data/*/; do
         if [[ -d "$_data_dir" ]] && ! [[ -w "$_data_dir" ]]; then
-            sudo chown -R "$(id -u):$(id -g)" "$_data_dir" 2>/dev/null || true
+            if ! sudo chown -R "$(id -u):$(id -g)" "$_data_dir" 2>>"$LOG_FILE"; then
+                warn "Failed to fix ownership of $_data_dir (may cause permission issues)"
+            fi
         fi
     done
     for _cfg_dir in "$INSTALL_DIR"/config/*/; do
         if [[ -d "$_cfg_dir" ]] && ! [[ -w "$_cfg_dir" ]]; then
-            sudo chown -R "$(id -u):$(id -g)" "$_cfg_dir" 2>/dev/null || true
+            if ! sudo chown -R "$(id -u):$(id -g)" "$_cfg_dir" 2>>"$LOG_FILE"; then
+                warn "Failed to fix ownership of $_cfg_dir (may cause permission issues)"
+            fi
         fi
     done
 
@@ -76,12 +80,16 @@ else
                 "$SCRIPT_DIR/" "$INSTALL_DIR/"
         else
             # Fallback: cp -r everything, then remove runtime artifacts
-            cp -r "$SCRIPT_DIR"/* "$INSTALL_DIR/" 2>/dev/null || true
-            cp "$SCRIPT_DIR"/.gitignore "$INSTALL_DIR/" 2>/dev/null || true
-            rm -rf "$INSTALL_DIR/.git" 2>/dev/null || true
+            if ! cp -r "$SCRIPT_DIR"/* "$INSTALL_DIR/" 2>>"$LOG_FILE"; then
+                error "Failed to copy source files to install directory"
+            fi
+            cp "$SCRIPT_DIR"/.gitignore "$INSTALL_DIR/" 2>>"$LOG_FILE" || log ".gitignore copy failed (non-fatal)"
+            rm -rf "$INSTALL_DIR/.git" 2>>"$LOG_FILE" || log ".git removal failed (non-fatal)"
         fi
         # Ensure scripts are executable
-        chmod +x "$INSTALL_DIR"/*.sh "$INSTALL_DIR"/scripts/*.sh "$INSTALL_DIR"/dream-cli 2>/dev/null || true
+        if ! chmod +x "$INSTALL_DIR"/*.sh "$INSTALL_DIR"/scripts/*.sh "$INSTALL_DIR"/dream-cli 2>>"$LOG_FILE"; then
+            warn "Failed to set execute permissions on some scripts"
+        fi
         ai_ok "Source files installed"
     else
         log "Running in-place (source == install dir), skipping file copy"

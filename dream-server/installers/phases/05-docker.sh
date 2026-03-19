@@ -168,7 +168,9 @@ _docker_ensure_daemon() {
     if command -v systemctl &>/dev/null; then
         ai_warn "Docker not responding; attempting to start docker service..."
         if ! $DRY_RUN; then
-            sudo systemctl start docker 2>>"$LOG_FILE" || true
+            if ! sudo systemctl start docker 2>>"$LOG_FILE"; then
+                log "Failed to start docker service via systemctl"
+            fi
         fi
         if _docker_try_with_optional_sudo info; then
             return 0
@@ -198,7 +200,9 @@ _docker_compose_detect_cmd() {
 
 _docker_compose_verify() {
     local detected
-    detected="$(_docker_compose_detect_cmd || true)"
+    if ! detected="$(_docker_compose_detect_cmd)"; then
+        detected=""
+    fi
 
     if [[ -n "$detected" ]]; then
         ai_ok "Compose detected: $detected"
@@ -233,7 +237,9 @@ _docker_post_install_checks() {
         ai_warn "Docker Compose not detected; attempting install of compose plugin..."
         pkg_update
         # shellcheck disable=SC2046
-        pkg_install $(pkg_resolve docker-compose-plugin) || true
+        if ! pkg_install $(pkg_resolve docker-compose-plugin); then
+            log "Docker Compose plugin installation failed (may need manual install)"
+        fi
 
         if ! _docker_compose_verify; then
             warn "Compose still not detected after install attempt."
@@ -265,13 +271,17 @@ if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "nvidia" ]]; then
         ai_ok "NVIDIA Container Toolkit installed"
         # Always regenerate CDI spec — driver version may have changed since last run
         if command -v nvidia-ctk &>/dev/null && ! $DRY_RUN; then
-            sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml 2>>"$LOG_FILE" || true
+            if ! sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml 2>>"$LOG_FILE"; then
+                log "CDI spec generation failed (non-fatal, container GPU access may use legacy mode)"
+            fi
         fi
     else
         ai "Installing NVIDIA Container Toolkit..."
         if ! $DRY_RUN; then
             # Add NVIDIA GPG key (used by apt and as trust anchor)
-            curl -fsSL --max-time 60 https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg 2>/dev/null || true
+            if ! curl -fsSL --max-time 60 https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg 2>>"$LOG_FILE"; then
+                warn "Failed to download NVIDIA GPG key (network issue or key server unavailable)"
+            fi
 
             # Distro-aware repo setup + install
             case "$PKG_MANAGER" in
@@ -324,7 +334,9 @@ if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "nvidia" ]]; then
             esac
 
             sudo nvidia-ctk runtime configure --runtime=docker
-            sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml 2>>"$LOG_FILE" || true
+            if ! sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml 2>>"$LOG_FILE"; then
+                log "CDI spec generation failed (non-fatal, container GPU access may use legacy mode)"
+            fi
             sudo systemctl restart docker
         fi
         if command -v nvidia-container-cli &> /dev/null 2>&1; then

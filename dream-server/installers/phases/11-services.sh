@@ -292,11 +292,19 @@ MODELS_INI_EOF
     # starting other containers. Some end up in "Created", others never got
     # past "Creating" because their dependencies weren't ready yet.
     # Step 1: start any containers already in Created state
-    docker start $(docker ps -a --filter status=created -q) 2>/dev/null || true
+    created_containers=$(docker ps -a --filter status=created -q 2>>"$LOG_FILE")
+    if [[ -n "$created_containers" ]]; then
+        docker start $created_containers 2>>"$LOG_FILE" || log "Failed to start some created containers (non-fatal)"
+    fi
     # Step 2: second compose pass picks up services whose deps are now healthy
-    $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up -d --no-build >> "$LOG_FILE" 2>&1 || true
+    if ! $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up -d --no-build >> "$LOG_FILE" 2>&1; then
+        log "Second compose pass had issues (some services may not have started)"
+    fi
     # Step 3: catch any stragglers from the second pass
-    docker start $(docker ps -a --filter status=created -q) 2>/dev/null || true
+    created_containers=$(docker ps -a --filter status=created -q 2>>"$LOG_FILE")
+    if [[ -n "$created_containers" ]]; then
+        docker start $created_containers 2>>"$LOG_FILE" || log "Failed to start remaining created containers (non-fatal)"
+    fi
 
     if $compose_ok; then
         printf "\r  ${BGRN}✓${NC} %-60s\n" "All containers launched"

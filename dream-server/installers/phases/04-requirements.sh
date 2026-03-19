@@ -215,7 +215,12 @@ if $OLLAMA_RUNNING; then
     if $INTERACTIVE && ! $DRY_RUN; then
         read -r -p "  Stop Ollama for this session? [Y/n] " ollama_choice
         if [[ ! "$ollama_choice" =~ ^[nN] ]]; then
-            kill "$OLLAMA_PID" 2>/dev/null || sudo kill "$OLLAMA_PID" 2>/dev/null || true
+            if ! kill "$OLLAMA_PID" 2>>"$LOG_FILE"; then
+                log "Regular kill failed, trying with sudo"
+                if ! sudo kill "$OLLAMA_PID" 2>>"$LOG_FILE"; then
+                    warn "Failed to stop Ollama process (PID $OLLAMA_PID)"
+                fi
+            fi
             sleep 2
             if pgrep -x ollama >/dev/null 2>&1; then
                 ai_warn "Ollama restarted automatically. Stop it manually: sudo systemctl stop ollama"
