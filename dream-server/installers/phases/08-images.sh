@@ -18,6 +18,20 @@
 dream_progress 48 "images" "Downloading container images"
 show_phase 4 6 "Downloading Modules" "~5-10 minutes"
 
+# Verify Docker daemon is responsive before attempting pulls
+if ! $DRY_RUN; then
+    ai "Verifying Docker daemon health..."
+    if ! ${DOCKER_CMD:-docker} info &>/dev/null; then
+        ai_bad "Docker daemon is not responding"
+        ai "Common fixes:"
+        ai "  - Linux (systemd): sudo systemctl start docker"
+        ai "  - WSL2: ensure Docker Desktop is running"
+        ai "  - Check: docker info"
+        exit 1
+    fi
+    ai_ok "Docker daemon is healthy"
+fi
+
 # Build image list with cinematic labels
 # Format: "image|friendly_name"
 PULL_LIST=()
