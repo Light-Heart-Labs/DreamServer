@@ -293,7 +293,7 @@ MODELS_EOF
 # Tier: ${TIER} (${TIER_NAME})
 
 #=== Dream Server Version (used by dream-cli update for version-compat checks) ===
-DREAM_VERSION=${VERSION:-2.3.0}
+DREAM_VERSION=${VERSION:-2.3.1}
 
 #=== LLM Backend Mode ===
 DREAM_MODE=${DREAM_MODE:-local}

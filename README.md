@@ -54,7 +54,7 @@ We built Dream Server so you don't have to.
 - **Fully moddable** — every service is an extension. Drop in a folder, run `dream enable`, done
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.3.0/dream-server/get-dream-server.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.3.1/dream-server/get-dream-server.sh | bash
 ```
 
 Open **http://localhost:3000** and start chatting.
