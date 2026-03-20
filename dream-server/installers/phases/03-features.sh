@@ -37,6 +37,10 @@ if $INTERACTIVE && ! $DRY_RUN; then
         read -p "  Enable OpenClaw AI agent framework? [y/N] " -r < /dev/tty
         echo
         [[ $REPLY =~ ^[Yy]$ ]] && ENABLE_OPENCLAW=true
+
+        read -p "  Enable image generation (ComfyUI + FLUX, ~34GB)? [Y/n] " -r < /dev/tty
+        echo
+        [[ $REPLY =~ ^[Nn]$ ]] || ENABLE_COMFYUI=true
     fi
 fi
 

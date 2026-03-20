@@ -63,8 +63,10 @@ _check_health "Open WebUI" "http://localhost:${SERVICE_PORTS[open-webui]:-3000}$
 dream_progress 91 "health" "Waiting for Research engine"
 _check_health "Perplexica" "http://localhost:${SERVICE_PORTS[perplexica]:-3004}${SERVICE_HEALTH[perplexica]:-/}" 150 10
 # ComfyUI: 150 attempts * adaptive backoff = up to ~20 minutes (FLUX model loading is slow)
-dream_progress 93 "health" "Waiting for Image generation"
-_check_health "ComfyUI" "http://localhost:${SERVICE_PORTS[comfyui]:-8188}${SERVICE_HEALTH[comfyui]:-/}" 150 15
+if [[ "$ENABLE_COMFYUI" == "true" ]]; then
+    dream_progress 93 "health" "Waiting for Image generation"
+    _check_health "ComfyUI" "http://localhost:${SERVICE_PORTS[comfyui]:-8188}${SERVICE_HEALTH[comfyui]:-/}" 150 15
+fi
 
 # Perplexica auto-config: seed chat model + embedding model on first boot.
 # The slim-latest image stores config in a database, not just config.json.

@@ -386,10 +386,16 @@ show_install_menu() {
             ENABLE_WORKFLOWS=true
             ENABLE_RAG=true
             ENABLE_OPENCLAW=true
+            ENABLE_COMFYUI=true
             ;;
         2)
             signal "Acknowledged."
             log "Selected: Core Only"
+            ENABLE_VOICE=false
+            ENABLE_WORKFLOWS=false
+            ENABLE_RAG=false
+            ENABLE_OPENCLAW=false
+            ENABLE_COMFYUI=false
             ;;
         3)
             signal "Acknowledged."
@@ -401,6 +407,7 @@ show_install_menu() {
             ENABLE_WORKFLOWS=true
             ENABLE_RAG=true
             ENABLE_OPENCLAW=true
+            ENABLE_COMFYUI=true
             ;;
     esac
 }
