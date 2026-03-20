@@ -1,7 +1,7 @@
 services:
   chromadb:
     image: chromadb/chroma:1.5.3
-    container_name: chromadb
+    container_name: dream-chromadb
     ports:
       - "127.0.0.1:${CHROMADB_PORT:-8000}:8000"
     volumes:

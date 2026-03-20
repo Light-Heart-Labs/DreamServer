@@ -4,7 +4,7 @@ service:
   id: aider
   name: Aider
   aliases: [aider-chat, pair-programming]
-  container_name: aider
+  container_name: dream-aider
   host_env: AIDER_HOST
   default_host: aider
   port: 0
@@ -12,7 +12,7 @@ service:
   external_port_default: 0
   health: ""
   type: docker
-  gpu_backends: [none]
+  gpu_backends: [amd, nvidia, apple]
   compose_file: compose.yaml
   category: optional
   depends_on: []

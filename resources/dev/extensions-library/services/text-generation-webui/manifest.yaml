@@ -24,28 +24,51 @@ service:
     loading, and advanced generation parameters. The goto tool for power users
     who need full control over inference settings.
 
-  features:
-    inference:
-      description: Load and run GGUF, GPTQ, AWQ, EXL2, and HF transformer models
-      vram_required_mb: 0
-    chat-ui:
-      description: Instruct and chat mode UI with character support
-      vram_required_mb: 0
-    openai-api:
-      description: OpenAI-compatible API server (port 5001)
-      vram_required_mb: 0
-    extensions:
-      description: Built-in extensions for Whisper STT, Silero TTS, and more
-      vram_required_mb: 512
-    lora:
-      description: LoRA adapter loading and merging
-      vram_required_mb: 0
+features:
+  - id: llm-inference
+    name: LLM Inference
+    description: Load and run GGUF, GPTQ, AWQ, EXL2, and HF transformer models
+    icon: Cpu
+    category: ai
+    requirements:
+      services: [text-generation-webui]
+      vram_gb: 4
+    enabled_services_all: [text-generation-webui]
+    setup_time: ~3 minutes
+    priority: 5
+    gpu_backends: [amd, nvidia]
 
-  tags:
-    - llm
-    - inference
-    - oobabooga
-    - chat
-    - api
-    - gguf
-    - gptq
+  - id: chat-ui
+    name: Chat Interface
+    description: Instruct and chat mode UI with character support
+    icon: MessageSquare
+    category: chat
+    requirements:
+      services: [text-generation-webui]
+      vram_gb: 0
+    enabled_services_all: [text-generation-webui]
+    setup_time: ~3 minutes
+    priority: 6
+    gpu_backends: [amd, nvidia]
+
+  - id: openai-api
+    name: OpenAI-Compatible API
+    description: OpenAI-compatible API server with extensions and LoRA support
+    icon: Globe
+    category: ai
+    requirements:
+      services: [text-generation-webui]
+      vram_gb: 0
+    enabled_services_all: [text-generation-webui]
+    setup_time: ~3 minutes
+    priority: 7
+    gpu_backends: [amd, nvidia]
+
+tags:
+  - llm
+  - inference
+  - oobabooga
+  - chat
+  - api
+  - gguf
+  - gptq

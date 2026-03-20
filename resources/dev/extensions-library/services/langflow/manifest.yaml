@@ -12,29 +12,45 @@ service:
   external_port_default: 7802
   health: /health
   type: docker
-  gpu_backends: [none]
+  gpu_backends: [amd, nvidia, apple]
   category: optional
   depends_on: []
   description: |
     Langflow is a visual LLM workflow builder that lets you create
     complex AI workflows with a drag-and-drop interface. Supports
     LangChain components, custom components, and real-time testing.
-  
-  features:
-    visual-workflow:
-      description: Visual LLM workflow builder with drag-and-drop
-      vram_required_mb: 0
-    rag:
-      description: Build RAG pipelines visually
-      vram_required_mb: 0
-    agents:
-      description: Create and test AI agents visually
-      vram_required_mb: 0
-    
-  tags:
-    - visual
-    - workflow
-    - langchain
-    - rag
-    - agents
-    - low-code
+
+features:
+  - id: langflow-visual-workflow
+    name: Visual LLM Workflow Builder
+    description: Visual LLM workflow builder with drag-and-drop and LangChain components
+    icon: Workflow
+    category: ai
+    requirements:
+      services: [langflow]
+      vram_gb: 0
+    enabled_services_all: [langflow]
+    setup_time: ~2 minutes
+    priority: 7
+    gpu_backends: [amd, nvidia, apple]
+
+  - id: visual-rag
+    name: Visual RAG Pipelines
+    description: Build RAG pipelines and AI agents visually
+    icon: Layers
+    category: ai
+    requirements:
+      services: [langflow]
+      vram_gb: 0
+    enabled_services_all: [langflow]
+    setup_time: ~2 minutes
+    priority: 8
+    gpu_backends: [amd, nvidia, apple]
+
+tags:
+  - visual
+  - workflow
+  - langchain
+  - rag
+  - agents
+  - low-code

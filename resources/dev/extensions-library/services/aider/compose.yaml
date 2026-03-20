@@ -3,7 +3,7 @@ name: aider
 services:
   aider:
     image: paulgauthier/aider:v0.86.2
-    container_name: aider
+    container_name: dream-aider
     volumes:
       - ./data/aider:/app
       # Note: Mount git/ssh configs manually if needed:

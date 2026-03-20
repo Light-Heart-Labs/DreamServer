@@ -19,25 +19,38 @@ service:
     All-in-one AI productivity tool for RAG chat with documents.
     Built-in vector database, supports multiple LLM providers,
     and runs entirely on-device for privacy.
-  
-  features:
-    rag:
-      description: RAG chat with uploaded documents
-      vram_required_mb: 0
-    chat:
-      description: Chat interface with multiple LLM providers
-      vram_required_mb: 0
-    embed:
-      description: Built-in embedding and vector search
-      vram_required_mb: 0
-    agents:
-      description: AI agents for automated workflows
-      vram_required_mb: 2048
-    
-  tags:
-    - chat
-    - rag
-    - documents
-    - vector-db
-    - privacy
-    - local
+
+features:
+  - id: rag-chat
+    name: RAG Document Chat
+    description: Chat with uploaded documents using retrieval-augmented generation
+    icon: FileText
+    category: ai
+    requirements:
+      services: [anythingllm]
+      vram_gb: 0
+    enabled_services_all: [anythingllm]
+    setup_time: ~2 minutes
+    priority: 4
+    gpu_backends: [amd, nvidia]
+
+  - id: anythingllm-ai-agents
+    name: AI Agents
+    description: AI agents for automated workflows
+    icon: Bot
+    category: ai
+    requirements:
+      services: [anythingllm]
+      vram_gb: 2
+    enabled_services_all: [anythingllm]
+    setup_time: ~2 minutes
+    priority: 6
+    gpu_backends: [amd, nvidia]
+
+tags:
+  - chat
+  - rag
+  - documents
+  - vector-db
+  - privacy
+  - local
