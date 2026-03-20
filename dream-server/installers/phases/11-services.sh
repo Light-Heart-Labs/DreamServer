@@ -168,7 +168,9 @@ else
 
     # ── FLUX.1-schnell model download (ComfyUI image generation) ──
     dream_progress 79 "services" "Checking image generation models"
-    if [[ "${DREAM_MODE:-local}" == "cloud" ]]; then
+    if [[ "$ENABLE_COMFYUI" != "true" ]]; then
+        ai "Image generation disabled — skipping FLUX model download"
+    elif [[ "${DREAM_MODE:-local}" == "cloud" ]]; then
         ai "Cloud mode — skipping FLUX model download"
     elif [[ "$GPU_BACKEND" == "amd" ]]; then
         COMFYUI_BASE="$INSTALL_DIR/data/comfyui/ComfyUI/models"
@@ -312,7 +314,8 @@ MODELS_INI_EOF
     compose_ok=false
     # Build locally-built images individually so one failure doesn't block the rest
     _build_count=0
-    _build_services=(dashboard dashboard-api comfyui ape token-spy privacy-shield)
+    _build_services=(dashboard dashboard-api ape token-spy privacy-shield)
+    [[ "$ENABLE_COMFYUI" == "true" ]] && _build_services+=(comfyui)
     _build_total=${#_build_services[@]}
     for _svc in "${_build_services[@]}"; do
         _build_count=$((_build_count + 1))
