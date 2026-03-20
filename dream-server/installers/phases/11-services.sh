@@ -363,15 +363,15 @@ MODELS_INI_EOF
                 . "$SCRIPT_DIR/installers/lib/background-tasks.sh"
             fi
 
-            nohup bash "$SCRIPT_DIR/scripts/bootstrap-upgrade.sh" 
-                "$INSTALL_DIR" "$FULL_GGUF_FILE" "$FULL_GGUF_URL" 
-                "$FULL_GGUF_SHA256" "$FULL_LLM_MODEL" "$FULL_MAX_CONTEXT" 
+            nohup bash "$SCRIPT_DIR/scripts/bootstrap-upgrade.sh" \
+                "$INSTALL_DIR" "$FULL_GGUF_FILE" "$FULL_GGUF_URL" \
+                "$FULL_GGUF_SHA256" "$FULL_LLM_MODEL" "$FULL_MAX_CONTEXT" \
                 > "$INSTALL_DIR/logs/model-upgrade.log" 2>&1 &
             _upgrade_pid=$!
 
             if command -v bg_task_start &>/dev/null; then
-                bg_task_start "full-model-download" "$_upgrade_pid" 
-                    "Full model download: $FULL_LLM_MODEL" 
+                bg_task_start "full-model-download" "$_upgrade_pid" \
+                    "Full model download: $FULL_LLM_MODEL" \
                     "$INSTALL_DIR/logs/model-upgrade.log"
             fi
 
