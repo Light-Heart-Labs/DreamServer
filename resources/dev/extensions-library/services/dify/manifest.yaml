@@ -7,9 +7,9 @@ service:
   container_name: dream-dify
   host_env: DIFY_HOST
   default_host: dify
-  port: 80
+  port: 5001
   external_port_env: DIFY_PORT
-  external_port_default: 8080
+  external_port_default: 8002
   health: /health
   type: docker
   gpu_backends: [amd, nvidia]

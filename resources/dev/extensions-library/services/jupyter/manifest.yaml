@@ -4,7 +4,7 @@ service:
   id: jupyter
   name: Jupyter
   aliases: [jupyter-notebook, notebook]
-  container_name: jupyter
+  container_name: dream-jupyter
   host_env: JUPYTER_HOST
   default_host: jupyter
   port: 8888

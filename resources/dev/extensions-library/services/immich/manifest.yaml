@@ -4,7 +4,7 @@ service:
   id: immich
   name: Immich
   aliases: [photos, media-backup]
-  container_name: immich-server
+  container_name: dream-immich
   host_env: IMMICH_HOST
   default_host: immich-server
   port: 2283

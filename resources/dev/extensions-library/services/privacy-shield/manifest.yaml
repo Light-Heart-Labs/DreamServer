@@ -1,7 +1,7 @@
 schema_version: dream.services.v1
 
 service:
-  id: privacy_shield
+  id: privacy-shield
   name: Privacy Shield (PII Protection)
   aliases: []
   container_name: dream-privacy-shield

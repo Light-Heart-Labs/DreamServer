@@ -3,7 +3,7 @@ name: jupyter
 services:
   jupyter:
     image: jupyter/scipy-notebook:python-3.11
-    container_name: jupyter
+    container_name: dream-jupyter
     ports:
       - "127.0.0.1:${JUPYTER_PORT:-8888}:8888"
     volumes:

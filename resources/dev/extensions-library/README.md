@@ -80,7 +80,7 @@ Each extension is a self-contained directory with a `manifest.yaml` (service met
 |---------|------------|-----|
 | [`label-studio/`](services/label-studio/) | Label Studio — data labeling for ML training | CPU |
 | [`anythingllm/`](services/anythingllm/) | AnythingLLM — all-in-one RAG + chat + agents | AMD, NVIDIA |
-| [`privacy_shield/`](services/privacy_shield/) | Privacy Shield — PII detection/redaction proxy | AMD, NVIDIA |
+| [`privacy-shield/`](services/privacy-shield/) | Privacy Shield — PII detection/redaction proxy | AMD, NVIDIA |
 
 ---
 

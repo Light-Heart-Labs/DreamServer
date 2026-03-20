@@ -1,7 +1,7 @@
 services:
   immich-server:
     image: ghcr.io/immich-app/immich-server:v1.131.3
-    container_name: immich
+    container_name: dream-immich
     ports:
       - "127.0.0.1:${IMMICH_PORT:-2283}:2283"
     volumes:
