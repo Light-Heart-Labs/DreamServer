@@ -32,7 +32,7 @@
         "type": { "type": "string", "enum": ["docker", "host-systemd"] },
         "gpu_backends": {
           "type": "array",
-          "items": { "type": "string", "enum": ["amd", "nvidia", "apple", "all"] },
+          "items": { "type": "string", "enum": ["amd", "nvidia", "apple", "all", "none"] },
           "minItems": 1
         },
         "compose_file": {
@@ -65,6 +65,10 @@
           },
           "description": "Environment variables used by this service"
         },
+        "description": {
+          "type": "string",
+          "description": "Human-readable service description"
+        },
         "setup_hook": {
           "type": "string",
           "description": "Relative path to a setup script run during installation (e.g. setup.sh)"
@@ -89,6 +93,7 @@
               "services": { "type": "array", "items": { "type": "string" } },
               "services_any": { "type": "array", "items": { "type": "string" } },
               "vram_gb": { "type": "number", "minimum": 0 },
+              "vram_mb": { "type": "number", "minimum": 0 },
               "disk_gb": { "type": "number", "minimum": 0 }
             },
             "additionalProperties": true
@@ -99,12 +104,16 @@
           "priority": { "type": "integer", "minimum": 1 },
           "gpu_backends": {
             "type": "array",
-            "items": { "type": "string", "enum": ["amd", "nvidia", "apple", "all"] },
-            "minItems": 1
+            "items": { "type": "string", "enum": ["amd", "nvidia", "apple", "all", "none"] }
           }
         },
         "additionalProperties": true
       }
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+      "description": "Categorization tags for service discovery"
     }
   },
   "additionalProperties": true
