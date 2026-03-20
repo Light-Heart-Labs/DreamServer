@@ -273,6 +273,18 @@ load-on-startup = true
 n-ctx = ${MAX_CONTEXT}
 MODELS_INI_EOF
         ai_ok "Generated models.ini for llama-server"
+
+        # If bootstrap is active, patch .env so docker compose starts llama-server
+        # with the bootstrap model (phase 06 wrote .env with the full model values)
+        if [[ "$_BOOTSTRAP_ACTIVE" == "true" ]]; then
+            _env_file="$INSTALL_DIR/.env"
+            if [[ -f "$_env_file" ]]; then
+                awk -v v="$GGUF_FILE" '{ if (index($0, "GGUF_FILE=") == 1) print "GGUF_FILE=" v; else print }'                     "$_env_file" > "${_env_file}.tmp" && mv "${_env_file}.tmp" "$_env_file"
+                awk -v v="$LLM_MODEL" '{ if (index($0, "LLM_MODEL=") == 1) print "LLM_MODEL=" v; else print }'                     "$_env_file" > "${_env_file}.tmp" && mv "${_env_file}.tmp" "$_env_file"
+                awk -v v="$MAX_CONTEXT" '{ if (index($0, "MAX_CONTEXT=") == 1) print "MAX_CONTEXT=" v; else print }'                     "$_env_file" > "${_env_file}.tmp" && mv "${_env_file}.tmp" "$_env_file"
+                ai_ok "Patched .env for bootstrap model ($GGUF_FILE)"
+            fi
+        fi
     fi
 
     # Validate service dependencies before launching
