@@ -117,6 +117,8 @@ Options:
     --workflows       Enable n8n workflow automation
     --rag             Enable RAG with Qdrant vector database
     --openclaw        Enable OpenClaw AI agent framework
+    --comfyui         Enable ComfyUI image generation
+    --no-comfyui      Disable ComfyUI image generation (saves ~34GB)
     --all             Enable all optional services
     --non-interactive Run without prompts (use defaults or flags)
     --offline         M1 mode: Configure for fully offline/air-gapped operation
@@ -158,6 +160,7 @@ while [[ $# -gt 0 ]]; do
         --rag) ENABLE_RAG=true; shift ;;
         --openclaw) ENABLE_OPENCLAW=true; shift ;;
         --comfyui) ENABLE_COMFYUI=true; shift ;;
+        --no-comfyui) ENABLE_COMFYUI=false; shift ;;
         --all) ENABLE_VOICE=true; ENABLE_WORKFLOWS=true; ENABLE_RAG=true; ENABLE_OPENCLAW=true; ENABLE_COMFYUI=true; shift ;;
         --non-interactive) INTERACTIVE=false; shift ;;
         --offline) OFFLINE_MODE=true; shift ;;

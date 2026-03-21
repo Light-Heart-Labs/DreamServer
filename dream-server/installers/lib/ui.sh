@@ -387,6 +387,17 @@ show_install_menu() {
             ENABLE_RAG=true
             ENABLE_OPENCLAW=true
             ENABLE_COMFYUI=true
+
+            # Disable image generation on low-tier systems (insufficient RAM/VRAM)
+            # ComfyUI requires shm_size 8GB + 24GB memory limit
+            case "${TIER:-}" in
+                0|1)
+                    ENABLE_COMFYUI=false
+                    log "ComfyUI auto-disabled for Tier $TIER (insufficient RAM/VRAM)"
+                    ai_warn "Image generation (ComfyUI) disabled — your hardware doesn't have enough RAM."
+                    ai "  You can enable it later with: dream enable comfyui"
+                    ;;
+            esac
             ;;
         2)
             signal "Acknowledged."
@@ -408,6 +419,17 @@ show_install_menu() {
             ENABLE_RAG=true
             ENABLE_OPENCLAW=true
             ENABLE_COMFYUI=true
+
+            # Disable image generation on low-tier systems (insufficient RAM/VRAM)
+            # ComfyUI requires shm_size 8GB + 24GB memory limit
+            case "${TIER:-}" in
+                0|1)
+                    ENABLE_COMFYUI=false
+                    log "ComfyUI auto-disabled for Tier $TIER (insufficient RAM/VRAM)"
+                    ai_warn "Image generation (ComfyUI) disabled — your hardware doesn't have enough RAM."
+                    ai "  You can enable it later with: dream enable comfyui"
+                    ;;
+            esac
             ;;
     esac
 }
