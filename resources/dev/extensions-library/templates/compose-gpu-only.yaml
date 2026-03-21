@@ -56,12 +56,13 @@
 services:
   my-service:
     # Use the NVIDIA/CUDA-compatible image.
-    image: myorg/my-service:latest-cuda
+    # Pin to a specific version tag — avoid :latest for reproducibility
+    image: myorg/my-service:1.0.0-cuda
     container_name: dream-my-service
     restart: unless-stopped
 
     ports:
-      - "${MY_SERVICE_PORT:-8080}:8080"
+      - "127.0.0.1:${MY_SERVICE_PORT:-8080}:8080"
 
     volumes:
       - ./data/my-service/models:/models
@@ -101,7 +102,8 @@ services:
 #
 # services:
 #   my-service:
-#     image: myorg/my-service:latest-rocm
+#     # Pin to a specific version tag — avoid :latest for reproducibility
+#     image: myorg/my-service:1.0.0-rocm
 #     container_name: dream-my-service
 #     restart: unless-stopped
 #
@@ -137,7 +139,7 @@ services:
 #       - ./data/my-service/output:/output
 #
 #     ports:
-#       - "${MY_SERVICE_PORT:-8080}:8080"
+#       - "127.0.0.1:${MY_SERVICE_PORT:-8080}:8080"
 #
 #     # AMD images may need a custom entrypoint or different CLI flags.
 #     command: >-

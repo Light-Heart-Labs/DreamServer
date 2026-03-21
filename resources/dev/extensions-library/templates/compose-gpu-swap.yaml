@@ -39,8 +39,9 @@
 services:
   my-service:
     # Swap the CPU image tag for the CUDA variant.
-    # The base compose.yaml has: image: myorg/my-service:latest-cpu
-    image: myorg/my-service:latest-cuda
+    # The base compose.yaml has: image: myorg/my-service:1.0.0-cpu
+    # Pin to a specific version tag — avoid :latest for reproducibility
+    image: myorg/my-service:1.0.0-cuda
 
     # Grant access to NVIDIA GPUs via the container toolkit.
     deploy:
@@ -69,7 +70,8 @@ services:
 # services:
 #   my-service:
 #     # Swap the CPU image tag for the ROCm variant.
-#     image: myorg/my-service:latest-rocm
+#     # Pin to a specific version tag — avoid :latest for reproducibility
+#     image: myorg/my-service:1.0.0-rocm
 #
 #     # AMD GPU device passthrough — required for ROCm.
 #     devices:

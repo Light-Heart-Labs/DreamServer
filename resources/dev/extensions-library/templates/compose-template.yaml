@@ -39,7 +39,8 @@
 
 services:
   my-service:
-    image: myorg/my-service:latest
+    # Pin to a specific version tag — avoid :latest for reproducibility
+    image: myorg/my-service:1.0.0
     container_name: dream-my-service
 
     restart: unless-stopped
@@ -58,7 +59,7 @@ services:
 
     ports:
       # External port (user-facing) : Internal port (container)
-      - "${MY_SERVICE_PORT:-1234}:1234"
+      - "127.0.0.1:${MY_SERVICE_PORT:-1234}:1234"
 
     networks:
       - dream-network
