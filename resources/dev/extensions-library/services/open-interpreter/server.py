@@ -3,6 +3,7 @@
 
 import hmac
 import json
+import logging
 import os
 import re
 import subprocess
@@ -131,9 +132,13 @@ def chat(req: ChatRequest, _auth=Depends(verify_api_key)):
         )
 
         if result.returncode != 0:
+            logging.getLogger("open-interpreter").error(
+                "Interpreter subprocess failed (exit %d): %s",
+                result.returncode, result.stderr,
+            )
             raise HTTPException(
                 status_code=500,
-                detail=f"Interpreter error: {result.stderr}",
+                detail="Interpreter execution failed",
             )
 
         return {"output": result.stdout}
