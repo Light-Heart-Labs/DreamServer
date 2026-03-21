@@ -36,7 +36,7 @@ from models import (
 from security import verify_api_key
 from gpu import get_gpu_info
 from helpers import (
-    get_all_services,
+    get_all_services, get_cached_services, set_services_cache,
     get_disk_usage, get_model_info, get_bootstrap_status,
     get_uptime, get_cpu_metrics, get_ram_metrics,
     get_llama_metrics, get_loaded_model, get_llama_context_size,
@@ -74,6 +74,7 @@ _cache = TTLCache()
 _GPU_CACHE_TTL = 3.0
 _STATUS_CACHE_TTL = 2.0
 _STORAGE_CACHE_TTL = 30.0
+_SERVICE_POLL_INTERVAL = 10.0  # background health check interval
 
 # --- Router imports ---
 from routers import workflows, features, setup, updates, agents, privacy
@@ -243,7 +244,10 @@ async def gpu(api_key: str = Depends(verify_api_key)):
 
 @app.get("/services", response_model=list[ServiceStatus])
 async def services(api_key: str = Depends(verify_api_key)):
-    """Get all service health statuses."""
+    """Get all service health statuses (from background poll cache)."""
+    cached = get_cached_services()
+    if cached is not None:
+        return cached
     return await get_all_services()
 
 
@@ -266,7 +270,7 @@ async def bootstrap(api_key: str = Depends(verify_api_key)):
 async def status(api_key: str = Depends(verify_api_key)):
     """Get full system status. Runs sync helpers in thread pool concurrently."""
     service_statuses, gpu_info, disk_info, model_info, bootstrap_info, uptime = await asyncio.gather(
-        get_all_services(),
+        _get_services(),
         asyncio.to_thread(get_gpu_info),
         asyncio.to_thread(get_disk_usage),
         asyncio.to_thread(get_model_info),
@@ -324,7 +328,7 @@ async def _build_api_status() -> dict:
         asyncio.to_thread(get_uptime),
         asyncio.to_thread(get_cpu_metrics),
         asyncio.to_thread(get_ram_metrics),
-        get_all_services(),
+        _get_services(),
         get_loaded_model(),
     )
 
@@ -483,12 +487,40 @@ async def api_storage(api_key: str = Depends(verify_api_key)):
     return result
 
 
+# --- Service Health Polling ---
+
+async def _get_services() -> list[ServiceStatus]:
+    """Return cached service health, falling back to live check."""
+    cached = get_cached_services()
+    if cached is not None:
+        return cached
+    return await get_all_services()
+
+
+async def _poll_service_health():
+    """Background task: poll all service health on a timer.
+
+    Results stored via set_services_cache(). API endpoints read
+    cached results instead of running live checks. The poll can
+    take as long as it needs — nobody waits for it.
+    """
+    await asyncio.sleep(2)  # let services start
+    while True:
+        try:
+            statuses = await get_all_services()
+            set_services_cache(statuses)
+        except Exception:
+            logger.exception("Service health poll failed")
+        await asyncio.sleep(_SERVICE_POLL_INTERVAL)
+
+
 # --- Startup ---
 
 @app.on_event("startup")
 async def startup_event():
-    """Start background metrics collection."""
+    """Start background tasks."""
     asyncio.create_task(collect_metrics())
+    asyncio.create_task(_poll_service_health())
 
 
 if __name__ == "__main__":
