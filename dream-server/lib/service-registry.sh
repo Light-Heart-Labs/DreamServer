@@ -4,6 +4,7 @@
 
 EXTENSIONS_DIR="${SCRIPT_DIR:-$(pwd)}/extensions/services"
 _SR_LOADED=false
+_SR_FAILED=false
 _SR_CACHE="/tmp/dream-service-registry.$$.sh"
 
 # Caching for compose flags (session-level)
@@ -43,7 +44,24 @@ sr_load() {
         PYTHON_CMD="python"
     fi
 
-    "$PYTHON_CMD" - "$EXTENSIONS_DIR" <<'PYEOF' > "$_SR_CACHE"
+    # Ensure PyYAML is available (Arch, Void, Alpine don't ship it by default)
+    if ! "$PYTHON_CMD" -c "import yaml" 2>/dev/null; then
+        if declare -f pkg_install &>/dev/null && declare -f pkg_resolve &>/dev/null; then
+            [[ -z "${PKG_MANAGER:-}" ]] && declare -f detect_pkg_manager &>/dev/null && detect_pkg_manager
+            declare -f log &>/dev/null && log "PyYAML not found; installing system package..."
+            # shellcheck disable=SC2046
+            pkg_install $(pkg_resolve python3-pyyaml) 2>>"${LOG_FILE:-/dev/null}" || true
+        fi
+        if ! "$PYTHON_CMD" -c "import yaml" 2>/dev/null; then
+            declare -f warn &>/dev/null && warn "PyYAML not available. Service registry will be incomplete."
+            declare -f warn &>/dev/null && warn "Install manually: pip3 install pyyaml"
+            _SR_LOADED=true  # Prevent repeated retries
+            _SR_FAILED=true
+            return 0
+        fi
+    fi
+
+    if ! "$PYTHON_CMD" - "$EXTENSIONS_DIR" <<'PYEOF' > "$_SR_CACHE"
 import yaml, sys, os
 from pathlib import Path
 
@@ -151,6 +169,13 @@ for service_dir in sorted(ext_dir.iterdir()):
         print(f'# ERROR: failed to parse {manifest_path}: {exc}', file=sys.stderr)
         continue
 PYEOF
+    then
+        rm -f "$_SR_CACHE"
+        declare -f warn &>/dev/null && warn "Service registry: manifest parser failed"
+        _SR_LOADED=true  # Prevent repeated retries
+        _SR_FAILED=true
+        return 0
+    fi
 
     # Source the generated registry (one subprocess for all manifests)
     [[ -f "$_SR_CACHE" ]] && . "$_SR_CACHE"

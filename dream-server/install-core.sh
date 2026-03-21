@@ -75,7 +75,12 @@ source "$SCRIPT_DIR/installers/lib/packaging.sh"
 source "$SCRIPT_DIR/installers/lib/progress.sh"
 if [[ -f "$SCRIPT_DIR/lib/service-registry.sh" ]]; then 
     source "$SCRIPT_DIR/lib/service-registry.sh" 
-    sr_load 
+    sr_load
+    if [[ "${_SR_FAILED:-}" == "true" ]]; then
+        warn "Service registry failed to load. Will retry after dependencies are installed."
+        _SR_LOADED=false
+        _SR_FAILED=false
+    fi
 fi
 
 #=============================================================================

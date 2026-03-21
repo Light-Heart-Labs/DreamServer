@@ -131,12 +131,14 @@ pkg_resolve() {
         apt)
             case "$canonical" in
                 docker-compose-plugin) echo "docker-compose-plugin" ;;
+                python3-pyyaml)        echo "python3-yaml" ;;
                 *) echo "$canonical" ;;
             esac
             ;;
         dnf)
             case "$canonical" in
                 docker-compose-plugin) echo "docker-compose-plugin" ;;
+                python3-pyyaml)        echo "python3-pyyaml" ;;
                 build-essential)       echo "gcc gcc-c++ make" ;;
                 *) echo "$canonical" ;;
             esac
@@ -144,6 +146,7 @@ pkg_resolve() {
         pacman)
             case "$canonical" in
                 docker-compose-plugin) echo "docker-compose" ;;
+                python3-pyyaml)        echo "python-yaml" ;;
                 build-essential)       echo "base-devel" ;;
                 *) echo "$canonical" ;;
             esac
@@ -151,6 +154,7 @@ pkg_resolve() {
         zypper)
             case "$canonical" in
                 docker-compose-plugin) echo "docker-compose" ;;
+                python3-pyyaml)        echo "python3-PyYAML" ;;
                 build-essential)       echo "devel_basis" ;;
                 *) echo "$canonical" ;;
             esac
@@ -158,6 +162,7 @@ pkg_resolve() {
         xbps)
             case "$canonical" in
                 docker-compose-plugin) echo "docker-compose" ;;
+                python3-pyyaml)        echo "python3-yaml" ;;
                 build-essential)       echo "base-devel" ;;
                 *) echo "$canonical" ;;
             esac
@@ -165,6 +170,7 @@ pkg_resolve() {
         apk)
             case "$canonical" in
                 docker-compose-plugin) echo "docker-cli-compose" ;;
+                python3-pyyaml)        echo "py3-yaml" ;;
                 build-essential)       echo "build-base" ;;
                 *) echo "$canonical" ;;
             esac

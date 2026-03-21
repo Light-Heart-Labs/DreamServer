@@ -57,12 +57,42 @@ else
     if $DRY_RUN; then
         log "[DRY RUN] Would install Docker via official script"
     else
-        tmpfile=$(mktemp /tmp/install-docker.XXXXXX.sh)
-        if ! curl -fsSL --max-time 300 https://get.docker.com -o "$tmpfile" || ! sh "$tmpfile"; then
-            rm -f "$tmpfile"
-            error "Docker installation failed. Check network connectivity and try again."
-        fi
-        rm -f "$tmpfile"
+        case "$PKG_MANAGER" in
+            apt|dnf|zypper)
+                # Docker CE via get.docker.com (supports Debian/Ubuntu/Fedora/RHEL/SLES)
+                tmpfile=$(mktemp /tmp/install-docker.XXXXXX.sh)
+                if ! curl -fsSL --max-time 300 https://get.docker.com -o "$tmpfile" || ! sh "$tmpfile"; then
+                    rm -f "$tmpfile"
+                    error "Docker installation failed. Check network connectivity and try again."
+                fi
+                rm -f "$tmpfile"
+                ;;
+            pacman)
+                # Arch/Manjaro/CachyOS/EndeavourOS -- Docker is in the official repos
+                pkg_install docker
+                sudo systemctl enable --now docker.service 2>>"$LOG_FILE" || true
+                ;;
+            xbps)
+                # Void Linux -- runit service management
+                pkg_install docker
+                sudo ln -s /etc/sv/docker /var/service/ 2>/dev/null || true
+                ;;
+            apk)
+                # Alpine -- OpenRC service management
+                pkg_install docker
+                sudo rc-update add docker boot 2>>"$LOG_FILE" || true
+                sudo service docker start 2>>"$LOG_FILE" || true
+                ;;
+            *)
+                # Unknown distro -- try get.docker.com as best-effort fallback
+                tmpfile=$(mktemp /tmp/install-docker.XXXXXX.sh)
+                if ! curl -fsSL --max-time 300 https://get.docker.com -o "$tmpfile" || ! sh "$tmpfile"; then
+                    rm -f "$tmpfile"
+                    error "Docker installation failed. Your distro (${DISTRO_ID:-unknown}) may not be supported. Install Docker manually and re-run with --skip-docker."
+                fi
+                rm -f "$tmpfile"
+                ;;
+        esac
 
         # Add the invoking user (not root) to the docker group
         target_user="${SUDO_USER:-$USER}"
