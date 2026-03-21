@@ -86,6 +86,13 @@ if (-not $nonInteractive -and -not $allFlag -and -not $dryRun) {
     }
 }
 
+# Tier safety net: disable ComfyUI on low-tier systems regardless of interactive mode.
+# In interactive mode, the menu already handles this — this catches -NonInteractive.
+if ($enableComfyui -and ($selectedTier -eq "0" -or $selectedTier -eq "1")) {
+    $enableComfyui = $false
+    Write-AI "ComfyUI auto-disabled for Tier $selectedTier (insufficient RAM for shm_size 8GB)"
+}
+
 # ── Feature summary ───────────────────────────────────────────────────────────
 Write-Host ""
 Write-AI "Feature configuration:"

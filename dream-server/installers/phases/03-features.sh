@@ -56,6 +56,17 @@ if $INTERACTIVE && ! $DRY_RUN; then
     fi
 fi
 
+# Tier safety net: disable ComfyUI on low-tier systems regardless of interactive mode.
+# In interactive mode, the menu already handles this — this catches --non-interactive.
+if [[ "$ENABLE_COMFYUI" == "true" ]]; then
+    case "${TIER:-}" in
+        0|1)
+            ENABLE_COMFYUI=false
+            log "ComfyUI auto-disabled for Tier $TIER (insufficient RAM for shm_size 8GB)"
+            ;;
+    esac
+fi
+
 # All services are core — no profiles needed (compose profiles removed)
 
 # Select tier-appropriate OpenClaw config
