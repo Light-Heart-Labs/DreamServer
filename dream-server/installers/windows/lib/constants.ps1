@@ -10,7 +10,7 @@
 #   Change DS_VERSION for custom builds. Must match constants.sh VERSION.
 # ============================================================================
 
-$script:DS_VERSION = "2.0.0-strix-halo"
+$script:DS_VERSION = "2.3.2"
 
 # Install location (override via $env:DREAM_HOME)
 # NOTE: $(if ...) syntax required for PS 5.1 compatibility (bare if-as-expression is PS 7+ only)
@@ -26,7 +26,7 @@ $script:LLAMA_SERVER_EXE = Join-Path $script:LLAMA_SERVER_DIR "llama-server.exe"
 $script:LLAMA_SERVER_PID_FILE = Join-Path (Join-Path $script:DS_INSTALL_DIR "data") "llama-server.pid"
 
 # llama.cpp release for Vulkan build (update when new releases ship)
-$script:LLAMA_CPP_RELEASE_TAG = "b5570"
+$script:LLAMA_CPP_RELEASE_TAG = "b8248"
 $script:LLAMA_CPP_VULKAN_ASSET = "llama-$($script:LLAMA_CPP_RELEASE_TAG)-bin-win-vulkan-x64.zip"
 $script:LLAMA_CPP_VULKAN_URL = "https://github.com/ggml-org/llama.cpp/releases/download/$($script:LLAMA_CPP_RELEASE_TAG)/$($script:LLAMA_CPP_VULKAN_ASSET)"
 

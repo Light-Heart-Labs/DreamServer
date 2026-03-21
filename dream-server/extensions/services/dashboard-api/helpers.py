@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # poll cycle and prevents file-descriptor exhaustion.
 
 _aio_session: Optional[aiohttp.ClientSession] = None
-_HEALTH_TIMEOUT = aiohttp.ClientTimeout(total=5)
+_HEALTH_TIMEOUT = aiohttp.ClientTimeout(total=30)
 
 
 async def _get_aio_session() -> aiohttp.ClientSession:
@@ -167,6 +167,25 @@ async def get_llama_context_size(model_hint: Optional[str] = None) -> Optional[i
         return None
 
 
+# --- Service Health Cache ---
+# Written by background poll loop in main.py, read by API endpoints.
+# Keeps health checking decoupled from request handling so slow DNS
+# lookups (Docker Desktop) never block API responses.
+
+_services_cache: Optional[list] = None  # list[ServiceStatus], set by poll loop
+
+
+def set_services_cache(statuses: list) -> None:
+    """Store latest health check results (called by background poll)."""
+    global _services_cache
+    _services_cache = statuses
+
+
+def get_cached_services() -> Optional[list]:
+    """Read cached health check results. Returns None if no poll has completed yet."""
+    return _services_cache
+
+
 # --- Service Health ---
 
 async def check_service_health(service_id: str, config: dict) -> ServiceStatus:
@@ -218,6 +237,8 @@ async def _check_host_service_health(service_id: str, config: dict) -> ServiceSt
         async with session.get(url) as resp:
             response_time = (asyncio.get_event_loop().time() - start) * 1000
             status = "healthy" if resp.status < 400 else "unhealthy"
+    except asyncio.TimeoutError:
+        status = "down"
     except aiohttp.ClientConnectorError:
         status = "down"
     except (aiohttp.ClientError, OSError) as e:

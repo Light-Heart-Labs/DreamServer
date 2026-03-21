@@ -142,3 +142,38 @@ jobs:
 
       - name: macOS Dispatch Smoke
         run: bash tests/smoke/macos-dispatch.sh
+
+      - name: Bash 3.2 syntax check (catches declare -g, associative arrays, etc.)
+        run: |
+          echo "=== Checking installer scripts for Bash 3.2 compatibility ==="
+          FAIL=0
+          for f in install-core.sh installers/phases/*.sh installers/lib/*.sh; do
+            if [[ -f "$f" ]]; then
+              # macOS ships Bash 3.2 at /bin/bash — use it for syntax check
+              if /bin/bash -n "$f" 2>/dev/null; then
+                echo "  OK: $f"
+              else
+                echo "  FAIL: $f"
+                FAIL=1
+              fi
+            fi
+          done
+          # Also check macOS-specific scripts
+          for f in installers/macos/**/*.sh; do
+            if [[ -f "$f" ]]; then
+              if /bin/bash -n "$f" 2>/dev/null; then
+                echo "  OK: $f"
+              else
+                echo "  FAIL: $f"
+                FAIL=1
+              fi
+            fi
+          done
+          if [[ $FAIL -eq 1 ]]; then
+            echo ""
+            echo "FAIL: Some scripts have Bash 3.2 syntax errors."
+            echo "Common issues: declare -g, associative arrays (declare -A),"
+            echo "  &>> redirection, |& pipes, [[ with regex =~"
+            exit 1
+          fi
+          echo "PASS: All installer scripts parse under Bash 3.2"

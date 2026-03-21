@@ -61,6 +61,8 @@ if [[ -f "$ROOT_DIR/lib/service-registry.sh" ]]; then
     export SCRIPT_DIR="$ROOT_DIR"
     . "$ROOT_DIR/lib/service-registry.sh"
     sr_load
+    [[ -f "$ROOT_DIR/lib/safe-env.sh" ]] && . "$ROOT_DIR/lib/safe-env.sh"
+    [[ -f "$ROOT_DIR/.env" ]] && load_env_file "$ROOT_DIR/.env" && sr_resolve_ports
 fi
 _LLM_PORT="${SERVICE_PORTS[llama-server]:-11434}"
 _LLM_HEALTH="${SERVICE_HEALTH[llama-server]:-/health}"
@@ -112,7 +114,7 @@ elif gpu_type == "apple":
     overlays = ["docker-compose.base.yml", "docker-compose.amd.yml"]
 else:
     llm_backend = "cpu"
-    overlays = ["docker-compose.base.yml", "docker-compose.nvidia.yml"]
+    overlays = ["docker-compose.base.yml", "docker-compose.cpu.yml"]
 
 tier = (hardware.get("tier") or "T1").upper()
 if tier in {"T1", "T2", "T3", "T4"}:

@@ -406,7 +406,7 @@ SVCEOF
     echo ""
 
     if $INTERACTIVE; then
-        read -p "  Press Enter to reboot (or Ctrl+C to do it later)... " -r
+        read -p "  Press Enter to reboot (or Ctrl+C to do it later)... " -r < /dev/tty
         sudo reboot
     fi
 

@@ -163,3 +163,44 @@ function ConvertTo-ModelFromTier {
         default                  { return "" }
     }
 }
+
+# ============================================================================
+# Bootstrap Fast-Start
+# ============================================================================
+# Tiny model for instant chat while the full tier model downloads in background.
+
+$script:BOOTSTRAP_GGUF_FILE    = "Qwen3.5-2B-Q4_K_M.gguf"
+$script:BOOTSTRAP_GGUF_URL     = "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf"
+$script:BOOTSTRAP_LLM_MODEL    = "qwen3.5-2b"
+$script:BOOTSTRAP_MAX_CONTEXT   = 8192
+
+function Get-TierRank {
+    param([string]$Tier)
+    switch ($Tier) {
+        { $_ -in "NV_ULTRA","SH_LARGE" } { return 5 }
+        "4"                                { return 4 }
+        { $_ -in "SH_COMPACT","3" }       { return 3 }
+        { $_ -in "ARC","2" }              { return 2 }
+        { $_ -in "ARC_LITE","1" }         { return 1 }
+        "0"                                { return 0 }
+        default                            { return 1 }
+    }
+}
+
+function Should-UseBootstrap {
+    param(
+        [string]$Tier,
+        [string]$InstallDir,
+        [string]$GgufFile,
+        [bool]$CloudMode = $false,
+        [bool]$OfflineMode = $false,
+        [bool]$NoBootstrap = $false
+    )
+    if ($NoBootstrap)  { return $false }
+    if ($CloudMode)    { return $false }
+    if ($OfflineMode)  { return $false }
+    if ((Get-TierRank $Tier) -le 0) { return $false }
+    $modelPath = Join-Path (Join-Path $InstallDir "data\models") $GgufFile
+    if (Test-Path $modelPath) { return $false }
+    return $true
+}

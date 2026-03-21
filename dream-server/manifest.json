@@ -1,12 +1,12 @@
 {
   "schema_version": 2,
-  "dream_version": "2.1.0",
+  "dream_version": "2.2.0",
   "min_compatible_dream_version": "1.0.0",
   "manifestVersion": "1.0.0",
   "release": {
-    "version": "2.1.0",
+    "version": "2.2.0",
     "channel": "stable",
-    "date": "2026-03-17"
+    "date": "2026-03-20"
   },
   "compatibility": {
     "os": {
@@ -53,6 +53,7 @@
       "canonical": [
         "docker-compose.base.yml",
         "docker-compose.amd.yml",
+        "docker-compose.cpu.yml",
         "docker-compose.nvidia.yml",
         "docker-compose.apple.yml",
         "docker-compose.arc.yml"

@@ -29,6 +29,7 @@ STUB
     touch "$SCRIPT_DIR/docker-compose.yml"
     touch "$SCRIPT_DIR/docker-compose.base.yml"
     touch "$SCRIPT_DIR/docker-compose.nvidia.yml"
+    touch "$SCRIPT_DIR/docker-compose.cpu.yml"
     touch "$SCRIPT_DIR/docker-compose.amd.yml"
     touch "$SCRIPT_DIR/docker-compose.apple.yml"
 
@@ -80,6 +81,16 @@ STUB
     resolve_compose_config
     assert_equal "$COMPOSE_FLAGS" "-f docker-compose.base.yml -f docker-compose.amd.yml"
     assert_equal "$COMPOSE_FILE" "docker-compose.amd.yml"
+}
+
+# ── CPU backend (no GPU) ────────────────────────────────────────────────────
+
+@test "resolve_compose_config: CPU backend selects base + cpu overlay" {
+    TIER=T1
+    GPU_BACKEND=cpu
+    resolve_compose_config
+    assert_equal "$COMPOSE_FLAGS" "-f docker-compose.base.yml -f docker-compose.cpu.yml"
+    assert_equal "$COMPOSE_FILE" "docker-compose.cpu.yml"
 }
 
 # ── Numeric tiers (default NVIDIA path) ────────────────────────────────────

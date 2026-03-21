@@ -102,3 +102,36 @@ auto_select_tier() {
         echo "0"
     fi
 }
+
+# ============================================================================
+# Bootstrap Fast-Start
+# ============================================================================
+
+BOOTSTRAP_GGUF_FILE="Qwen3.5-2B-Q4_K_M.gguf"
+BOOTSTRAP_GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf"
+BOOTSTRAP_LLM_MODEL="qwen3.5-2b"
+BOOTSTRAP_MAX_CONTEXT=8192
+
+macos_tier_rank() {
+    case "$1" in
+        4)          echo 4 ;;
+        3)          echo 3 ;;
+        2)          echo 2 ;;
+        1)          echo 1 ;;
+        0)          echo 0 ;;
+        *)          echo 1 ;;
+    esac
+}
+
+bootstrap_needed() {
+    local tier="$1"
+    local install_dir="$2"
+    local gguf_file="$3"
+
+    [[ "${NO_BOOTSTRAP:-false}" == "true" ]] && return 1
+    [[ "${CLOUD_MODE:-false}" == "true" ]] && return 1
+    [[ "${OFFLINE_MODE:-false}" == "true" ]] && return 1
+    [[ "$(macos_tier_rank "$tier")" -le 0 ]] && return 1
+    [[ -f "${install_dir}/data/models/${gguf_file}" ]] && return 1
+    return 0
+}

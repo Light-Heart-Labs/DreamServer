@@ -104,7 +104,7 @@ PY
 # Returns: 0 if completed successfully, 1 if failed, 2 if timeout
 bg_task_wait() {
     local task_id="$1"
-    local timeout="${2:-300}"
+    local timeout="${2:-1200}"
     local check_interval="${3:-5}"
     local elapsed=0
     

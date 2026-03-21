@@ -89,9 +89,11 @@ ENABLE_VOICE=true
 ENABLE_WORKFLOWS=true
 ENABLE_RAG=true
 ENABLE_OPENCLAW=true
+ENABLE_COMFYUI=true
 INTERACTIVE=true
 DREAM_MODE="${DREAM_MODE:-local}"
 OFFLINE_MODE=false   # M1 integration: fully air-gapped operation
+NO_BOOTSTRAP=false  # Skip bootstrap fast-start, download full model in foreground
 SUMMARY_JSON_FILE="${SUMMARY_JSON_FILE:-}"
 
 usage() {
@@ -113,6 +115,7 @@ Options:
     --all             Enable all optional services
     --non-interactive Run without prompts (use defaults or flags)
     --offline         M1 mode: Configure for fully offline/air-gapped operation
+    --no-bootstrap    Skip bootstrap fast-start (download full model in foreground)
     --summary-json P  Write machine-readable install summary JSON to path P
     -h, --help        Show this help
 
@@ -149,9 +152,11 @@ while [[ $# -gt 0 ]]; do
         --workflows) ENABLE_WORKFLOWS=true; shift ;;
         --rag) ENABLE_RAG=true; shift ;;
         --openclaw) ENABLE_OPENCLAW=true; shift ;;
-        --all) ENABLE_VOICE=true; ENABLE_WORKFLOWS=true; ENABLE_RAG=true; ENABLE_OPENCLAW=true; shift ;;
+        --comfyui) ENABLE_COMFYUI=true; shift ;;
+        --all) ENABLE_VOICE=true; ENABLE_WORKFLOWS=true; ENABLE_RAG=true; ENABLE_OPENCLAW=true; ENABLE_COMFYUI=true; shift ;;
         --non-interactive) INTERACTIVE=false; shift ;;
         --offline) OFFLINE_MODE=true; shift ;;
+        --no-bootstrap) NO_BOOTSTRAP=true; shift ;;
         --summary-json) SUMMARY_JSON_FILE="$2"; shift 2 ;;
         -h|--help) usage ;;
         *) error "Unknown option: $1" ;;

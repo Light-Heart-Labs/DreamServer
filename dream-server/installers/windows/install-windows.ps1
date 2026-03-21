@@ -122,6 +122,24 @@ if ($dryRun) {
     Push-Location $installDir
 
     try {
+        # ── Bootstrap fast-start ──────────────────────────────────────────────
+        $bootstrapActive = $false
+        $fullTierConfig = $null
+
+        if (Should-UseBootstrap -Tier $selectedTier -InstallDir $installDir `
+                -GgufFile $tierConfig.GgufFile -CloudMode $cloudMode) {
+            $bootstrapActive = $true
+            $fullTierConfig = @{}
+            foreach ($k in $tierConfig.Keys) { $fullTierConfig[$k] = $tierConfig[$k] }
+            $tierConfig.GgufFile   = $script:BOOTSTRAP_GGUF_FILE
+            $tierConfig.GgufUrl    = $script:BOOTSTRAP_GGUF_URL
+            $tierConfig.GgufSha256 = ""
+            $tierConfig.LlmModel   = $script:BOOTSTRAP_LLM_MODEL
+            $tierConfig.MaxContext  = $script:BOOTSTRAP_MAX_CONTEXT
+            Write-AI "Fast-start mode: downloading bootstrap model (~1.5GB) for instant chat."
+            Write-AI "Your full model ($($fullTierConfig.LlmModel)) will download in the background."
+        }
+
         # ── Download GGUF model ───────────────────────────────────────────────
         if ($tierConfig.GgufUrl -and -not $cloudMode) {
             $modelPath    = Join-Path (Join-Path $installDir "data\models") $tierConfig.GgufFile
@@ -162,6 +180,20 @@ if ($dryRun) {
                         exit 1
                     }
                 }
+            }
+        }
+
+        # ── Patch .env for bootstrap model ────────────────────────────────────
+        if ($bootstrapActive) {
+            $envPath = Join-Path $installDir ".env"
+            if (Test-Path $envPath) {
+                $envContent = Get-Content $envPath -Raw
+                $envContent = $envContent -replace "(?m)^GGUF_FILE=.*$", "GGUF_FILE=$($tierConfig.GgufFile)"
+                $envContent = $envContent -replace "(?m)^LLM_MODEL=.*$", "LLM_MODEL=$($tierConfig.LlmModel)"
+                $envContent = $envContent -replace "(?m)^MAX_CONTEXT=.*$", "MAX_CONTEXT=$($tierConfig.MaxContext)"
+                $envContent = $envContent -replace "(?m)^CTX_SIZE=.*$", "CTX_SIZE=$($tierConfig.MaxContext)"
+                [System.IO.File]::WriteAllText($envPath, $envContent, (New-Object System.Text.UTF8Encoding($false)))
+                Write-AISuccess "Patched .env for bootstrap model ($($tierConfig.GgufFile))"
             }
         }
 
@@ -366,6 +398,44 @@ if ($dryRun) {
         # Save compose flags for dream.ps1 (BOM-free for reliable parsing)
         $flagsFile = Join-Path $installDir ".compose-flags"
         Write-Utf8NoBom -Path $flagsFile -Content ($composeFlags -join " ")
+
+        # ── Launch background model upgrade ──────────────────────────────────
+        if ($bootstrapActive -and $fullTierConfig) {
+            Write-AI "Launching background download for $($fullTierConfig.LlmModel)..."
+            $logDir = Join-Path $installDir "logs"
+            New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+            $upgradeLog = Join-Path $logDir "model-upgrade.log"
+            $upgradeErrLog = Join-Path $logDir "model-upgrade-err.log"
+            $upgradeScript = Join-Path $installDir "scripts\bootstrap-upgrade.sh"
+
+            if (Test-Path $upgradeScript) {
+                # Convert Windows path to Git Bash Unix-style
+                $bashInstallDir = ($installDir -replace "\\", "/" -replace "^([A-Za-z]):", '/$1').ToLower()
+                $bashScript = ($upgradeScript -replace "\\", "/" -replace "^([A-Za-z]):", '/$1').ToLower()
+
+                # Write a temp wrapper script to avoid Windows/PowerShell quoting
+                # issues. Empty arguments (e.g., SHA256 for some tiers) get lost
+                # during command-line parsing — embedding them in a script file
+                # with bash double-quotes preserves them correctly.
+                $wrapperScript = Join-Path $logDir "bootstrap-run.sh"
+                $wrapperContent = @"
+#!/bin/bash
+exec bash "$bashScript" "$bashInstallDir" "$($fullTierConfig.GgufFile)" "$($fullTierConfig.GgufUrl)" "$($fullTierConfig.GgufSha256)" "$($fullTierConfig.LlmModel)" "$($fullTierConfig.MaxContext)"
+"@
+                [System.IO.File]::WriteAllText($wrapperScript, $wrapperContent.Replace("`r`n", "`n"), (New-Object System.Text.UTF8Encoding($false)))
+
+                Start-Process -FilePath "bash" -ArgumentList $wrapperScript `
+                    -WindowStyle Hidden `
+                    -RedirectStandardOutput $upgradeLog `
+                    -RedirectStandardError $upgradeErrLog
+
+                Write-AI "Full model ($($fullTierConfig.LlmModel)) downloading in background."
+                Write-AI "Check progress: Get-Content '$upgradeLog' -Tail 10"
+            } else {
+                Write-AIWarn "bootstrap-upgrade.sh not found at $upgradeScript"
+                Write-AIWarn "Download the full model manually or re-run the installer."
+            }
+        }
 
     } finally {
         Pop-Location

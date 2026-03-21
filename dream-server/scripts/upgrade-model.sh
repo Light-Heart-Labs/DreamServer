@@ -22,7 +22,7 @@ command -v jq >/dev/null 2>&1 || { echo "Error: jq is required but not installed
 
 # Configuration
 DREAM_DIR="${DREAM_DIR:-$HOME/dream-server}"
-MODELS_DIR="${MODELS_DIR:-$DREAM_DIR/models}"
+MODELS_DIR="${MODELS_DIR:-$DREAM_DIR/data/models}"
 STATE_FILE="$DREAM_DIR/model-state.json"
 BACKUP_FILE="$DREAM_DIR/model-state.backup.json"
 LOG_FILE="$DREAM_DIR/upgrade-model.log"

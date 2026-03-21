@@ -46,6 +46,17 @@
         "external_port_env": { "type": "string" },
         "external_port_default": { "type": "integer", "minimum": 0, "maximum": 65535 },
         "health": { "type": "string", "minLength": 1 },
+        "health_timeout": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300,
+          "description": "Health check timeout in seconds (default: 10)"
+        },
+        "ui_path": {
+          "type": "string",
+          "pattern": "^/.*",
+          "description": "Path to the service UI (e.g. /dashboard, /)"
+        },
         "type": { "type": "string", "enum": ["docker", "host-systemd"] },
         "gpu_backends": {
           "type": "array",

@@ -51,6 +51,9 @@ jobs:
       - name: Health Check Tests
         run: bash tests/test-health-check.sh
 
+      - name: Dream Doctor Tests
+        run: bash tests/test-dream-doctor.sh
+
       - name: Validate Env Tests
         run: bash tests/test-validate-env.sh
 

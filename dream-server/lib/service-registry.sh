@@ -158,6 +158,19 @@ PYEOF
     _SR_LOADED=true
 }
 
+# Update SERVICE_PORTS with actual values from environment variables.
+# Call AFTER sr_load + load_env_file so the env vars are populated.
+# Uses SERVICE_PORT_ENVS (e.g. llama-server → OLLAMA_PORT) to resolve
+# the env var name, then indirect expansion to get its value.
+sr_resolve_ports() {
+    for _sid in "${SERVICE_IDS[@]}"; do
+        local _port_env="${SERVICE_PORT_ENVS[$_sid]:-}"
+        if [[ -n "$_port_env" && -n "${!_port_env:-}" ]]; then
+            SERVICE_PORTS[$_sid]="${!_port_env}"
+        fi
+    done
+}
+
 # Resolve a user-provided name to a compose service ID
 sr_resolve() {
     sr_load

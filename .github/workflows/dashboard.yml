@@ -22,8 +22,8 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install Dependencies
-        run: npm install
+      - name: Install Dependencies (strict lock file check)
+        run: npm ci
 
       - name: Lint
         run: npm run lint

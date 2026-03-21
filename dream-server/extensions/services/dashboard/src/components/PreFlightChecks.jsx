@@ -110,9 +110,14 @@ export function PreFlightChecks({ onComplete, onIssuesFound }) {
       }
       const data = await response.json()
       if (data.available) {
-        return { status: 'success', message: `${data.name} (${data.vram}GB VRAM)` }
+        const vramLabel = data.memory_type === 'unified' ? data.memory_label : `${data.vram}GB VRAM`
+        return { status: 'success', message: `${data.name} (${vramLabel})` }
       }
-      return { status: 'warning', message: 'No GPU detected', fix: 'Install NVIDIA drivers and Container Toolkit' }
+      // Use backend-specific error from API if available
+      if (data.error) {
+        return { status: 'warning', message: 'No GPU detected', fix: data.error }
+      }
+      return { status: 'warning', message: 'No GPU detected', fix: 'Check GPU drivers are installed' }
     } catch (e) {
       return { status: 'warning', message: 'Check skipped', details: e.message }
     }

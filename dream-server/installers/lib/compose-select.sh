@@ -66,6 +66,11 @@ resolve_compose_config() {
                 COMPOSE_FLAGS="-f docker-compose.base.yml -f docker-compose.intel.yml"
                 COMPOSE_FILE="docker-compose.intel.yml"
             fi
+        elif [[ "$GPU_BACKEND" == "cpu" ]]; then
+            if [[ -f "$SCRIPT_DIR/docker-compose.base.yml" && -f "$SCRIPT_DIR/docker-compose.cpu.yml" ]]; then
+                COMPOSE_FLAGS="-f docker-compose.base.yml -f docker-compose.cpu.yml"
+                COMPOSE_FILE="docker-compose.cpu.yml"
+            fi
         else
             if [[ -f "$SCRIPT_DIR/docker-compose.base.yml" && -f "$SCRIPT_DIR/docker-compose.nvidia.yml" ]]; then
                 COMPOSE_FLAGS="-f docker-compose.base.yml -f docker-compose.nvidia.yml"

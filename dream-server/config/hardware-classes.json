@@ -148,7 +148,7 @@
       "recommended": {
         "backend": "cpu",
         "tier": "T1",
-        "compose_overlays": ["docker-compose.base.yml"]
+        "compose_overlays": ["docker-compose.base.yml", "docker-compose.cpu.yml"]
       }
     }
   ]

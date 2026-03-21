@@ -338,6 +338,11 @@ def test_agents_metrics_authenticated(test_client):
     """GET /api/agents/metrics with auth → 200, returns agent metrics with seeded data."""
     from agent_monitor import agent_metrics, throughput
 
+    # Reset singletons to avoid cross-test contamination
+    throughput.data_points = []
+    agent_metrics.session_count = 0
+    agent_metrics.tokens_per_second = 0.0
+
     # Seed non-default values to test actual aggregation
     agent_metrics.session_count = 5
     agent_metrics.tokens_per_second = 123.45
@@ -410,6 +415,10 @@ def test_agents_metrics_html_xss_escaping(test_client):
     """GET /api/agents/metrics.html escapes HTML special chars to prevent XSS."""
     from agent_monitor import agent_metrics, throughput
 
+    # Reset singletons to avoid cross-test contamination
+    throughput.data_points = []
+    agent_metrics.session_count = 0
+
     # Inject XSS payload into agent metrics
     agent_metrics.session_count = 999
     throughput.add_sample(42.0)
@@ -440,6 +449,9 @@ def test_agents_metrics_html_xss_escaping(test_client):
 def test_agents_throughput_authenticated(test_client):
     """GET /api/agents/throughput with auth → 200, returns throughput stats with real data."""
     from agent_monitor import throughput
+
+    # Reset singleton to avoid cross-test contamination
+    throughput.data_points = []
 
     # Seed throughput data to test actual behavior
     throughput.add_sample(42.0)

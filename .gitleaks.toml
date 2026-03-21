@@ -15,4 +15,5 @@
   paths = [
     '''dream-server/installers/phases/06-directories\.sh''',
     '''dream-server/installers/macos/lib/env-generator\.sh''',
+    '''dream-server/installers/windows/lib/env-generator\.ps1''',
   ]

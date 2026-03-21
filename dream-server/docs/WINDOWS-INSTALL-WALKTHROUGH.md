@@ -73,7 +73,7 @@ Open **PowerShell** (not as admin) and run:
 
 ```powershell
 # Download installer
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/main/install.ps1" -OutFile install.ps1
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.1.0/install.ps1" -OutFile install.ps1
 
 # Run installer
 .\install.ps1

@@ -129,7 +129,7 @@ if $OLLAMA_RUNNING; then
     ai_warn "Ollama is running (PID ${OLLAMA_PID}) and may conflict with Dream Server."
     ai "  Both use port 11434/8080. Ollama will shadow llama-server."
     if ! $NON_INTERACTIVE; then
-        read -r -p "  Stop Ollama for this session? [Y/n] " ollama_choice
+        read -r -p "  Stop Ollama for this session? [Y/n] " ollama_choice < /dev/tty
         if [[ ! "$ollama_choice" =~ ^[nN] ]]; then
             kill "$OLLAMA_PID" 2>/dev/null || true
             sleep 2
@@ -225,7 +225,7 @@ if ! $NON_INTERACTIVE && ! $ALL_FEATURES && ! $DRY_RUN; then
     echo -e "  ${WHT}[3]${NC} Custom       -- Choose individually"
     echo ""
 
-    read -r -p "  Selection (1/2/3): " feature_choice
+    read -r -p "  Selection (1/2/3): " feature_choice < /dev/tty
     case "${feature_choice:-1}" in
         1)
             ENABLE_VOICE=true; ENABLE_WORKFLOWS=true
@@ -236,13 +236,13 @@ if ! $NON_INTERACTIVE && ! $ALL_FEATURES && ! $DRY_RUN; then
             ENABLE_RAG=false; ENABLE_OPENCLAW=false
             ;;
         3)
-            read -r -p "  Enable Voice (Whisper + Kokoro)? [y/N] " yn
+            read -r -p "  Enable Voice (Whisper + Kokoro)? [y/N] " yn < /dev/tty
             [[ "$yn" =~ ^[yY] ]] && ENABLE_VOICE=true
-            read -r -p "  Enable Workflows (n8n)?           [y/N] " yn
+            read -r -p "  Enable Workflows (n8n)?           [y/N] " yn < /dev/tty
             [[ "$yn" =~ ^[yY] ]] && ENABLE_WORKFLOWS=true
-            read -r -p "  Enable RAG (Qdrant + embeddings)? [y/N] " yn
+            read -r -p "  Enable RAG (Qdrant + embeddings)? [y/N] " yn < /dev/tty
             [[ "$yn" =~ ^[yY] ]] && ENABLE_RAG=true
-            read -r -p "  Enable OpenClaw (AI agents)?      [y/N] " yn
+            read -r -p "  Enable OpenClaw (AI agents)?      [y/N] " yn < /dev/tty
             [[ "$yn" =~ ^[yY] ]] && ENABLE_OPENCLAW=true
             ;;
         *)
@@ -376,6 +376,25 @@ else
     # Change to install directory for docker compose
     cd "$INSTALL_DIR"
 
+    # ── Bootstrap fast-start ──────────────────────────────────────────────
+    _BOOTSTRAP_ACTIVE=false
+    if bootstrap_needed "$SELECTED_TIER" "$INSTALL_DIR" "$GGUF_FILE"; then
+        _BOOTSTRAP_ACTIVE=true
+        FULL_GGUF_FILE="$GGUF_FILE"
+        FULL_GGUF_URL="$GGUF_URL"
+        FULL_GGUF_SHA256="$GGUF_SHA256"
+        FULL_LLM_MODEL="$LLM_MODEL"
+        FULL_MAX_CONTEXT="$MAX_CONTEXT"
+
+        GGUF_FILE="$BOOTSTRAP_GGUF_FILE"
+        GGUF_URL="$BOOTSTRAP_GGUF_URL"
+        GGUF_SHA256=""
+        LLM_MODEL="$BOOTSTRAP_LLM_MODEL"
+        MAX_CONTEXT="$BOOTSTRAP_MAX_CONTEXT"
+        ai "Fast-start mode: downloading bootstrap model (~1.5GB) for instant chat."
+        ai "Your full model ($FULL_LLM_MODEL) will download in the background."
+    fi
+
     # ── Download GGUF model (if not cloud-only) ──
     if [[ -n "$GGUF_URL" ]] && ! $CLOUD_MODE; then
         MODEL_PATH="${INSTALL_DIR}/data/models/${GGUF_FILE}"
@@ -403,6 +422,18 @@ else
                 ai_err "Downloaded file is corrupt. Re-run the installer to try again."
                 exit 1
             fi
+        fi
+    fi
+
+    # ── Patch .env for bootstrap model ──────────────────────────────────────
+    if [[ "$_BOOTSTRAP_ACTIVE" == "true" ]]; then
+        _env_file="$INSTALL_DIR/.env"
+        if [[ -f "$_env_file" ]]; then
+            sed -i '' "s|^GGUF_FILE=.*|GGUF_FILE=${GGUF_FILE}|" "$_env_file"
+            sed -i '' "s|^LLM_MODEL=.*|LLM_MODEL=${LLM_MODEL}|" "$_env_file"
+            sed -i '' "s|^MAX_CONTEXT=.*|MAX_CONTEXT=${MAX_CONTEXT}|" "$_env_file"
+            sed -i '' "s|^CTX_SIZE=.*|CTX_SIZE=${MAX_CONTEXT}|" "$_env_file"
+            ai_ok "Patched .env for bootstrap model ($GGUF_FILE)"
         fi
     fi
 
@@ -645,6 +676,24 @@ else
 
     # Save compose flags for dream-macos.sh
     echo "${COMPOSE_FLAGS[*]}" > "${INSTALL_DIR}/.compose-flags"
+
+    # ── Launch background model upgrade ──────────────────────────────────
+    if [[ "$_BOOTSTRAP_ACTIVE" == "true" ]]; then
+        ai "Launching background download for $FULL_LLM_MODEL..."
+        mkdir -p "$INSTALL_DIR/logs"
+        _upgrade_script="$INSTALL_DIR/scripts/bootstrap-upgrade.sh"
+
+        if [[ -x "$_upgrade_script" ]] || [[ -f "$_upgrade_script" ]]; then
+            nohup bash "$_upgrade_script" \
+                "$INSTALL_DIR" "$FULL_GGUF_FILE" "$FULL_GGUF_URL" \
+                "$FULL_GGUF_SHA256" "$FULL_LLM_MODEL" "$FULL_MAX_CONTEXT" \
+                > "$INSTALL_DIR/logs/model-upgrade.log" 2>&1 &
+            ai "Full model ($FULL_LLM_MODEL) downloading in background."
+            ai "Check progress: tail -f $INSTALL_DIR/logs/model-upgrade.log"
+        else
+            ai_warn "bootstrap-upgrade.sh not found. Download the full model manually."
+        fi
+    fi
 
     # ── Install & start OpenCode (native host binary) ──
     chapter "OPENCODE (AI CODING IDE)"

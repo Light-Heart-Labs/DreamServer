@@ -258,6 +258,18 @@ resolve_service() {
 
 # Build full compose flags: base + GPU overlay + enabled extensions
 get_compose_flags() {
+    # Fast path: use saved flags from installer if available
+    if [[ -f "$INSTALL_DIR/.compose-flags" ]]; then
+        local cached
+        cached=$(< "$INSTALL_DIR/.compose-flags")
+        if [[ "$cached" == -f\ * ]]; then
+            echo "$cached"
+            return
+        fi
+        # Stale or corrupt — remove and fall through to dynamic resolution
+        rm -f "$INSTALL_DIR/.compose-flags"
+    fi
+    # Fallback: resolve dynamically
     local base_flags
     if [[ -x "$INSTALL_DIR/scripts/resolve-compose-stack.sh" ]]; then
         base_flags=$("$INSTALL_DIR/scripts/resolve-compose-stack.sh" \
@@ -1209,6 +1221,7 @@ cmd_enable() {
         success "$service_id is already enabled."
     elif [[ -f "$disabled" ]]; then
         mv "$disabled" "$cf"
+        rm -f "$INSTALL_DIR/.compose-flags"
         success "$service_id enabled. Run 'dream start $service_id' to launch."
     else
         error "$service_id has no compose fragment (core service? already enabled?)"
@@ -1238,6 +1251,7 @@ cmd_disable() {
     read -ra flags <<< "$flags_str"
     docker compose "${flags[@]}" stop "$service_id" 2>/dev/null || true
     [[ -f "$cf" ]] && mv "$cf" "${cf}.disabled"
+    rm -f "$INSTALL_DIR/.compose-flags"
     success "$service_id disabled."
 }
 
@@ -2009,6 +2023,7 @@ case "${1:-help}" in
     rollback)    cmd_rollback ;;
     logs|log|l)  shift; cmd_logs "$@" ;;
     restart|r)   shift; cmd_restart "$@" ;;
+    repair|fix)  shift; cmd_repair "$@" ;;
     start)       shift; cmd_start "$@" ;;
     stop)        shift; cmd_stop "$@" ;;
     update|u)    shift; cmd_update "$@" ;;

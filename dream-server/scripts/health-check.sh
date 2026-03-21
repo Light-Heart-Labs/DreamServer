@@ -46,6 +46,7 @@ sr_load
 # Safe .env loading for port overrides (no eval; use lib/safe-env.sh)
 [[ -f "$SCRIPT_DIR/lib/safe-env.sh" ]] && . "$SCRIPT_DIR/lib/safe-env.sh"
 load_env_file "${INSTALL_DIR}/.env"
+sr_resolve_ports
 
 # Colors (disabled for JSON/quiet)
 if $JSON_OUTPUT || $QUIET; then

@@ -95,6 +95,13 @@ elif gpu_backend == "amd":
     if existing(["docker-compose.base.yml", "docker-compose.amd.yml"]):
         resolved = ["docker-compose.base.yml", "docker-compose.amd.yml"]
         primary = "docker-compose.amd.yml"
+elif gpu_backend == "cpu":
+    if existing(["docker-compose.base.yml", "docker-compose.cpu.yml"]):
+        resolved = ["docker-compose.base.yml", "docker-compose.cpu.yml"]
+        primary = "docker-compose.cpu.yml"
+    elif existing(["docker-compose.base.yml"]):
+        resolved = ["docker-compose.base.yml"]
+        primary = "docker-compose.base.yml"
 else:
     if existing(["docker-compose.base.yml", "docker-compose.nvidia.yml"]):
         resolved = ["docker-compose.base.yml", "docker-compose.nvidia.yml"]

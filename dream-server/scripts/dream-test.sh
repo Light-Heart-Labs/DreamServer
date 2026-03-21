@@ -38,6 +38,7 @@ if [[ -f "$_DT_DIR/lib/service-registry.sh" ]]; then
     sr_load
     [[ -f "$_DT_DIR/lib/safe-env.sh" ]] && . "$_DT_DIR/lib/safe-env.sh"
     load_env_file "$_DT_DIR/.env"
+    sr_resolve_ports
 fi
 
 # Service endpoints — resolved from registry

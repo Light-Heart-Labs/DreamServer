@@ -75,13 +75,40 @@ else
     fi
 fi
 
+# Docker 29.3.x has a bug with /dev/dri device passthrough on AMD GPUs.
+# Containers fail with: "error gathering device information while adding custom device /dev/dri"
+# Pin to 29.2.x until this is resolved upstream.
+# See: https://github.com/moby/moby/issues — device passthrough regression in 29.3.0
+if command -v docker &>/dev/null && ! $DRY_RUN; then
+    _docker_ver=$(docker version --format '{{.Server.Version}}' 2>/dev/null || echo "0.0.0")
+    if [[ "$_docker_ver" == 29.3.* ]] && [[ "${GPU_BACKEND:-}" == "amd" ]]; then
+        ai_warn "Docker $_docker_ver has a known bug with AMD GPU device passthrough."
+        ai "Downgrading to Docker 29.2.1 for AMD GPU compatibility..."
+        # Detect package format
+        if command -v apt-get &>/dev/null; then
+            _distro_codename=$(. /etc/os-release 2>/dev/null && echo "$VERSION_CODENAME" || echo "noble")
+            sudo apt-get install -y --allow-downgrades \
+                docker-ce=5:29.2.1-1~ubuntu."$(. /etc/os-release && echo "$VERSION_ID")"~"$_distro_codename" \
+                docker-ce-cli=5:29.2.1-1~ubuntu."$(. /etc/os-release && echo "$VERSION_ID")"~"$_distro_codename" \
+                >> "$LOG_FILE" 2>&1 && \
+                ai_ok "Docker downgraded to 29.2.1 (AMD GPU fix)" || \
+                ai_warn "Could not downgrade Docker. GPU containers may fail. Manual fix: sudo apt install docker-ce=5:29.2.1-1~ubuntu.24.04~noble"
+        elif command -v dnf &>/dev/null; then
+            sudo dnf downgrade -y docker-ce-29.2.1 docker-ce-cli-29.2.1 >> "$LOG_FILE" 2>&1 && \
+                ai_ok "Docker downgraded to 29.2.1 (AMD GPU fix)" || \
+                ai_warn "Could not downgrade Docker. GPU containers may fail."
+        fi
+        sudo systemctl restart docker 2>/dev/null || true
+    fi
+fi
+
 # Decide whether to use sudo for the rest of this installer session
 if [[ "${DOCKER_CMD:-}" == "" ]]; then
     if $DOCKER_NEEDS_SUDO; then
         warn "Docker installed, but group membership may not be active yet (re-login required)."
         if [[ "${INTERACTIVE:-true}" == "true" ]]; then
             echo ""
-            read -p "  Continue this installer using 'sudo docker' for now? [Y/n] " -r
+            read -p "  Continue this installer using 'sudo docker' for now? [Y/n] " -r < /dev/tty
             if [[ $REPLY =~ ^[Nn]$ ]]; then
                 log "Please re-run after logging out and back in (or after 'newgrp docker')."
                 exit 0

@@ -137,32 +137,32 @@ test_file_has_timeout \
 # Phase 11 - Services
 test_file_has_timeout \
     "$ROOT_DIR/installers/phases/11-services.sh" \
-    "wget.*GGUF_URL" \
-    "--timeout" \
+    "curl.*GGUF_URL" \
+    "--max-time" \
     "GGUF model download"
 
 test_file_has_timeout \
     "$ROOT_DIR/installers/phases/11-services.sh" \
-    "wget.*flux1-schnell" \
-    "--timeout" \
+    "curl.*flux1-schnell" \
+    "--max-time" \
     "FLUX diffusion model download"
 
 test_file_has_timeout \
     "$ROOT_DIR/installers/phases/11-services.sh" \
-    "wget.*clip_l.safetensors" \
-    "--timeout" \
+    "curl.*clip_l.safetensors" \
+    "--max-time" \
     "FLUX CLIP encoder download"
 
 test_file_has_timeout \
     "$ROOT_DIR/installers/phases/11-services.sh" \
-    "wget.*t5xxl_fp16" \
-    "--timeout" \
+    "curl.*t5xxl_fp16" \
+    "--max-time" \
     "FLUX T5 encoder download"
 
 test_file_has_timeout \
     "$ROOT_DIR/installers/phases/11-services.sh" \
-    "wget.*ae.safetensors" \
-    "--timeout" \
+    "curl.*ae.safetensors" \
+    "--max-time" \
     "FLUX VAE download"
 
 # Phase 12 - Health checks

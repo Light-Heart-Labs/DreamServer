@@ -14,7 +14,7 @@
 #   Change VERSION for custom builds. Add new color codes here.
 # ============================================================================
 
-VERSION="2.0.0-strix-halo"
+VERSION="2.3.2"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # Source path utilities for cross-platform path resolution

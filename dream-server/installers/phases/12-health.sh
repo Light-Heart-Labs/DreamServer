@@ -21,6 +21,14 @@
 . "$SCRIPT_DIR/lib/service-registry.sh"
 sr_load
 
+# Resolve port overrides from .env (SERVICE_PORTS uses manifest defaults
+# but .env may override them, e.g. OLLAMA_PORT=11434 on Strix Halo)
+if [[ -f "$INSTALL_DIR/.env" ]]; then
+    . "$SCRIPT_DIR/lib/safe-env.sh" 2>/dev/null || true
+    load_env_file "$INSTALL_DIR/.env"
+    sr_resolve_ports
+fi
+
 dream_progress 85 "health" "Checking service health"
 show_phase 6 6 "Systems Online" "~1-2 minutes"
 
@@ -53,22 +61,26 @@ _check_health() {
 
 # Core service health checks with adaptive timeouts
 # Format: _check_health "name" "url" max_attempts timeout_per_request
-# llama-server: 60 attempts * adaptive backoff (2s->8s) = up to 5 minutes (model loading can be slow)
+# llama-server: 150 attempts * adaptive backoff (2s->8s) = up to ~20 minutes (model loading can be slow)
 dream_progress 86 "health" "Waiting for LLM engine"
-_check_health "llama-server" "http://localhost:${SERVICE_PORTS[llama-server]:-8080}${SERVICE_HEALTH[llama-server]:-/health}" 60 15
-# Open WebUI: 30 attempts * adaptive backoff = up to 2 minutes
+_check_health "llama-server" "http://localhost:${SERVICE_PORTS[llama-server]:-8080}${SERVICE_HEALTH[llama-server]:-/health}" 150 15
+# Open WebUI: 150 attempts * adaptive backoff = up to ~20 minutes
 dream_progress 89 "health" "Waiting for Chat UI"
-_check_health "Open WebUI" "http://localhost:${SERVICE_PORTS[open-webui]:-3000}${SERVICE_HEALTH[open-webui]:-/}" 30 10
-# Perplexica: 20 attempts * adaptive backoff = up to 1 minute
+_check_health "Open WebUI" "http://localhost:${SERVICE_PORTS[open-webui]:-3000}${SERVICE_HEALTH[open-webui]:-/}" 150 10
+# Perplexica: 150 attempts * adaptive backoff = up to ~20 minutes
 dream_progress 91 "health" "Waiting for Research engine"
-_check_health "Perplexica" "http://localhost:${SERVICE_PORTS[perplexica]:-3004}${SERVICE_HEALTH[perplexica]:-/}" 20 10
-# ComfyUI: 60 attempts * adaptive backoff = up to 5 minutes (FLUX model loading is slow)
-dream_progress 93 "health" "Waiting for Image generation"
-_check_health "ComfyUI" "http://localhost:${SERVICE_PORTS[comfyui]:-8188}${SERVICE_HEALTH[comfyui]:-/}" 60 15
+_check_health "Perplexica" "http://localhost:${SERVICE_PORTS[perplexica]:-3004}${SERVICE_HEALTH[perplexica]:-/}" 150 10
+# ComfyUI: 150 attempts * adaptive backoff = up to ~20 minutes (FLUX model loading is slow)
+if [[ "$ENABLE_COMFYUI" == "true" ]]; then
+    dream_progress 93 "health" "Waiting for Image generation"
+    _check_health "ComfyUI" "http://localhost:${SERVICE_PORTS[comfyui]:-8188}${SERVICE_HEALTH[comfyui]:-/}" 150 15
+fi
 
 # Perplexica auto-config: seed chat model + embedding model on first boot.
 # The slim-latest image stores config in a database, not just config.json.
 # We use the /api/config HTTP endpoint to set values after the service starts.
+# Retry up to 5 times with 10s delay — Perplexica may still be starting
+# (especially if it was stuck in "Created" state and started late).
 if docker inspect dream-perplexica &>/dev/null; then
     PERPLEXICA_URL="http://localhost:${SERVICE_PORTS[perplexica]:-3004}"
     PYTHON_CMD="python3"
@@ -79,8 +91,13 @@ if docker inspect dream-perplexica &>/dev/null; then
         PYTHON_CMD="python"
     fi
 
-    PERPLEXICA_SETUP=$(curl -sf "${PERPLEXICA_URL}/api/config" 2>/dev/null | \
-        "$PYTHON_CMD" -c "import sys,json;d=json.load(sys.stdin);print('done' if d['values']['setupComplete'] else 'needed')" 2>/dev/null || echo "skip")
+    PERPLEXICA_SETUP="skip"
+    for _attempt in 1 2 3 4 5; do
+        PERPLEXICA_SETUP=$(curl -sf --max-time 5 "${PERPLEXICA_URL}/api/config" 2>/dev/null | \
+            "$PYTHON_CMD" -c "import sys,json;d=json.load(sys.stdin);print('done' if d['values']['setupComplete'] else 'needed')" 2>/dev/null || echo "skip")
+        [[ "$PERPLEXICA_SETUP" != "skip" ]] && break
+        [[ $_attempt -lt 5 ]] && sleep 10
+    done
 
     if [[ "$PERPLEXICA_SETUP" == "needed" ]]; then
         ai "Configuring Perplexica for ${LLM_MODEL}..."
@@ -129,12 +146,12 @@ fi
 
 # Extension service health checks with adaptive timeouts
 dream_progress 94 "health" "Checking extension services"
-[[ "$ENABLE_OPENCLAW" == "true" ]] && _check_health "OpenClaw" "http://localhost:${SERVICE_PORTS[openclaw]:-7860}${SERVICE_HEALTH[openclaw]:-/}" 20 10
+[[ "$ENABLE_OPENCLAW" == "true" ]] && _check_health "OpenClaw" "http://localhost:${SERVICE_PORTS[openclaw]:-7860}${SERVICE_HEALTH[openclaw]:-/}" 150 10
 systemctl --user is-active opencode-web &>/dev/null && _check_health "OpenCode Web" "http://localhost:3003/" 10 5
-# Whisper: 40 attempts * adaptive backoff = up to 3 minutes (model download on first start)
+# Whisper: 150 attempts * adaptive backoff = up to ~20 minutes (model download on first start)
 dream_progress 95 "health" "Checking voice services"
-[[ "$ENABLE_VOICE" == "true" ]] && _check_health "Whisper (STT)" "http://localhost:${SERVICE_PORTS[whisper]:-9000}${SERVICE_HEALTH[whisper]:-/health}" 40 10
-[[ "$ENABLE_VOICE" == "true" ]] && _check_health "Kokoro (TTS)" "http://localhost:${SERVICE_PORTS[tts]:-8880}${SERVICE_HEALTH[tts]:-/health}" 20 10
+[[ "$ENABLE_VOICE" == "true" ]] && _check_health "Whisper (STT)" "http://localhost:${SERVICE_PORTS[whisper]:-9000}${SERVICE_HEALTH[whisper]:-/health}" 150 10
+[[ "$ENABLE_VOICE" == "true" ]] && _check_health "Kokoro (TTS)" "http://localhost:${SERVICE_PORTS[tts]:-8880}${SERVICE_HEALTH[tts]:-/health}" 150 10
 
 # Pre-download the Whisper STT model so first transcription is instant.
 # Speaches lazy-downloads on first request, but that causes a long delay +
@@ -150,7 +167,7 @@ if [[ "$ENABLE_VOICE" == "true" ]]; then
     # Only download if model isn't already loaded
     if ! curl -sf --max-time 10 "${WHISPER_URL}/v1/models/${STT_MODEL_ENCODED}" &>/dev/null; then
         ai "Downloading STT model (${STT_MODEL})..."
-        curl -sf --max-time 120 -X POST "${WHISPER_URL}/v1/models/${STT_MODEL_ENCODED}" >> "$LOG_FILE" 2>&1 && \
+        curl -sf --max-time 3600 -X POST "${WHISPER_URL}/v1/models/${STT_MODEL_ENCODED}" >> "$LOG_FILE" 2>&1 && \
             printf "\r  ${BGRN}✓${NC} %-60s\n" "STT model cached (${STT_MODEL})" || \
             printf "\r  ${AMB}⚠${NC} %-60s\n" "STT model will download on first use"
     else
@@ -159,8 +176,8 @@ if [[ "$ENABLE_VOICE" == "true" ]]; then
 fi
 
 dream_progress 96 "health" "Checking workflow and RAG services"
-[[ "$ENABLE_WORKFLOWS" == "true" ]] && _check_health "n8n" "http://localhost:${SERVICE_PORTS[n8n]:-5678}${SERVICE_HEALTH[n8n]:-/healthz}" 20 10
-[[ "$ENABLE_RAG" == "true" ]] && _check_health "Qdrant" "http://localhost:${SERVICE_PORTS[qdrant]:-6333}${SERVICE_HEALTH[qdrant]:-/}" 20 10
+[[ "$ENABLE_WORKFLOWS" == "true" ]] && _check_health "n8n" "http://localhost:${SERVICE_PORTS[n8n]:-5678}${SERVICE_HEALTH[n8n]:-/healthz}" 150 10
+[[ "$ENABLE_RAG" == "true" ]] && _check_health "Qdrant" "http://localhost:${SERVICE_PORTS[qdrant]:-6333}${SERVICE_HEALTH[qdrant]:-/}" 150 10
 
 dream_progress 97 "health" "Health checks complete"
 echo ""

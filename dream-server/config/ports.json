@@ -3,114 +3,133 @@
   "description": "Canonical external port contract for Dream Server services.",
   "ports": [
     {
-      "env": "OLLAMA_PORT",
-      "default": 8080,
+      "env_var": "OLLAMA_PORT",
+      "external_default": 8080,
       "service_id": "llama-server",
-      "container_port": 8080
+      "internal_port": 8080,
+      "manifest_service": "llama-server",
+      "include_in_example": false
     },
     {
-      "env": "WEBUI_PORT",
-      "default": 3000,
+      "env_var": "WEBUI_PORT",
+      "external_default": 3000,
       "service_id": "open-webui",
-      "container_port": 8080
+      "internal_port": 8080,
+      "manifest_service": "open-webui",
+      "include_in_example": false
     },
     {
-      "env": "SEARXNG_PORT",
-      "default": 8888,
+      "env_var": "SEARXNG_PORT",
+      "external_default": 8888,
       "service_id": "searxng",
-      "container_port": 8080
+      "internal_port": 8080,
+      "manifest_service": "searxng"
     },
     {
-      "env": "PERPLEXICA_PORT",
-      "default": 3004,
+      "env_var": "PERPLEXICA_PORT",
+      "external_default": 3004,
       "service_id": "perplexica",
-      "container_port": 3000
+      "internal_port": 3000,
+      "manifest_service": "perplexica"
     },
     {
-      "env": "WHISPER_PORT",
-      "default": 9000,
+      "env_var": "WHISPER_PORT",
+      "external_default": 9000,
       "service_id": "whisper",
-      "container_port": 8000
+      "internal_port": 8000,
+      "manifest_service": "whisper"
     },
     {
-      "env": "TTS_PORT",
-      "default": 8880,
+      "env_var": "TTS_PORT",
+      "external_default": 8880,
       "service_id": "tts",
-      "container_port": 8880
+      "internal_port": 8880,
+      "manifest_service": "tts"
     },
     {
-      "env": "N8N_PORT",
-      "default": 5678,
+      "env_var": "N8N_PORT",
+      "external_default": 5678,
       "service_id": "n8n",
-      "container_port": 5678
+      "internal_port": 5678,
+      "manifest_service": "n8n"
     },
     {
-      "env": "QDRANT_PORT",
-      "default": 6333,
+      "env_var": "QDRANT_PORT",
+      "external_default": 6333,
       "service_id": "qdrant",
-      "container_port": 6333
+      "internal_port": 6333,
+      "manifest_service": "qdrant"
     },
     {
-      "env": "QDRANT_GRPC_PORT",
-      "default": 6334,
+      "env_var": "QDRANT_GRPC_PORT",
+      "external_default": 6334,
       "service_id": "qdrant",
-      "container_port": 6334,
-      "skip_manifest": true
+      "internal_port": 6334,
+      "include_in_example": false
     },
     {
-      "env": "EMBEDDINGS_PORT",
-      "default": 8090,
+      "env_var": "EMBEDDINGS_PORT",
+      "external_default": 8090,
       "service_id": "embeddings",
-      "container_port": 80
+      "internal_port": 80,
+      "manifest_service": "embeddings"
     },
     {
-      "env": "LITELLM_PORT",
-      "default": 4000,
+      "env_var": "LITELLM_PORT",
+      "external_default": 4000,
       "service_id": "litellm",
-      "container_port": 4000
+      "internal_port": 4000,
+      "manifest_service": "litellm"
     },
     {
-      "env": "OPENCLAW_PORT",
-      "default": 7860,
+      "env_var": "OPENCLAW_PORT",
+      "external_default": 7860,
       "service_id": "openclaw",
-      "container_port": 18789
+      "internal_port": 18789,
+      "manifest_service": "openclaw"
     },
     {
-      "env": "SHIELD_PORT",
-      "default": 8085,
+      "env_var": "SHIELD_PORT",
+      "external_default": 8085,
       "service_id": "privacy-shield",
-      "container_port": 8085
+      "internal_port": 8085,
+      "manifest_service": "privacy-shield"
     },
     {
-      "env": "DASHBOARD_API_PORT",
-      "default": 3002,
+      "env_var": "DASHBOARD_API_PORT",
+      "external_default": 3002,
       "service_id": "dashboard-api",
-      "container_port": 3002
+      "internal_port": 3002,
+      "manifest_service": "dashboard-api"
     },
     {
-      "env": "DASHBOARD_PORT",
-      "default": 3001,
+      "env_var": "DASHBOARD_PORT",
+      "external_default": 3001,
       "service_id": "dashboard",
-      "container_port": 3001
+      "internal_port": 3001,
+      "manifest_service": "dashboard"
     },
     {
-      "env": "COMFYUI_PORT",
-      "default": 8188,
+      "env_var": "COMFYUI_PORT",
+      "external_default": 8188,
       "service_id": "comfyui",
-      "container_port": 8188
+      "internal_port": 8188,
+      "manifest_service": "comfyui"
     },
     {
-      "env": "TOKEN_SPY_PORT",
-      "default": 3005,
+      "env_var": "TOKEN_SPY_PORT",
+      "external_default": 3005,
       "service_id": "token-spy",
-      "container_port": 8080
+      "internal_port": 8080,
+      "manifest_service": "token-spy"
     },
     {
-      "env": "OPENCODE_PORT",
-      "default": 3003,
+      "env_var": "OPENCODE_PORT",
+      "external_default": 3003,
       "service_id": "opencode",
-      "container_port": 3003,
-      "require_compose": false
+      "internal_port": 3003,
+      "compose_managed": false,
+      "manifest_service": "opencode"
     }
   ]
 }

@@ -201,7 +201,7 @@ pull_with_progress() {
   local count=$3
   local total=$4
   local max_attempts=3
-  local pull_timeout=600  # 10 minutes for large images (CUDA is ~10GB)
+  local pull_timeout=3600  # 60 minutes for large images (CUDA is ~10GB)
   local pull_pid
 
   for attempt in $(seq 1 $max_attempts); do
@@ -285,10 +285,11 @@ check_service() {
     fi
 
     # Add timeout to prevent indefinite hangs
-    if timeout "$timeout" curl -sf "$url" > /dev/null 2>&1; then
+    # Capture exit code directly — an if/then would consume it (always 0)
+    timeout "$timeout" curl -sf "$url" > /dev/null 2>&1 && {
       printf "\r  ${BGRN}✓${NC} %-55s\n" "$name online"
       return 0
-    fi
+    }
 
     local curl_exit=$?
     elapsed=$((elapsed + backoff))
@@ -374,7 +375,7 @@ show_install_menu() {
     echo -e "  ${BGRN}[3]${NC} Custom"
     echo "      Choose exactly what you want"
     echo ""
-    read -p "  Select an option [1]: " -r INSTALL_CHOICE
+    read -p "  Select an option [1]: " -r INSTALL_CHOICE < /dev/tty
     INSTALL_CHOICE="${INSTALL_CHOICE:-1}"
     echo ""
     case "$INSTALL_CHOICE" in
@@ -385,10 +386,16 @@ show_install_menu() {
             ENABLE_WORKFLOWS=true
             ENABLE_RAG=true
             ENABLE_OPENCLAW=true
+            ENABLE_COMFYUI=true
             ;;
         2)
             signal "Acknowledged."
             log "Selected: Core Only"
+            ENABLE_VOICE=false
+            ENABLE_WORKFLOWS=false
+            ENABLE_RAG=false
+            ENABLE_OPENCLAW=false
+            ENABLE_COMFYUI=false
             ;;
         3)
             signal "Acknowledged."
@@ -400,6 +407,7 @@ show_install_menu() {
             ENABLE_WORKFLOWS=true
             ENABLE_RAG=true
             ENABLE_OPENCLAW=true
+            ENABLE_COMFYUI=true
             ;;
     esac
 }

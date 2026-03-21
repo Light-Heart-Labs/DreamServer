@@ -53,6 +53,7 @@ load_env_safe() {
     done < "$env_file"
 }
 load_env_safe "$ROOT_DIR/.env"
+sr_resolve_ports
 _DASHBOARD_PORT="${SERVICE_PORTS[dashboard]:-3001}"
 _WEBUI_PORT="${SERVICE_PORTS[open-webui]:-3000}"
 

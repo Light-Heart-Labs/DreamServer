@@ -24,17 +24,22 @@ const commonIssues = [
     id: 'gpu-not-detected',
     title: 'GPU not detected',
     symptoms: ['No GPU detected', 'CPU-only mode active', 'Slow inference'],
-    cause: 'NVIDIA drivers or Container Toolkit not installed',
+    cause: 'GPU drivers or container runtime not configured',
     solutions: [
       {
-        title: 'Install NVIDIA Container Toolkit',
+        title: 'NVIDIA: Install Container Toolkit',
         command: '# Ubuntu/Debian\ncurl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg\n\n# Then restart Docker\nsudo systemctl restart docker',
-        description: 'Required for GPU access in containers'
+        description: 'Required for NVIDIA GPU access in containers'
+      },
+      {
+        title: 'AMD: Check device access and user groups',
+        command: '# Ensure your user has GPU access\nsudo usermod -aG render,video $USER\n# Then log out and back in\n\n# Verify GPU is visible\nrocminfo | head -20',
+        description: 'Required for AMD ROCm GPU access (/dev/kfd and /dev/dri)'
       },
       {
         title: 'Verify GPU is visible',
-        command: 'nvidia-smi && docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi',
-        description: 'Should show your GPU in both outputs'
+        command: '# NVIDIA:\nnvidia-smi\n\n# AMD:\nrocminfo | head -20',
+        description: 'Should show your GPU details'
       }
     ]
   },

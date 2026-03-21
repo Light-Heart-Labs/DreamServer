@@ -213,7 +213,7 @@ if $OLLAMA_RUNNING; then
     ai_warn "Ollama is running (PID ${OLLAMA_PID}) and may conflict with Dream Server."
     ai "  Note: this is usually not a port collision. Open WebUI may auto-discover Ollama (11434) and prefer it over the local llama-server (8080)."
     if $INTERACTIVE && ! $DRY_RUN; then
-        read -r -p "  Stop Ollama for this session? [Y/n] " ollama_choice
+        read -r -p "  Stop Ollama for this session? [Y/n] " ollama_choice < /dev/tty
         if [[ ! "$ollama_choice" =~ ^[nN] ]]; then
             kill "$OLLAMA_PID" 2>/dev/null || sudo kill "$OLLAMA_PID" 2>/dev/null || true
             sleep 2
@@ -235,6 +235,7 @@ PORTS_TO_CHECK="${SERVICE_PORTS[llama-server]:-8080} ${SERVICE_PORTS[open-webui]
 [[ "$ENABLE_VOICE" == "true" ]] && PORTS_TO_CHECK="$PORTS_TO_CHECK ${SERVICE_PORTS[whisper]:-9000} ${SERVICE_PORTS[tts]:-8880}"
 [[ "$ENABLE_WORKFLOWS" == "true" ]] && PORTS_TO_CHECK="$PORTS_TO_CHECK ${SERVICE_PORTS[n8n]:-5678}"
 [[ "$ENABLE_RAG" == "true" ]] && PORTS_TO_CHECK="$PORTS_TO_CHECK ${SERVICE_PORTS[qdrant]:-6333}"
+[[ "$ENABLE_COMFYUI" == "true" ]] && PORTS_TO_CHECK="$PORTS_TO_CHECK ${SERVICE_PORTS[comfyui]:-8188}"
 
 for port in $PORTS_TO_CHECK; do
     if check_port_conflict "$port"; then
@@ -250,7 +251,7 @@ done
 if [[ "$REQUIREMENTS_MET" != "true" ]]; then
     warn "Some requirements not met. Installation may have limited functionality."
     if $INTERACTIVE && ! $DRY_RUN; then
-        read -p "  Continue anyway? [y/N] " -r
+        read -p "  Continue anyway? [y/N] " -r < /dev/tty
         [[ ! $REPLY =~ ^[Yy]$ ]] && exit 1
     elif $DRY_RUN; then
         log "[DRY RUN] Would prompt to continue despite unmet requirements"

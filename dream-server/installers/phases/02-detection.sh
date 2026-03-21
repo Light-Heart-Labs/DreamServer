@@ -167,7 +167,7 @@ if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "nvidia" ]]; then
                     ai "After rebooting, re-run this installer. It will pick up where it left off."
                     echo ""
                     if $INTERACTIVE; then
-                        read -p "  Reboot now? [y/N] " -r
+                        read -p "  Reboot now? [y/N] " -r < /dev/tty
                         if [[ $REPLY =~ ^[Yy]$ ]]; then
                             sudo reboot
                         fi
