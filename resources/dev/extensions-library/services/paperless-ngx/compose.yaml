@@ -12,7 +12,7 @@ services:
       - PAPERLESS_DBPORT=${PAPERLESS_DBPORT:-5432}
       - PAPERLESS_REDISHOST=${PAPERLESS_REDISHOST:-redis}
       - PAPERLESS_REDISPORT=${PAPERLESS_REDISPORT:-6379}
-      - PAPERLESS_SECRET_KEY=${PAPERLESS_SECRET_KEY:-change-me}
+      - "PAPERLESS_SECRET_KEY=${PAPERLESS_SECRET_KEY:?PAPERLESS_SECRET_KEY must be set – generate with: python3 -c \"import secrets; print(secrets.token_urlsafe(50))\"}"
       - PAPERLESS_URL=http://${PAPERLESS_HOST:-paperless}:${PAPERLESS_PORT:-7807}
     volumes:
       - ./data/paperless/data:/usr/src/paperless/data
