@@ -22,16 +22,25 @@ logger = logging.getLogger(__name__)
 # Re-using sessions avoids creating/destroying TCP connections every
 # poll cycle and prevents file-descriptor exhaustion.
 
-_aio_session: Optional[aiohttp.ClientSession] = None
-_HEALTH_TIMEOUT = aiohttp.ClientTimeout(total=5)
+_HEALTH_TIMEOUT = aiohttp.ClientTimeout(total=30, sock_connect=3.0)
 
 
-async def _get_aio_session() -> aiohttp.ClientSession:
-    """Return (and lazily create) a module-level aiohttp session."""
-    global _aio_session
-    if _aio_session is None or _aio_session.closed:
-        _aio_session = aiohttp.ClientSession(timeout=_HEALTH_TIMEOUT)
-    return _aio_session
+def _new_health_session() -> aiohttp.ClientSession:
+    """Create a fresh aiohttp session for health checks.
+
+    We intentionally do NOT reuse a global session. On Docker Desktop
+    (Windows/WSL2), a stale session's connection pool accumulates dead
+    connections from non-running services. These dead connections block
+    new requests and cause all services to show as 'degraded'. A fresh
+    session per poll cycle is cheap (~0.1ms) and avoids the issue.
+    """
+    return aiohttp.ClientSession(
+        timeout=_HEALTH_TIMEOUT,
+        connector=aiohttp.TCPConnector(
+            use_dns_cache=False,  # Docker DNS is authoritative and fast for running containers
+            force_close=True,     # Don't keep connections alive between polls
+        ),
+    )
 
 
 # Shared httpx client for llama-server requests (connection pooling)
@@ -169,34 +178,74 @@ async def get_llama_context_size(model_hint: Optional[str] = None) -> Optional[i
 
 # --- Service Health ---
 
-async def check_service_health(service_id: str, config: dict) -> ServiceStatus:
+# Cache "not_deployed" results so we don't repeat slow DNS lookups
+# every poll cycle. Docker's DNS takes ~4 seconds to return NXDOMAIN
+# for containers that don't exist. With 8+ non-deployed services
+# polled every 5 seconds, this blocks the event loop and causes
+# healthy services to appear degraded.
+_not_deployed_cache: dict[str, float] = {}
+_NOT_DEPLOYED_TTL = 15.0  # seconds before re-checking a missing service
+
+
+async def check_service_health(service_id: str, config: dict, session: Optional[aiohttp.ClientSession] = None) -> ServiceStatus:
     """Check if a service is healthy by hitting its health endpoint."""
     if config.get("type") == "host-systemd":
         return await _check_host_service_health(service_id, config)
 
     host = config.get('host', 'localhost')
+
+    # Fast-path: if this service was not_deployed recently, skip the
+    # slow DNS lookup and return cached result immediately
+    now = time.monotonic()
+    cached_at = _not_deployed_cache.get(service_id)
+    if cached_at is not None and (now - cached_at) < _NOT_DEPLOYED_TTL:
+        return ServiceStatus(
+            id=service_id, name=config["name"], port=config["port"],
+            external_port=config.get("external_port", config["port"]),
+            status="not_deployed", response_time_ms=None
+        )
+
     url = f"http://{host}:{config['port']}{config['health']}"
     status = "unknown"
     response_time = None
+    start = asyncio.get_event_loop().time()
 
+    _own_session = False
+    if session is None:
+        session = _new_health_session()
+        _own_session = True
     try:
-        session = await _get_aio_session()
-        start = asyncio.get_event_loop().time()
         async with session.get(url) as resp:
             response_time = (asyncio.get_event_loop().time() - start) * 1000
             status = "healthy" if resp.status < 400 else "unhealthy"
     except asyncio.TimeoutError:
-        # Service is reachable but slow — report degraded rather than down
-        # to avoid false "offline" flashes during startup or heavy load.
-        status = "degraded"
+        elapsed = (asyncio.get_event_loop().time() - start) * 1000
+        logger.warning("Health check timeout for %s at %s after %.0fms", service_id, url, elapsed)
+        if elapsed < 4000:
+            # Fast timeout = connection/DNS failed, not a slow response.
+            # Docker DNS hangs ~4s for non-running containers; our 3s
+            # sock_connect timeout catches this before it blocks others.
+            status = "not_deployed"
+            _not_deployed_cache[service_id] = now
+        else:
+            # Slow timeout = service is reachable but overloaded
+            status = "degraded"
     except aiohttp.ClientConnectorError as e:
         if "Name or service not known" in str(e) or "nodename nor servname" in str(e):
             status = "not_deployed"
+            _not_deployed_cache[service_id] = now
         else:
             status = "down"
     except (aiohttp.ClientError, OSError) as e:
         logger.debug(f"Health check failed for {service_id} at {url}: {e}")
         status = "down"
+    finally:
+        if _own_session:
+            await session.close()
+
+    # If service came back, clear from not_deployed cache
+    if status not in ("not_deployed",):
+        _not_deployed_cache.pop(service_id, None)
 
     return ServiceStatus(
         id=service_id, name=config["name"], port=config["port"],
@@ -212,17 +261,19 @@ async def _check_host_service_health(service_id: str, config: dict) -> ServiceSt
     url = f"http://{host}:{port}{config['health']}"
     status = "down"
     response_time = None
-    try:
-        session = await _get_aio_session()
-        start = asyncio.get_event_loop().time()
-        async with session.get(url) as resp:
-            response_time = (asyncio.get_event_loop().time() - start) * 1000
-            status = "healthy" if resp.status < 400 else "unhealthy"
-    except aiohttp.ClientConnectorError:
-        status = "down"
-    except (aiohttp.ClientError, OSError) as e:
-        logger.debug(f"Host health check failed for {service_id} at {url}: {e}")
-        status = "down"
+    async with _new_health_session() as session:
+        try:
+            start = asyncio.get_event_loop().time()
+            async with session.get(url) as resp:
+                response_time = (asyncio.get_event_loop().time() - start) * 1000
+                status = "healthy" if resp.status < 400 else "unhealthy"
+        except asyncio.TimeoutError:
+            status = "down"
+        except aiohttp.ClientConnectorError:
+            status = "down"
+        except (aiohttp.ClientError, OSError) as e:
+            logger.debug(f"Host health check failed for {service_id} at {url}: {e}")
+            status = "down"
     return ServiceStatus(
         id=service_id, name=config["name"], port=config["port"],
         external_port=config.get("external_port", config["port"]),
@@ -233,23 +284,67 @@ async def _check_host_service_health(service_id: str, config: dict) -> ServiceSt
 async def get_all_services() -> list[ServiceStatus]:
     """Get all service health statuses.
 
-    Uses ``return_exceptions=True`` so that one misbehaving service
-    cannot take down the entire status response.
+    Creates a fresh aiohttp session for each poll cycle to avoid stale
+    connection pool issues on Docker Desktop (Windows/WSL2). The session
+    is shared across all concurrent health checks within the cycle, then
+    closed. Uses ``return_exceptions=True`` so that one misbehaving
+    service cannot take down the entire status response.
     """
-    tasks = [check_service_health(sid, cfg) for sid, cfg in SERVICES.items()]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    # Two-phase health check to avoid Docker DNS bottleneck.
+    #
+    # Problem: Docker Desktop DNS takes ~4s to return NXDOMAIN for
+    # non-running services. With 19 concurrent checks, the slow DNS
+    # lookups block running services from being checked in time.
+    #
+    # Solution: Phase 1 returns cached not_deployed results instantly.
+    # Phase 2 checks remaining services with limited concurrency so
+    # a few slow DNS lookups can't starve the rest.
+    now = time.monotonic()
+    cached_results: dict[str, ServiceStatus] = {}
+    to_check: list[tuple[str, dict]] = []
 
-    statuses: list[ServiceStatus] = []
-    for (sid, cfg), result in zip(SERVICES.items(), results):
-        if isinstance(result, BaseException):
-            logger.warning("Health check for %s raised %s: %s", sid, type(result).__name__, result)
-            statuses.append(ServiceStatus(
+    for sid, cfg in SERVICES.items():
+        cached_at = _not_deployed_cache.get(sid)
+        if cached_at is not None and (now - cached_at) < _NOT_DEPLOYED_TTL:
+            cached_results[sid] = ServiceStatus(
                 id=sid, name=cfg["name"], port=cfg["port"],
                 external_port=cfg.get("external_port", cfg["port"]),
-                status="down", response_time_ms=None,
-            ))
+                status="not_deployed", response_time_ms=None
+            )
         else:
-            statuses.append(result)
+            to_check.append((sid, cfg))
+
+    # Check remaining services with concurrency limit
+    sem = asyncio.Semaphore(4)
+    session = _new_health_session()
+
+    async def _guarded(sid: str, cfg: dict) -> ServiceStatus:
+        async with sem:
+            return await check_service_health(sid, cfg, session=session)
+
+    try:
+        tasks = [_guarded(sid, cfg) for sid, cfg in to_check]
+        check_results = await asyncio.gather(*tasks, return_exceptions=True)
+    finally:
+        await session.close()
+
+    # Merge cached + checked results in original order
+    check_iter = iter(zip(to_check, check_results))
+    statuses: list[ServiceStatus] = []
+    for sid, cfg in SERVICES.items():
+        if sid in cached_results:
+            statuses.append(cached_results[sid])
+        else:
+            (_, _), result = next(check_iter)
+            if isinstance(result, BaseException):
+                logger.warning("Health check for %s raised %s: %s", sid, type(result).__name__, result)
+                statuses.append(ServiceStatus(
+                    id=sid, name=cfg["name"], port=cfg["port"],
+                    external_port=cfg.get("external_port", cfg["port"]),
+                    status="down", response_time_ms=None,
+                ))
+            else:
+                statuses.append(result)
     return statuses
 
 
