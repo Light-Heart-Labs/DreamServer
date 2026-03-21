@@ -63,7 +63,7 @@ if (-not $nonInteractive -and -not $allFlag -and -not $dryRun) {
             $enableComfyui   = (Read-Host "  Enable image generation (ComfyUI + FLUX, ~34GB)? [y/N]") -match "^[yY]"
 
             # Warn on low-tier
-            if ($nonInteractive -and $enableComfyui -and ($selectedTier -eq "0" -or $selectedTier -eq "1")) {
+            if ($enableComfyui -and ($selectedTier -eq "0" -or $selectedTier -eq "1")) {
                 Write-AIWarn "ComfyUI requires 8GB+ RAM and a dedicated GPU. Your Tier $selectedTier system may not support it."
                 $enableComfyui = (Read-Host "  Continue with image generation enabled? [y/N]") -match "^[yY]"
             }
