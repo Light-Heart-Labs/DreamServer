@@ -99,7 +99,8 @@ class PIIDetector:
         return {
             'unique_pii_count': len(self.pii_map),
             'pii_types': list(set(
-                token.split('_')[1] for token in self.pii_map.keys()
+                token.lstrip('<').split('_', 1)[1].rsplit('_', 1)[0]
+                for token in self.pii_map.keys()
             ))
         }
 
