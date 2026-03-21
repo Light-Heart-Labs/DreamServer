@@ -29,6 +29,7 @@ if [[ -f "$_DEMO_DIR/lib/service-registry.sh" ]]; then
     sr_load
     [[ -f "$_DEMO_DIR/lib/safe-env.sh" ]] && . "$_DEMO_DIR/lib/safe-env.sh"
     load_env_file "$_DEMO_DIR/.env"
+    sr_resolve_ports
 fi
 
 LLM_URL="${LLM_URL:-http://localhost:${SERVICE_PORTS[llama-server]:-11434}}"

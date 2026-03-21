@@ -26,6 +26,7 @@ if [[ -f "$DREAM_DIR/lib/service-registry.sh" ]]; then
     sr_load
     [[ -f "$DREAM_DIR/lib/safe-env.sh" ]] && . "$DREAM_DIR/lib/safe-env.sh"
     load_env_file "$DREAM_DIR/.env"
+    sr_resolve_ports
 fi
 
 # URLs — resolved from registry

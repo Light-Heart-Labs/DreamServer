@@ -21,6 +21,7 @@ sr_load
 # Safe .env loading (no eval; use lib/safe-env.sh)
 [[ -f "$PROJECT_DIR/lib/safe-env.sh" ]] && . "$PROJECT_DIR/lib/safe-env.sh"
 load_env_file "$PROJECT_DIR/.env"
+sr_resolve_ports
 
 # Resolve core ports from registry (honoring any env overrides)
 LLM_PORT="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-${SERVICE_PORTS[llama-server]:-11434}}}"
