@@ -165,7 +165,7 @@ async def proxy(request: Request, path: str):
             )
         
         # Read response
-        response_body = resp.content.decode('utf-8')
+        response_body = resp.content.decode('utf-8', errors='replace')
         
         # Restore PII in response
         restored_body = shield.process_response(response_body)
