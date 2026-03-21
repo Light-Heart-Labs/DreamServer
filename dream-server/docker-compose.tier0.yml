@@ -1,15 +1,23 @@
 # Tier 0 memory overlay — reduces memory limits and reservations
 # for machines with < 8GB RAM. Layered on top of base + GPU overlay.
 #
-# Default reservations total ~7.6GB which exceeds Tier 0 hardware.
-# This overlay reduces reservations to ~2.4GB total so services can
-# coexist on 4-7GB machines alongside the Qwen3.5-2B model (~1.5GB).
+# Only overrides services defined in docker-compose.base.yml.
+# Optional services (n8n, qdrant, whisper, etc.) set their own
+# limits in their per-service compose files.
 #
-# Services will use less memory but may be slower under pressure.
-# Docker's OOM killer handles the worst case gracefully.
+# NOTE: Docker Compose v5+ errors if an overlay references a service
+# not defined in any included compose file. Do NOT add optional
+# services here — they may not be in the stack.
 
 services:
-  # === Base services ===
+  llama-server:
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 512M
+
   dashboard:
     deploy:
       resources:
@@ -26,99 +34,7 @@ services:
         reservations:
           memory: 128M
 
-  # === Extension services ===
-  # These overrides only apply if the service is included in the stack.
-  # Docker Compose ignores overrides for services not defined in base.
-
   open-webui:
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-        reservations:
-          memory: 256M
-
-  n8n:
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-        reservations:
-          memory: 256M
-
-  qdrant:
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 128M
-
-  embeddings:
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-        reservations:
-          memory: 256M
-
-  litellm:
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 128M
-
-  openclaw:
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-        reservations:
-          memory: 256M
-
-  perplexica:
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 128M
-
-  privacy-shield:
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 128M
-
-  searxng:
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-        reservations:
-          memory: 64M
-
-  token-spy:
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 128M
-
-  tts:
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-        reservations:
-          memory: 256M
-
-  whisper:
     deploy:
       resources:
         limits:
