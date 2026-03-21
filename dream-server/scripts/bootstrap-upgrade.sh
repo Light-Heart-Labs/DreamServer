@@ -117,6 +117,11 @@ EOF
 log "models.ini updated"
 
 # ── Phase 5: Hot-swap llama-server (if running) ──
+# Read OLLAMA_PORT from .env (nohup doesn't inherit env vars from parent)
+if [[ -f "$ENV_FILE" ]]; then
+    OLLAMA_PORT=$(grep -E '^OLLAMA_PORT=' "$ENV_FILE" | cut -d= -f2)
+fi
+
 if command -v docker &>/dev/null && docker ps --filter name=dream-llama-server --format '{{.Names}}' 2>/dev/null | grep -q dream-llama-server; then
     log "Restarting llama-server with full model..."
 
