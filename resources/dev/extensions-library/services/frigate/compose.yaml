@@ -8,11 +8,11 @@ services:
     shm_size: "128mb"
     ports:
       - "127.0.0.1:${FRIGATE_PORT:-8971}:5000"
-      - "${FRIGATE_RTSP_PORT:-8554}:8554"
-      - "${FRIGATE_WEBRTC_PORT:-8555}:8555/tcp"
-      - "${FRIGATE_WEBRTC_PORT:-8555}:8555/udp"
+      - "127.0.0.1:${FRIGATE_RTSP_PORT:-8554}:8554"
+      - "127.0.0.1:${FRIGATE_WEBRTC_PORT:-8555}:8555/tcp"
+      - "127.0.0.1:${FRIGATE_WEBRTC_PORT:-8555}:8555/udp"
     environment:
-      - FRIGATE_RTSP_PASSWORD=${FRIGATE_RTSP_PASSWORD:-}
+      - FRIGATE_RTSP_PASSWORD=${FRIGATE_RTSP_PASSWORD:?FRIGATE_RTSP_PASSWORD must be set}
     volumes:
       - ./data/frigate/config:/config
       - ./data/frigate/storage:/media/frigate
