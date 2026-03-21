@@ -413,9 +413,10 @@ if ($dryRun) {
                 $bashInstallDir = ($installDir -replace "\\", "/" -replace "^([A-Za-z]):", '/$1').ToLower()
                 $bashScript = ($upgradeScript -replace "\\", "/" -replace "^([A-Za-z]):", '/$1').ToLower()
 
-                $bashArgs = "$bashScript `"$bashInstallDir`" `"$($fullTierConfig.GgufFile)`" `"$($fullTierConfig.GgufUrl)`" `"$($fullTierConfig.GgufSha256)`" `"$($fullTierConfig.LlmModel)`" `"$($fullTierConfig.MaxContext)`""
+                # Pass as a single -c string so bash receives all arguments correctly
+                $bashCmd = "'$bashScript' '$bashInstallDir' '$($fullTierConfig.GgufFile)' '$($fullTierConfig.GgufUrl)' '$($fullTierConfig.GgufSha256)' '$($fullTierConfig.LlmModel)' '$($fullTierConfig.MaxContext)'"
 
-                Start-Process -FilePath "bash" -ArgumentList "-c", $bashArgs `
+                Start-Process -FilePath "bash" -ArgumentList @("-c", $bashCmd) `
                     -WindowStyle Hidden `
                     -RedirectStandardOutput $upgradeLog `
                     -RedirectStandardError $upgradeErrLog
