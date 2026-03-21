@@ -7,7 +7,7 @@ service:
   container_name: dream-text-generation-webui
   host_env: TEXT_GEN_WEBUI_HOST
   default_host: text-generation-webui
-  port: 7862
+  port: 7860
   external_port_env: TEXT_GEN_WEBUI_PORT
   external_port_default: 7862
   health: /
