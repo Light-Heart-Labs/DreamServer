@@ -650,19 +650,26 @@ cmd_dry_run() {
     read -ra flags <<< "$flags_str"
 
     # Prefer API response; fall back to parsing compose files directly.
+    # Use process substitution so flags like images_shown update in this shell (not a pipe subshell).
     local images_shown=false
     if [[ -n "$api_json" ]] && echo "$api_json" | jq -e '.images | length > 0' >/dev/null 2>&1; then
-        echo "$api_json" | jq -r '.images[]' | sort -u | while read -r img; do
-            echo "  ${img}"
-        done
-        images_shown=true
+        local _img_line _any_api=false
+        while IFS= read -r _img_line || [[ -n "$_img_line" ]]; do
+            [[ -z "$_img_line" ]] && continue
+            echo "  ${_img_line}"
+            _any_api=true
+        done < <(echo "$api_json" | jq -r '.images[]' | sort -u)
+        [[ "$_any_api" == "true" ]] && images_shown=true
     fi
     if [[ "$images_shown" == "false" ]]; then
-        if docker compose "${flags[@]}" config 2>/dev/null \
-                | grep -E '^\s+image:' | sed 's/.*image:\s*//' | sort -u \
-                | while read -r img; do echo "  ${img}"; done; then
-            images_shown=true
-        fi
+        local _img_line _any_compose=false
+        while IFS= read -r _img_line || [[ -n "$_img_line" ]]; do
+            [[ -z "$_img_line" ]] && continue
+            echo "  ${_img_line}"
+            _any_compose=true
+        done < <(docker compose "${flags[@]}" config 2>/dev/null \
+            | grep -E '^\s+image:' | sed 's/.*image:\s*//' | sort -u)
+        [[ "$_any_compose" == "true" ]] && images_shown=true
     fi
     [[ "$images_shown" == "false" ]] && echo "  (could not resolve compose config)"
 
@@ -712,10 +719,14 @@ cmd_update() {
 
     # Parse flags
     local dry_run="false"
+    local force_flag="false"
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --dry-run|-n) dry_run="true"; shift ;;
-            *) shift ;;
+            --force|-f) force_flag="true"; shift ;;
+            --*) error "Unknown option: $1" ;;
+            -*) error "Unknown option: $1" ;;
+            *) error "Unexpected argument: $1" ;;
         esac
     done
 

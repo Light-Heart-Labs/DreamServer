@@ -5,6 +5,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -119,8 +120,8 @@ async def get_update_dry_run():
             pass
 
     # ── latest version from GitHub ────────────────────────────────────────────
-    latest: str | None = None
-    changelog_url: str | None = None
+    latest: Optional[str] = None
+    changelog_url: Optional[str] = None
     update_available = False
 
     try:
