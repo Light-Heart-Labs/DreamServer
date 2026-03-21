@@ -413,10 +413,18 @@ if ($dryRun) {
                 $bashInstallDir = ($installDir -replace "\\", "/" -replace "^([A-Za-z]):", '/$1').ToLower()
                 $bashScript = ($upgradeScript -replace "\\", "/" -replace "^([A-Za-z]):", '/$1').ToLower()
 
-                # Pass as a single -c string so bash receives all arguments correctly
-                $bashCmd = "'$bashScript' '$bashInstallDir' '$($fullTierConfig.GgufFile)' '$($fullTierConfig.GgufUrl)' '$($fullTierConfig.GgufSha256)' '$($fullTierConfig.LlmModel)' '$($fullTierConfig.MaxContext)'"
+                # Write a temp wrapper script to avoid Windows/PowerShell quoting
+                # issues. Empty arguments (e.g., SHA256 for some tiers) get lost
+                # during command-line parsing — embedding them in a script file
+                # with bash double-quotes preserves them correctly.
+                $wrapperScript = Join-Path $logDir "bootstrap-run.sh"
+                $wrapperContent = @"
+#!/bin/bash
+exec bash "$bashScript" "$bashInstallDir" "$($fullTierConfig.GgufFile)" "$($fullTierConfig.GgufUrl)" "$($fullTierConfig.GgufSha256)" "$($fullTierConfig.LlmModel)" "$($fullTierConfig.MaxContext)"
+"@
+                [System.IO.File]::WriteAllText($wrapperScript, $wrapperContent.Replace("`r`n", "`n"), (New-Object System.Text.UTF8Encoding($false)))
 
-                Start-Process -FilePath "bash" -ArgumentList @("-c", $bashCmd) `
+                Start-Process -FilePath "bash" -ArgumentList $wrapperScript `
                     -WindowStyle Hidden `
                     -RedirectStandardOutput $upgradeLog `
                     -RedirectStandardError $upgradeErrLog
