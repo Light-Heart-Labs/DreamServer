@@ -8,8 +8,7 @@
 # Expects: (nothing — first file sourced)
 # Provides: VERSION, SCRIPT_DIR, INSTALL_DIR, LOG_FILE, color codes,
 #           SYSTEM_TZ, CAPABILITY_PROFILE_FILE, PREFLIGHT_REPORT_FILE,
-#           INSTALL_START_EPOCH, _sed_i(),
-#           INSTALL_START_EPOCH
+#           INSTALL_START_EPOCH, _sed_i()
 #
 # Modder notes:
 #   Change VERSION for custom builds. Add new color codes here.

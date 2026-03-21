@@ -43,12 +43,15 @@ fi
 log "curl: $(curl --version 2>/dev/null | sed -n '1p')"
 
 if ! command -v jq &> /dev/null; then
+    log "jq not found - attempting auto-install..."
     case "$PKG_MANAGER" in
-        dnf)    error "jq is required but not installed. Install with: sudo dnf install jq" ;;
-        pacman) error "jq is required but not installed. Install with: sudo pacman -S jq" ;;
-        zypper) error "jq is required but not installed. Install with: sudo zypper install jq" ;;
-        *)      error "jq is required but not installed. Install with: sudo apt install jq" ;;
+        dnf)    sudo dnf install -y jq ;;
+        pacman) sudo pacman -S --noconfirm jq ;;
+        zypper) sudo zypper install -y jq ;;
+        apk)    sudo apk add jq ;;
+        *)      sudo apt-get install -y jq ;;
     esac
+    command -v jq &> /dev/null || error "Failed to install jq automatically. Install it manually and re-run."
 fi
 log "jq: $(jq --version 2>/dev/null)"
 
