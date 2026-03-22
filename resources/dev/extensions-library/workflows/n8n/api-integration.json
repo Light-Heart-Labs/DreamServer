@@ -41,13 +41,7 @@
       "id": "code-transform",
       "name": "Transform",
       "parameters": {
-        "jsCode": "return items.map(item => ({
-  json: {
-    source: 'external-api',
-    timestamp: new Date().toISOString(),
-    data: item.json
-  }
-}));"
+        "jsCode": "return items.map(item => ({\n  json: {\n    source: 'external-api',\n    timestamp: new Date().toISOString(),\n    data: item.json\n  }\n}));"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
