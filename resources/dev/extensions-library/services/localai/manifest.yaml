@@ -10,7 +10,7 @@ service:
   port: 8080
   external_port_env: LOCALAI_EXTERNAL_PORT
   external_port_default: 7803
-  health: /
+  health: /healthz
   type: docker
   gpu_backends: [amd, nvidia]
   compose_file: compose.yaml
