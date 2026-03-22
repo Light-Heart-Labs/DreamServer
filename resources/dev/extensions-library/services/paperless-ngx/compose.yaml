@@ -8,9 +8,9 @@ services:
     environment:
       - PAPERLESS_PORT=8000
       - PAPERLESS_HOST=${PAPERLESS_HOST:-paperless}
-      - PAPERLESS_DBHOST=${PAPERLESS_DBHOST:-postgres}
+      - PAPERLESS_DBHOST=${PAPERLESS_DBHOST:-paperless-postgres}
       - PAPERLESS_DBPORT=${PAPERLESS_DBPORT:-5432}
-      - PAPERLESS_REDISHOST=${PAPERLESS_REDISHOST:-redis}
+      - PAPERLESS_REDISHOST=${PAPERLESS_REDISHOST:-paperless-redis}
       - PAPERLESS_REDISPORT=${PAPERLESS_REDISPORT:-6379}
       - PAPERLESS_SECRET_KEY=${PAPERLESS_SECRET_KEY:-change-me}
       - PAPERLESS_URL=http://${PAPERLESS_HOST:-paperless}:${PAPERLESS_PORT:-7807}
@@ -27,8 +27,10 @@ services:
       retries: 3
       start_period: 180s
     depends_on:
-      - postgres
-      - redis
+      paperless-postgres:
+        condition: service_healthy
+      paperless-redis:
+        condition: service_healthy
     networks:
       - dream-network
     deploy:
@@ -40,7 +42,7 @@ services:
           cpus: '0.5'
           memory: 1G
 
-  postgres:
+  paperless-postgres:
     image: docker.io/library/postgres:16-alpine
     container_name: dream-paperless-postgres
     restart: unless-stopped
@@ -52,8 +54,6 @@ services:
       - POSTGRES_PASSWORD=${PAPERLESS_DB_PASSWORD:-paperless}
     volumes:
       - ./data/paperless/postgres:/var/lib/postgresql/data
-    ports:
-      - "5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U paperless -d paperless"]
       interval: 10s
@@ -71,7 +71,7 @@ services:
           cpus: '0.25'
           memory: 512M
 
-  redis:
+  paperless-redis:
     image: docker.io/library/redis:7-alpine
     container_name: dream-paperless-redis
     restart: unless-stopped
@@ -79,8 +79,6 @@ services:
       - no-new-privileges:true
     volumes:
       - ./data/paperless/redis:/data
-    ports:
-      - "6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
