@@ -99,8 +99,9 @@ if ($dryRun) {
     # ── NVIDIA GPU passthrough smoke test ─────────────────────────────────────
     # Only run if NVIDIA GPU detected AND WSL2 backend is confirmed.
     # This test starts a minimal container with --gpus all and checks that
-    # nvidia-smi is accessible. It is non-fatal -- some valid configurations
-    # (e.g., very new drivers + WSL2) pass at runtime even if this quick test fails.
+    # nvidia-smi is accessible. If it fails, Phase 08 falls back to CPU-only
+    # inference (docker-compose.cpu.yml) instead of crashing docker compose up.
+    $script:gpuPassthroughFailed = $false
     if ($gpuInfo.Backend -eq "nvidia" -and $preflight_docker -and $preflight_docker.WSL2Backend) {
         Write-AI "Testing NVIDIA GPU passthrough in Docker (non-fatal)..."
         $prevEAP = $ErrorActionPreference
@@ -111,10 +112,13 @@ if ($dryRun) {
 
         if ($gpuTestExit -eq 0) {
             Write-AISuccess "NVIDIA GPU passthrough confirmed in Docker"
+            $script:gpuPassthroughFailed = $false
         } else {
             Write-AIWarn "NVIDIA GPU passthrough smoke test failed (exit: $gpuTestExit)."
-            Write-AI "  This may be a false alarm on first run while Docker Desktop initializes."
-            Write-AI "  If inference fails later, check: docker run --rm --gpus all nvidia/cuda:12.0-base-ubuntu22.04 nvidia-smi"
+            Write-AI "  Installer will fall back to CPU-only inference."
+            Write-AI "  To fix GPU passthrough later, restart Docker Desktop and WSL:"
+            Write-AI "  wsl --shutdown && docker run --rm --gpus all nvidia/cuda:12.0-base-ubuntu22.04 nvidia-smi"
+            $script:gpuPassthroughFailed = $true
         }
     }
 }

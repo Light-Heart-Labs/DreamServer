@@ -125,7 +125,7 @@ if ($selectedTier -notin @("0", "CLOUD") -and $gpuInfo.Backend -eq "none") {
 # Build list of ports to check based on enabled features.
 # Default service ports match .env.example; overridden ports are not checked here.
 $_portsToCheck = [ordered]@{
-    "llama-server (LLM)"  = 8080
+    "llama-server (LLM)"  = 11434
     "Open WebUI (chat)"   = 3000
     "Dashboard"           = 3001
     "Dashboard API"       = 3002

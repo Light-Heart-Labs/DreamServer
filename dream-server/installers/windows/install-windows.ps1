@@ -292,7 +292,15 @@ if ($dryRun) {
         if ($cloudMode) {
             $composeFlags += @("-f", "installers/windows/docker-compose.windows-amd.yml")
         } elseif ($gpuInfo.Backend -eq "nvidia") {
-            $composeFlags += @("-f", "docker-compose.nvidia.yml")
+            if ($script:gpuPassthroughFailed) {
+                Write-AIWarn "NVIDIA GPU passthrough unavailable -- falling back to CPU-only inference."
+                Write-AI "  Inference will be slower but functional. To fix GPU passthrough:"
+                Write-AI "  1. Restart Docker Desktop and WSL: wsl --shutdown"
+                Write-AI "  2. Verify: docker run --rm --gpus all nvidia/cuda:12.0-base-ubuntu22.04 nvidia-smi"
+                $composeFlags += @("-f", "docker-compose.cpu.yml")
+            } else {
+                $composeFlags += @("-f", "docker-compose.nvidia.yml")
+            }
         } elseif ($gpuInfo.Backend -eq "amd") {
             $composeFlags += @("-f", "installers/windows/docker-compose.windows-amd.yml")
         }
@@ -351,7 +359,7 @@ if ($dryRun) {
                 $relPath = $composePath.Substring($installDir.Length + 1) -replace "\\", "/"
                 $composeFlags += @("-f", $relPath)
 
-                if ($currentBackend -eq "nvidia") {
+                if ($currentBackend -eq "nvidia" -and -not $script:gpuPassthroughFailed) {
                     $gpuOverlay = Join-Path $svcDir.FullName "compose.nvidia.yaml"
                     if (Test-Path $gpuOverlay) {
                         $relOverlay = $gpuOverlay.Substring($installDir.Length + 1) -replace "\\", "/"
