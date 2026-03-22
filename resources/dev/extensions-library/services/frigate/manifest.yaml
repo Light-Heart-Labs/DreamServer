@@ -22,20 +22,6 @@ service:
     local object detection for IP cameras. It uses AI to detect people,
     vehicles, and other objects without sending video to the cloud.
 
-  features:
-    object-detection:
-      description: Real-time AI object detection on camera streams
-      vram_required_mb: 512
-    recording:
-      description: Continuous or event-based video recording
-      vram_required_mb: 0
-    notifications:
-      description: Alerts when objects are detected
-      vram_required_mb: 0
-    restreaming:
-      description: RTSP/WebRTC restreaming of camera feeds
-      vram_required_mb: 0
-
   tags:
     - nvr
     - camera
@@ -43,3 +29,53 @@ service:
     - object-detection
     - surveillance
     - video
+
+features:
+  - id: object-detection
+    name: Object Detection
+    description: Real-time AI object detection on camera streams
+    icon: Eye
+    category: security
+    requirements:
+      services: [frigate]
+      vram_gb: 1
+    enabled_services_all: [frigate]
+    setup_time: ~2 minutes
+    priority: 16
+    gpu_backends: [nvidia]
+  - id: recording
+    name: Recording
+    description: Continuous or event-based video recording
+    icon: Video
+    category: security
+    requirements:
+      services: [frigate]
+      vram_gb: 0
+    enabled_services_all: [frigate]
+    setup_time: ~2 minutes
+    priority: 17
+    gpu_backends: [nvidia]
+  - id: notifications
+    name: Notifications
+    description: Alerts when objects are detected
+    icon: Bell
+    category: security
+    requirements:
+      services: [frigate]
+      vram_gb: 0
+    enabled_services_all: [frigate]
+    setup_time: ~2 minutes
+    priority: 18
+    gpu_backends: [nvidia]
+  - id: restreaming
+    name: Restreaming
+    description: RTSP/WebRTC restreaming of camera feeds
+    icon: Cast
+    category: security
+    requirements:
+      services: [frigate]
+      vram_gb: 0
+    enabled_services_all: [frigate]
+    setup_time: ~2 minutes
+    priority: 19
+    gpu_backends: [nvidia]

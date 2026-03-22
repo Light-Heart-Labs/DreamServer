@@ -30,4 +30,3 @@ features:
     enabled_services_all: [chromadb]
     setup_time: ~1 minute
     priority: 9
-    gpu_backends: []

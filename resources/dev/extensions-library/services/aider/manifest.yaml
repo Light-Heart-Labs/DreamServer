@@ -38,4 +38,3 @@ features:
     enabled_services_all: [aider]
     setup_time: ~1 minute
     priority: 11
-    gpu_backends: []

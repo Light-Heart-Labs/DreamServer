@@ -12,7 +12,6 @@ service:
   external_port_default: 8086
   health: /health
   type: docker
-  gpu_backends: [none]
   compose_file: compose.yaml
   category: optional
   depends_on: []
@@ -33,7 +32,6 @@ features:
     enabled_services_all: [label-studio]
     setup_time: ~1 minute
     priority: 15
-    gpu_backends: []
 
 tags:
   - labeling

@@ -36,17 +36,6 @@ service:
 
     Note: First startup downloads ~5GB of models. Subsequent starts are fast.
 
-  features:
-    expressive-tts:
-      description: Highly realistic speech with laughter, sighs, and emotion
-      vram_required_mb: 4000
-    multilingual:
-      description: 13 language voice presets (English, German, Spanish, French, etc.)
-      vram_required_mb: 4000
-    sound-effects:
-      description: Generate music snippets and ambient sound effects
-      vram_required_mb: 4000
-
   tags:
     - tts
     - voice
@@ -55,3 +44,41 @@ service:
     - multilingual
     - expressive
     - suno
+
+features:
+  - id: expressive-tts
+    name: Expressive TTS
+    description: Highly realistic speech with laughter, sighs, and emotion
+    icon: Volume2
+    category: voice
+    requirements:
+      services: [bark]
+      vram_gb: 4
+    enabled_services_all: [bark]
+    setup_time: ~2 minutes
+    priority: 16
+    gpu_backends: [nvidia]
+  - id: multilingual
+    name: Multilingual
+    description: 13 language voice presets (English, German, Spanish, French, etc.)
+    icon: Globe
+    category: voice
+    requirements:
+      services: [bark]
+      vram_gb: 4
+    enabled_services_all: [bark]
+    setup_time: ~2 minutes
+    priority: 17
+    gpu_backends: [nvidia]
+  - id: sound-effects
+    name: Sound Effects
+    description: Generate music snippets and ambient sound effects
+    icon: Music
+    category: voice
+    requirements:
+      services: [bark]
+      vram_gb: 4
+    enabled_services_all: [bark]
+    setup_time: ~2 minutes
+    priority: 18
+    gpu_backends: [nvidia]

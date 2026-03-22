@@ -33,4 +33,3 @@ features:
     enabled_services_all: [piper-audio]
     setup_time: ~1 minute
     priority: 10
-    gpu_backends: []

@@ -12,27 +12,14 @@ service:
   external_port_default: 3006
   health: /api/_health/
   type: docker
-  gpu_backends: [none]
   category: optional
+  compose_file: compose.yaml
   depends_on: []
   description: |
     Open-source no-code database tool and Airtable alternative.
     Create databases, tables, and views with a spreadsheet-like interface.
     Self-hosted with no storage restrictions. MIT licensed.
   
-  features:
-    database:
-      description: No-code database with spreadsheet interface
-      vram_required_mb: 0
-    views:
-      description: Grid, gallery, form, and calendar views
-      vram_required_mb: 0
-    api:
-      description: Headless REST API for all data
-      vram_required_mb: 0
-    collaboration:
-      description: Real-time collaboration and permissions
-      vram_required_mb: 0
     
   tags:
     - database
@@ -41,3 +28,49 @@ service:
     - spreadsheet
     - collaboration
     - productivity
+
+features:
+  - id: database
+    name: No-Code Database
+    description: No-code database with spreadsheet interface
+    icon: Database
+    category: productivity
+    requirements:
+      services: [baserow]
+      vram_gb: 0
+    enabled_services_all: [baserow]
+    setup_time: ~1 minute
+    priority: 16
+  - id: views
+    name: Multiple Views
+    description: Grid, gallery, form, and calendar views
+    icon: LayoutGrid
+    category: productivity
+    requirements:
+      services: [baserow]
+      vram_gb: 0
+    enabled_services_all: [baserow]
+    setup_time: ~1 minute
+    priority: 17
+  - id: api
+    name: REST API
+    description: Headless REST API for all data
+    icon: Globe
+    category: productivity
+    requirements:
+      services: [baserow]
+      vram_gb: 0
+    enabled_services_all: [baserow]
+    setup_time: ~1 minute
+    priority: 18
+  - id: collaboration
+    name: Collaboration
+    description: Real-time collaboration and permissions
+    icon: Users
+    category: productivity
+    requirements:
+      services: [baserow]
+      vram_gb: 0
+    enabled_services_all: [baserow]
+    setup_time: ~1 minute
+    priority: 19
