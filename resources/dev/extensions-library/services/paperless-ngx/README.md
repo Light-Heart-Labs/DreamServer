@@ -15,12 +15,12 @@ Paperless-ngx automatically organizes scanned documents with OCR, categorization
 
 ## Configuration
 
-- **Port**: `PAPERLESS_PORT` (default: 8000)
+- **Port**: `PAPERLESS_PORT` (default: 7807)
 - **Data Directory**: `./data/paperless`
 
 ## Usage
 
-After installation, access the web interface at `http://localhost:8000`
+After installation, access the web interface at `http://localhost:7807`
 
 ## Requirements
 

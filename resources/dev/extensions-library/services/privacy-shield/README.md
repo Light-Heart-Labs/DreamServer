@@ -1,5 +1,11 @@
 # Privacy Shield
 
+> **Warning**: This service already ships in the production
+> `dream-server/extensions/services/privacy-shield/` directory. Copying
+> this library version into your installation will **overwrite** the
+> production copy. Only proceed if you intend to replace the existing
+> production setup.
+
 API PII Protection for Dream Server
 
 ## Overview

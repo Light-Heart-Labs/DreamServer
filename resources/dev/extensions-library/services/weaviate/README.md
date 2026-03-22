@@ -15,12 +15,12 @@ Weaviate is a scalable vector database that powers semantic search, generative A
 
 ## Configuration
 
-- **Port**: `WEAVIATE_PORT` (default: 8080)
+- **Port**: `WEAVIATE_PORT` (default: 7811)
 - **Data Directory**: `./data/weaviate`
 
 ## Usage
 
-After installation, access the GraphQL API at `http://localhost:8080/v1/graphql`
+After installation, access the GraphQL API at `http://localhost:7811/v1/graphql`
 
 ## Requirements
 
