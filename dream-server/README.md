@@ -121,7 +121,7 @@ The installer **automatically detects your GPU** and selects the right configura
 
 Both tiers use `qwen2.5:7b` as a bootstrap model for instant startup. The full model downloads in the background via GGUF from HuggingFace.
 
-**Inference backend:** llama-server via ROCm 7.2 (Docker image: `kyuz0/amd-strix-halo-toolboxes:rocm-7.2`)
+**Inference backend:** Lemonade Server via ROCm (Docker image: `ghcr.io/lemonade-sdk/lemonade-server:latest`)
 
 ### NVIDIA (Discrete GPU)
 

@@ -11,8 +11,8 @@
 ### Inference Stack
 - **Model:** qwen3-coder-next (80B MoE, 3B active params, ~52GB)
 - **Format:** GGUF (Q4_K_M quantization, from unsloth/Qwen3-Coder-Next-GGUF)
-- **Backend:** llama-server via ROCm 7.2 (NOT Ollama, NOT Vulkan)
-- **Container:** kyuz0/amd-strix-halo-toolboxes:rocm-7.2
+- **Backend:** Lemonade Server via ROCm (NOT Ollama, NOT Vulkan)
+- **Container:** ghcr.io/lemonade-sdk/lemonade-server:latest
 - **Context:** 32,768 tokens
 - **Key flags:** `-fa on --no-mmap -ngl 999 --jinja`
 - **Env:** `ROCBLAS_USE_HIPBLASLT=0`, `HSA_OVERRIDE_GFX_VERSION=11.5.1`
