@@ -8,7 +8,7 @@ services:
     # Lemonade Docker image with ROCm support
     # Service name stays "llama-server" for compose dependency compatibility
     image: ghcr.io/lemonade-sdk/lemonade-server:latest
-    entrypoint: ["lemonade-server"]
+    entrypoint: ["/opt/lemonade/lemonade-server"]
     command:
       - serve
       - --port
