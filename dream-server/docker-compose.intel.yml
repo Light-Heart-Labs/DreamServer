@@ -28,7 +28,7 @@ services:
       - ZES_ENABLE_SYSMAN=1
     command:
       - --model
-      - /models/${GGUF_FILE:-Qwen3-8B-Q4_K_M.gguf}
+      - /models/${GGUF_FILE:-Qwen3.5-9B-Q4_K_M.gguf}
       - --host
       - 0.0.0.0
       - --port

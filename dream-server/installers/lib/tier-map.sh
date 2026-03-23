@@ -28,10 +28,10 @@ resolve_tier_config() {
             # Intel Arc A770 (16 GB) and future Arc B-series (≥12 GB VRAM)
             # llama.cpp SYCL backend: N_GPU_LAYERS=99 offloads all layers to GPU
             TIER_NAME="Intel Arc"
-            LLM_MODEL="qwen3-8b"
-            GGUF_FILE="Qwen3-8B-Q4_K_M.gguf"
-            GGUF_URL="https://huggingface.co/unsloth/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf"
-            GGUF_SHA256="120307ba529eb2439d6c430d94104dabd578497bc7bfe7e322b5d9933b449bd4"
+            LLM_MODEL="qwen3.5-9b"
+            GGUF_FILE="Qwen3.5-9B-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf"
+            GGUF_SHA256="03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8"
             MAX_CONTEXT=32768
             GPU_BACKEND="sycl"
             N_GPU_LAYERS=99
@@ -40,10 +40,10 @@ resolve_tier_config() {
             # Intel Arc A750 (8 GB), A380 (6 GB) — smaller VRAM, lighter model
             # llama.cpp SYCL backend: N_GPU_LAYERS=99 offloads all layers to GPU
             TIER_NAME="Intel Arc Lite"
-            LLM_MODEL="qwen3-4b"
-            GGUF_FILE="Qwen3-4B-Q4_K_M.gguf"
-            GGUF_URL="https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf"
-            GGUF_SHA256="f6f851777709861056efcdad3af01da38b31223a3ba26e61a4f8bf3a2195813a"
+            LLM_MODEL="qwen3.5-4b"
+            GGUF_FILE="Qwen3.5-4B-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf"
+            GGUF_SHA256="00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4"
             MAX_CONTEXT=16384
             GPU_BACKEND="sycl"
             N_GPU_LAYERS=99
@@ -82,26 +82,26 @@ resolve_tier_config() {
             ;;
         1)
             TIER_NAME="Entry Level"
-            LLM_MODEL="qwen3-8b"
-            GGUF_FILE="Qwen3-8B-Q4_K_M.gguf"
-            GGUF_URL="https://huggingface.co/unsloth/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf"
-            GGUF_SHA256="120307ba529eb2439d6c430d94104dabd578497bc7bfe7e322b5d9933b449bd4"
+            LLM_MODEL="qwen3.5-9b"
+            GGUF_FILE="Qwen3.5-9B-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf"
+            GGUF_SHA256="03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8"
             MAX_CONTEXT=16384
             ;;
         2)
             TIER_NAME="Prosumer"
-            LLM_MODEL="qwen3-8b"
-            GGUF_FILE="Qwen3-8B-Q4_K_M.gguf"
-            GGUF_URL="https://huggingface.co/unsloth/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf"
-            GGUF_SHA256="120307ba529eb2439d6c430d94104dabd578497bc7bfe7e322b5d9933b449bd4"
+            LLM_MODEL="qwen3.5-9b"
+            GGUF_FILE="Qwen3.5-9B-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf"
+            GGUF_SHA256="03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8"
             MAX_CONTEXT=32768
             ;;
         3)
             TIER_NAME="Pro"
-            LLM_MODEL="qwen3-14b"
-            GGUF_FILE="Qwen3-14B-Q4_K_M.gguf"
-            GGUF_URL="https://huggingface.co/unsloth/Qwen3-14B-GGUF/resolve/main/Qwen3-14B-Q4_K_M.gguf"
-            GGUF_SHA256="5eaa0870bd81ed3b58a630a271234cfa604e43ffb3a19cd68e54a80dd9d52a66"
+            LLM_MODEL="gpt-oss-20b"
+            GGUF_FILE="gpt-oss-20b-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/unsloth/gpt-oss-20b-GGUF/resolve/main/gpt-oss-20b-Q4_K_M.gguf"
+            GGUF_SHA256="c27536640e410032865dc68781d80a08b98f8db5e93575919af8ccc0568aeb4f"
             MAX_CONTEXT=32768
             ;;
         4)
@@ -127,12 +127,12 @@ tier_to_model() {
         NV_ULTRA)       echo "qwen3-coder-next" ;;
         SH_LARGE)       echo "qwen3-coder-next" ;;
         SH_COMPACT|SH)  echo "qwen3-30b-a3b" ;;
-        ARC)            echo "qwen3-8b" ;;
-        ARC_LITE)       echo "qwen3-4b" ;;
+        ARC)            echo "qwen3.5-9b" ;;
+        ARC_LITE)       echo "qwen3.5-4b" ;;
         0|T0)           echo "qwen3.5-2b" ;;
-        1|T1)           echo "qwen3-8b" ;;
-        2|T2)           echo "qwen3-8b" ;;
-        3|T3)           echo "qwen3-14b" ;;
+        1|T1)           echo "qwen3.5-9b" ;;
+        2|T2)           echo "qwen3.5-9b" ;;
+        3|T3)           echo "gpt-oss-20b" ;;
         4|T4)           echo "qwen3-30b-a3b" ;;
         *)              echo "" ;;
     esac

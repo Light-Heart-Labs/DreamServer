@@ -367,7 +367,7 @@ resolve_tier_config() {
     validate_tier "$TIER" || { error "Invalid tier"; return 1; }
     log "Resolving tier $TIER"
     case "$TIER" in
-        1) TIER_NAME="Entry Level"; LLM_MODEL="qwen3-8b" ;;
+        1) TIER_NAME="Entry Level"; LLM_MODEL="qwen3.5-9b" ;;
         # ... 10 more tiers with caching, logging, etc.
     esac
 }
@@ -375,7 +375,7 @@ resolve_tier_config() {
 # GOOD - Start simple, add complexity via new tests
 resolve_tier_config() {
     case "$TIER" in
-        1) TIER_NAME="Entry Level"; LLM_MODEL="qwen3-8b" ;;
+        1) TIER_NAME="Entry Level"; LLM_MODEL="qwen3.5-9b" ;;
     esac
 }
 ```

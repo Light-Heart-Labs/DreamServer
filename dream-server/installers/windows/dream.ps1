@@ -194,7 +194,7 @@ function Start-NativeLlamaServer {
     $env = Read-DreamEnv
     $ggufFile = $env["GGUF_FILE"]
     $ctxSize  = $env["CTX_SIZE"]
-    if (-not $ggufFile) { $ggufFile = "Qwen3-8B-Q4_K_M.gguf" }
+    if (-not $ggufFile) { $ggufFile = "Qwen3.5-9B-Q4_K_M.gguf" }
     if (-not $ctxSize)  { $ctxSize = "16384" }
 
     $modelPath = Join-Path (Join-Path $InstallDir "data\models") $ggufFile

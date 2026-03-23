@@ -3,7 +3,7 @@
 **Mission:** M7 (OpenClaw Frontier Pushing)  
 **Status:** 5 templates created, awaiting validation
 
-Validated agent templates that work reliably on local Qwen3-14B.
+Validated agent templates that work reliably on local GPT-OSS-20B.
 
 ## Templates
 
@@ -29,12 +29,12 @@ Validated agent templates that work reliably on local Qwen3-14B.
 agent:
   template: code-assistant
   override:
-    model: local-llama/qwen3-14b
+    model: local-llama/gpt-oss-20b
 ```
 
 ## Validation Results (2026-02-11)
 
-Tested on: Qwen3-14B-Instruct-AWQ (local)  
+Tested on: GPT-OSS-20B-Instruct-AWQ (local)  
 Test command: `python3 tests/validate-agent-templates.py`
 
 | Template | Tests | Passed | Status |
@@ -55,7 +55,7 @@ Test command: `python3 tests/validate-agent-templates.py`
 
 ## Design Principles
 
-1. **Local-first:** Templates optimized for Qwen3-14B (free, fast, private)
+1. **Local-first:** Templates optimized for GPT-OSS-20B (free, fast, private)
 2. **Fallback-aware:** Creative tasks route to Kimi; technical tasks stay local
 3. **Tool-appropriate:** Each template gets only the tools it needs
 4. **Safety-conscious:** Dangerous operations flagged (system-admin)

@@ -262,7 +262,7 @@ if ! $DRY_RUN; then
             if [[ -x "$INSTALL_DIR/scripts/repair/repair-perplexica.sh" ]]; then
                 bash "$INSTALL_DIR/scripts/repair/repair-perplexica.sh" \
                     "http://localhost:${SERVICE_PORTS[perplexica]:-3004}" \
-                    "${LLM_MODEL:-qwen3-14b}" >> "$LOG_FILE" 2>&1 && \
+                    "${LLM_MODEL:-gpt-oss-20b}" >> "$LOG_FILE" 2>&1 && \
                     ai_ok "Perplexica configured" || \
                     ai_warn "Perplexica may need manual config at :${SERVICE_PORTS[perplexica]:-3004}"
             fi

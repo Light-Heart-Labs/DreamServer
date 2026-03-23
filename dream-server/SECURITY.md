@@ -186,13 +186,13 @@ The installer verifies GGUF model downloads using SHA256 checksums to prevent:
 **Manual verification:**
 ```bash
 # Check a model file manually
-sha256sum data/models/Qwen3-8B-Q4_K_M.gguf
+sha256sum data/models/Qwen3.5-9B-Q4_K_M.gguf
 
 # Compare against expected hash in installers/lib/tier-map.sh
-grep -A 2 "Qwen3-8B" installers/lib/tier-map.sh | grep GGUF_SHA256
+grep -A 2 "Qwen3.5-9B" installers/lib/tier-map.sh | grep GGUF_SHA256
 ```
 
-**Note:** Some models (like Qwen3-14B and qwen3-coder-next) don't have checksums yet. The installer will skip verification for these but still download them successfully.
+**Note:** Some models (like qwen3-coder-next) don't have checksums yet. The installer will skip verification for these but still download them successfully.
 
 ### Network Timeout Hardening
 

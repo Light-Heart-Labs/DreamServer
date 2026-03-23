@@ -68,30 +68,30 @@ function Resolve-TierConfig {
         "1" {
             return @{
                 TierName   = "Entry Level"
-                LlmModel   = "qwen3-8b"
-                GgufFile   = "Qwen3-8B-Q4_K_M.gguf"
-                GgufUrl    = "https://huggingface.co/unsloth/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf"
-                GgufSha256 = "120307ba529eb2439d6c430d94104dabd578497bc7bfe7e322b5d9933b449bd4"
+                LlmModel   = "qwen3.5-9b"
+                GgufFile   = "Qwen3.5-9B-Q4_K_M.gguf"
+                GgufUrl    = "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf"
+                GgufSha256 = "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8"
                 MaxContext = 16384
             }
         }
         "2" {
             return @{
                 TierName   = "Prosumer"
-                LlmModel   = "qwen3-8b"
-                GgufFile   = "Qwen3-8B-Q4_K_M.gguf"
-                GgufUrl    = "https://huggingface.co/unsloth/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf"
-                GgufSha256 = "120307ba529eb2439d6c430d94104dabd578497bc7bfe7e322b5d9933b449bd4"
+                LlmModel   = "qwen3.5-9b"
+                GgufFile   = "Qwen3.5-9B-Q4_K_M.gguf"
+                GgufUrl    = "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf"
+                GgufSha256 = "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8"
                 MaxContext = 32768
             }
         }
         "3" {
             return @{
                 TierName   = "Pro"
-                LlmModel   = "qwen3-30b-a3b"
-                GgufFile   = "Qwen3-30B-A3B-Q4_K_M.gguf"
-                GgufUrl    = "https://huggingface.co/unsloth/Qwen3-30B-A3B-GGUF/resolve/main/Qwen3-30B-A3B-Q4_K_M.gguf"
-                GgufSha256 = "9f1a24700a339b09c06009b729b5c809e0b64c213b8af5b711b3dbdfd0c5ba48"
+                LlmModel   = "gpt-oss-20b"
+                GgufFile   = "gpt-oss-20b-Q4_K_M.gguf"
+                GgufUrl    = "https://huggingface.co/unsloth/gpt-oss-20b-GGUF/resolve/main/gpt-oss-20b-Q4_K_M.gguf"
+                GgufSha256 = "c27536640e410032865dc68781d80a08b98f8db5e93575919af8ccc0568aeb4f"
                 MaxContext = 32768
             }
         }
@@ -156,9 +156,9 @@ function ConvertTo-ModelFromTier {
         "^SH_LARGE$"             { return "qwen3-coder-next" }
         "^(SH_COMPACT|SH)$"     { return "qwen3-30b-a3b" }
         "^(0|T0)$"               { return "qwen3.5-2b" }
-        "^(1|T1)$"               { return "qwen3-8b" }
-        "^(2|T2)$"               { return "qwen3-8b" }
-        "^(3|T3)$"               { return "qwen3-30b-a3b" }
+        "^(1|T1)$"               { return "qwen3.5-9b" }
+        "^(2|T2)$"               { return "qwen3.5-9b" }
+        "^(3|T3)$"               { return "gpt-oss-20b" }
         "^(4|T4)$"               { return "qwen3-30b-a3b" }
         default                  { return "" }
     }

@@ -137,7 +137,7 @@ start_native_llama() {
     fi
 
     read_dream_env
-    local gguf_file="${ENV_GGUF_FILE:-Qwen3-8B-Q4_K_M.gguf}"
+    local gguf_file="${ENV_GGUF_FILE:-Qwen3.5-9B-Q4_K_M.gguf}"
     local ctx_size="${ENV_CTX_SIZE:-16384}"
     local model_path="${INSTALL_DIR}/data/models/${gguf_file}"
 

@@ -5,7 +5,7 @@ set -euo pipefail
 # Requires: Perplexica container running, python3 available
 
 PERPLEXICA_URL="${1:-http://localhost:3004}"
-LLM_MODEL="${2:-qwen3-14b}"
+LLM_MODEL="${2:-gpt-oss-20b}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PYTHON_CMD="python3"

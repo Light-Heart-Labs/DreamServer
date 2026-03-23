@@ -1,13 +1,13 @@
 # Research Assistant Agent Template
 # Mission: M7 (OpenClaw Frontier Pushing)
-# Validated on: Qwen3-14B
+# Validated on: GPT-OSS-20B
 # Purpose: Web research, summarization, fact-checking
 
 agent:
   name: research-assistant
   description: "Research assistant for web search, summarization, and analysis"
   
-  model: local-llama/qwen3-14b
+  model: local-llama/gpt-oss-20b
   # Falls back to Kimi for complex synthesis if needed
   fallback_model: moonshot/kimi-k2-0711-preview
   

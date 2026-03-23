@@ -124,8 +124,8 @@ fi
 
 # Verify tier 1 is suitable for low-RAM systems
 if [[ -f "$TIER_MAP" ]]; then
-    # Tier 1 should use smaller models (qwen3-8b)
-    if grep -A5 "^[[:space:]]*1)" "$TIER_MAP" | grep -q "qwen3-8b"; then
+    # Tier 1 should use smaller models (qwen3.5-9b)
+    if grep -A5 "^[[:space:]]*1)" "$TIER_MAP" | grep -q "qwen3.5-9b"; then
         pass "Tier 1 uses small model suitable for low-RAM systems"
     else
         fail "Tier 1 should use small model for low-RAM compatibility"
@@ -149,8 +149,8 @@ if [[ -f "$TIER_MAP" ]]; then
     done
 
     # Verify tier progression (higher tiers = larger models)
-    if grep -A5 "^[[:space:]]*1)" "$TIER_MAP" | grep -q "qwen3-8b" && \
-       grep -A5 "^[[:space:]]*3)" "$TIER_MAP" | grep -q "qwen3-14b"; then
+    if grep -A5 "^[[:space:]]*1)" "$TIER_MAP" | grep -q "qwen3.5-9b" && \
+       grep -A5 "^[[:space:]]*3)" "$TIER_MAP" | grep -q "gpt-oss-20b"; then
         pass "Tier progression validated (tier 1 < tier 3 model size)"
     else
         fail "Tier progression should increase model size"

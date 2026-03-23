@@ -1,6 +1,6 @@
 # Writing Assistant Agent Template
 # Mission: M7 (OpenClaw Frontier Pushing)
-# Validated on: Qwen3-14B
+# Validated on: GPT-OSS-20B
 # Purpose: Creative writing, editing, style improvement
 # NOTE: Local Qwen has limitations on creative tasks - use with fallback
 
@@ -8,7 +8,7 @@ agent:
   name: writing-assistant
   description: "Writing assistant for drafting, editing, and improving text"
   
-  model: local-llama/qwen3-14b
+  model: local-llama/gpt-oss-20b
   # IMPORTANT: Qwen3 is NOT optimized for creative writing
   # This template uses fallback for creative generation tasks
   fallback_model: moonshot/kimi-k2-0711-preview

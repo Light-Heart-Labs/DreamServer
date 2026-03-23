@@ -138,8 +138,9 @@ Write-InfoBox "  Capacity:" "$_usersEst"
 $_modelGB = $(
     if ($tierConfig.GgufFile -match "80B|Coder-Next") { 50 }
     elseif ($tierConfig.GgufFile -match "30B") { 20 }
+    elseif ($tierConfig.GgufFile -match "20b") { 12 }
     elseif ($tierConfig.GgufFile -match "14B") { 12 }
-    elseif ($tierConfig.GgufFile -match "8B")  {  8 }
+    elseif ($tierConfig.GgufFile -match "9B|8B")  {  8 }
     else                                        {  5 }
 )
 $_neededGB = $_modelGB + 15   # model + Docker images
