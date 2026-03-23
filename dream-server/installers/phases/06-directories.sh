@@ -54,12 +54,23 @@ else
         fi
     done
 
+    # Ensure we can write to config (rsync will fail otherwise)
+    if [[ "$SCRIPT_DIR" != "$INSTALL_DIR" ]] && [[ -d "$INSTALL_DIR/config" ]]; then
+        _cant_write=""
+        for _d in "$INSTALL_DIR"/config/*/; do
+            [[ -d "$_d" ]] && ! [[ -w "$_d" ]] && _cant_write="$_cant_write ${_d#$INSTALL_DIR/}"
+        done
+        if [[ -n "$_cant_write" ]]; then
+            error "Cannot write to config directories (likely container-owned). Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/data — then re-run the installer."
+        fi
+    fi
+
     # Copy entire source tree to install dir (skip if same directory)
     dream_progress 39 "directories" "Copying source files"
     if [[ "$SCRIPT_DIR" != "$INSTALL_DIR" ]]; then
         ai "Copying source files to $INSTALL_DIR..."
         if command -v rsync &>/dev/null; then
-            rsync -a \
+            rsync -a --no-owner --no-group \
                 --exclude='.git' \
                 --exclude='data/' \
                 --exclude='logs/' \
@@ -214,7 +225,7 @@ MODELS_EOF
         # Exclude .git and .openclaw dirs — those are runtime/dev artifacts
         if [[ -d "$SCRIPT_DIR/config/openclaw/workspace" ]]; then
             if command -v rsync &>/dev/null; then
-                rsync -a --exclude='.git' --exclude='.openclaw' --exclude='.gitkeep' \
+                rsync -a --no-owner --no-group --exclude='.git' --exclude='.openclaw' --exclude='.gitkeep' \
                     "$SCRIPT_DIR/config/openclaw/workspace/" "$INSTALL_DIR/config/openclaw/workspace/"
             else
                 cp -r "$SCRIPT_DIR/config/openclaw/workspace"/* "$INSTALL_DIR/config/openclaw/workspace/" 2>/dev/null || true
