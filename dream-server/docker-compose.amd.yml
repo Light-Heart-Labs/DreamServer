@@ -55,6 +55,14 @@ services:
       # Lemonade serves at /api/v1, override base compose's /v1 path
       OPENAI_API_BASE_URL: "http://llama-server:8080/api/v1"
 
+  perplexica:
+    environment:
+      OPENAI_BASE_URL: "http://llama-server:8080/api/v1"
+
+  privacy-shield:
+    environment:
+      TARGET_API_URL: "http://llama-server:8080/api/v1"
+
   dashboard-api:
     environment:
       - GPU_BACKEND=amd
