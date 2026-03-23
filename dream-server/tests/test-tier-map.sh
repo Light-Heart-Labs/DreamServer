@@ -74,7 +74,7 @@ echo "Tier 3 (Pro):"
 run_tier 3
 assert_eq "TIER_NAME"   "Pro"                                  "$TIER_NAME"
 assert_eq "LLM_MODEL"   "qwen3.5-27b"                         "$LLM_MODEL"
-assert_eq "GGUF_FILE"   "qwen3.5-27b-Q4_K_M.gguf"            "$GGUF_FILE"
+assert_eq "GGUF_FILE"   "Qwen3.5-27B-Q4_K_M.gguf"            "$GGUF_FILE"
 assert_eq "MAX_CONTEXT"  "32768"                                "$MAX_CONTEXT"
 echo ""
 
