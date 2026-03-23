@@ -24,7 +24,7 @@ Environment variables (set in `.env`):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GGUF_FILE` | `Qwen3-8B-Q4_K_M.gguf` | Model filename inside `data/models/` |
+| `GGUF_FILE` | `Qwen3.5-9B-Q4_K_M.gguf` | Model filename inside `data/models/` |
 | `CTX_SIZE` | `16384` | Context window size in tokens |
 | `OLLAMA_PORT` | `8080` | External port (maps to internal 8080) |
 | `GPU_BACKEND` | `nvidia` | GPU backend: `nvidia` or `amd` |

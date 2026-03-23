@@ -20,7 +20,7 @@ Tested configuration:
 | RAM | 16 GB unified |
 | Docker Desktop | 29.2.1 |
 | llama.cpp | b8210 |
-| Model | Qwen3-4B-Q4_K_M |
+| Model | Qwen3.5-9B-Q4_K_M |
 | Context | 16384 |
 | Services online | 16/17 (ComfyUI not deployed — no macOS GPU backend) |
 
