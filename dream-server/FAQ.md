@@ -98,7 +98,7 @@ Use the `dream` CLI:
 ```bash
 dream model current              # See what's running
 dream model list                 # Show available tiers and models
-dream model swap T3              # Switch to Tier 3 (e.g., Qwen3 14B)
+dream model swap T3              # Switch to Tier 3 (e.g., Qwen3.5 27B)
 ```
 
 The model file must already be downloaded. If it isn't, pre-fetch it first:
@@ -123,9 +123,9 @@ The installer auto-selects based on your GPU, but you can switch between any tie
 
 | Tier | Model | Min VRAM |
 |------|-------|----------|
-| T1 | Qwen3 8B | 8 GB |
-| T2 | Qwen3 8B | 12 GB |
-| T3 | Qwen3 14B | 20 GB |
+| T1 | Qwen3.5 9B | 8 GB |
+| T2 | Qwen3.5 9B | 12 GB |
+| T3 | Qwen3.5 27B | 20 GB |
 | T4 | Qwen3 30B-A3B (MoE) | 40 GB |
 | SH_COMPACT | Qwen3 30B-A3B (MoE) | 64 GB unified |
 | SH_LARGE | Qwen3 Coder Next 80B (MoE) | 90 GB unified |

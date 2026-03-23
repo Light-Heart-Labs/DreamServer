@@ -14,18 +14,18 @@ known limitations, and performance expectations.
 
 | GPU | VRAM | Estimated tok/s | Concurrent users | Model |
 |-----|------|----------------|-----------------|-------|
-| Arc A770 | 16 GB | ~35 | 3–5 | Qwen3 8B Q4\_K\_M |
-| Arc B580 | 12 GB | ~30 | 2–4 | Qwen3 8B Q4\_K\_M |
+| Arc A770 | 16 GB | ~35 | 3–5 | Qwen3.5 9B Q4\_K\_M |
+| Arc B580 | 12 GB | ~30 | 2–4 | Qwen3.5 9B Q4\_K\_M |
 
 ### Tier: ARC\_LITE  (< 12 GB VRAM)
 
 | GPU | VRAM | Estimated tok/s | Concurrent users | Model |
 |-----|------|----------------|-----------------|-------|
-| Arc A750 | 8 GB | ~20 | 1–2 | Qwen3 4B Q4\_K\_M |
-| Arc A380 | 6 GB | ~15 | 1 | Qwen3 4B Q4\_K\_M |
-| Arc A310 | 4 GB | ~10 | 1 | Qwen3 4B Q4\_K\_M (tight) |
+| Arc A750 | 8 GB | ~20 | 1–2 | Qwen3.5 4B Q4\_K\_M |
+| Arc A380 | 6 GB | ~15 | 1 | Qwen3.5 4B Q4\_K\_M |
+| Arc A310 | 4 GB | ~10 | 1 | Qwen3.5 4B Q4\_K\_M (tight) |
 
-> **A310 note:** 4 GB VRAM is borderline for Qwen3 4B Q4\_K\_M (~3.3 GB).
+> **A310 note:** 4 GB VRAM is borderline for Qwen3.5 4B Q4\_K\_M (~3.3 GB).
 > The model will load but leaves little headroom for KV cache.
 > Consider `--ctx-size 4096` (set `CTX_SIZE=4096` in `.env`) to reduce pressure.
 
@@ -187,9 +187,9 @@ Performance figures below are measured with Qwen3 models at Q4\_K\_M quantisatio
 
 | GPU | Model | Prompt tok/s | Generate tok/s | Notes |
 |-----|-------|------------|----------------|-------|
-| Arc A770 (16 GB) | Qwen3 8B Q4\_K\_M | ~120 | ~35 | Comfortable fit; KV cache well within VRAM |
-| Arc A750 (8 GB) | Qwen3 4B Q4\_K\_M | ~90 | ~20 | Model fits; limit `CTX_SIZE` to ≤ 16384 |
-| Arc A380 (6 GB) | Qwen3 4B Q4\_K\_M | ~70 | ~15 | Tight. Set `CTX_SIZE=8192` for safety |
+| Arc A770 (16 GB) | Qwen3.5 9B Q4\_K\_M | ~120 | ~35 | Comfortable fit; KV cache well within VRAM |
+| Arc A750 (8 GB) | Qwen3.5 4B Q4\_K\_M | ~90 | ~20 | Model fits; limit `CTX_SIZE` to ≤ 16384 |
+| Arc A380 (6 GB) | Qwen3.5 4B Q4\_K\_M | ~70 | ~15 | Tight. Set `CTX_SIZE=8192` for safety |
 
 ### Comparison to equivalent NVIDIA tiers
 
