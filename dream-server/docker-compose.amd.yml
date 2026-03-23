@@ -58,7 +58,6 @@ services:
     environment:
       - GPU_BACKEND=amd
       - LLM_BACKEND=lemonade
-      - LLM_API_BASE_PATH=/api/v1
     volumes:
       - /sys/class/drm:/sys/class/drm:ro
       - /sys/class/hwmon:/sys/class/hwmon:ro
