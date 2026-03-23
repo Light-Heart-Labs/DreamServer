@@ -89,8 +89,8 @@ The installer auto-selects the best model for your unified memory:
 
 | Unified RAM | Tier | Model | Context |
 |-------------|------|-------|---------|
-| 8–24 GB | 1 | Qwen3 4B (Q4_K_M) | 16384 |
-| 32 GB | 2 | Qwen3 8B (Q4_K_M) | 32768 |
+| 8–24 GB | 1 | Qwen3.5 4B (Q4_K_M) | 16384 |
+| 32 GB | 2 | Qwen3.5 9B (Q4_K_M) | 32768 |
 | 48 GB | 3 | Qwen3 30B-A3B (MoE, Q4_K_M) | 32768 |
 | 64+ GB | 4 | Qwen3 30B-A3B (MoE, Q4_K_M) | 131072 |
 

@@ -162,9 +162,9 @@ The installer detects your GPU and picks the optimal model automatically. No man
 | VRAM | Model | Example GPUs |
 |------|-------|--------------|
 | < 8 GB | Qwen3.5 2B (Q4_K_M) | Any GPU or CPU-only |
-| 8–11 GB | Qwen3 8B (Q4_K_M) | RTX 4060 Ti, RTX 3060 12GB |
-| 12–20 GB | Qwen3 8B (Q4_K_M) | RTX 3090, RTX 4080 |
-| 20–40 GB | Qwen3 14B (Q4_K_M) | RTX 4090, A6000 |
+| 8–11 GB | Qwen3.5 9B (Q4_K_M) | RTX 4060 Ti, RTX 3060 12GB |
+| 12–20 GB | Qwen3.5 9B (Q4_K_M) | RTX 3090, RTX 4080 |
+| 20–40 GB | Qwen3.5 27B (Q4_K_M) | RTX 4090, A6000 |
 | 40+ GB | Qwen3 30B-A3B (MoE, Q4_K_M) | A100, multi-GPU |
 | 90+ GB | Qwen3 Coder Next (80B MoE, Q4_K_M) | Multi-GPU A100/H100 |
 
@@ -180,8 +180,8 @@ The installer detects your GPU and picks the optimal model automatically. No man
 | Unified RAM | Model | Example Hardware |
 |-------------|-------|-----------------|
 | < 16 GB | Qwen3.5 2B (Q4_K_M) | M1/M2 base (8GB) |
-| 16–24 GB | Qwen3 4B (Q4_K_M) | M4 Mac Mini (16GB) |
-| 32 GB | Qwen3 8B (Q4_K_M) | M4 Pro Mac Mini, M3 Max MacBook Pro |
+| 16–24 GB | Qwen3.5 4B (Q4_K_M) | M4 Mac Mini (16GB) |
+| 32 GB | Qwen3.5 9B (Q4_K_M) | M4 Pro Mac Mini, M3 Max MacBook Pro |
 | 48 GB | Qwen3 30B-A3B (MoE, Q4_K_M) | M4 Pro (48GB), M2 Max (48GB) |
 | 64+ GB | Qwen3 30B-A3B (MoE, Q4_K_M) | M2 Ultra Mac Studio, M4 Max (64GB+) |
 
