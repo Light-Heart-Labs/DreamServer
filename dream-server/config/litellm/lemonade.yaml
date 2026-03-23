@@ -1,15 +1,18 @@
 model_list:
-  - model_name: default
+  # Map friendly model alias (e.g. qwen3.5-2b) to Lemonade's internal ID
+  # (e.g. extra.Qwen3.5-2B-Q4_K_M.gguf). Both are set in .env by the installer.
+  - model_name: "os.environ/LLM_MODEL"
     litellm_params:
-      model: openai/default
-      api_base: http://host.docker.internal:8080/api/v1
-      api_key: lemonade
+      model: "openai/os.environ/LEMONADE_MODEL_ID"
+      api_base: http://llama-server:8080/api/v1
+      api_key: sk-lemonade
 
+  # Wildcard fallback — pass through any other model name to Lemonade
   - model_name: "*"
     litellm_params:
       model: openai/*
-      api_base: http://host.docker.internal:8080/api/v1
-      api_key: lemonade
+      api_base: http://llama-server:8080/api/v1
+      api_key: sk-lemonade
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY

@@ -296,7 +296,7 @@ MODELS_EOF
 DREAM_VERSION=${VERSION:-2.3.4}
 
 #=== LLM Backend Mode ===
-DREAM_MODE=${DREAM_MODE:-local}
+DREAM_MODE=$(if [[ "$GPU_BACKEND" == "amd" ]]; then echo "lemonade"; else echo "${DREAM_MODE:-local}"; fi)
 LLM_API_URL=$(if [[ "${DREAM_MODE:-local}" == "local" ]]; then echo "http://llama-server:8080"; else echo "http://litellm:4000"; fi)
 
 #=== Cloud API Keys ===
@@ -320,6 +320,9 @@ RENDER_GID=$(getent group render 2>/dev/null | cut -d: -f3 || echo 992)
 #=== AMD ROCm Settings ===
 HSA_OVERRIDE_GFX_VERSION=11.5.1
 ROCBLAS_USE_HIPBLASLT=0
+
+#=== Lemonade Model ID (internal name used by Lemonade for the GGUF model) ===
+LEMONADE_MODEL_ID=extra.${GGUF_FILE}
 AMD_ENV
 fi)
 $(if [[ "$GPU_BACKEND" == "sycl" ]]; then cat << INTEL_ENV

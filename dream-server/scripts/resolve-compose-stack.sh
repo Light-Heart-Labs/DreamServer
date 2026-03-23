@@ -162,7 +162,7 @@ if ext_dir.exists():
             if gpu_overlay.exists():
                 resolved.append(str(gpu_overlay.relative_to(script_dir)))
             # Mode-specific overlay — depends_on for local/hybrid mode only
-            if dream_mode in ("local", "hybrid"):
+            if dream_mode in ("local", "hybrid", "lemonade"):
                 local_mode_overlay = service_dir / "compose.local.yaml"
                 if local_mode_overlay.exists():
                     resolved.append(str(local_mode_overlay.relative_to(script_dir)))

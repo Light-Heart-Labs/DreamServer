@@ -50,18 +50,9 @@ services:
           cpus: '4.0'
           memory: 8G
 
-  open-webui:
-    environment:
-      # Lemonade serves at /api/v1, override base compose's /v1 path
-      OPENAI_API_BASE_URL: "http://llama-server:8080/api/v1"
-
-  perplexica:
-    environment:
-      OPENAI_BASE_URL: "http://llama-server:8080/api/v1"
-
-  privacy-shield:
-    environment:
-      TARGET_API_URL: "http://llama-server:8080/api/v1"
+  # Services no longer need /api/v1 overrides here — they route through
+  # LiteLLM (DREAM_MODE=lemonade sets LLM_API_URL=http://litellm:4000).
+  # LiteLLM handles the /api/v1 translation to Lemonade internally.
 
   dashboard-api:
     environment:
