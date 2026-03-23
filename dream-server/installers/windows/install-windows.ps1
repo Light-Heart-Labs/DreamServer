@@ -415,6 +415,7 @@ if ($dryRun) {
         Write-AI "Running: docker compose $($composeFlags -join ' ') up -d"
         # PS 5.1 treats ANY stderr output from native commands as NativeCommandError.
         # Silence stderr-as-error so $LASTEXITCODE reflects the real compose exit code.
+        # Keep streaming pipeline for real-time progress feedback during image pulls/builds.
         $prevEAP = $ErrorActionPreference
         $ErrorActionPreference = "SilentlyContinue"
         & docker compose @composeFlags up -d 2>&1 | ForEach-Object { Write-Host "  $_" }
@@ -422,6 +423,21 @@ if ($dryRun) {
         $ErrorActionPreference = $prevEAP
         if ($composeExit -ne 0) {
             Write-AIError "docker compose up failed (exit code: $composeExit)"
+            # The streaming output above may have scrolled past or PS 5.1 may have
+            # swallowed stderr ErrorRecords. Run config validation to surface the
+            # root cause (missing env vars, invalid YAML, etc.) clearly at the end.
+            $ErrorActionPreference = "SilentlyContinue"
+            $_configOutput = & docker compose @composeFlags config 2>&1
+            $_configExit = $LASTEXITCODE
+            $ErrorActionPreference = $prevEAP
+            if ($_configExit -ne 0) {
+                Write-AI "  Configuration error:"
+                $_configOutput | ForEach-Object { Write-AI "    $_" }
+            }
+            Write-AI "  To debug manually:"
+            Write-AI "    cd $installDir"
+            Write-AI "    docker compose $($composeFlags -join ' ') config"
+            Write-AI "    docker compose $($composeFlags -join ' ') up 2>&1"
             exit 1
         }
         Write-AISuccess "Docker services started"
