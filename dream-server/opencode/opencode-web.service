@@ -13,7 +13,6 @@ RestartSec=5
 # Environment
 Environment=HOME=__HOME__
 Environment=PATH=__HOME__/.opencode/bin:/usr/local/bin:/usr/bin:/bin
-Environment=OPENCODE_SERVER_PASSWORD=__OPENCODE_SERVER_PASSWORD__
 
 # Hardening
 NoNewPrivileges=true

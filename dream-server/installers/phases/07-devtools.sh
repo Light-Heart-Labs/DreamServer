@@ -163,19 +163,11 @@ OPENCODE_EOF
             SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
             mkdir -p "$SYSTEMD_USER_DIR"
 
-            # Read OPENCODE_SERVER_PASSWORD from .env
-            OPENCODE_SERVER_PASSWORD=""
-            if [[ -f "$INSTALL_DIR/.env" ]]; then
-                OPENCODE_SERVER_PASSWORD=$(grep -m1 '^OPENCODE_SERVER_PASSWORD=' "$INSTALL_DIR/.env" | cut -d= -f2-)
-            fi
-
             svc_tmp="/tmp/opencode-web.service.$$"
             cp "$INSTALL_DIR/opencode/opencode-web.service" "$svc_tmp"
-            # Escape sed special chars to prevent injection from path or password values
+            # Escape sed special chars to prevent injection from path values
             _home_esc=$(printf '%s\n' "$HOME" | sed 's/[&/\]/\\&/g')
-            _pass_esc=$(printf '%s\n' "${OPENCODE_SERVER_PASSWORD}" | sed 's/[&/\]/\\&/g')
             _sed_i "s|__HOME__|${_home_esc}|g" "$svc_tmp"
-            _sed_i "s|__OPENCODE_SERVER_PASSWORD__|${_pass_esc}|g" "$svc_tmp"
             cp "$svc_tmp" "$SYSTEMD_USER_DIR/opencode-web.service"
             rm -f "$svc_tmp"
 
@@ -183,8 +175,6 @@ OPENCODE_EOF
             systemctl --user enable --now opencode-web.service >> "$LOG_FILE" 2>&1 && \
                 ai_ok "OpenCode Web UI service installed (user-level, port 3003)" || \
                 ai_warn "OpenCode Web UI service failed to start"
-            [[ -n "${OPENCODE_SERVER_PASSWORD}" ]] && \
-                ai "OpenCode web UI password: ${OPENCODE_SERVER_PASSWORD}"
 
             # Enable lingering so service survives logout
             loginctl enable-linger "$(whoami)" 2>/dev/null || \
