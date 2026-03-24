@@ -228,7 +228,7 @@ function VoiceSettings({ isOpen, onClose }) {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-theme-card border border-theme-border rounded-xl p-6 w-full max-w-md">
-        <h3 className="text-lg font-semibold text-white mb-4">Voice Settings</h3>
+        <h3 className="text-lg font-semibold text-theme-text mb-4">Voice Settings</h3>
         
         <div className="space-y-4">
           {/* Voice Selection */}
@@ -237,7 +237,7 @@ function VoiceSettings({ isOpen, onClose }) {
             <select
               value={voice}
               onChange={(e) => setVoice(e.target.value)}
-              className="w-full bg-theme-card border border-theme-border rounded-lg px-3 py-2 text-white"
+              className="w-full bg-theme-card border border-theme-border rounded-lg px-3 py-2 text-theme-text"
             >
               <option value="default">Default (LJSpeech)</option>
               <option value="jenny">Jenny (Female)</option>
@@ -265,7 +265,7 @@ function VoiceSettings({ isOpen, onClose }) {
           {/* Wake Word */}
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-white">Wake Word</p>
+              <p className="text-sm text-theme-text">Wake Word</p>
               <p className="text-xs text-theme-text-muted">Say "Hey Dream" to activate</p>
             </div>
             <button
@@ -387,7 +387,7 @@ export default function Voice() {
       <div className="p-6 border-b border-theme-border">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-white">Voice</h1>
+            <h1 className="text-2xl font-bold text-theme-text">Voice</h1>
             <p className="text-theme-text-muted mt-1">
               Talk to your AI. Like having your own Jarvis.
             </p>

@@ -161,7 +161,7 @@ export default function Dashboard({ status, loading }) {
       {/* Header with live meta strip */}
       <div className="mb-8 flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Dashboard</h1>
+          <h1 className="text-2xl font-bold text-theme-text">Dashboard</h1>
           <p className={`mt-1 ${health.color}`}>
             {health.text}
           </p>
@@ -209,7 +209,7 @@ export default function Dashboard({ status, loading }) {
       </div>
 
       {/* System Status */}
-      <h2 className="text-lg font-semibold text-white mb-4">System Status</h2>
+      <h2 className="text-lg font-semibold text-theme-text mb-4">System Status</h2>
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
         {status?.gpu && (
           <>
@@ -327,7 +327,7 @@ export default function Dashboard({ status, loading }) {
       </div>
 
       {/* Services Grid — sorted by severity */}
-      <h2 className="text-lg font-semibold text-white mb-4">Services</h2>
+      <h2 className="text-lg font-semibold text-theme-text mb-4">Services</h2>
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
         {servicesSorted.map(service => (
           <ServiceCard key={service.name} service={service} />
@@ -352,7 +352,7 @@ const FeatureCard = memo(function FeatureCard({ icon: Icon, title, description, 
     <div className={`p-6 rounded-xl border-2 ${statusColors[status]} bg-theme-card transition-all cursor-pointer hover:bg-theme-surface-hover`}>
       <div className="flex items-start justify-between mb-4">
         <div className="p-3 bg-theme-card rounded-lg">
-          <Icon size={24} className="text-theme-accent" />
+          <Icon size={24} className="text-theme-text-secondary" />
         </div>
         {status === 'ready' && (
           <span className="px-2 py-1 text-xs bg-green-500/20 text-green-400 rounded-full">
@@ -365,7 +365,7 @@ const FeatureCard = memo(function FeatureCard({ icon: Icon, title, description, 
           </span>
         )}
       </div>
-      <h3 className="text-lg font-semibold text-white mb-1">{title}</h3>
+      <h3 className="text-lg font-semibold text-theme-text mb-1">{title}</h3>
       <p className="text-sm text-theme-text-muted">{description}</p>
       {status === 'disabled' && hint && (
         <p className="text-xs text-theme-text-muted mt-3 font-mono">{hint}</p>
@@ -395,7 +395,7 @@ const MetricCard = memo(function MetricCard({ icon: Icon, label, value, subvalue
         <Icon size={18} className={alert ? 'text-red-400' : 'text-theme-text-muted'} />
         <span className="text-sm text-theme-text-muted">{label}</span>
       </div>
-      <div className="text-xl font-semibold text-white font-mono truncate" title={value}>{value}</div>
+      <div className="text-xl font-semibold text-theme-text font-mono truncate" title={value}>{value}</div>
       <div className="text-xs text-theme-text-muted mt-1">{subvalue}</div>
       {percent !== undefined && (
         <div className="h-1 bg-theme-border rounded-full mt-3 overflow-hidden">
@@ -429,7 +429,7 @@ const ServiceCard = memo(function ServiceCard({ service }) {
     <div className="p-4 bg-theme-card border border-theme-border rounded-xl">
       <div className="flex items-center gap-2 mb-2">
         <div className={`w-2 h-2 rounded-full ${statusColors[service.status] || 'bg-zinc-500'}`} />
-        <span className="text-sm font-medium text-white">{service.name}</span>
+        <span className="text-sm font-medium text-theme-text">{service.name}</span>
       </div>
       <div className="text-xs text-theme-text-muted font-mono">
         {service.port ? `:${service.port} · ` : ''}{formatUptime(service.uptime)}

@@ -45,7 +45,7 @@ export function FeatureDiscoveryBanner({ onDismiss }) {
             <Sparkles className="text-theme-accent" size={20} />
           </div>
           <div>
-            <p className="text-white font-medium">{topSuggestion.message}</p>
+            <p className="text-theme-text font-medium">{topSuggestion.message}</p>
             <p className="text-theme-text-muted text-sm">
               Setup time: {topSuggestion.setupTime}
             </p>
@@ -227,7 +227,7 @@ function FeatureCard({ feature, onClick }) {
         </div>
         {statusIcons[feature.status]}
       </div>
-      <h4 className="text-sm font-medium text-white">{feature.name}</h4>
+      <h4 className="text-sm font-medium text-theme-text">{feature.name}</h4>
       <p className="text-xs text-theme-text-muted mt-1 line-clamp-2">{feature.description}</p>
       
       {/* VRAM requirement */}
@@ -260,7 +260,7 @@ function EnableInstructions({ featureId, onClose }) {
       <div className="bg-theme-card border border-theme-border rounded-xl max-w-md w-full shadow-2xl">
         <div className="p-6 border-b border-theme-border">
           <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold text-white">Enable {data.name}</h2>
+            <h2 className="text-xl font-bold text-theme-text">Enable {data.name}</h2>
             <button onClick={onClose} className="text-theme-text-muted hover:text-theme-text">
               <X size={20} />
             </button>
@@ -273,7 +273,7 @@ function EnableInstructions({ featureId, onClose }) {
               <div className="w-6 h-6 rounded-full bg-theme-card flex items-center justify-center text-xs text-theme-text-muted mt-0.5">
                 {i + 1}
               </div>
-              <p className="text-white">{step}</p>
+              <p className="text-theme-text">{step}</p>
             </div>
           ))}
         </div>

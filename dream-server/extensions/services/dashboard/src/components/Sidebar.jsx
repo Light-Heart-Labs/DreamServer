@@ -81,14 +81,14 @@ export default function Sidebar({ status, collapsed, onToggle }) {
       <div className="px-4 pt-4 pb-3 border-b border-theme-border overflow-hidden">
         {collapsed ? (
           <div className="flex flex-col items-center">
-            <span className="text-lg font-bold text-theme-accent-light font-mono tracking-tight">DS</span>
+            <span className="text-lg font-bold text-theme-text font-mono tracking-tight">DS</span>
             <p className="text-[8px] text-theme-text-muted font-mono mt-0.5">
               v{status?.version || '...'}
             </p>
           </div>
         ) : (
           <>
-            <pre aria-hidden="true" className="text-[7.5px] leading-[8px] text-theme-accent-light opacity-90 font-mono whitespace-pre select-none">{`    ____
+            <pre aria-hidden="true" className="text-[7.5px] leading-[8px] text-theme-text opacity-90 font-mono whitespace-pre select-none">{`    ____
    / __ \\ _____ ___   ____ _ ____ ___
   / / / // ___// _ \\ / __ \`// __ \`__ \\
  / /_/ // /   /  __// /_/ // / / / / /

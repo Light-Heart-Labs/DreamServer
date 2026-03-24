@@ -86,7 +86,7 @@ export default function SetupWizard({ onComplete }) {
               <div className="w-20 h-20 bg-amber-500/20 rounded-2xl flex items-center justify-center mx-auto mb-6">
                 <Shield className="w-10 h-10 text-amber-400" />
               </div>
-              <h2 className="text-3xl font-bold text-white mb-4">System Check</h2>
+              <h2 className="text-3xl font-bold text-theme-text mb-4">System Check</h2>
               <p className="text-theme-text-secondary mb-8">
                 Let's verify your system is ready for Dream Server. This checks Docker, GPU, ports, and disk space.
               </p>
@@ -103,7 +103,7 @@ export default function SetupWizard({ onComplete }) {
               <div className="w-20 h-20 bg-theme-accent/20 rounded-2xl flex items-center justify-center mx-auto mb-6">
                 <Settings className="w-10 h-10 text-theme-accent" />
               </div>
-              <h2 className="text-3xl font-bold text-white mb-4">Welcome to Dream Server</h2>
+              <h2 className="text-3xl font-bold text-theme-text mb-4">Welcome to Dream Server</h2>
               <p className="text-theme-text-secondary mb-8">
                 Let's get your local AI set up in just a few steps.
                 Everything runs on your hardware — no cloud, no subscriptions.
@@ -131,7 +131,7 @@ export default function SetupWizard({ onComplete }) {
               <div className="w-20 h-20 bg-purple-500/20 rounded-2xl flex items-center justify-center mx-auto mb-6">
                 <User className="w-10 h-10 text-purple-400" />
               </div>
-              <h2 className="text-3xl font-bold text-white mb-4">What should we call you?</h2>
+              <h2 className="text-3xl font-bold text-theme-text mb-4">What should we call you?</h2>
               <p className="text-theme-text-secondary mb-8">
                 Your AI assistant will use this name when talking to you.
               </p>
@@ -140,7 +140,7 @@ export default function SetupWizard({ onComplete }) {
                 value={config.userName}
                 onChange={(e) => setConfig(c => ({ ...c, userName: e.target.value }))}
                 placeholder="Enter your name"
-                className="w-full px-4 py-3 bg-theme-card border border-theme-border rounded-lg text-white placeholder-theme-text-muted focus:outline-none focus:border-theme-accent"
+                className="w-full px-4 py-3 bg-theme-card border border-theme-border rounded-lg text-theme-text placeholder-theme-text-muted focus:outline-none focus:border-theme-accent"
                 autoFocus
               />
             </div>
@@ -152,7 +152,7 @@ export default function SetupWizard({ onComplete }) {
               <div className="w-20 h-20 bg-pink-500/20 rounded-2xl flex items-center justify-center mx-auto mb-6">
                 <Mic className="w-10 h-10 text-pink-400" />
               </div>
-              <h2 className="text-3xl font-bold text-white mb-4">Choose a voice</h2>
+              <h2 className="text-3xl font-bold text-theme-text mb-4">Choose a voice</h2>
               <p className="text-theme-text-secondary mb-8">
                 Pick the voice your AI assistant will use when speaking to you.
               </p>
@@ -173,7 +173,7 @@ export default function SetupWizard({ onComplete }) {
                       {config.voice === voice.id && <div className="w-2.5 h-2.5 rounded-full bg-theme-accent" />}
                     </div>
                     <div className="flex-1">
-                      <div className="font-medium text-white">{voice.name}</div>
+                      <div className="font-medium text-theme-text">{voice.name}</div>
                       <div className="text-sm text-theme-text-muted">{voice.desc}</div>
                     </div>
                   </button>
@@ -188,7 +188,7 @@ export default function SetupWizard({ onComplete }) {
               <div className="w-20 h-20 bg-green-500/20 rounded-2xl flex items-center justify-center mx-auto mb-6">
                 <Play className="w-10 h-10 text-green-400" />
               </div>
-              <h2 className="text-3xl font-bold text-white mb-4">Run diagnostics</h2>
+              <h2 className="text-3xl font-bold text-theme-text mb-4">Run diagnostics</h2>
               <p className="text-theme-text-secondary mb-8">
                 Let's verify everything is working correctly. This will test LLM, STT, TTS, and voice pipeline.
               </p>
@@ -225,7 +225,7 @@ export default function SetupWizard({ onComplete }) {
             <button
               onClick={() => setStep(s => Math.max(1, s - 1))}
               disabled={step === 1}
-              className="flex items-center gap-2 px-4 py-2 text-theme-text-secondary hover:text-white disabled:opacity-0 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 text-theme-text-secondary hover:text-theme-text disabled:opacity-0 transition-colors"
             >
               <ChevronLeft className="w-5 h-5" />
               Back

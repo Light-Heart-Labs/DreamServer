@@ -116,7 +116,7 @@ export default function Settings() {
     <div className="p-8">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Settings</h1>
+          <h1 className="text-2xl font-bold text-theme-text">Settings</h1>
           <p className="text-theme-text-muted mt-1">
             Configure your Dream Server installation.
           </p>
@@ -197,7 +197,7 @@ export default function Settings() {
             <div>
               <div className="flex items-center justify-between text-sm mb-2">
                 <span className="text-theme-text-muted">Models</span>
-                <span className="text-white">{storage?.models?.formatted || 'Unknown'}</span>
+                <span className="text-theme-text">{storage?.models?.formatted || 'Unknown'}</span>
               </div>
               <div className="h-2 bg-theme-border rounded-full overflow-hidden">
                 <div className="h-full bg-theme-accent rounded-full" style={{ width: `${storage?.models?.percent || 0}%` }} />
@@ -206,7 +206,7 @@ export default function Settings() {
             <div>
               <div className="flex items-center justify-between text-sm mb-2">
                 <span className="text-theme-text-muted">Vector Database</span>
-                <span className="text-white">{storage?.vector_db?.formatted || 'Unknown'}</span>
+                <span className="text-theme-text">{storage?.vector_db?.formatted || 'Unknown'}</span>
               </div>
               <div className="h-2 bg-theme-border rounded-full overflow-hidden">
                 <div className="h-full bg-purple-500 rounded-full" style={{ width: `${storage?.vector_db?.percent || 0}%` }} />
@@ -215,7 +215,7 @@ export default function Settings() {
             <div>
               <div className="flex items-center justify-between text-sm mb-2">
                 <span className="text-theme-text-muted">Total Data</span>
-                <span className="text-white">{storage?.total_data?.formatted || 'Unknown'}</span>
+                <span className="text-theme-text">{storage?.total_data?.formatted || 'Unknown'}</span>
               </div>
               <div className="h-2 bg-theme-border rounded-full overflow-hidden">
                 <div className="h-full bg-green-500 rounded-full" style={{ width: `${storage?.total_data?.percent || 0}%` }} />
@@ -228,12 +228,12 @@ export default function Settings() {
         <SettingsSection title="Updates" icon={RefreshCw}>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-white">You're up to date</p>
+              <p className="text-theme-text">You're up to date</p>
               <p className="text-sm text-theme-text-muted">Last checked: just now</p>
             </div>
             <button
               onClick={handleCheckUpdates}
-              className="px-4 py-2 bg-theme-border hover:bg-theme-border text-white rounded-lg text-sm flex items-center gap-2 transition-colors"
+              className="px-4 py-2 bg-theme-border hover:bg-theme-border text-theme-text rounded-lg text-sm flex items-center gap-2 transition-colors"
             >
               <RefreshCw size={16} />
               Check for Updates
@@ -262,7 +262,7 @@ function SettingsSection({ title, icon: Icon, children }) {
     <div className="bg-theme-card border border-theme-border rounded-xl">
       <div className="flex items-center gap-3 p-4 border-b border-theme-border">
         <Icon size={20} className="text-theme-text-muted" />
-        <h2 className="text-lg font-semibold text-white">{title}</h2>
+        <h2 className="text-lg font-semibold text-theme-text">{title}</h2>
       </div>
       <div className="p-4">
         {children}
@@ -275,7 +275,7 @@ function InfoRow({ label, value }) {
   return (
     <div className="flex items-center justify-between py-2">
       <span className="text-sm text-theme-text-muted">{label}</span>
-      <span className="text-sm text-white font-medium font-mono">{value}</span>
+      <span className="text-sm text-theme-text font-medium font-mono">{value}</span>
     </div>
   )
 }
@@ -300,7 +300,7 @@ function ActionButton({ icon: Icon, label, description, variant = 'default', onC
     >
       <Icon size={20} className={iconColors[variant]} />
       <div className="text-left">
-        <p className="text-sm text-white font-medium">{label}</p>
+        <p className="text-sm text-theme-text font-medium">{label}</p>
         <p className="text-xs text-theme-text-muted">{description}</p>
       </div>
     </button>

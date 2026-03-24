@@ -37,7 +37,7 @@ export default function Models() {
     <div className="p-8">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Models</h1>
+          <h1 className="text-2xl font-bold text-theme-text">Models</h1>
           <p className="text-theme-text-muted mt-1">
             Download, switch, and manage your AI models.
           </p>
@@ -62,7 +62,7 @@ export default function Models() {
         <div className="mb-8 p-4 bg-theme-card border border-theme-border rounded-xl">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm text-theme-text-muted">GPU VRAM</span>
-            <span className="text-sm text-white">
+            <span className="text-sm text-theme-text">
               {gpu.vramUsed?.toFixed(1)} / {gpu.vramTotal?.toFixed(0)} GB used
             </span>
           </div>
@@ -148,7 +148,7 @@ function ModelCard({ model, isLoading, onDownload, onLoad, onDelete }) {
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-2">
-              <h3 className="text-lg font-semibold text-white">{model.name}</h3>
+              <h3 className="text-lg font-semibold text-theme-text">{model.name}</h3>
               {model.quantization && (
                 <span className="px-1.5 py-0.5 text-xs bg-theme-border text-theme-text rounded">
                   {model.quantization}
@@ -200,7 +200,7 @@ function ModelCard({ model, isLoading, onDownload, onLoad, onDelete }) {
         {/* Action Buttons */}
         <div className="flex items-center gap-2 ml-4">
           {isLoading ? (
-            <div className="px-4 py-2 bg-theme-border text-white rounded-lg">
+            <div className="px-4 py-2 bg-theme-border text-theme-text rounded-lg">
               <Loader2 size={16} className="animate-spin" />
             </div>
           ) : isLoaded ? (
@@ -271,7 +271,7 @@ function DownloadProgressBar({ progress, helpers }) {
             <span className="absolute -top-1 -right-1 w-2 h-2 bg-theme-accent rounded-full animate-pulse" />
           </div>
           <div>
-            <p className="text-white font-medium">Downloading {progress.model}</p>
+            <p className="text-theme-text font-medium">Downloading {progress.model}</p>
             <p className="text-sm text-theme-text-muted">
               {formatBytes(progress.bytesDownloaded)} / {formatBytes(progress.bytesTotal)}
               {progress.speedMbps > 0 && ` • ${progress.speedMbps.toFixed(1)} MB/s`}
