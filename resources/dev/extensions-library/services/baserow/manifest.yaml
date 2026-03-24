@@ -9,7 +9,7 @@ service:
   default_host: baserow
   port: 80
   external_port_env: BASEROW_PORT
-  external_port_default: 3006
+  external_port_default: 3007
   health: /api/_health/
   type: docker
   gpu_backends: [none]

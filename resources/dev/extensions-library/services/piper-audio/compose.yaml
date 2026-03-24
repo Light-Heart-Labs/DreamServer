@@ -33,7 +33,7 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "echo '{\"type\": \"describe\"}' | nc localhost 10200 || exit 1"]
       interval: 30s
-      timeout: 10s
+      timeout: 30s
       retries: 3
       start_period: 60s
     networks:

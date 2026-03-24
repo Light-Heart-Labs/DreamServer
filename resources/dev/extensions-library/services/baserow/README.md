@@ -21,15 +21,15 @@ The extension uses the following environment variables:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `BASEROW_PUBLIC_URL` | Public URL for Baserow | `http://localhost:3006` |
-| `BASEROW_PORT` | External port | `3006` |
+| `BASEROW_PUBLIC_URL` | Public URL for Baserow | `http://localhost:3007` |
+| `BASEROW_PORT` | External port | `3007` |
 | `BASEROW_DATABASE_HOST` | PostgreSQL host | (auto-detected) |
 | `BASEROW_DATABASE_PASSWORD` | Database password | (auto-generated) |
 | `BASEROW_DEBUG` | Enable debug mode | `false` |
 
 ## Ports
 
-- External: `3006` (configurable via `BASEROW_PORT`)
+- External: `3007` (configurable via `BASEROW_PORT`)
 - Internal: `80`
 
 ## Data Persistence
@@ -51,5 +51,5 @@ The extension exposes `/api/_health/` endpoint for monitoring.
 ## Usage
 
 1. Start the extension: `dream enable baserow`
-2. Access the UI at `http://localhost:3006`
+2. Access the UI at `http://localhost:3007`
 3. Create your first database using the spreadsheet interface
