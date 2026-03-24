@@ -403,13 +403,17 @@ ENV_EOF
 
     # Generate LiteLLM config for Lemonade with baked-in model alias.
     # model_name must be a literal string (os.environ/ not proven for routing keys).
+    # Uses BOOTSTRAP_GGUF_FILE because the full model may still be downloading
+    # when services first start. Background upgrade will update this config later.
     if [[ "$GPU_BACKEND" == "amd" ]]; then
+        source "$SCRIPT_DIR/lib/bootstrap-model.sh"
+        _lemonade_gguf="${BOOTSTRAP_GGUF_FILE}"
         mkdir -p "$INSTALL_DIR/config/litellm"
         cat > "$INSTALL_DIR/config/litellm/lemonade.yaml" << LITELLM_EOF
 model_list:
   - model_name: "${LLM_MODEL}"
     litellm_params:
-      model: "openai/extra.${GGUF_FILE}"
+      model: "openai/extra.${_lemonade_gguf}"
       api_base: http://llama-server:8080/api/v1
       api_key: sk-lemonade
 

@@ -123,8 +123,12 @@ def post(key, value):
     req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
     urllib.request.urlopen(req)
 
-# Seed the chat model into the OpenAI provider
+# Seed the chat model into the OpenAI provider and set auth config
 openai_prov['chatModels'] = [{'key': model, 'name': model}]
+openai_prov['config'] = {
+    'apiKey': '${LITELLM_KEY:-no-key}',
+    'baseURL': '${LLM_API_URL:-http://llama-server:8080}/v1'
+}
 post('modelProviders', providers)
 
 # Set default providers and models

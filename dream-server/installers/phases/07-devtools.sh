@@ -107,22 +107,32 @@ else
         OPENCODE_CONFIG_DIR="$HOME/.config/opencode"
         mkdir -p "$OPENCODE_CONFIG_DIR"
         if [[ ! -f "$OPENCODE_CONFIG_DIR/opencode.json" ]]; then
-            # Read OLLAMA_PORT from the .env generated in phase 06
-            # (it's not exported as a shell variable, only written to the file)
-            if [[ -z "${OLLAMA_PORT:-}" && -f "$INSTALL_DIR/.env" ]]; then
-                OLLAMA_PORT=$(grep -m1 '^OLLAMA_PORT=' "$INSTALL_DIR/.env" | cut -d= -f2-)
+            # Read OLLAMA_PORT and DREAM_MODE from .env generated in phase 06
+            if [[ -f "$INSTALL_DIR/.env" ]]; then
+                [[ -z "${OLLAMA_PORT:-}" ]] && OLLAMA_PORT=$(grep -m1 '^OLLAMA_PORT=' "$INSTALL_DIR/.env" | cut -d= -f2-)
+                [[ -z "${DREAM_MODE:-}" ]] && DREAM_MODE=$(grep -m1 '^DREAM_MODE=' "$INSTALL_DIR/.env" | cut -d= -f2-)
+                [[ -z "${LITELLM_KEY:-}" ]] && LITELLM_KEY=$(grep -m1 '^LITELLM_KEY=' "$INSTALL_DIR/.env" | cut -d= -f2-)
+            fi
+            # Route through LiteLLM on AMD/Lemonade, direct to llama-server otherwise
+            if [[ "${DREAM_MODE:-local}" == "lemonade" ]]; then
+                _opencode_url="http://127.0.0.1:4000/v1"
+                _opencode_key="${LITELLM_KEY:-no-key}"
+            else
+                _opencode_url="http://127.0.0.1:${OLLAMA_PORT:-8080}/v1"
+                _opencode_key="no-key"
             fi
             cat > "$OPENCODE_CONFIG_DIR/opencode.json" <<OPENCODE_EOF
 {
   "\$schema": "https://opencode.ai/config.json",
   "model": "llama-server/${LLM_MODEL}",
+  "small_model": "llama-server/${LLM_MODEL}",
   "provider": {
     "llama-server": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "llama-server (local)",
       "options": {
-        "baseURL": "http://127.0.0.1:${OLLAMA_PORT:-8080}/v1",
-        "apiKey": "no-key"
+        "baseURL": "${_opencode_url}",
+        "apiKey": "${_opencode_key}"
       },
       "models": {
         "${LLM_MODEL}": {
@@ -137,6 +147,8 @@ else
   }
 }
 OPENCODE_EOF
+            # OpenCode reads config.json, not opencode.json
+            cp "$OPENCODE_CONFIG_DIR/opencode.json" "$OPENCODE_CONFIG_DIR/config.json"
             ai_ok "OpenCode configured for local llama-server (model: ${LLM_MODEL})"
         else
             ai_ok "OpenCode config already exists — skipping"
@@ -167,6 +179,8 @@ OPENCODE_EOF
             systemctl --user enable --now opencode-web.service >> "$LOG_FILE" 2>&1 && \
                 ai_ok "OpenCode Web UI service installed (user-level, port 3003)" || \
                 ai_warn "OpenCode Web UI service failed to start"
+            [[ -n "${OPENCODE_SERVER_PASSWORD}" ]] && \
+                ai "OpenCode web UI password: ${OPENCODE_SERVER_PASSWORD}"
 
             # Enable lingering so service survives logout
             loginctl enable-linger "$(whoami)" 2>/dev/null || \
