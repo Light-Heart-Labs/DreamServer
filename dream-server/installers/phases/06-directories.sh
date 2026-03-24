@@ -411,7 +411,7 @@ ENV_EOF
     # Uses BOOTSTRAP_GGUF_FILE because the full model may still be downloading
     # when services first start. Background upgrade will update this config later.
     if [[ "$GPU_BACKEND" == "amd" ]]; then
-        source "$SCRIPT_DIR/lib/bootstrap-model.sh"
+        source "$SCRIPT_DIR/installers/lib/bootstrap-model.sh"
         _lemonade_gguf="${BOOTSTRAP_GGUF_FILE}"
         mkdir -p "$INSTALL_DIR/config/litellm"
         cat > "$INSTALL_DIR/config/litellm/lemonade.yaml" << LITELLM_EOF
