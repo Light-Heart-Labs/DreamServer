@@ -121,7 +121,7 @@ The installer **automatically detects your GPU** and selects the right configura
 
 Both tiers use `qwen2.5:7b` as a bootstrap model for instant startup. The full model downloads in the background via GGUF from HuggingFace.
 
-**Inference backend:** Lemonade Server via ROCm (Docker image: `ghcr.io/lemonade-sdk/lemonade-server:latest`)
+**Inference backend:** Lemonade Server via ROCm (Docker image: `ghcr.io/lemonade-sdk/lemonade-server:v10.0.0`)
 
 ### NVIDIA (Discrete GPU)
 

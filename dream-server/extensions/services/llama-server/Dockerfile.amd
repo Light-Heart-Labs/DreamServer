@@ -1,4 +1,4 @@
-FROM ghcr.io/lemonade-sdk/lemonade-server:latest
+FROM ghcr.io/lemonade-sdk/lemonade-server:v10.0.0
 
 # ROCm llama-server binary requires libatomic1 which is missing from the
 # upstream Lemonade image. Without it, lemonade-server starts but inference

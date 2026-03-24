@@ -22,7 +22,7 @@ show_phase 4 6 "Downloading Modules" "~5-10 minutes"
 # Format: "image|friendly_name"
 PULL_LIST=()
 if [[ "$GPU_BACKEND" == "amd" ]]; then
-    PULL_LIST+=("ghcr.io/lemonade-sdk/lemonade-server:latest|LEMONADE — downloading the brain (AMD ROCm)")
+    PULL_LIST+=("ghcr.io/lemonade-sdk/lemonade-server:v10.0.0|LEMONADE — downloading the brain (AMD ROCm)")
     [[ "$ENABLE_COMFYUI" == "true" ]] && PULL_LIST+=("ignatberesnev/comfyui-gfx1151:v0.2|COMFYUI — image generation engine (gfx1151)")
 elif [[ "$GPU_BACKEND" == "cpu" ]]; then
     PULL_LIST+=("ghcr.io/ggml-org/llama.cpp:server-b8248|LLAMA-SERVER — downloading the brain (CPU)")
