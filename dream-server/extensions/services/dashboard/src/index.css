@@ -23,27 +23,33 @@
   --theme-loading-logo: #a78bfa;
   --theme-gradient-from: rgba(99,102,241,0.4);
   --theme-gradient-to: rgba(147,51,234,0.4);
+  --theme-sidebar: #18181b;
+  --theme-card-shadow: none;
+  --theme-card-radius: 12px;
 }
 
-/* Lemonade — warm gold theme matching AMD Lemonade branding */
+/* Lemonade — warm parchment theme matching lemonade-server.ai branding */
 :root[data-theme="lemonade"] {
-  --theme-bg: #FFF8E7;
-  --theme-card: #FFFDF5;
-  --theme-border: #D4C9B0;
-  --theme-text: #1A1708;
-  --theme-text-secondary: #4A4535;
-  --theme-text-muted: #7A7260;
-  --theme-accent: #B8860B;
-  --theme-accent-hover: #9A7009;
-  --theme-accent-light: #D4A017;
-  --theme-surface-hover: #FFF0CC;
-  --theme-scrollbar-track: #FFF8E7;
-  --theme-scrollbar-thumb: #D4C9B0;
-  --theme-scrollbar-hover: #B8AD95;
-  --theme-focus: #B8860B;
-  --theme-loading-logo: #B8860B;
-  --theme-gradient-from: rgba(184,134,11,0.25);
-  --theme-gradient-to: rgba(212,160,23,0.25);
+  --theme-bg: #F6EFD9;
+  --theme-card: #FBF7EA;
+  --theme-border: #E1D4B0;
+  --theme-text: #262626;
+  --theme-text-secondary: #6B665C;
+  --theme-text-muted: #8A8478;
+  --theme-accent: #F5C518;
+  --theme-accent-hover: #E2B20F;
+  --theme-accent-light: #F2DE88;
+  --theme-surface-hover: #F3E9CF;
+  --theme-scrollbar-track: #F6EFD9;
+  --theme-scrollbar-thumb: #E1D4B0;
+  --theme-scrollbar-hover: #D0C4A0;
+  --theme-focus: #E2B20F;
+  --theme-loading-logo: #E2B20F;
+  --theme-gradient-from: rgba(245,197,24,0.15);
+  --theme-gradient-to: rgba(226,178,15,0.15);
+  --theme-sidebar: #EFE4C6;
+  --theme-card-shadow: 0 6px 20px rgba(80,60,20,0.06);
+  --theme-card-radius: 16px;
 }
 
 /* Light — clean modern futuristic light theme */
@@ -65,6 +71,9 @@
   --theme-loading-logo: #2563EB;
   --theme-gradient-from: rgba(37,99,235,0.15);
   --theme-gradient-to: rgba(99,102,241,0.15);
+  --theme-sidebar: #EAEAEC;
+  --theme-card-shadow: 0 4px 16px rgba(0,0,0,0.06);
+  --theme-card-radius: 14px;
 }
 
 /* Midnight — deep navy with electric blue accents */
@@ -86,6 +95,9 @@
   --theme-loading-logo: #60A5FA;
   --theme-gradient-from: rgba(59,130,246,0.4);
   --theme-gradient-to: rgba(99,102,241,0.4);
+  --theme-sidebar: #111627;
+  --theme-card-shadow: none;
+  --theme-card-radius: 12px;
 }
 
 /* Forest — dark green tones with emerald accents */
@@ -107,6 +119,9 @@
   --theme-loading-logo: #34D399;
   --theme-gradient-from: rgba(16,185,129,0.4);
   --theme-gradient-to: rgba(5,150,105,0.4);
+  --theme-sidebar: #121F18;
+  --theme-card-shadow: none;
+  --theme-card-radius: 12px;
 }
 
 /* Sunset — warm dark with orange/coral accents */
@@ -128,6 +143,9 @@
   --theme-loading-logo: #FB923C;
   --theme-gradient-from: rgba(249,115,22,0.4);
   --theme-gradient-to: rgba(239,68,68,0.4);
+  --theme-sidebar: #241616;
+  --theme-card-shadow: none;
+  --theme-card-radius: 12px;
 }
 
 /* Arctic — cool light theme with ice blue accents */
@@ -149,6 +167,9 @@
   --theme-loading-logo: #0EA5E9;
   --theme-gradient-from: rgba(14,165,233,0.15);
   --theme-gradient-to: rgba(56,189,248,0.15);
+  --theme-sidebar: #E4EEF8;
+  --theme-card-shadow: 0 4px 16px rgba(0,0,0,0.05);
+  --theme-card-radius: 14px;
 }
 
 /* ── Scrollbar ──────────────────────────────────────────── */

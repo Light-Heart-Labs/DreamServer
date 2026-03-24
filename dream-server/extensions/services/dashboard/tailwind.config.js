@@ -25,6 +25,7 @@ export default {
           'accent-hover': 'var(--theme-accent-hover)',
           'accent-light': 'var(--theme-accent-light)',
           'surface-hover': 'var(--theme-surface-hover)',
+          sidebar: 'var(--theme-sidebar)',
         }
       },
       animation: {

@@ -76,7 +76,7 @@ export default function Sidebar({ status, collapsed, onToggle }) {
         : 'text-theme-text-muted'
 
   return (
-    <aside className={`fixed left-0 top-0 h-screen ${collapsed ? 'w-20' : 'w-64'} bg-theme-card border-r border-theme-border flex flex-col transition-all duration-200`}>
+    <aside className={`fixed left-0 top-0 h-screen ${collapsed ? 'w-20' : 'w-64'} bg-theme-sidebar border-r border-theme-border flex flex-col transition-all duration-200`}>
       {/* Logo */}
       <div className="px-4 pt-4 pb-3 border-b border-theme-border overflow-hidden">
         {collapsed ? (
