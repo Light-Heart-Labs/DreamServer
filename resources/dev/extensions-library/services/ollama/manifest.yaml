@@ -8,7 +8,7 @@ service:
   host_env: OLLAMA_HOST
   default_host: ollama
   port: 11434
-  external_port_env: OLLAMA_PORT
+  external_port_env: EXT_OLLAMA_PORT
   external_port_default: 7804
   health: /api/tags
   type: docker
