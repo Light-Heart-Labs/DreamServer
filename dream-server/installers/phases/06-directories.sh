@@ -295,7 +295,7 @@ MODELS_EOF
 # Tier: ${TIER} (${TIER_NAME})
 
 #=== Dream Server Version (used by dream-cli update for version-compat checks) ===
-DREAM_VERSION=${VERSION:-2.3.4}
+DREAM_VERSION=${VERSION:-2.4.0}
 
 #=== LLM Backend Mode ===
 DREAM_MODE=$(if [[ "$GPU_BACKEND" == "amd" && "${DREAM_MODE:-local}" == "local" ]]; then echo "lemonade"; else echo "${DREAM_MODE:-local}"; fi)

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Dream Server Bootstrap Installer
-# curl -fsSL https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.3.4/get-dream-server.sh | bash
+# curl -fsSL https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.4.0/get-dream-server.sh | bash
 #
 # Detects OS, clones repo, runs installer.
 

@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-03-24
+
+### Added
+- Native AMD Lemonade inference backend with NPU + ROCm + Vulkan acceleration
+- LiteLLM model aliasing for AMD (friendly model names resolve to Lemonade internal IDs)
+- AMD/Lemonade contract test suite (17 tests in `tests/contracts/test-amd-lemonade-contracts.sh`)
+- Lemonade Docker image pinned to v10.0.0 with libatomic1 fix (`Dockerfile.amd`)
+- Host-systemd service support in dashboard health checks (OpenCode no longer grayed out)
+- `DREAM_MODE=lemonade` for AMD installs — routes all services through LiteLLM proxy
+- Bootstrap model aliasing — both tier and bootstrap model names resolve in LiteLLM
+- NPU detection on Windows (Win32_PnPEntity) and Linux (sysfs/lspci)
+
+### Changed
+- AMD backend upgraded from generic Vulkan llama-server to native Lemonade Server
+- LiteLLM runs as default inference proxy on AMD installs
+- Lemonade image pinned to v10.0.0 (no longer `:latest`)
+- LiteLLM auth disabled for localhost-only AMD installs (all ports bind 127.0.0.1)
+- OpenCode config always synced on reinstall (stale API keys and URLs updated)
+
+### Fixed
+- APE healthcheck replaced curl (missing in slim image) with python3 urllib
+- Windows installer surfaces docker compose config errors on failure instead of just exit code
+- Windows installer passes `--env-file .env` to docker compose for reliable variable loading
+- Dashboard no longer grays out host-systemd services unreachable from Docker
+- `.env.schema.json` updated for `DREAM_MODE=lemonade`, `TARGET_API_KEY`, `LLM_BACKEND`, `LLM_API_BASE_PATH`
+- Lemonade entrypoint uses absolute path (`/opt/lemonade/lemonade-server`)
+- Service health endpoint override for Lemonade (`/api/v1/health` vs `/health`)
+- Perplexica, Privacy Shield, OpenClaw, Open WebUI API paths corrected for Lemonade (`/api/v1`)
+- OpenCode config filename (`config.json` copy), LiteLLM routing, and small_model fallback
+
 ## [2.0.0-strix-halo] - 2026-03-04
 
 ### Added
