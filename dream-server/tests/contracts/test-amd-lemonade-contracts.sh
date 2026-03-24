@@ -53,11 +53,10 @@ fi
 # 4. LiteLLM AMD overlay blanks LITELLM_MASTER_KEY
 # ---------------------------------------------------------------------------
 echo "[contract] LiteLLM auth disabled for AMD"
-if grep -q 'LITELLM_MASTER_KEY=$' extensions/services/litellm/compose.amd.yaml 2>/dev/null || \
-   grep -q 'LITELLM_MASTER_KEY=""' extensions/services/litellm/compose.amd.yaml 2>/dev/null; then
-    pass "litellm compose.amd.yaml: LITELLM_MASTER_KEY blanked"
+if grep -q 'unset LITELLM_MASTER_KEY' extensions/services/litellm/compose.amd.yaml 2>/dev/null; then
+    pass "litellm compose.amd.yaml: LITELLM_MASTER_KEY unset in entrypoint"
 else
-    fail "litellm compose.amd.yaml: must blank LITELLM_MASTER_KEY for local-only installs"
+    fail "litellm compose.amd.yaml: must unset LITELLM_MASTER_KEY (empty string still enables auth)"
 fi
 
 # ---------------------------------------------------------------------------
