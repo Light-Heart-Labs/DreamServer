@@ -13,7 +13,7 @@ services:
       - LLM_API_URL=${LLM_API_URL:-http://localhost:8000}
       - DB_HOSTNAME=${IMMICH_DB_HOST:-postgres}
       - DB_USERNAME=${IMMICH_DB_USER:-postgres}
-      - DB_PASSWORD=${IMMICH_DB_PASS:-postgres}
+      - DB_PASSWORD=${IMMICH_DB_PASSWORD:-${IMMICH_DB_PASS:-postgres}}
       - DB_DATABASE_NAME=${IMMICH_DB_NAME:-immich}
       - REDIS_HOSTNAME=${IMMICH_REDIS_HOST:-redis}
       - REDIS_PORT=${IMMICH_REDIS_PORT:-6379}
@@ -46,7 +46,7 @@ services:
       - ./data/immich/postgres:/var/lib/postgresql/data
     environment:
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=${IMMICH_DB_PASSWORD:-postgres}
+      - POSTGRES_PASSWORD=${IMMICH_DB_PASSWORD:-${IMMICH_DB_PASS:-postgres}}
       - POSTGRES_DB=immich
     restart: unless-stopped
     security_opt:
