@@ -100,6 +100,7 @@ fi
 
 # write $GPU_TOPOLOGY_JSON into a tmpfile to use by the commands
 TOPOLOGY_FILE=$(mktemp /tmp/ds_gpu_topology.XXXXXX.json)
+trap "rm -f $TOPOLOGY_FILE" EXIT
 echo "$GPU_TOPOLOGY_JSON" > "$TOPOLOGY_FILE"
 
 ASSIGN_GPUS_SCRIPT="$SCRIPT_DIR/scripts/assign_gpus.py"
@@ -241,6 +242,7 @@ run_custom() {
     done
   fi
 
+  # NOTE: keep in sync with assign_gpus.py select_parallelism()
   local mode tp pp mem_util
   if   [[ $n -eq 1 ]];         then mode="none";     tp=1;  pp=1;        mem_util=0.95
   elif [[ $min_rank -ge 80 ]]; then

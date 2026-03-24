@@ -34,7 +34,7 @@ resolve_tier_config() {
             GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf"
             GGUF_SHA256="03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8"
             MAX_CONTEXT=32768
-            LLM_MODEL_SIZE_MB=5030    # same model as Tier 1
+            LLM_MODEL_SIZE_MB=5760    # Qwen3.5-9B-Q4_K_M (5.68 GB)
             GPU_BACKEND="sycl"
             N_GPU_LAYERS=99
             ;;
@@ -47,7 +47,7 @@ resolve_tier_config() {
             GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf"
             GGUF_SHA256="00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4"
             MAX_CONTEXT=16384
-            LLM_MODEL_SIZE_MB=2560    # 2.5 GB per HF file listing
+            LLM_MODEL_SIZE_MB=2870    # Qwen3.5-4B-Q4_K_M (2.74 GB)
             GPU_BACKEND="sycl"
             N_GPU_LAYERS=99
             ;;
@@ -85,7 +85,7 @@ resolve_tier_config() {
             GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf"
             GGUF_SHA256=""
             MAX_CONTEXT=8192
-            LLM_MODEL_SIZE_MB=1311    # 1.28 GB per HF file listing
+            LLM_MODEL_SIZE_MB=1500    # Qwen3.5-2B-Q4_K_M (1.28 GB)
             ;;
         1)
             TIER_NAME="Entry Level"
@@ -94,7 +94,7 @@ resolve_tier_config() {
             GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf"
             GGUF_SHA256="03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8"
             MAX_CONTEXT=16384
-            LLM_MODEL_SIZE_MB=5030    # 5.03 GB per HF file listing
+            LLM_MODEL_SIZE_MB=5760    # Qwen3.5-9B-Q4_K_M (5.68 GB)
             ;;
         2)
             TIER_NAME="Prosumer"
@@ -103,7 +103,7 @@ resolve_tier_config() {
             GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf"
             GGUF_SHA256="03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8"
             MAX_CONTEXT=32768
-            LLM_MODEL_SIZE_MB=5030    # 5.03 GB per HF file listing
+            LLM_MODEL_SIZE_MB=5760    # Qwen3.5-9B-Q4_K_M (5.68 GB)
             ;;
         3)
             TIER_NAME="Pro"
@@ -112,7 +112,7 @@ resolve_tier_config() {
             GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-27B-GGUF/resolve/main/Qwen3.5-27B-Q4_K_M.gguf"
             GGUF_SHA256="84b5f7f112156d63836a01a69dc3f11a6ba63b10a23b8ca7a7efaf52d5a2d806"
             MAX_CONTEXT=32768
-            LLM_MODEL_SIZE_MB=9000    # 9.0 GB per HF file listing
+            LLM_MODEL_SIZE_MB=16400   # Qwen3.5-27B-Q4_K_M (16.7 GB)
             ;;
         4)
             TIER_NAME="Enterprise"
