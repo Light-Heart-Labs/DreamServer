@@ -27,8 +27,10 @@ services:
       retries: 3
       start_period: 180s
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - dream-network
     deploy:
