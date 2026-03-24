@@ -109,13 +109,15 @@ else
         # Read OLLAMA_PORT and DREAM_MODE from .env generated in phase 06
         if [[ -f "$INSTALL_DIR/.env" ]]; then
             [[ -z "${OLLAMA_PORT:-}" ]] && OLLAMA_PORT=$(grep -m1 '^OLLAMA_PORT=' "$INSTALL_DIR/.env" | cut -d= -f2-)
-            [[ -z "${DREAM_MODE:-}" ]] && DREAM_MODE=$(grep -m1 '^DREAM_MODE=' "$INSTALL_DIR/.env" | cut -d= -f2-)
+            # Always re-read DREAM_MODE from .env — Phase 06 may have changed it
+            # (e.g. "local" → "lemonade" for AMD) but the shell variable is stale.
+            DREAM_MODE=$(grep -m1 '^DREAM_MODE=' "$INSTALL_DIR/.env" | cut -d= -f2-)
             [[ -z "${LITELLM_KEY:-}" ]] && LITELLM_KEY=$(grep -m1 '^LITELLM_KEY=' "$INSTALL_DIR/.env" | cut -d= -f2-)
         fi
         # Route through LiteLLM on AMD/Lemonade, direct to llama-server otherwise
         if [[ "${DREAM_MODE:-local}" == "lemonade" ]]; then
             _opencode_url="http://127.0.0.1:4000/v1"
-            _opencode_key="${LITELLM_KEY:-no-key}"
+            _opencode_key="no-key"  # LiteLLM auth removed for local-only installs
         else
             _opencode_url="http://127.0.0.1:${OLLAMA_PORT:-8080}/v1"
             _opencode_key="no-key"

@@ -303,11 +303,11 @@ LLM_API_URL=$(if [[ "$GPU_BACKEND" == "amd" && "${DREAM_MODE:-local}" == "local"
 
 #=== Cloud API Keys ===
 ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-OPENAI_API_KEY=$(if [[ "$GPU_BACKEND" == "amd" && "${DREAM_MODE:-local}" == "local" ]]; then echo "$LITELLM_KEY"; else echo "${OPENAI_API_KEY:-}"; fi)
+OPENAI_API_KEY=${OPENAI_API_KEY:-}
 TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
 
 #=== Service Auth (LiteLLM proxy) ===
-TARGET_API_KEY=$(if [[ "$GPU_BACKEND" == "amd" && "${DREAM_MODE:-local}" == "local" ]]; then echo "$LITELLM_KEY"; else echo "not-needed"; fi)
+TARGET_API_KEY=not-needed
 
 #=== LLM Settings (llama-server) ===
 LLM_MODEL=${LLM_MODEL}
@@ -435,9 +435,6 @@ model_list:
       model: openai/*
       api_base: http://llama-server:8080/api/v1
       api_key: sk-lemonade
-
-general_settings:
-  master_key: os.environ/LITELLM_MASTER_KEY
 
 litellm_settings:
   drop_params: true

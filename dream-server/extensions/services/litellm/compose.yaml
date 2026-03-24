@@ -6,7 +6,7 @@ services:
     security_opt:
       - no-new-privileges:true
     environment:
-      - LITELLM_MASTER_KEY=${LITELLM_KEY:?LITELLM_KEY must be set in .env}
+      - LITELLM_MASTER_KEY=${LITELLM_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
