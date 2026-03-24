@@ -13,8 +13,11 @@ from typing import Optional
 import aiohttp
 import httpx
 
-from config import SERVICES, INSTALL_DIR, DATA_DIR
+from config import SERVICES, INSTALL_DIR, DATA_DIR, LLM_BACKEND
 from models import ServiceStatus, DiskUsage, ModelInfo, BootstrapStatus
+
+# Lemonade serves at /api/v1 instead of llama.cpp's /v1
+_LLM_API_PREFIX = "/api/v1" if LLM_BACKEND == "lemonade" else "/v1"
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +135,7 @@ async def get_loaded_model() -> Optional[str]:
         host = SERVICES["llama-server"]["host"]
         port = SERVICES["llama-server"]["port"]
         client = await _get_httpx_client()
-        resp = await client.get(f"http://{host}:{port}/v1/models")
+        resp = await client.get(f"http://{host}:{port}{_LLM_API_PREFIX}/models")
         models = resp.json().get("data", [])
         for m in models:
             status = m.get("status", {})
