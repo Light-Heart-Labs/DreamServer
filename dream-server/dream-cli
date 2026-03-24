@@ -1,9 +1,18 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # dream-cli - Command line interface for Dream Server
 # Mission: M5 (Clonable Dream Setup Server)
 # Version: 2.0.0 — Registry-driven service resolution
 
 set -e
+
+# Require Bash 4+ (associative arrays used by service registry and dream-cli)
+if (( BASH_VERSINFO[0] < 4 )); then
+    echo -e "\033[0;31m✗\033[0m dream-cli requires Bash 4.0+ (you have $BASH_VERSION)" >&2
+    echo "  macOS ships Bash 3.2 due to licensing. Install a modern version:" >&2
+    echo "    brew install bash" >&2
+    echo "  Then re-run with:  /opt/homebrew/bin/bash $0 $*" >&2
+    exit 1
+fi
 
 #=============================================================================
 # Configuration
