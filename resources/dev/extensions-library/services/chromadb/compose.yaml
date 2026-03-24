@@ -18,7 +18,7 @@ services:
           memory: 2G
           cpus: '2.0'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8000/api/v1/heartbeat"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8000/api/v2/heartbeat"]
       interval: 30s
       timeout: 10s
       retries: 3

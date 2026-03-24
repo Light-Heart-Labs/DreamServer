@@ -29,7 +29,7 @@ http://localhost:${CHROMADB_PORT:-8000}
 ### Health Check
 
 ```bash
-curl http://localhost:8000/api/v1/heartbeat
+curl http://localhost:8000/api/v2/heartbeat
 ```
 
 ## Integration
@@ -43,14 +43,14 @@ ChromaDB integrates with:
 
 ### Create a collection
 ```bash
-curl -X POST http://localhost:8000/api/v1/collections \
+curl -X POST http://localhost:8000/api/v2/collections \
   -H "Content-Type: application/json" \
   -d '{"name": "my_collection"}'
 ```
 
 ### Add embeddings
 ```bash
-curl -X POST http://localhost:8000/api/v1/collections/my_collection/add \
+curl -X POST http://localhost:8000/api/v2/collections/my_collection/add \
   -H "Content-Type: application/json" \
   -d '{
     "ids": ["doc1", "doc2"],
