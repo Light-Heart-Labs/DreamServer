@@ -20,29 +20,30 @@ setup() {
 
 # ── resolve_tier_config ─────────────────────────────────────────────────────
 
-@test "resolve_tier_config: tier 1 sets Entry Level with qwen3-8b" {
+@test "resolve_tier_config: tier 1 sets Entry Level with qwen3.5-9b" {
     TIER=1
     resolve_tier_config
     assert_equal "$TIER_NAME" "Entry Level"
-    assert_equal "$LLM_MODEL" "qwen3-8b"
-    assert_equal "$GGUF_FILE" "Qwen3-8B-Q4_K_M.gguf"
+    assert_equal "$LLM_MODEL" "qwen3.5-9b"
+    assert_equal "$GGUF_FILE" "Qwen3.5-9B-Q4_K_M.gguf"
     assert_equal "$MAX_CONTEXT" "16384"
 }
 
-@test "resolve_tier_config: tier 2 sets Prosumer with qwen3-8b" {
+@test "resolve_tier_config: tier 2 sets Prosumer with qwen3.5-9b" {
     TIER=2
     resolve_tier_config
     assert_equal "$TIER_NAME" "Prosumer"
-    assert_equal "$LLM_MODEL" "qwen3-8b"
+    assert_equal "$LLM_MODEL" "qwen3.5-9b"
+    assert_equal "$GGUF_FILE" "Qwen3.5-9B-Q4_K_M.gguf"
     assert_equal "$MAX_CONTEXT" "32768"
 }
 
-@test "resolve_tier_config: tier 3 sets Pro with qwen3-14b" {
+@test "resolve_tier_config: tier 3 sets Pro with qwen3.5-27b" {
     TIER=3
     resolve_tier_config
     assert_equal "$TIER_NAME" "Pro"
-    assert_equal "$LLM_MODEL" "qwen3-14b"
-    assert_equal "$GGUF_FILE" "Qwen3-14B-Q4_K_M.gguf"
+    assert_equal "$LLM_MODEL" "qwen3.5-27b"
+    assert_equal "$GGUF_FILE" "Qwen3.5-27B-Q4_K_M.gguf"
     assert_equal "$MAX_CONTEXT" "32768"
 }
 
@@ -101,13 +102,13 @@ setup() {
 
 @test "tier_to_model: maps all numeric tiers correctly" {
     run tier_to_model 1
-    assert_output "qwen3-8b"
+    assert_output "qwen3.5-9b"
 
     run tier_to_model 2
-    assert_output "qwen3-8b"
+    assert_output "qwen3.5-9b"
 
     run tier_to_model 3
-    assert_output "qwen3-14b"
+    assert_output "qwen3.5-27b"
 
     run tier_to_model 4
     assert_output "qwen3-30b-a3b"
@@ -115,13 +116,13 @@ setup() {
 
 @test "tier_to_model: maps T-prefix aliases correctly" {
     run tier_to_model T1
-    assert_output "qwen3-8b"
+    assert_output "qwen3.5-9b"
 
     run tier_to_model T2
-    assert_output "qwen3-8b"
+    assert_output "qwen3.5-9b"
 
     run tier_to_model T3
-    assert_output "qwen3-14b"
+    assert_output "qwen3.5-27b"
 
     run tier_to_model T4
     assert_output "qwen3-30b-a3b"
