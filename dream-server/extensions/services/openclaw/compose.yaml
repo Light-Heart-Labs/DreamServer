@@ -12,9 +12,11 @@ services:
       - LLM_MODEL=${LLM_MODEL:-qwen3:30b-a3b}
       - BOOTSTRAP_MODEL=${BOOTSTRAP_MODEL:-qwen3:8b-q4_K_M}
       - OLLAMA_URL=${LLM_API_URL:-http://llama-server:8080}
+      - OPENCLAW_LLM_URL=${OPENCLAW_LLM_URL:-}
+      - OPENCLAW_HTTP_API=${OPENCLAW_HTTP_API:-}
       - LITELLM_KEY=${LITELLM_KEY:-}
       - SEARXNG_BASE_URL=http://searxng:8080
-    entrypoint: ["/bin/sh", "-c", "node /config/inject-token.js; exec docker-entrypoint.sh node openclaw.mjs gateway --allow-unconfigured --bind lan"]
+    entrypoint: ["/bin/sh", "-c", "node /config/inject-token.js; export OPENCLAW_CONFIG=/tmp/openclaw-config.json; exec docker-entrypoint.sh node openclaw.mjs gateway --allow-unconfigured --bind lan"]
     volumes:
       - ./config/openclaw:/config:ro
       - ./data/openclaw:/data
@@ -34,8 +36,15 @@ services:
       searxng:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:18789/ || exit 1"]
+      test: ["CMD-SHELL", "if [ \"$$OPENCLAW_HTTP_API\" = 'true' ]; then wget -qO- http://localhost:18790/v1/models || exit 1; else wget -qO- http://localhost:18789/ || exit 1; fi"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
+
+  # When OpenClaw is enabled, register it as a second model backend in Open WebUI.
+  # Port 18790 is the OpenAI-compat shim (serves /v1/models + proxies /v1/chat/completions).
+  open-webui:
+    environment:
+      - OPENAI_API_BASE_URLS=${LLM_API_URL:-http://llama-server:8080}/v1;http://openclaw:18790/v1
+      - OPENAI_API_KEYS=;${OPENCLAW_TOKEN:-}
