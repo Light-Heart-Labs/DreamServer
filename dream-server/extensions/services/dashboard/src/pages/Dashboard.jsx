@@ -345,7 +345,7 @@ const FeatureCard = memo(function FeatureCard({ icon: Icon, title, description, 
   const statusColors = {
     ready: 'border-theme-border hover:border-theme-accent/30',
     disabled: 'border-theme-border/60 opacity-60',
-    coming: 'border-theme-border/40 opacity-40'
+    coming: 'border-transparent opacity-40'
   }
 
   const content = (
