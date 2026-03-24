@@ -1,6 +1,6 @@
 services:
   gitea:
-    image: gitea/gitea:1.23.5-rootless@sha256:e4ee234ce0075070337e852e1e0639f1e6061e3e9b43f3e8d145e2a1e0c06f55
+    image: gitea/gitea:1.23.5-rootless@sha256:3a335645ca700660ac6c10d6f3223b6611ed6959441f6d2f7cd5fa607baf1425
     container_name: dream-gitea
     restart: unless-stopped
     security_opt:

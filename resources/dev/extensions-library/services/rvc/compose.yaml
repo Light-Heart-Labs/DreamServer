@@ -1,6 +1,6 @@
 services:
   rvc:
-    image: aladdin1234/rvc-webui:0.1@sha256:0127333111eccb00ee97e12052f2c9efc7739d74841dbdec771d4f469273a0c2
+    image: aladdin1234/rvc-webui:0.1@sha256:7f8b4ca826d31d0ea50c56327d9fbfd1dacead37064a5f9745738b728a6271be
     container_name: dream-rvc
     ports:
       - "127.0.0.1:${RVC_PORT:-7809}:7865"
