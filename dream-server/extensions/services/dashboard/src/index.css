@@ -28,22 +28,22 @@
 /* Lemonade — warm gold theme matching AMD Lemonade branding */
 :root[data-theme="lemonade"] {
   --theme-bg: #FFF8E7;
-  --theme-card: #FFFFFF;
-  --theme-border: #E5DDD0;
-  --theme-text: #2D2A26;
-  --theme-text-secondary: #6B6560;
-  --theme-text-muted: #9C9590;
-  --theme-accent: #D4A017;
-  --theme-accent-hover: #B8860B;
-  --theme-accent-light: #F5C518;
+  --theme-card: #FFFDF5;
+  --theme-border: #D4C9B0;
+  --theme-text: #1A1708;
+  --theme-text-secondary: #4A4535;
+  --theme-text-muted: #7A7260;
+  --theme-accent: #B8860B;
+  --theme-accent-hover: #9A7009;
+  --theme-accent-light: #D4A017;
   --theme-surface-hover: #FFF0CC;
   --theme-scrollbar-track: #FFF8E7;
-  --theme-scrollbar-thumb: #E5DDD0;
-  --theme-scrollbar-hover: #D4CCC0;
-  --theme-focus: #D4A017;
-  --theme-loading-logo: #D4A017;
-  --theme-gradient-from: rgba(245,197,24,0.4);
-  --theme-gradient-to: rgba(212,160,23,0.4);
+  --theme-scrollbar-thumb: #D4C9B0;
+  --theme-scrollbar-hover: #B8AD95;
+  --theme-focus: #B8860B;
+  --theme-loading-logo: #B8860B;
+  --theme-gradient-from: rgba(184,134,11,0.25);
+  --theme-gradient-to: rgba(212,160,23,0.25);
 }
 
 /* Light — clean modern futuristic light theme */
