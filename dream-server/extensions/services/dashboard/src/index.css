@@ -31,8 +31,8 @@
 /* Lemonade — warm parchment theme matching lemonade-server.ai branding */
 :root[data-theme="lemonade"] {
   --theme-bg: #F6EFD9;
-  --theme-card: #FBF7EA;
-  --theme-border: #E1D4B0;
+  --theme-card: #FDFBF2;
+  --theme-border: #E8DFC8;
   --theme-text: #262626;
   --theme-text-secondary: #6B665C;
   --theme-text-muted: #8A8478;
@@ -48,7 +48,7 @@
   --theme-gradient-from: rgba(245,197,24,0.15);
   --theme-gradient-to: rgba(226,178,15,0.15);
   --theme-sidebar: #EFE4C6;
-  --theme-card-shadow: 0 6px 20px rgba(80,60,20,0.06);
+  --theme-card-shadow: 0 2px 12px rgba(80,60,20,0.08);
   --theme-card-radius: 16px;
   --theme-dark-contrast: #1E2240;
 }

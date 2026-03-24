@@ -343,30 +343,30 @@ export default function Dashboard({ status, loading }) {
 const FeatureCard = memo(function FeatureCard({ icon: Icon, title, description, href, status, hint }) {
   const isExternal = href?.startsWith('http')
   const statusColors = {
-    ready: 'border-theme-accent/20 hover:border-theme-accent/35',
-    disabled: 'border-theme-border opacity-60',
-    coming: 'border-theme-border opacity-40'
+    ready: 'border-theme-border hover:border-theme-accent/30',
+    disabled: 'border-theme-border/60 opacity-60',
+    coming: 'border-theme-border/40 opacity-40'
   }
 
   const content = (
-    <div className={`p-6 rounded-xl border-2 ${statusColors[status]} bg-theme-card transition-all cursor-pointer hover:bg-theme-surface-hover`}>
-      <div className="flex items-start justify-between mb-4">
-        <div className="p-3 bg-theme-card rounded-lg">
-          <Icon size={24} className="text-theme-text-secondary" />
+    <div className={`p-6 rounded-xl border ${statusColors[status]} bg-theme-card transition-all cursor-pointer hover:bg-theme-surface-hover`}>
+      <div className="flex items-start justify-between mb-3">
+        <div className="p-2.5 bg-theme-bg rounded-xl">
+          <Icon size={22} className="text-theme-text-secondary" />
         </div>
         {status === 'ready' && (
-          <span className="px-2 py-1 text-xs bg-green-500/20 text-green-400 rounded-full">
+          <span className="px-2.5 py-0.5 text-[11px] font-medium bg-green-500/15 text-green-600 rounded-full">
             Ready
           </span>
         )}
         {status === 'coming' && (
-          <span className="px-2 py-1 text-xs bg-theme-border text-theme-text-secondary rounded-full">
+          <span className="px-2.5 py-0.5 text-[11px] font-medium bg-theme-border/50 text-theme-text-muted rounded-full">
             Coming
           </span>
         )}
       </div>
-      <h3 className="text-lg font-semibold text-theme-text mb-1">{title}</h3>
-      <p className="text-sm text-theme-text-muted">{description}</p>
+      <h3 className="text-base font-bold text-theme-text mb-0.5">{title}</h3>
+      <p className="text-sm text-theme-text-muted leading-relaxed">{description}</p>
       {status === 'disabled' && hint && (
         <p className="text-xs text-theme-text-muted mt-3 font-mono">{hint}</p>
       )}
@@ -391,14 +391,14 @@ const FeatureCard = memo(function FeatureCard({ icon: Icon, title, description, 
 const MetricCard = memo(function MetricCard({ icon: Icon, label, value, subvalue, percent, alert }) {
   return (
     <div className="p-4 bg-theme-card border border-theme-border rounded-xl overflow-hidden min-w-0">
-      <div className="flex items-center gap-3 mb-2">
-        <Icon size={18} className={alert ? 'text-red-400' : 'text-theme-text-muted'} />
-        <span className="text-sm text-theme-text-muted">{label}</span>
+      <div className="flex items-center gap-2 mb-3">
+        <Icon size={16} className={alert ? 'text-red-400' : 'text-theme-text-muted'} />
+        <span className="text-xs font-medium uppercase tracking-wide text-theme-text-muted">{label}</span>
       </div>
-      <div className="text-xl font-semibold text-theme-text font-mono truncate" title={value}>{value}</div>
-      <div className="text-xs text-theme-text-muted mt-1">{subvalue}</div>
+      <div className="text-2xl font-bold text-theme-text font-mono truncate" title={value}>{value}</div>
+      <div className="text-[11px] text-theme-text-muted mt-1">{subvalue}</div>
       {percent !== undefined && (
-        <div className="h-1 bg-theme-border rounded-full mt-3 overflow-hidden">
+        <div className="h-1.5 bg-theme-border/60 rounded-full mt-3 overflow-hidden">
           <div
             className={`h-full rounded-full transition-all ${percent > 90 ? 'bg-red-500' : percent > 70 ? 'bg-yellow-500' : 'bg-theme-accent'}`}
             style={{ width: `${Math.min(percent, 100)}%` }}
@@ -426,12 +426,12 @@ const ServiceCard = memo(function ServiceCard({ service }) {
   }
 
   return (
-    <div className="p-4 bg-theme-card border border-theme-border rounded-xl">
-      <div className="flex items-center gap-2 mb-2">
-        <div className={`w-2 h-2 rounded-full ${statusColors[service.status] || 'bg-zinc-500'}`} />
+    <div className="px-4 py-5 bg-theme-card border border-theme-border rounded-xl">
+      <div className="flex items-center gap-2.5 mb-2.5">
+        <div className={`w-1.5 h-1.5 rounded-full ${statusColors[service.status] || 'bg-zinc-500'}`} />
         <span className="text-sm font-medium text-theme-text">{service.name}</span>
       </div>
-      <div className="text-xs text-theme-text-muted font-mono">
+      <div className="text-[11px] text-theme-text-muted font-mono pl-4">
         {service.port ? `:${service.port} · ` : ''}{formatUptime(service.uptime)}
       </div>
     </div>
