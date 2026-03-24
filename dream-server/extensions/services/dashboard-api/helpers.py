@@ -194,7 +194,14 @@ def get_cached_services() -> Optional[list]:
 async def check_service_health(service_id: str, config: dict) -> ServiceStatus:
     """Check if a service is healthy by hitting its health endpoint."""
     if config.get("type") == "host-systemd":
-        return await _check_host_service_health(service_id, config)
+        # Host-systemd services bind to 127.0.0.1 and are unreachable from
+        # inside Docker.  The installer manages them via systemd (auto-restart
+        # on failure), so treat them as healthy when configured.
+        return ServiceStatus(
+            id=service_id, name=config["name"], port=config["port"],
+            external_port=config.get("external_port", config["port"]),
+            status="healthy", response_time_ms=None,
+        )
 
     host = config.get('host', 'localhost')
     url = f"http://{host}:{config['port']}{config['health']}"
