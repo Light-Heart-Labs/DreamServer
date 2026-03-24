@@ -153,7 +153,7 @@ export default function Sidebar({ status, collapsed, onToggle }) {
                   >
                     <Icon size={20} />
                     <span>{label}</span>
-                    <span className={`ml-auto text-[10px] font-mono ${healthy ? 'text-theme-text-muted' : 'text-zinc-600'}`}>
+                    <span className={`ml-auto text-[10px] font-mono ${healthy ? 'text-theme-text-muted' : 'text-theme-text-muted'}`}>
                       {healthy ? 'OPEN' : 'OFFLINE'}
                     </span>
                   </a>

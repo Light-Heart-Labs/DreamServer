@@ -28,11 +28,11 @@ const getExternalUrl = (port) =>
 
 // Compute overall health from services (excludes not_deployed from counts)
 function computeHealth(services) {
-  if (!services?.length) return { text: 'Waiting for telemetry...', color: 'text-zinc-400' }
+  if (!services?.length) return { text: 'Waiting for telemetry...', color: 'text-theme-text-secondary' }
   const deployed = services.filter(s => s.status !== 'not_deployed')
-  if (!deployed.length) return { text: 'No services deployed', color: 'text-zinc-400' }
+  if (!deployed.length) return { text: 'No services deployed', color: 'text-theme-text-secondary' }
   const healthy = deployed.filter(s => s.status === 'healthy').length
-  return { text: `${healthy}/${deployed.length} services online.`, color: healthy === deployed.length ? 'text-green-400' : 'text-zinc-400' }
+  return { text: `${healthy}/${deployed.length} services online.`, color: healthy === deployed.length ? 'text-green-400' : 'text-theme-text-secondary' }
 }
 
 const FEATURE_ICONS = {
@@ -143,7 +143,7 @@ export default function Dashboard({ status, loading }) {
     return (
       <div className="p-8 animate-pulse">
         <div className="h-8 bg-theme-card rounded w-1/3 mb-4" />
-        <p className="text-sm text-zinc-500 mb-8">Linking modules... reading telemetry...</p>
+        <p className="text-sm text-theme-text-muted mb-8">Linking modules... reading telemetry...</p>
         <div className="grid grid-cols-3 gap-6">
           {[...Array(6)].map((_, i) => (
             <div key={i} className="h-40 bg-theme-card rounded-xl" />
@@ -166,7 +166,7 @@ export default function Dashboard({ status, loading }) {
             {health.text}
           </p>
         </div>
-        <div className="flex items-center gap-4 text-xs text-zinc-500 font-mono bg-theme-card border border-theme-border rounded-lg px-3 py-2">
+        <div className="flex items-center gap-4 text-xs text-theme-text-muted font-mono bg-theme-card border border-theme-border rounded-lg px-3 py-2">
           {status?.tier && <span className="text-theme-accent-light">{status.tier}</span>}
           {status?.model?.name && <span>{status.model.name}</span>}
           {status?.version && <span>v{status.version}</span>}
@@ -360,7 +360,7 @@ const FeatureCard = memo(function FeatureCard({ icon: Icon, title, description, 
           </span>
         )}
         {status === 'coming' && (
-          <span className="px-2 py-1 text-xs bg-zinc-700 text-zinc-400 rounded-full">
+          <span className="px-2 py-1 text-xs bg-theme-border text-theme-text-secondary rounded-full">
             Coming
           </span>
         )}
@@ -368,7 +368,7 @@ const FeatureCard = memo(function FeatureCard({ icon: Icon, title, description, 
       <h3 className="text-lg font-semibold text-white mb-1">{title}</h3>
       <p className="text-sm text-theme-text-muted">{description}</p>
       {status === 'disabled' && hint && (
-        <p className="text-xs text-zinc-500 mt-3 font-mono">{hint}</p>
+        <p className="text-xs text-theme-text-muted mt-3 font-mono">{hint}</p>
       )}
     </div>
   )
@@ -396,9 +396,9 @@ const MetricCard = memo(function MetricCard({ icon: Icon, label, value, subvalue
         <span className="text-sm text-theme-text-muted">{label}</span>
       </div>
       <div className="text-xl font-semibold text-white font-mono truncate" title={value}>{value}</div>
-      <div className="text-xs text-zinc-500 mt-1">{subvalue}</div>
+      <div className="text-xs text-theme-text-muted mt-1">{subvalue}</div>
       {percent !== undefined && (
-        <div className="h-1 bg-zinc-700 rounded-full mt-3 overflow-hidden">
+        <div className="h-1 bg-theme-border rounded-full mt-3 overflow-hidden">
           <div
             className={`h-full rounded-full transition-all ${percent > 90 ? 'bg-red-500' : percent > 70 ? 'bg-yellow-500' : 'bg-theme-accent'}`}
             style={{ width: `${Math.min(percent, 100)}%` }}
@@ -431,7 +431,7 @@ const ServiceCard = memo(function ServiceCard({ service }) {
         <div className={`w-2 h-2 rounded-full ${statusColors[service.status] || 'bg-zinc-500'}`} />
         <span className="text-sm font-medium text-white">{service.name}</span>
       </div>
-      <div className="text-xs text-zinc-500 font-mono">
+      <div className="text-xs text-theme-text-muted font-mono">
         {service.port ? `:${service.port} · ` : ''}{formatUptime(service.uptime)}
       </div>
     </div>

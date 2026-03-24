@@ -83,7 +83,7 @@ function VoiceServicesBanner({ services, loading, onRefresh }) {
           <CheckCircle size={18} className="text-green-400" />
           <span className="text-sm text-green-400">Voice services ready</span>
         </div>
-        <div className="flex items-center gap-4 text-xs text-zinc-500">
+        <div className="flex items-center gap-4 text-xs text-theme-text-muted">
           <span>STT ✓</span>
           <span>TTS ✓</span>
           <span>LiveKit ✓</span>
@@ -119,8 +119,8 @@ function VoiceServicesBanner({ services, loading, onRefresh }) {
           {livekit?.status === 'healthy' ? '✓' : '✗'} LiveKit
         </span>
       </div>
-      <p className="text-xs text-zinc-500 mt-2">
-        Check voice services: <code className="text-zinc-400">docker compose ps whisper tts</code>
+      <p className="text-xs text-theme-text-muted mt-2">
+        Check voice services: <code className="text-theme-text-secondary">docker compose ps whisper tts</code>
       </p>
     </div>
   )
@@ -145,7 +145,7 @@ function AudioWaveform({ active, color = 'indigo' }) {
           className={`w-1 rounded-full transition-all duration-150 ${
             active
               ? `${colorClass} animate-pulse`
-              : 'bg-zinc-600'
+              : 'bg-theme-border'
           }`}
           style={{
             height: active ? `${20 + Math.random() * 60}%` : '20%',
@@ -166,7 +166,7 @@ function MessageBubble({ role, content, timestamp }) {
         className={`max-w-[80%] px-4 py-3 rounded-2xl ${
           isUser
             ? 'bg-theme-accent text-white rounded-br-none'
-            : 'bg-theme-card text-zinc-100 rounded-bl-none'
+            : 'bg-theme-card text-theme-text rounded-bl-none'
         }`}
       >
         <p className="text-sm">{content}</p>
@@ -266,12 +266,12 @@ function VoiceSettings({ isOpen, onClose }) {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-white">Wake Word</p>
-              <p className="text-xs text-zinc-500">Say "Hey Dream" to activate</p>
+              <p className="text-xs text-theme-text-muted">Say "Hey Dream" to activate</p>
             </div>
             <button
               onClick={() => setWakeWord(!wakeWord)}
               className={`w-12 h-6 rounded-full transition-colors ${
-                wakeWord ? 'bg-theme-accent' : 'bg-zinc-700'
+                wakeWord ? 'bg-theme-accent' : 'bg-theme-border'
               }`}
             >
               <div 
@@ -374,7 +374,7 @@ export default function Voice() {
       case 'error':
         return { text: 'Error', color: 'text-red-400', icon: AlertCircle }
       default:
-        return { text: 'Ready', color: 'text-zinc-400', icon: Radio }
+        return { text: 'Ready', color: 'text-theme-text-secondary', icon: Radio }
     }
   }
 
@@ -430,10 +430,10 @@ export default function Voice() {
         {messages.length === 0 && !currentTranscript && (
           <div className="h-full flex flex-col items-center justify-center text-center">
             <div className="w-24 h-24 rounded-full bg-theme-card/50 flex items-center justify-center mb-4">
-              <Mic size={40} className="text-zinc-600" />
+              <Mic size={40} className="text-theme-text-muted" />
             </div>
-            <h3 className="text-lg text-zinc-300 mb-2">Start a conversation</h3>
-            <p className="text-sm text-zinc-500 max-w-md">
+            <h3 className="text-lg text-theme-text mb-2">Start a conversation</h3>
+            <p className="text-sm text-theme-text-muted max-w-md">
               Click the microphone button below to start talking. 
               Your AI will listen, understand, and respond with voice.
             </p>
@@ -473,7 +473,7 @@ export default function Voice() {
           <div>
             <p className="text-sm text-red-400 font-medium">Connection Error</p>
             <p className="text-xs text-red-400/70 mt-1">{error}</p>
-            <p className="text-xs text-zinc-500 mt-2">
+            <p className="text-xs text-theme-text-muted mt-2">
               Make sure LiveKit server is running and voice services are enabled.
             </p>
           </div>
@@ -500,7 +500,7 @@ export default function Voice() {
             disabled={status === 'connecting'}
             className={`w-20 h-20 rounded-full flex items-center justify-center transition-all shadow-lg ${
               status === 'connecting'
-                ? 'bg-zinc-700 cursor-not-allowed'
+                ? 'bg-theme-border cursor-not-allowed'
                 : isListening 
                   ? 'bg-red-500 hover:bg-red-600 scale-110'
                   : 'bg-theme-accent hover:bg-theme-accent-hover hover:scale-105'
@@ -527,7 +527,7 @@ export default function Voice() {
           )}
         </div>
 
-        <p className="text-center text-sm text-zinc-500 mt-4">
+        <p className="text-center text-sm text-theme-text-muted mt-4">
           {status === 'connecting' 
             ? 'Connecting to voice server...'
             : isListening 
@@ -537,7 +537,7 @@ export default function Voice() {
         </p>
 
         {/* Keyboard hint */}
-        <p className="text-center text-xs text-zinc-600 mt-2">
+        <p className="text-center text-xs text-theme-text-muted mt-2">
           Tip: Hold <kbd className="px-1.5 py-0.5 bg-theme-card rounded text-theme-text-muted">Space</kbd> to talk
         </p>
       </div>

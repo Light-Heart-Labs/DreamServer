@@ -204,7 +204,7 @@ export function PreFlightChecks({ onComplete, onIssuesFound }) {
 
   return (
     <div className="space-y-3">
-      <h3 className="text-sm font-medium text-zinc-300 mb-3">
+      <h3 className="text-sm font-medium text-theme-text mb-3">
         {running ? 'Checking system readiness...' : 'System checks complete'}
       </h3>
       
@@ -220,19 +220,19 @@ export function PreFlightChecks({ onComplete, onIssuesFound }) {
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <Icon className="w-4 h-4 text-zinc-500" />
-                <span className="text-sm font-medium text-zinc-200">{check.name}</span>
+                <Icon className="w-4 h-4 text-theme-text-muted" />
+                <span className="text-sm font-medium text-theme-text">{check.name}</span>
               </div>
               <p className={`text-sm mt-1 ${
                 check.status === 'error' ? 'text-red-300' :
                 check.status === 'warning' ? 'text-amber-300' :
                 check.status === 'success' ? 'text-emerald-300' :
-                'text-zinc-400'
+                'text-theme-text-secondary'
               }`}>
                 {check.message}
               </p>
               {check.details && (
-                <p className="text-xs text-zinc-500 mt-1">{check.details}</p>
+                <p className="text-xs text-theme-text-muted mt-1">{check.details}</p>
               )}
               {check.fix && (
                 <div className="mt-2 p-2 bg-theme-card rounded text-xs text-theme-text-muted">

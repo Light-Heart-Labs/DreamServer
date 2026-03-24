@@ -135,7 +135,7 @@ export function TroubleshootingAssistant({ serviceStatus }) {
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <AlertCircle className="w-5 h-5 text-amber-400" />
-        <h3 className="text-sm font-medium text-zinc-200">Troubleshooting Assistant</h3>
+        <h3 className="text-sm font-medium text-theme-text">Troubleshooting Assistant</h3>
       </div>
 
       {/* Search */}
@@ -144,7 +144,7 @@ export function TroubleshootingAssistant({ serviceStatus }) {
         placeholder="Search issues..."
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        className="w-full px-3 py-2 bg-theme-card border border-theme-border rounded-lg text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-theme-accent"
+        className="w-full px-3 py-2 bg-theme-card border border-theme-border rounded-lg text-sm text-theme-text placeholder-theme-text-muted focus:outline-none focus:border-theme-accent"
       />
 
       {/* Relevant issues first */}
@@ -173,7 +173,7 @@ export function TroubleshootingAssistant({ serviceStatus }) {
             key={issue.id}
             className={`border rounded-lg overflow-hidden transition-all ${
               expanded === issue.id 
-                ? 'border-zinc-600 bg-theme-card/50'
+                ? 'border-theme-border bg-theme-card/50'
                 : 'border-theme-border hover:border-theme-border'
             }`}
           >
@@ -182,15 +182,15 @@ export function TroubleshootingAssistant({ serviceStatus }) {
               className="w-full flex items-center justify-between p-3 text-left"
             >
               <div>
-                <span className="text-sm font-medium text-zinc-200">{issue.title}</span>
+                <span className="text-sm font-medium text-theme-text">{issue.title}</span>
                 {relevantIssues.includes(issue) && (
                   <span className="ml-2 text-xs text-amber-400">(may be relevant)</span>
                 )}
               </div>
               {expanded === issue.id ? (
-                <ChevronUp className="w-4 h-4 text-zinc-500" />
+                <ChevronUp className="w-4 h-4 text-theme-text-muted" />
               ) : (
-                <ChevronDown className="w-4 h-4 text-zinc-500" />
+                <ChevronDown className="w-4 h-4 text-theme-text-muted" />
               )}
             </button>
 
@@ -198,11 +198,11 @@ export function TroubleshootingAssistant({ serviceStatus }) {
               <div className="px-3 pb-3 space-y-3">
                 {/* Symptoms */}
                 <div>
-                  <p className="text-xs text-zinc-500 mb-1">Symptoms:</p>
+                  <p className="text-xs text-theme-text-muted mb-1">Symptoms:</p>
                   <ul className="space-y-0.5">
                     {issue.symptoms.map((symptom, i) => (
-                      <li key={i} className="text-xs text-zinc-400 flex items-center gap-1">
-                        <span className="text-zinc-600">•</span> {symptom}
+                      <li key={i} className="text-xs text-theme-text-secondary flex items-center gap-1">
+                        <span className="text-theme-text-muted">•</span> {symptom}
                       </li>
                     ))}
                   </ul>
@@ -210,26 +210,26 @@ export function TroubleshootingAssistant({ serviceStatus }) {
 
                 {/* Cause */}
                 <div>
-                  <p className="text-xs text-zinc-500 mb-1">Likely cause:</p>
-                  <p className="text-xs text-zinc-400">{issue.cause}</p>
+                  <p className="text-xs text-theme-text-muted mb-1">Likely cause:</p>
+                  <p className="text-xs text-theme-text-secondary">{issue.cause}</p>
                 </div>
 
                 {/* Solutions */}
                 <div className="space-y-2">
-                  <p className="text-xs text-zinc-500">Solutions:</p>
+                  <p className="text-xs text-theme-text-muted">Solutions:</p>
                   {issue.solutions.map((solution, i) => (
                     <div key={i} className="bg-theme-card rounded p-2">
-                      <p className="text-xs font-medium text-zinc-300 mb-1">{solution.title}</p>
-                      <p className="text-xs text-zinc-500 mb-2">{solution.description}</p>
+                      <p className="text-xs font-medium text-theme-text mb-1">{solution.title}</p>
+                      <p className="text-xs text-theme-text-muted mb-2">{solution.description}</p>
                       
                       {solution.command && (
                         <div className="relative">
-                          <pre className="bg-zinc-950 p-2 rounded text-xs text-zinc-400 overflow-x-auto font-mono">
+                          <pre className="bg-zinc-950 p-2 rounded text-xs text-theme-text-secondary overflow-x-auto font-mono">
                             {solution.command}
                           </pre>
                           <button
                             onClick={() => copyToClipboard(solution.command, `${issue.id}-${i}`)}
-                            className="absolute top-1 right-1 p-1 bg-theme-card hover:bg-theme-surface-hover rounded text-zinc-500 hover:text-zinc-300 transition-colors"
+                            className="absolute top-1 right-1 p-1 bg-theme-card hover:bg-theme-surface-hover rounded text-theme-text-muted hover:text-theme-text transition-colors"
                           >
                             {copied === `${issue.id}-${i}` ? (
                               <Check className="w-3 h-3 text-emerald-400" />
@@ -249,14 +249,14 @@ export function TroubleshootingAssistant({ serviceStatus }) {
       </div>
 
       {filteredIssues.length === 0 && (
-        <p className="text-sm text-zinc-500 text-center py-4">
+        <p className="text-sm text-theme-text-muted text-center py-4">
           No issues found matching "{search}"
         </p>
       )}
 
       {/* Help footer */}
       <div className="pt-3 border-t border-theme-border">
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-theme-text-muted">
           Still stuck? Check the{' '}
           <a 
             href="https://github.com/Light-Heart-Labs/DreamServer/tree/main/dream-server#troubleshooting" 

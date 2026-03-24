@@ -104,8 +104,8 @@ export function FeatureProgress() {
   return (
     <div className="p-4 bg-theme-card border border-theme-border rounded-xl">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-zinc-300">Feature Progress</h3>
-        <span className="text-xs text-zinc-500">{summary.enabled}/{summary.total} enabled</span>
+        <h3 className="text-sm font-semibold text-theme-text">Feature Progress</h3>
+        <span className="text-xs text-theme-text-muted">{summary.enabled}/{summary.total} enabled</span>
       </div>
       
       {/* Progress bar */}
@@ -126,7 +126,7 @@ export function FeatureProgress() {
           gpu.tier === 'Professional' ? 'bg-purple-500/20 text-purple-400' :
           gpu.tier === 'Prosumer' ? 'bg-theme-accent/20 text-theme-accent' :
           gpu.tier === 'Standard' ? 'bg-blue-500/20 text-blue-400' :
-          'bg-zinc-700 text-zinc-400'
+          'bg-theme-border text-theme-text-secondary'
         }`}>
           {gpu.tier} Tier
         </span>
@@ -173,10 +173,10 @@ export function FeatureGrid() {
       {/* Recommendations */}
       {recommendations.length > 0 && (
         <div className="p-4 bg-theme-card border border-theme-border rounded-xl">
-          <h4 className="text-sm font-semibold text-zinc-300 mb-2">Recommendations</h4>
+          <h4 className="text-sm font-semibold text-theme-text mb-2">Recommendations</h4>
           <ul className="space-y-1">
             {recommendations.map((rec, i) => (
-              <li key={i} className="text-sm text-zinc-400 flex items-center gap-2">
+              <li key={i} className="text-sm text-theme-text-secondary flex items-center gap-2">
                 <CheckCircle size={12} className="text-green-400" />
                 {rec}
               </li>
@@ -228,11 +228,11 @@ function FeatureCard({ feature, onClick }) {
         {statusIcons[feature.status]}
       </div>
       <h4 className="text-sm font-medium text-white">{feature.name}</h4>
-      <p className="text-xs text-zinc-500 mt-1 line-clamp-2">{feature.description}</p>
+      <p className="text-xs text-theme-text-muted mt-1 line-clamp-2">{feature.description}</p>
       
       {/* VRAM requirement */}
       {feature.requirements.vramGb > 0 && (
-        <div className="mt-2 text-xs text-zinc-500">
+        <div className="mt-2 text-xs text-theme-text-muted">
           {feature.requirements.vramGb}GB VRAM
           {!feature.requirements.vramOk && (
             <span className="text-red-400 ml-1">(not enough)</span>

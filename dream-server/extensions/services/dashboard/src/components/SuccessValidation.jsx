@@ -130,8 +130,8 @@ export function SuccessValidation({ status, onAllPassed }) {
       {/* Progress Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-medium text-zinc-200">Feature Tests</h3>
-          <p className="text-xs text-zinc-500 mt-0.5">
+          <h3 className="text-sm font-medium text-theme-text">Feature Tests</h3>
+          <p className="text-xs text-theme-text-muted mt-0.5">
             {passedCount === totalCount
               ? 'All features working!'
               : `${passedCount}/${totalCount} features ready`}
@@ -140,7 +140,7 @@ export function SuccessValidation({ status, onAllPassed }) {
         <button
           onClick={runLiveTests}
           disabled={running}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm bg-theme-card hover:bg-theme-surface-hover text-zinc-300 rounded-lg transition-colors disabled:opacity-50"
+          className="flex items-center gap-2 px-3 py-1.5 text-sm bg-theme-card hover:bg-theme-surface-hover text-theme-text rounded-lg transition-colors disabled:opacity-50"
         >
           <RefreshCw className={`w-4 h-4 ${running ? 'animate-spin' : ''}`} />
           {running ? 'Testing...' : 'Run Tests'}
@@ -169,10 +169,10 @@ export function SuccessValidation({ status, onAllPassed }) {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <Icon className="w-4 h-4 text-zinc-500" />
-                  <span className="text-sm font-medium text-zinc-200">{test.name}</span>
+                  <Icon className="w-4 h-4 text-theme-text-muted" />
+                  <span className="text-sm font-medium text-theme-text">{test.name}</span>
                 </div>
-                <p className="text-xs text-zinc-400 mt-0.5">{test.description}</p>
+                <p className="text-xs text-theme-text-secondary mt-0.5">{test.description}</p>
                 
                 {test.status === 'passed' && (
                   <p className="text-xs text-emerald-400 mt-1.5 flex items-center gap-1">
@@ -189,7 +189,7 @@ export function SuccessValidation({ status, onAllPassed }) {
                 
                 {test.status !== 'passed' && test.action && (
                   <div className="mt-2 flex items-center gap-2">
-                    <span className="text-xs text-zinc-500">Try:</span>
+                    <span className="text-xs text-theme-text-muted">Try:</span>
                     <span className="text-xs text-theme-accent-light">{test.action}</span>
                   </div>
                 )}

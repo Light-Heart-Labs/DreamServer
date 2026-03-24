@@ -100,7 +100,7 @@ function BootstrapBanner({ bootstrap }) {
             <div className="w-3 h-3 bg-theme-accent rounded-full animate-pulse" />
             <div>
               <h3 className="text-sm font-semibold text-white">Downloading Full Model</h3>
-              <p className="text-xs text-zinc-400">
+              <p className="text-xs text-theme-text-secondary">
                 Chat now with lightweight model • <span className="text-theme-accent-light">{bootstrap.model}</span> downloading
               </p>
             </div>
@@ -108,7 +108,7 @@ function BootstrapBanner({ bootstrap }) {
           <div className="text-right">
             <span className="text-xl font-bold text-theme-accent">{bootstrap.percent?.toFixed(1) || 0}%</span>
             {bootstrap.speedMbps && (
-              <p className="text-xs text-zinc-500">{bootstrap.speedMbps.toFixed(1)} MB/s</p>
+              <p className="text-xs text-theme-text-muted">{bootstrap.speedMbps.toFixed(1)} MB/s</p>
             )}
           </div>
         </div>
@@ -118,7 +118,7 @@ function BootstrapBanner({ bootstrap }) {
             style={{ width: `${bootstrap.percent || 0}%` }}
           />
         </div>
-        <p className="text-xs text-zinc-500 mt-2">
+        <p className="text-xs text-theme-text-muted mt-2">
           ETA: {formatEta(bootstrap.eta)} • {formatBytes(bootstrap.bytesDownloaded)} / {formatBytes(bootstrap.bytesTotal)} GB
         </p>
       </div>

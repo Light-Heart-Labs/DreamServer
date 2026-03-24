@@ -50,6 +50,7 @@
   --theme-sidebar: #EFE4C6;
   --theme-card-shadow: 0 6px 20px rgba(80,60,20,0.06);
   --theme-card-radius: 16px;
+  --theme-dark-contrast: #1E2240;
 }
 
 /* Light — clean modern futuristic light theme */
@@ -170,6 +171,13 @@
   --theme-sidebar: #E4EEF8;
   --theme-card-shadow: 0 4px 16px rgba(0,0,0,0.05);
   --theme-card-radius: 14px;
+}
+
+/* ── Card styling (shadow + radius from theme) ──────────── */
+
+[class*="rounded-xl"] {
+  border-radius: var(--theme-card-radius, 12px);
+  box-shadow: var(--theme-card-shadow, none);
 }
 
 /* ── Scrollbar ──────────────────────────────────────────── */

@@ -66,7 +66,7 @@ export default function Models() {
               {gpu.vramUsed?.toFixed(1)} / {gpu.vramTotal?.toFixed(0)} GB used
             </span>
           </div>
-          <div className="h-2 bg-zinc-700 rounded-full overflow-hidden">
+          <div className="h-2 bg-theme-border rounded-full overflow-hidden">
             <div 
               className={`h-full rounded-full transition-all ${
                 (gpu.vramUsed / gpu.vramTotal) > 0.9 ? 'bg-red-500' :
@@ -75,7 +75,7 @@ export default function Models() {
               style={{ width: `${(gpu.vramUsed / gpu.vramTotal) * 100}%` }} 
             />
           </div>
-          <p className="text-xs text-zinc-500 mt-2">
+          <p className="text-xs text-theme-text-muted mt-2">
             {gpu.vramFree?.toFixed(1)} GB free • Models with green badges fit your GPU
           </p>
         </div>
@@ -111,7 +111,7 @@ export default function Models() {
       </div>
 
       {models.length === 0 && (
-        <div className="text-center py-12 text-zinc-500">
+        <div className="text-center py-12 text-theme-text-muted">
           No models found. Check your connection to the API.
         </div>
       )}
@@ -150,13 +150,13 @@ function ModelCard({ model, isLoading, onDownload, onLoad, onDelete }) {
             <div className="flex items-center gap-2">
               <h3 className="text-lg font-semibold text-white">{model.name}</h3>
               {model.quantization && (
-                <span className="px-1.5 py-0.5 text-xs bg-zinc-700 text-zinc-300 rounded">
+                <span className="px-1.5 py-0.5 text-xs bg-theme-border text-theme-text rounded">
                   {model.quantization}
                 </span>
               )}
             </div>
             
-            <p className="text-sm text-zinc-500 mt-1">{model.description}</p>
+            <p className="text-sm text-theme-text-muted mt-1">{model.description}</p>
             
             <div className="flex items-center gap-3 mt-3 text-sm text-theme-text-muted">
               <span>{model.size}</span>
@@ -169,7 +169,7 @@ function ModelCard({ model, isLoading, onDownload, onLoad, onDelete }) {
             </div>
             
             <div className="flex items-center gap-2 mt-3">
-              <span className={`px-2 py-0.5 text-xs rounded ${specialtyColors[model.specialty] || 'bg-zinc-700 text-zinc-300'}`}>
+              <span className={`px-2 py-0.5 text-xs rounded ${specialtyColors[model.specialty] || 'bg-theme-border text-theme-text'}`}>
                 {model.specialty}
               </span>
               
@@ -200,7 +200,7 @@ function ModelCard({ model, isLoading, onDownload, onLoad, onDelete }) {
         {/* Action Buttons */}
         <div className="flex items-center gap-2 ml-4">
           {isLoading ? (
-            <div className="px-4 py-2 bg-zinc-700 text-white rounded-lg">
+            <div className="px-4 py-2 bg-theme-border text-white rounded-lg">
               <Loader2 size={16} className="animate-spin" />
             </div>
           ) : isLoaded ? (
@@ -215,7 +215,7 @@ function ModelCard({ model, isLoading, onDownload, onLoad, onDelete }) {
                 className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors ${
                   model.fitsVram
                     ? 'bg-theme-accent hover:bg-theme-accent-hover text-white'
-                    : 'bg-zinc-700 text-zinc-500 cursor-not-allowed'
+                    : 'bg-theme-border text-theme-text-muted cursor-not-allowed'
                 }`}
                 title={model.fitsVram ? 'Load this model' : 'Not enough VRAM'}
               >
@@ -284,7 +284,7 @@ function DownloadProgressBar({ progress, helpers }) {
         </span>
       </div>
       
-      <div className="h-3 bg-zinc-700 rounded-full overflow-hidden">
+      <div className="h-3 bg-theme-border rounded-full overflow-hidden">
         <div 
           className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-300 relative"
           style={{ width: `${progress.percent || 0}%` }}

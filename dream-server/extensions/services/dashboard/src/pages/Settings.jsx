@@ -163,7 +163,7 @@ export default function Settings() {
         {/* Routing Table */}
         {services.length > 0 && (
           <SettingsSection title="Routing Table" icon={Network}>
-            <p className="text-xs text-zinc-500 mb-3 font-mono">
+            <p className="text-xs text-theme-text-muted mb-3 font-mono">
               host: {typeof window !== 'undefined' ? window.location.hostname : 'localhost'}
             </p>
             <div className="space-y-1">
@@ -183,7 +183,7 @@ export default function Settings() {
                       :{svc.port}
                     </a>
                   ) : (
-                    <span className="text-sm text-zinc-600 font-mono">systemd</span>
+                    <span className="text-sm text-theme-text-muted font-mono">systemd</span>
                   )}
                 </div>
               ))}
@@ -199,7 +199,7 @@ export default function Settings() {
                 <span className="text-theme-text-muted">Models</span>
                 <span className="text-white">{storage?.models?.formatted || 'Unknown'}</span>
               </div>
-              <div className="h-2 bg-zinc-700 rounded-full overflow-hidden">
+              <div className="h-2 bg-theme-border rounded-full overflow-hidden">
                 <div className="h-full bg-theme-accent rounded-full" style={{ width: `${storage?.models?.percent || 0}%` }} />
               </div>
             </div>
@@ -208,7 +208,7 @@ export default function Settings() {
                 <span className="text-theme-text-muted">Vector Database</span>
                 <span className="text-white">{storage?.vector_db?.formatted || 'Unknown'}</span>
               </div>
-              <div className="h-2 bg-zinc-700 rounded-full overflow-hidden">
+              <div className="h-2 bg-theme-border rounded-full overflow-hidden">
                 <div className="h-full bg-purple-500 rounded-full" style={{ width: `${storage?.vector_db?.percent || 0}%` }} />
               </div>
             </div>
@@ -217,7 +217,7 @@ export default function Settings() {
                 <span className="text-theme-text-muted">Total Data</span>
                 <span className="text-white">{storage?.total_data?.formatted || 'Unknown'}</span>
               </div>
-              <div className="h-2 bg-zinc-700 rounded-full overflow-hidden">
+              <div className="h-2 bg-theme-border rounded-full overflow-hidden">
                 <div className="h-full bg-green-500 rounded-full" style={{ width: `${storage?.total_data?.percent || 0}%` }} />
               </div>
             </div>
@@ -229,11 +229,11 @@ export default function Settings() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-white">You're up to date</p>
-              <p className="text-sm text-zinc-500">Last checked: just now</p>
+              <p className="text-sm text-theme-text-muted">Last checked: just now</p>
             </div>
             <button
               onClick={handleCheckUpdates}
-              className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg text-sm flex items-center gap-2 transition-colors"
+              className="px-4 py-2 bg-theme-border hover:bg-theme-border text-white rounded-lg text-sm flex items-center gap-2 transition-colors"
             >
               <RefreshCw size={16} />
               Check for Updates
@@ -301,7 +301,7 @@ function ActionButton({ icon: Icon, label, description, variant = 'default', onC
       <Icon size={20} className={iconColors[variant]} />
       <div className="text-left">
         <p className="text-sm text-white font-medium">{label}</p>
-        <p className="text-xs text-zinc-500">{description}</p>
+        <p className="text-xs text-theme-text-muted">{description}</p>
       </div>
     </button>
   )
