@@ -12,7 +12,7 @@ Open WebUI is served at `http://localhost:3000` and communicates with llama-serv
 
 - **Chat interface**: Multi-turn conversations with the local LLM
 - **Web search**: Integrated SearXNG metasearch for grounded answers
-- **Image generation**: ComfyUI backend using FLUX.1-schnell (4-step distilled, 1024×1024)
+- **Image generation**: ComfyUI backend using SDXL Lightning 4-step (1024×1024)
 - **Voice input**: Speech-to-text via Whisper (`/v1/audio/transcriptions`)
 - **Voice output**: Text-to-speech via Kokoro (`/v1/audio/speech`)
 - **User authentication**: Optional login system (enabled by default)

@@ -72,7 +72,7 @@ Still cheaper than cloud API bills at moderate usage.
 
 **With optional components:**
 - 🔒 Privacy Shield (PII redaction proxy)
-- 🖼️ Image generation (if you add FLUX/SD)
+- 🖼️ Image generation (SDXL Lightning via ComfyUI)
 - 🔍 Local web search (SearXNG)
 
 ### How fast is it?

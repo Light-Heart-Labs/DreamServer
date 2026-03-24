@@ -66,7 +66,7 @@ Then there's **n8n**. And n8n is remarkable. It's a workflow automation platform
 
 Working alongside Qdrant is the **Embeddings** service. This is the translator that converts your text documents into a form that Qdrant can search. You don't interact with it directly. It just does its work quietly in the background.
 
-For anyone who wants to generate images from text descriptions, there's **ComfyUI**. It's a sophisticated visual interface for image generation using a model called FLUX — and once it's set up, your chat interface can send image generation requests to it automatically. You type "generate an image of a sun setting over a mountain lake," and a few seconds later you have one. Entirely local. No subscription to Midjourney or DALL-E required.
+For anyone who wants to generate images from text descriptions, there's **ComfyUI**. It's a sophisticated visual interface for image generation using SDXL Lightning — and once it's set up, your chat interface can send image generation requests to it automatically. You type "generate an image of a sun setting over a mountain lake," and a few seconds later you have one. Entirely local. No subscription to Midjourney or DALL-E required.
 
 **OpenClaw** is the autonomous agent. Here's how to think about the difference between the chat interface and an autonomous agent. In the chat, you ask one question at a time and the AI responds. In OpenClaw, you give the AI a goal — "research this topic, find the three best sources, write me a summary, and save it to a file" — and it figures out the steps on its own, uses tools, browses the web, takes actions, and comes back to you when the task is done. It's the difference between asking someone a question and delegating a project.
 

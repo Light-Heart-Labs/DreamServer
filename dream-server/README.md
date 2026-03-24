@@ -397,7 +397,7 @@ Thanks to [kyuz0](https://github.com/kyuz0) for [amd-strix-halo-toolboxes](https
 *   [Qwen (Alibaba Cloud)](https://github.com/QwenLM/Qwen) — Default language models
 *   [Open WebUI](https://github.com/open-webui/open-webui) — Chat interface
 *   [ComfyUI](https://github.com/comfyanonymous/ComfyUI) — Image generation engine
-*   [FLUX.1 (Black Forest Labs)](https://github.com/black-forest-labs/flux) — Image generation model
+*   [SDXL Lightning (ByteDance)](https://huggingface.co/ByteDance/SDXL-Lightning) — Image generation model
 *   [AMD ROCm](https://github.com/ROCm/ROCm) — GPU compute platform
 *   [AMD Strix Halo Toolboxes (kyuz0)](https://github.com/kyuz0/amd-strix-halo-toolboxes) — Pre-built ROCm containers for AMD inference
 *   [Strix Halo Testing (lhl)](https://github.com/lhl/strix-halo-testing) — Foundational Strix Halo AI research and rocWMMA optimizations

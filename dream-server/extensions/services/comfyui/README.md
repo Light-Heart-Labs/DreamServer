@@ -4,12 +4,12 @@ Node-based image generation UI and backend for Dream Server
 
 ## Overview
 
-ComfyUI provides a powerful, node-based interface for running Stable Diffusion and FLUX.1 image generation models locally. It exposes both a visual workflow editor in the browser and a REST API, enabling programmatic image generation from other services. ComfyUI requires a GPU (NVIDIA or AMD) and is not available on CPU-only systems.
+ComfyUI provides a powerful, node-based interface for running Stable Diffusion and SDXL image generation models locally. It exposes both a visual workflow editor in the browser and a REST API, enabling programmatic image generation from other services. ComfyUI requires a GPU (NVIDIA or AMD) and is not available on CPU-only systems.
 
 ## Features
 
 - **Node-based workflow editor**: Build and share custom generation pipelines visually
-- **FLUX.1 support**: Configured for FLUX.1 image generation out of the box
+- **SDXL Lightning**: Configured for SDXL Lightning 4-step image generation out of the box
 - **Multiple model types**: Supports checkpoints, LoRAs, VAEs, text encoders, and diffusion models
 - **Persistent model storage**: Models stored in `./data/comfyui/models` and survive container rebuilds
 - **Workflow templates**: Pre-loaded workflow JSON files from `./data/comfyui/workflows`
@@ -60,7 +60,7 @@ Place model files in the appropriate subdirectory under `./data/comfyui/models/`
 
 | Subdirectory | Model type |
 |-------------|------------|
-| `checkpoints/` | Full Stable Diffusion / FLUX checkpoints |
+| `checkpoints/` | Full Stable Diffusion / SDXL checkpoints |
 | `diffusion_models/` | Standalone diffusion model weights |
 | `text_encoders/` | CLIP and T5 text encoders |
 | `vae/` | Variational Autoencoders |

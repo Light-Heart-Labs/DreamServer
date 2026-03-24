@@ -19,7 +19,7 @@ For adding or authoring extensions, see [EXTENSIONS.md](../docs/EXTENSIONS.md) a
 | qdrant          | Qdrant (Vector DB)       | optional   | 6333        | amd, nvidia    | Vector store for RAG. |
 | whisper         | Whisper (STT)            | optional   | 9000        | amd, nvidia    | Speech-to-text. |
 | tts             | Kokoro (TTS)             | optional   | 8880        | amd, nvidia    | Text-to-speech. |
-| comfyui         | ComfyUI (Image Gen)      | optional   | 8188        | amd, nvidia    | Image generation (e.g. FLUX). |
+| comfyui         | ComfyUI (Image Gen)      | optional   | 8188        | amd, nvidia    | Image generation (SDXL Lightning). |
 | openclaw        | OpenClaw (Agents)        | optional   | 7860        | amd, nvidia    | Agent with tools. |
 | perplexica      | Perplexica (Deep Research) | optional | 3004        | amd, nvidia    | Deep research UI. |
 | embeddings      | TEI (Embeddings)        | optional   | 8090        | amd, nvidia    | Text embeddings for RAG. |
