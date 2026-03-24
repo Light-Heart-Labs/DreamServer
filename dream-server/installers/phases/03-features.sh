@@ -38,7 +38,7 @@ if $INTERACTIVE && ! $DRY_RUN; then
         echo
         [[ $REPLY =~ ^[Yy]$ ]] && ENABLE_OPENCLAW=true
 
-        read -p "  Enable image generation (ComfyUI + FLUX, ~34GB)? [Y/n] " -r < /dev/tty
+        read -p "  Enable image generation (ComfyUI + SDXL Lightning, ~6.5GB)? [Y/n] " -r < /dev/tty
         echo
         [[ $REPLY =~ ^[Nn]$ ]] || ENABLE_COMFYUI=true
 

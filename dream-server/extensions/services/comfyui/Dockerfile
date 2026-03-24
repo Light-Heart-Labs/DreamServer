@@ -1,5 +1,5 @@
 # =============================================================================
-# ComfyUI Production Image — FLUX.2 + LTX-2 + NVFP4 Acceleration
+# ComfyUI Production Image — SDXL Lightning + NVFP4 Acceleration
 #
 # Layers ordered for optimal Docker cache:
 #   1. System deps (rarely changes)

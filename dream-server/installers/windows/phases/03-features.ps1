@@ -60,7 +60,7 @@ if (-not $nonInteractive -and -not $allFlag -and -not $dryRun) {
             $enableWorkflows = (Read-Host "  Enable Workflows (n8n, 400+ integrations)? [y/N]") -match "^[yY]"
             $enableRag       = (Read-Host "  Enable RAG (Qdrant vector DB + embeddings)? [y/N]") -match "^[yY]"
             $enableOpenClaw  = (Read-Host "  Enable OpenClaw (autonomous AI agents)?    [y/N]") -match "^[yY]"
-            $enableComfyui   = (Read-Host "  Enable image generation (ComfyUI + FLUX, ~34GB)? [y/N]") -match "^[yY]"
+            $enableComfyui   = (Read-Host "  Enable image generation (ComfyUI + SDXL Lightning, ~6.5GB)? [y/N]") -match "^[yY]"
 
             # Warn on low-tier
             if ($enableComfyui -and ($selectedTier -eq "0" -or $selectedTier -eq "1")) {
