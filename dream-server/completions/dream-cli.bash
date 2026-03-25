@@ -7,8 +7,8 @@ _dream_completion() {
     _init_completion || return
 
     # Main commands and their aliases
-    local main_commands="status status-json list enable disable preset mode model backup restore logs restart start stop update shell config chat benchmark doctor help version"
-    local aliases="s ls p m l r u sh cfg c bench b diag d h v"
+    local main_commands="gpu status status-json list enable disable preset mode model backup restore logs restart start stop update shell config chat benchmark doctor help version"
+    local aliases="g s ls p m l r u sh cfg c bench b diag d h v"
 
     # Service names (from dream-cli aliases section)
     local services="ape policy guard embeddings embed llama-server llm n8n workflows open-webui web ui webui opencode opencode-web qdrant vector searxng search tts kokoro whisper voice stt"
@@ -21,6 +21,10 @@ _dream_completion() {
             ;;
         2)
             case $prev in
+                gpu|g)
+                    COMPREPLY=($(compgen -W "status topology assignment validate reassign help" -- "$cur"))
+                    return 0
+                    ;;
                 preset|p)
                     COMPREPLY=($(compgen -W "save load list delete export import" -- "$cur"))
                     return 0
@@ -63,6 +67,18 @@ _dream_completion() {
             ;;
         3)
             case "${words[1]}" in
+                gpu|g)
+                    case $prev in
+                        reassign)
+                            COMPREPLY=($(compgen -W "--auto --manual --dry-run" -- "$cur"))
+                            return 0
+                            ;;
+                        topology|topo|t)
+                            COMPREPLY=($(compgen -W "--force" -- "$cur"))
+                            return 0
+                            ;;
+                    esac
+                    ;;
                 preset|p)
                     case $prev in
                         save|load|delete)

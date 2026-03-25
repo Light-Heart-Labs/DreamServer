@@ -364,4 +364,7 @@ LLAMA_ARG_TENSOR_SPLIT=$(echo "$GPU_ASSIGNMENT_JSON" | jq -r '
     end
   end')
 
+# Persist topology for the dashboard API (mounted read-only at /dream-server/config)
+mkdir -p "$INSTALL_DIR/config"
+cp "$TOPOLOGY_FILE" "$INSTALL_DIR/config/gpu-topology.json"
 rm -f "$TOPOLOGY_FILE"

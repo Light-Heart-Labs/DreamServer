@@ -15,6 +15,7 @@ import {
   Workflow,
   Image,
   Code,
+  ChevronRight,
 } from 'lucide-react'
 import { memo, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -207,6 +208,31 @@ export default function Dashboard({ status, loading }) {
           />
         )}
       </div>
+
+      {/* Multi-GPU summary strip — only shown when gpu_count > 1 */}
+      {status?.gpu?.gpu_count > 1 && (
+        <Link to="/gpu" className="block mb-6">
+          <div className="flex items-center justify-between p-4 bg-indigo-500/10 border border-indigo-500/25 rounded-xl hover:border-indigo-500/45 transition-colors group">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-indigo-500/15 rounded-lg">
+                <Activity size={18} className="text-indigo-400" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-white">
+                  Multi-GPU System · {status.gpu.gpu_count} GPUs
+                </p>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  {status.gpu.name} · {status.gpu.utilization}% avg util · {status.gpu.vramUsed?.toFixed(1)}/{status.gpu.vramTotal} GB VRAM
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1 text-xs text-indigo-400 group-hover:text-indigo-300 transition-colors font-medium">
+              GPU Monitor
+              <ChevronRight size={14} />
+            </div>
+          </div>
+        </Link>
+      )}
 
       {/* System Status */}
       <h2 className="text-lg font-semibold text-theme-text mb-5">System Status</h2>

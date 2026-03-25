@@ -1,12 +1,15 @@
 """GPU detection and metrics for NVIDIA, AMD, and Apple Silicon GPUs."""
 
+import base64
+import json as _json
 import logging
 import os
 import platform
 import subprocess
+from pathlib import Path
 from typing import Optional
 
-from models import GPUInfo
+from models import GPUInfo, IndividualGPU
 
 logger = logging.getLogger(__name__)
 
@@ -330,6 +333,190 @@ def get_gpu_info() -> Optional[GPUInfo]:
         return get_gpu_info_apple()
 
     return None
+
+
+# ============================================================================
+# Topology — read from file written by installer / dream-cli
+# ============================================================================
+
+def read_gpu_topology() -> Optional[dict]:
+    """Read GPU topology from config/gpu-topology.json if it exists.
+
+    The file is written by the installer (03-features.sh) and refreshed by
+    'dream gpu reassign'.  Inside the API container it is available at
+    /dream-server/config/gpu-topology.json (mounted read-only).
+    """
+    install_dir = os.environ.get("DREAM_INSTALL_DIR", os.path.expanduser("~/dream-server"))
+    topo_path = Path(install_dir) / "config" / "gpu-topology.json"
+    if not topo_path.exists():
+        return None
+    try:
+        return _json.loads(topo_path.read_text())
+    except (OSError, _json.JSONDecodeError):
+        return None
+
+
+# ============================================================================
+# Assignment decoding helpers
+# ============================================================================
+
+def decode_gpu_assignment() -> Optional[dict]:
+    """Decode GPU_ASSIGNMENT_JSON_B64, preferring the live .env file over the
+    container startup environment so reassignments are reflected without restart."""
+    b64 = _read_env_var_from_file("GPU_ASSIGNMENT_JSON_B64") or os.environ.get("GPU_ASSIGNMENT_JSON_B64", "")
+    if not b64:
+        return None
+    try:
+        return _json.loads(base64.b64decode(b64.strip()).decode("utf-8"))
+    except Exception:
+        return None
+
+
+def _read_env_var_from_file(key: str) -> str:
+    """Read a single variable directly from the .env file (split on first '=' only)."""
+    install_dir = os.environ.get("DREAM_INSTALL_DIR", os.path.expanduser("~/dream-server"))
+    env_path = Path(install_dir) / ".env"
+    try:
+        for line in env_path.read_text().splitlines():
+            if line.startswith(f"{key}="):
+                return line[len(key) + 1:].strip()
+    except OSError:
+        pass
+    return ""
+
+
+def _build_uuid_service_map(assignment: dict) -> dict[str, list[str]]:
+    """Map GPU UUID → list of service names from assignment JSON."""
+    result: dict[str, list[str]] = {}
+    services = assignment.get("gpu_assignment", {}).get("services", {})
+    for svc_name, svc_data in services.items():
+        for uuid in svc_data.get("gpus", []):
+            result.setdefault(uuid, []).append(svc_name)
+    return result
+
+
+# ============================================================================
+# Per-GPU detailed detection
+# ============================================================================
+
+def get_gpu_info_nvidia_detailed() -> Optional[list[IndividualGPU]]:
+    """Return one IndividualGPU per NVIDIA GPU, with assigned_services populated.
+
+    Returns None if nvidia-smi is unavailable or returns no data.
+    """
+    success, output = run_command([
+        "nvidia-smi",
+        "--query-gpu=index,uuid,name,memory.used,memory.total,utilization.gpu,temperature.gpu,power.draw",
+        "--format=csv,noheader,nounits",
+    ])
+    if not success or not output:
+        return None
+
+    lines = [ln.strip() for ln in output.strip().splitlines() if ln.strip()]
+    if not lines:
+        return None
+
+    assignment = decode_gpu_assignment()
+    uuid_service_map = _build_uuid_service_map(assignment) if assignment else {}
+
+    gpus: list[IndividualGPU] = []
+    try:
+        for line in lines:
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) < 7:
+                continue
+            power_w = None
+            if len(parts) >= 8 and parts[7] not in ("[N/A]", "[Not Supported]", "N/A", "Not Supported", ""):
+                try:
+                    power_w = round(float(parts[7]), 1)
+                except (ValueError, TypeError):
+                    pass
+            mem_used = int(parts[3])
+            mem_total = int(parts[4])
+            uuid = parts[1]
+            gpus.append(IndividualGPU(
+                index=int(parts[0]),
+                uuid=uuid,
+                name=parts[2],
+                memory_used_mb=mem_used,
+                memory_total_mb=mem_total,
+                memory_percent=round(mem_used / mem_total * 100, 1) if mem_total > 0 else 0.0,
+                utilization_percent=int(parts[5]),
+                temperature_c=int(parts[6]),
+                power_w=power_w,
+                assigned_services=uuid_service_map.get(uuid, []),
+            ))
+    except (ValueError, IndexError):
+        return None
+
+    return gpus or None
+
+
+def get_gpu_info_amd_detailed() -> Optional[list[IndividualGPU]]:
+    """Return one IndividualGPU per AMD GPU by iterating all amdgpu sysfs cards.
+
+    Returns None if no AMD GPUs are found.
+    """
+    import glob as _glob
+    card_dirs = sorted(_glob.glob("/sys/class/drm/card*/device"))
+    amd_cards = [d for d in card_dirs if _read_sysfs(f"{d}/vendor") == "0x1002"]
+    if not amd_cards:
+        return None
+
+    gpus: list[IndividualGPU] = []
+    for idx, base in enumerate(amd_cards):
+        hwmon = _find_hwmon_dir(base)
+        try:
+            vram_total_str = _read_sysfs(f"{base}/mem_info_vram_total")
+            vram_used_str = _read_sysfs(f"{base}/mem_info_vram_used")
+            gtt_total_str = _read_sysfs(f"{base}/mem_info_gtt_total")
+            gtt_used_str = _read_sysfs(f"{base}/mem_info_gtt_used")
+            gpu_busy_str = _read_sysfs(f"{base}/gpu_busy_percent")
+
+            if not vram_total_str or not vram_used_str:
+                continue
+
+            vram_total = int(vram_total_str)
+            vram_used = int(vram_used_str)
+            gtt_total = int(gtt_total_str) if gtt_total_str else 0
+            gtt_used = int(gtt_used_str) if gtt_used_str else 0
+            gpu_busy = int(gpu_busy_str) if gpu_busy_str else 0
+
+            is_unified = gtt_total > vram_total * 4
+            mem_total = gtt_total if is_unified else vram_total
+            mem_used = gtt_used if is_unified else vram_used
+
+            temp = 0
+            power_w = None
+            if hwmon:
+                temp_str = _read_sysfs(f"{hwmon}/temp1_input")
+                if temp_str:
+                    temp = int(temp_str) // 1000
+                power_str = _read_sysfs(f"{hwmon}/power1_average")
+                if power_str:
+                    power_w = round(int(power_str) / 1e6, 1)
+
+            gpu_name = _read_sysfs(f"{base}/product_name") or "AMD Radeon (Strix Halo)"
+            card_id = base.split("/")[-2]  # "card0", "card1", …
+            mem_used_mb = mem_used // (1024 * 1024)
+            mem_total_mb = mem_total // (1024 * 1024)
+
+            gpus.append(IndividualGPU(
+                index=idx,
+                uuid=card_id,
+                name=gpu_name,
+                memory_used_mb=mem_used_mb,
+                memory_total_mb=mem_total_mb,
+                memory_percent=round(mem_used_mb / mem_total_mb * 100, 1) if mem_total_mb > 0 else 0.0,
+                utilization_percent=gpu_busy,
+                temperature_c=temp,
+                power_w=power_w,
+                assigned_services=[],  # AMD assignment uses NVIDIA UUIDs; not mapped here
+            ))
+        except (ValueError, TypeError):
+            continue
+
+    return gpus or None
 
 
 def get_gpu_tier(vram_gb: float, memory_type: str = "discrete") -> str:

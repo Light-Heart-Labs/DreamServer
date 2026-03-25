@@ -242,7 +242,10 @@ _check_version_compat() {
 # Safe .env loading (no eval; use lib/safe-env.sh)
 #=============================================================================
 [[ -f "$SCRIPT_DIR/lib/safe-env.sh" ]] && . "$SCRIPT_DIR/lib/safe-env.sh"
-load_env() { load_env_file "${INSTALL_DIR}/.env"; }
+load_env() {
+    [[ -f "$INSTALL_DIR/.env" ]] || { warn ".env not found at $INSTALL_DIR — run installer first"; return 1; }
+    load_env_file "$INSTALL_DIR/.env"
+}
 
 #=============================================================================
 # Service Registry
@@ -1907,6 +1910,607 @@ cmd_rollback() {
     fi
 }
 
+#=============================================================================
+# cmd_gpu — Multi-GPU inspection and management
+#=============================================================================
+
+_gpu_status() {
+    check_install
+    load_env
+
+    local gpu_count
+    gpu_count=$(nvidia-smi --list-gpus 2>/dev/null | wc -l | tr -d ' ') || gpu_count=0
+
+    echo -e "${BLUE}━━━ GPU Status (${gpu_count} GPU$([ "$gpu_count" -ne 1 ] && echo s)) ━━━${NC}"
+    echo ""
+
+    if [[ "${GPU_BACKEND:-nvidia}" == "nvidia" ]] && command -v nvidia-smi &>/dev/null && [ "$gpu_count" -gt 0 ]; then
+        local output
+        output=$(nvidia-smi \
+            --query-gpu=index,name,memory.used,memory.total,utilization.gpu,temperature.gpu,power.draw \
+            --format=csv,noheader,nounits 2>/dev/null) || { warn "nvidia-smi failed"; return; }
+
+        [[ -z "$output" ]] && { warn "No NVIDIA GPU data returned"; return; }
+
+        echo "$output" | awk -F', ' -v blue="${BLUE}" -v nc="${NC}" '
+        BEGIN {
+            printf "  %-4s %-22s %-22s  %-7s  %-7s  %s\n", \
+                "#", "Name", "VRAM Used/Total", "Util", "Temp", "Power"
+            printf "  %-4s %-22s %-22s  %-7s  %-7s  %s\n", \
+                "─", "──────────────────────", "──────────────────────", "───────", "───────", "─────"
+            n=0; total_u=0; total_t=0; util_sum=0; max_temp=0; pw_sum=0; pw_count=0
+        }
+        {
+            idx=$1; name=$2; mem_used=$3; mem_total=$4; util=$5; temp=$6; pw=$7
+            gsub(/^ +| +$/, "", idx); gsub(/^ +| +$/, "", name)
+            gsub(/^ +| +$/, "", mem_used); gsub(/^ +| +$/, "", mem_total)
+            gsub(/^ +| +$/, "", util); gsub(/^ +| +$/, "", temp); gsub(/^ +| +$/, "", pw)
+
+            vram_str = sprintf("%.1f / %.1f GB", mem_used/1024, mem_total/1024)
+
+            if (pw ~ /^[0-9.]+$/) {
+                pw_str = sprintf("%.0fW", pw); pw_sum += pw; pw_count++
+            } else {
+                pw_str = "N/A"
+            }
+
+            printf "  %-4s %-22s %-22s  %3d%%     %3d°C   %s\n", \
+                idx, substr(name,1,22), vram_str, util, temp, pw_str
+
+            total_u += mem_used; total_t += mem_total
+            util_sum += util
+            if (temp+0 > max_temp+0) max_temp = temp
+            n++
+        }
+        END {
+            if (n > 1) {
+                printf "                         ──────────────────────\n"
+                pw_total_str = (pw_count > 0) ? sprintf("%.0fW", pw_sum) : "N/A"
+                vram_str = sprintf("%.1f / %.1f GB", total_u/1024, total_t/1024)
+                printf "  %-4s %-22s %-22s  %3d%%     %3d°C   %s\n", \
+                    "Σ", "", vram_str, int(util_sum/n), max_temp, pw_total_str
+            }
+        }'
+
+        echo ""
+
+        # Compact assignment summary (if configured)
+        local assignment_b64="${GPU_ASSIGNMENT_JSON_B64:-}"
+        if [[ -n "$assignment_b64" ]] && command -v jq &>/dev/null; then
+            assignment_b64=$(echo "$assignment_b64" | tr -d '\r' | tr -d '[:space:]')
+            local assignment_json
+            assignment_json=$(echo "$assignment_b64" | base64 -d 2>/dev/null) || assignment_json=""
+            if [[ -n "$assignment_json" ]]; then
+                local uuid_map
+                uuid_map=$(nvidia-smi --query-gpu=index,uuid --format=csv,noheader,nounits 2>/dev/null) || uuid_map=""
+                echo "  GPU Assignments:"
+                echo "$assignment_json" | jq -r '.gpu_assignment.services | to_entries[] | [.key, (.value.gpus | join(","))] | @tsv' \
+                | while IFS=$'\t' read -r svc gpus; do
+                    local labels=""
+                    while IFS= read -r uuid; do
+                        [[ -z "$uuid" ]] && continue
+                        local idx
+                        idx=$(echo "$uuid_map" | awk -F', ' -v u="$uuid" '$2==u{print $1; exit}' | tr -d ' ')
+                        labels="${labels:+$labels, }${idx:+GPU${idx}}"
+                    done < <(echo "$gpus" | tr ',' '\n')
+                    printf "    %-20s %s\n" "$svc" "${labels:-$gpus}"
+                done
+                echo ""
+            fi
+        fi
+
+    elif [[ "${GPU_BACKEND:-}" == "amd" ]]; then
+        echo "  AMD GPU(s):"
+        for card_dir in /sys/class/drm/card*/device; do
+            [[ -f "$card_dir/vendor" ]] || continue
+            vendor=$(cat "$card_dir/vendor" 2>/dev/null)
+            [[ "$vendor" == "0x1002" ]] || continue
+            name=$(cat "$card_dir/product_name" 2>/dev/null || echo "AMD Radeon")
+            vram_total=$(cat "$card_dir/mem_info_vram_total" 2>/dev/null || echo "0")
+            vram_used=$(cat "$card_dir/mem_info_vram_used" 2>/dev/null || echo "0")
+            busy=$(cat "$card_dir/gpu_busy_percent" 2>/dev/null || echo "0")
+            card=$(basename "$(dirname "$card_dir")")
+            echo "  $card  $name  $(awk "BEGIN{printf \"%.1f / %.1f GB\", $vram_used/1073741824, $vram_total/1073741824}")  ${busy}%"
+        done
+    else
+        warn "GPU status unavailable: nvidia-smi not found and GPU_BACKEND is not amd"
+    fi
+}
+
+_gpu_topology() {
+    local force=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in --force|-f) force=1 ;; esac
+        shift
+    done
+
+    check_install
+    load_env
+
+    echo -e "${BLUE}━━━ GPU Topology ━━━${NC}"
+    echo ""
+
+    if [[ "${GPU_BACKEND:-}" == "amd" ]]; then
+        echo "  AMD multi-GPU topology detection not yet supported."
+        echo "  Use 'dream gpu status' to see per-card utilization."
+        return
+    fi
+
+    if ! command -v nvidia-smi &>/dev/null; then
+        warn "nvidia-smi not found — topology unavailable"
+        return
+    fi
+
+    if ! command -v jq &>/dev/null; then
+        warn "jq not found — required for topology display"
+        return
+    fi
+
+    local topo_lib="$SCRIPT_DIR/installers/lib/nvidia-topo.sh"
+    if [[ ! -f "$topo_lib" ]]; then
+        warn "Topology library not found: $topo_lib"
+        return
+    fi
+
+    local topo_file="$INSTALL_DIR/config/gpu-topology.json"
+    local topo_json
+
+    if [[ "$force" -eq 0 && -f "$topo_file" ]]; then
+        topo_json=$(cat "$topo_file")
+    else
+        [[ "$force" -eq 1 && -f "$topo_file" ]] && log "Re-detecting topology (--force)..."
+        . "$topo_lib"
+        topo_json=$(detect_nvidia_topo 2>&1) || { warn "Failed to detect GPU topology"; return; }
+        echo "$topo_json" > "$topo_file"
+        log "Topology saved to $topo_file"
+    fi
+
+    local gpu_count driver mig_enabled
+    gpu_count=$(echo "$topo_json" | jq -r '.gpu_count // 0')
+    driver=$(echo "$topo_json" | jq -r '.driver_version // "unknown"')
+    mig_enabled=$(echo "$topo_json" | jq -r '.mig_enabled // false')
+
+    echo "  GPUs: ${gpu_count}    Driver: ${driver}    MIG: ${mig_enabled}"
+    echo ""
+
+    # Build a fixed-width link_type matrix from the JSON links array
+    echo "$topo_json" | jq -r '
+        def pad(w): . + (" " * w) | .[:w];
+        .gpu_count as $n |
+        .links as $links |
+        (["      ", ([range($n) | "GPU\(.)" | pad(6)] | .[])] | join("")),
+        ([range($n) | . as $a |
+            (["GPU\($a)" | pad(6)] + [range($n) | . as $b |
+                if $a == $b then "X"
+                else
+                    ([$links[] | select(
+                        (.gpu_a == $a and .gpu_b == $b) or
+                        (.gpu_a == $b and .gpu_b == $a)
+                    ) | .link_type] | first // "?")
+                end | pad(6)
+            ] | join(""))
+        ] | .[])
+    ' | sed 's/^/  /'
+
+    echo ""
+    local numa_nodes
+    numa_nodes=$(echo "$topo_json" | jq -r '.numa.nodes // 1')
+    echo "  NUMA nodes: ${numa_nodes}"
+}
+
+_gpu_assignment() {
+    check_install
+    load_env
+
+    echo -e "${BLUE}━━━ GPU Assignment ━━━${NC}"
+    echo ""
+
+    local assignment_b64="${GPU_ASSIGNMENT_JSON_B64:-}"
+
+    if [[ -z "$assignment_b64" ]]; then
+        echo "  Single GPU — no multi-GPU assignment configured."
+        return
+    fi
+
+    if ! command -v jq &>/dev/null; then
+        warn "jq not found — required for assignment display"
+        return
+    fi
+
+    # Strip CR and trailing whitespace (CRLF .env or editor artifacts break base64 -d)
+    assignment_b64=$(echo "$assignment_b64" | tr -d '\r' | tr -d '[:space:]')
+    local assignment_json
+    assignment_json=$(echo "$assignment_b64" | base64 -d 2>/dev/null) || {
+        warn "Failed to decode GPU_ASSIGNMENT_JSON_B64 — try running 'dream gpu reassign'"
+        return
+    }
+
+    local strategy
+    strategy=$(echo "$assignment_json" | jq -r '.gpu_assignment.strategy // "unknown"')
+    echo "  Strategy: ${strategy}"
+    echo ""
+
+    # Build UUID → index map for readable display
+    local uuid_map=""
+    if command -v nvidia-smi &>/dev/null; then
+        uuid_map=$(nvidia-smi --query-gpu=index,uuid --format=csv,noheader,nounits 2>/dev/null) || uuid_map=""
+    fi
+
+    printf "  %-16s %-24s %-10s %-4s %-4s\n" "Service" "GPUs" "Mode" "TP" "PP"
+    printf "  %-16s %-24s %-10s %-4s %-4s\n" "───────────────" "───────────────────────" "─────────" "──" "──"
+
+    echo "$assignment_json" | jq -r '.gpu_assignment.services | to_entries[] |
+        [.key,
+         (.value.gpus | join(",")),
+         (.value.parallelism.mode // "—"),
+         (.value.parallelism.tensor_parallel_size // "—" | tostring),
+         (.value.parallelism.pipeline_parallel_size // "—" | tostring)] |
+        @tsv' | while IFS=$'\t' read -r service gpus mode tp pp; do
+        # Map UUIDs to GPU indices when possible
+        local display_gpus="$gpus"
+        if [[ -n "$uuid_map" ]]; then
+            local gpu_labels=""
+            while IFS= read -r uuid; do
+                [[ -z "$uuid" ]] && continue
+                local idx
+                idx=$(echo "$uuid_map" | awk -F', ' -v u="$uuid" '$2==u{print $1; exit}' | tr -d ' ')
+                if [[ -n "$idx" ]]; then
+                    gpu_labels="${gpu_labels:+$gpu_labels, }GPU${idx}"
+                fi
+            done < <(echo "$gpus" | tr ',' '\n')
+            [[ -n "$gpu_labels" ]] && display_gpus="$gpu_labels"
+        fi
+        printf "  %-16s %-24s %-10s %-4s %-4s\n" "$service" "${display_gpus:0:24}" "$mode" "$tp" "$pp"
+    done
+}
+
+_gpu_validate() {
+    check_install
+    load_env
+
+    echo -e "${BLUE}━━━ GPU Validate ━━━${NC}"
+    echo ""
+
+    local pass=0 fail=0
+
+    # Check 1: GPU_COUNT matches actual
+    local env_count="${GPU_COUNT:-1}"
+    local actual_count=1
+    if command -v nvidia-smi &>/dev/null; then
+        actual_count=$(nvidia-smi --list-gpus 2>/dev/null | wc -l | tr -d ' ')
+    fi
+
+    if [[ -z "${GPU_COUNT:-}" ]]; then
+        warn "GPU_COUNT not set in .env — defaulting to 1 (re-run installer or set manually)"
+        ((fail++)) || true
+    elif [[ "$env_count" -eq "$actual_count" ]]; then
+        success "GPU_COUNT=${env_count} matches actual GPU count"
+        ((pass++)) || true
+    else
+        warn "GPU_COUNT=${env_count} in .env does not match actual count=${actual_count}"
+        echo "    Fix: set GPU_COUNT=${actual_count} in .env"
+        ((fail++)) || true
+    fi
+
+    # Check 2: Assigned UUIDs still present in system
+    local assignment_b64="${GPU_ASSIGNMENT_JSON_B64:-}"
+    if [[ -z "$assignment_b64" ]]; then
+        echo "  (No multi-GPU assignment — single GPU setup)"
+    elif command -v jq &>/dev/null; then
+        local assignment_json
+        if assignment_json=$(echo "$assignment_b64" | base64 -d 2>/dev/null); then
+            local live_uuids=""
+            if command -v nvidia-smi &>/dev/null; then
+                live_uuids=$(nvidia-smi --query-gpu=uuid --format=csv,noheader,nounits 2>/dev/null | tr -d ' ')
+            fi
+            local missing=0
+            while IFS= read -r uuid; do
+                [[ -z "$uuid" ]] && continue
+                if ! echo "$live_uuids" | grep -qF "$uuid"; then
+                    warn "UUID ${uuid} not found in current system"
+                    echo "    Fix: run 'dream gpu reassign'"
+                    ((missing++)) || true
+                    ((fail++)) || true
+                fi
+            done < <(echo "$assignment_json" | jq -r '.gpu_assignment.services[].gpus[]' 2>/dev/null)
+            if [[ "$missing" -eq 0 ]]; then
+                success "All assigned GPU UUIDs are present in system"
+                ((pass++)) || true
+            fi
+        else
+            warn "Failed to decode GPU_ASSIGNMENT_JSON_B64"
+            ((fail++)) || true
+        fi
+    fi
+
+    # Check 3: LLAMA_ARG_SPLIT_MODE vs assigned GPU count
+    local split_mode="${LLAMA_ARG_SPLIT_MODE:-}"
+    local llama_uuids="${LLAMA_SERVER_GPU_UUIDS:-}"
+    if [[ -n "$split_mode" && "$split_mode" != "none" ]]; then
+        local llama_count
+        llama_count=$(echo "$llama_uuids" | tr ',' '\n' | grep -c . 2>/dev/null) || llama_count=1
+        if [[ "$llama_count" -gt 1 ]]; then
+            success "LLAMA_ARG_SPLIT_MODE=${split_mode} is consistent with ${llama_count} llama GPUs"
+            ((pass++)) || true
+        else
+            warn "LLAMA_ARG_SPLIT_MODE=${split_mode} is set but only 1 GPU assigned to llama-server"
+            echo "    Fix: run 'dream gpu reassign' or set LLAMA_ARG_SPLIT_MODE=none in .env"
+            ((fail++)) || true
+        fi
+    fi
+
+    echo ""
+    echo "  Result: ${pass} check(s) passed, ${fail} failed"
+}
+
+_gpu_reassign() {
+    local auto_mode=0 dry_run=0 manual_mode=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --auto)     auto_mode=1 ;;
+            --dry-run)  dry_run=1 ;;
+            --manual)   manual_mode=1 ;;
+        esac
+        shift
+    done
+
+    check_install
+    load_env
+
+    echo -e "${BLUE}━━━ GPU Reassign ━━━${NC}"
+    echo ""
+
+    if ! command -v nvidia-smi &>/dev/null; then
+        warn "GPU reassign is only supported for NVIDIA. Use 'dream gpu status' for AMD."
+        return
+    fi
+
+    if ! command -v jq &>/dev/null; then
+        warn "jq not found — required for GPU reassignment"
+        return
+    fi
+
+    local topo_lib="$SCRIPT_DIR/installers/lib/nvidia-topo.sh"
+    local assign_script="$SCRIPT_DIR/scripts/assign_gpus.py"
+
+    [[ -f "$topo_lib" ]] || { warn "Topology library not found: $topo_lib"; return; }
+    [[ -f "$assign_script" ]] || { warn "Assignment script not found: $assign_script"; return; }
+
+    # warn and err are already defined; source is safe
+    . "$topo_lib"
+
+    log "Detecting GPU topology..."
+    local topo_json
+    topo_json=$(detect_nvidia_topo 2>&1) || error "Failed to detect GPU topology"
+
+    # Persist topology for the dashboard API
+    mkdir -p "$INSTALL_DIR/config"
+    echo "$topo_json" > "$INSTALL_DIR/config/gpu-topology.json"
+
+    # Determine model size
+    local model_size_mb="${LLM_MODEL_SIZE_MB:-}"
+    if [[ -z "$model_size_mb" ]]; then
+        local gguf_file="${GGUF_FILE:-}"
+        local gguf_path="$INSTALL_DIR/data/models/${gguf_file}"
+        if [[ -n "$gguf_file" && -f "$gguf_path" ]]; then
+            model_size_mb=$(du -m "$gguf_path" | awk '{print $1}')
+            log "Estimated model size from file: ${model_size_mb} MB"
+        else
+            echo -n "  Model size not found in .env. Enter size in MB (e.g. 40000 for a 40 GB model): "
+            read -r model_size_mb
+            [[ "$model_size_mb" =~ ^[0-9]+$ ]] || error "Invalid model size: $model_size_mb"
+        fi
+    fi
+
+    # Write topology to tmpfile and run assignment
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    trap 'rm -rf "$tmpdir"' RETURN
+    echo "$topo_json" > "$tmpdir/topo.json"
+
+    local enabled_services="${ENABLED_SERVICES:-llama_server,whisper,comfyui,embeddings}"
+
+    # ── Manual assignment mode ──
+    if [[ "$manual_mode" -eq 1 ]]; then
+        echo ""
+        echo "  Available GPUs:"
+        local gpu_list_smi
+        gpu_list_smi=$(nvidia-smi --query-gpu=index,name,memory.total \
+            --format=csv,noheader,nounits 2>/dev/null) || { warn "nvidia-smi failed"; return; }
+        local gpu_indices=()
+        while IFS= read -r gline; do
+            [[ -z "$gline" ]] && continue
+            local idx gname gmem
+            idx=$(echo "$gline"   | awk -F', ' '{gsub(/ /,"",$1); print $1}')
+            gname=$(echo "$gline" | awk -F', ' '{gsub(/^ +/,"",$2); print $2}')
+            gmem=$(echo "$gline"  | awk -F', ' '{gsub(/ /,"",$3); printf "%.0f GB", $3/1024}')
+            echo "    GPU${idx}: ${gname} (${gmem})"
+            gpu_indices+=("$idx")
+        done <<<"$gpu_list_smi"
+        echo ""
+
+        local _manual_llama _manual_whisper _manual_comfyui
+        echo -n "  GPU(s) for llama-server (comma-separated indices, e.g. 0,1,2,3): "
+        read -r _manual_llama
+        echo -n "  GPU for whisper          (index, or blank to skip): "
+        read -r _manual_whisper
+        echo -n "  GPU for comfyui          (index, or blank to skip): "
+        read -r _manual_comfyui
+
+        # Build UUID lists from indices
+        local uuid_map
+        uuid_map=$(nvidia-smi --query-gpu=index,uuid --format=csv,noheader,nounits 2>/dev/null)
+
+        _get_uuid() {
+            echo "$uuid_map" | awk -F', ' -v i="$1" '{gsub(/ /,"",$1); if($1==i){gsub(/ /,"",$2); print $2; exit}}'
+        }
+
+        local llama_uuid_list=""
+        for _idx in $(echo "$_manual_llama" | tr ',' ' '); do
+            _idx=$(echo "$_idx" | tr -d ' ')
+            local _u; _u=$(_get_uuid "$_idx")
+            [[ -n "$_u" ]] && llama_uuid_list="${llama_uuid_list:+$llama_uuid_list,}$_u"
+        done
+
+        local whisper_uuid_m="" comfyui_uuid_m=""
+        [[ -n "$_manual_whisper" ]] && whisper_uuid_m=$(_get_uuid "$(echo "$_manual_whisper" | tr -d ' ')")
+        [[ -n "$_manual_comfyui" ]] && comfyui_uuid_m=$(_get_uuid "$(echo "$_manual_comfyui" | tr -d ' ')")
+
+        # How many llama GPUs?
+        local llama_gpu_count
+        llama_gpu_count=$(echo "$_manual_llama" | tr ',' '\n' | grep -c '[0-9]')
+
+        local split_mode_m="none"
+        if [[ "$llama_gpu_count" -gt 1 ]]; then
+            echo -n "  Parallelism mode for llama-server (tensor/pipeline/none) [tensor]: "
+            read -r _para
+            case "${_para:-tensor}" in
+                tensor|hybrid) split_mode_m="row" ;;
+                pipeline)      split_mode_m="layer" ;;
+                *)             split_mode_m="none" ;;
+            esac
+        fi
+
+        if [[ "$dry_run" -eq 1 ]]; then
+            echo ""
+            echo "  Dry run — manual assignment:"
+            echo "    llama-server: $(echo "$_manual_llama" | tr ',' ' ' | sed 's/[^ ]*/GPU&/g')"
+            [[ -n "$_manual_whisper" ]] && echo "    whisper:      GPU${_manual_whisper}"
+            [[ -n "$_manual_comfyui" ]] && echo "    comfyui:      GPU${_manual_comfyui}"
+            echo "    split_mode:   ${split_mode_m}"
+            return
+        fi
+
+        log "Updating .env with manual assignment..."
+        [[ -n "$llama_uuid_list" ]]  && _env_set "LLAMA_SERVER_GPU_UUIDS" "$llama_uuid_list"
+        _env_set "LLAMA_ARG_SPLIT_MODE" "$split_mode_m"
+        [[ -n "$whisper_uuid_m" ]]   && _env_set "WHISPER_GPU_UUID"  "$whisper_uuid_m"
+        [[ -n "$comfyui_uuid_m" ]]   && _env_set "COMFYUI_GPU_UUID"  "$comfyui_uuid_m"
+
+        success "Manual GPU assignment saved"
+        echo ""
+        echo -n "  Apply changes now? [Y/n] "
+        read -r _yn
+        case "${_yn:-y}" in
+            y|Y|"")
+                local _flags_str _flags=()
+                _flags_str=$(get_compose_flags)
+                read -ra _flags <<< "$_flags_str"
+                cd "$INSTALL_DIR"
+                log "Recreating all containers with new GPU assignment..."
+                docker compose "${_flags[@]}" rm -sf
+                docker compose "${_flags[@]}" up -d
+                success "All services recreated with new GPU assignment"
+                ;;
+            *) echo "  Run 'dream restart' when ready." ;;
+        esac
+        return
+    fi
+
+    log "Running assignment algorithm (model: ${model_size_mb} MB)..."
+    local assignment_json
+    assignment_json=$(python3 "$assign_script" \
+        --topology "$tmpdir/topo.json" \
+        --model-size "$model_size_mb" \
+        --enabled-services "$enabled_services") || error "GPU assignment failed"
+
+    if [[ "$dry_run" -eq 1 ]]; then
+        echo ""
+        echo "  Dry run — proposed assignment:"
+        echo "$assignment_json" | jq '.gpu_assignment' 2>/dev/null || echo "$assignment_json"
+        return
+    fi
+
+    # Extract individual env vars from assignment JSON
+    local strategy llama_uuids split_mode tensor_split
+    local whisper_uuid comfyui_uuid embeddings_uuid
+
+    strategy=$(echo "$assignment_json"    | jq -r '.gpu_assignment.strategy // "unknown"')
+    llama_uuids=$(echo "$assignment_json" | jq -r '(.gpu_assignment.services.llama_server.gpus // []) | join(",")' 2>/dev/null || echo "")
+
+    local _para_mode
+    _para_mode=$(echo "$assignment_json" | jq -r '.gpu_assignment.services.llama_server.parallelism.mode // "none"')
+    case "$_para_mode" in
+        tensor|hybrid) split_mode="row" ;;
+        pipeline)      split_mode="layer" ;;
+        *)             split_mode="none" ;;
+    esac
+
+    tensor_split=$(echo "$assignment_json" | jq -r '
+        (.gpu_assignment.services.llama_server.parallelism.tensor_split // []) as $ts |
+        if ($ts | length) > 0 then $ts | map(tostring) | join(",")
+        else ""
+        end' 2>/dev/null || echo "")
+
+    whisper_uuid=$(echo "$assignment_json"    | jq -r '.gpu_assignment.services.whisper.gpus[0]?    // ""' 2>/dev/null || echo "")
+    comfyui_uuid=$(echo "$assignment_json"    | jq -r '.gpu_assignment.services.comfyui.gpus[0]?    // ""' 2>/dev/null || echo "")
+    embeddings_uuid=$(echo "$assignment_json" | jq -r '.gpu_assignment.services.embeddings.gpus[0]? // ""' 2>/dev/null || echo "")
+
+    # base64-encode assignment JSON for .env storage (cross-platform)
+    local assignment_b64
+    if [[ "$(uname)" == "Linux" ]]; then
+        assignment_b64=$(echo "$assignment_json" | jq -c '.' | base64 -w0)
+    else
+        assignment_b64=$(echo "$assignment_json" | jq -c '.' | base64)
+    fi
+
+    # Write to .env
+    log "Updating .env..."
+    [[ -n "$llama_uuids" ]]     && _env_set "LLAMA_SERVER_GPU_UUIDS" "$llama_uuids"
+    _env_set "LLAMA_ARG_SPLIT_MODE" "$split_mode"
+    [[ -n "$tensor_split" ]]    && _env_set "LLAMA_ARG_TENSOR_SPLIT" "$tensor_split"
+    [[ -n "$whisper_uuid" ]]    && _env_set "WHISPER_GPU_UUID" "$whisper_uuid"
+    [[ -n "$comfyui_uuid" ]]    && _env_set "COMFYUI_GPU_UUID" "$comfyui_uuid"
+    [[ -n "$embeddings_uuid" ]] && _env_set "EMBEDDINGS_GPU_UUID" "$embeddings_uuid"
+    _env_set "GPU_ASSIGNMENT_JSON_B64" "$assignment_b64"
+
+    success "GPU assignment updated (strategy: ${strategy})"
+    echo ""
+    echo -n "  Apply changes now? [Y/n] "
+    read -r _yn
+    case "${_yn:-y}" in
+        y|Y|"")
+            local _flags_str _flags=()
+            _flags_str=$(get_compose_flags)
+            read -ra _flags <<< "$_flags_str"
+            cd "$INSTALL_DIR"
+            log "Recreating all containers with new GPU assignment..."
+            docker compose "${_flags[@]}" rm -sf
+            docker compose "${_flags[@]}" up -d
+            success "All services recreated with new GPU assignment"
+            ;;
+        *) echo "  Run 'dream restart' when ready." ;;
+    esac
+}
+
+cmd_gpu() {
+    local subcommand="${1:-status}"
+    shift 2>/dev/null || true
+
+    case "$subcommand" in
+        status|s)               _gpu_status "$@" ;;
+        topology|topo|t)        _gpu_topology "$@" ;;
+        assignment|assign|a)    _gpu_assignment "$@" ;;
+        validate|v)             _gpu_validate "$@" ;;
+        reassign)               _gpu_reassign "$@" ;;
+        help|--help|-h)
+            echo "Usage: dream gpu [subcommand]"
+            echo ""
+            echo "Subcommands:"
+            echo "  status       Per-GPU metrics table with VRAM, util, temp, power"
+            echo "  topology     Show GPU interconnect topology (NVLink, PCIe, NUMA)"
+            echo "  assignment   Show current service→GPU mapping from .env"
+            echo "  validate     Check GPU config is consistent with live system"
+            echo "  reassign     Re-run GPU assignment algorithm and update .env"
+            echo ""
+            echo "Options for reassign:"
+            echo "  --auto       Run automatic assignment without interactive prompts"
+            echo "  --dry-run    Show proposed assignment without writing .env"
+            ;;
+        *)  error "Unknown gpu subcommand: '${subcommand}'. Run 'dream gpu help'" ;;
+    esac
+}
+
 cmd_help() {
     sr_load
     cat << EOF
@@ -1915,6 +2519,8 @@ ${BLUE}Dream Server CLI v${VERSION}${NC}
 Usage: dream <command> [options]
 
 ${CYAN}Commands:${NC}
+  gpu [status|topology|assignment|validate|reassign]
+                      Inspect and manage multi-GPU configuration
   status              Show service health and GPU status
   status-json         Machine-readable status (JSON) with mode/tier/model
   list                List all services and their status
@@ -1984,6 +2590,11 @@ EOF
     cat << EOF
 
 ${CYAN}Examples:${NC}
+  dream gpu status                # Per-GPU metrics (VRAM, util, temp, power)
+  dream gpu topology              # Show GPU interconnect topology
+  dream gpu assignment            # Show service→GPU mapping
+  dream gpu validate              # Validate GPU configuration
+  dream gpu reassign --auto       # Auto-reassign GPUs after hardware change
   dream status                    # Check all services
   dream status-json               # JSON summary (mode/tier/model + services)
   dream list                      # See all available services
@@ -2021,6 +2632,7 @@ EOF
 # Main
 #=============================================================================
 case "${1:-help}" in
+    gpu|g)       shift; cmd_gpu "$@" ;;
     status|s)    cmd_status ;;
     status-json) cmd_status_json ;;
     list|ls)     cmd_list ;;

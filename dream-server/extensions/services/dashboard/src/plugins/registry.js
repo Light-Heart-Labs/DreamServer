@@ -27,7 +27,10 @@ export function getInternalRoutes(context = {}) {
 
 export function getSidebarNavItems(context = {}) {
   return getInternalRoutes(context)
-    .filter(route => route.sidebar !== false)
+    .filter(route => {
+      if (typeof route.sidebar === 'function') return route.sidebar(context)
+      return route.sidebar !== false
+    })
     .map(route => ({
       id: route.id,
       path: route.path,

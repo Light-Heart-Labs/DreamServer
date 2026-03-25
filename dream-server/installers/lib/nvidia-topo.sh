@@ -62,9 +62,9 @@ parse_nvidia_topo_matrix() {
   local pairs_tsv=""
 
   while IFS= read -r line; do
-    [[ "$line" =~ ^(GPU[0-9]+|NIC[0-9]+) ]] || continue
     local row_label
     row_label=$(echo "$line" | awk '{print $1}')
+    [[ "$row_label" =~ ^GPU[0-9]+$ ]] || continue
     [[ "$row_label" =~ ^GPU ]] || continue # only GPU rows
     local gpu_a="${row_label#GPU}"
     local cells=()

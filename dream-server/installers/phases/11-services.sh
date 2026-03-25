@@ -177,7 +177,7 @@ else
     elif [[ "$GPU_BACKEND" == "nvidia" ]]; then
         COMFYUI_BASE="$INSTALL_DIR/data/comfyui/models"
     fi
-    if [[ "$GPU_BACKEND" == "amd" || "$GPU_BACKEND" == "nvidia" ]]; then
+    if [[ "$ENABLE_COMFYUI" == "true" && "${DREAM_MODE:-local}" != "cloud" && ("$GPU_BACKEND" == "amd" || "$GPU_BACKEND" == "nvidia") ]]; then
         SDXL_CHECKPOINT_DIR="$COMFYUI_BASE/checkpoints"
         mkdir -p "$SDXL_CHECKPOINT_DIR"
         # NVIDIA ComfyUI also needs output/input/workflows bind-mount dirs
