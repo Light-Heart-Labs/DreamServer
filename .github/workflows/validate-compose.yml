@@ -22,10 +22,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate main docker-compose.yml
+      - name: Validate main docker-compose.base.yml
         run: |
-          echo "Validating dream-server/docker-compose.yml"
-          docker compose -f dream-server/docker-compose.yml config --quiet
+          echo "Validating dream-server/docker-compose.base.yml"
+          docker compose -f dream-server/docker-compose.base.yml config --quiet
 
       - name: Validate compose files in dream-server/compose/
         run: |
