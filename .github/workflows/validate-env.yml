@@ -55,6 +55,10 @@ jobs:
             # Generate minimal .env with all expected keys
             cat > .env << ENVEOF
           # Test .env for tier ${{ matrix.tier }}
+          WEBUI_SECRET=test-secret-changeme
+          N8N_USER=admin
+          N8N_PASS=test-pass-changeme
+          OPENCLAW_TOKEN=sk-test-openclaw-token
           DREAM_VERSION=2.1.0
           DREAM_TIER=${{ matrix.tier }}
           GPU_BACKEND=cpu
