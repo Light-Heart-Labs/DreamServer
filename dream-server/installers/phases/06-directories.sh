@@ -56,14 +56,19 @@ else
         fi
     done
 
-    # Ensure we can write to config (rsync will fail otherwise)
-    if [[ "$SCRIPT_DIR" != "$INSTALL_DIR" ]] && [[ -d "$INSTALL_DIR/config" ]]; then
+    # Ensure we can write to config/data subtrees (rsync will fail otherwise)
+    if [[ "$SCRIPT_DIR" != "$INSTALL_DIR" ]]; then
         _cant_write=""
-        for _d in "$INSTALL_DIR"/config/*/; do
-            [[ -d "$_d" ]] && ! [[ -w "$_d" ]] && _cant_write="$_cant_write ${_d#$INSTALL_DIR/}"
+        for _root in config data; do
+            [[ -d "$INSTALL_DIR/$_root" ]] || continue
+            for _d in "$INSTALL_DIR/$_root"/*/; do
+                [[ -d "$_d" ]] && ! [[ -w "$_d" ]] && _cant_write="$_cant_write ${_d#$INSTALL_DIR/}"
+            done
         done
         if [[ -n "$_cant_write" ]]; then
-            error "Cannot write to config directories (likely container-owned). Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/data — then re-run the installer."
+            error "Cannot write to directories (likely container-owned):$_cant_write
+
+Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/data — then re-run the installer."
         fi
     fi
 

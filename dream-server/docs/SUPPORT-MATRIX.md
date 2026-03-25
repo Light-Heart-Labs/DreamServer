@@ -74,3 +74,7 @@ Last updated: 2026-03-17
 3. Promote macOS from Tier B to Tier A after broader real-hardware validation.
 4. Validate Intel Arc B580 (Battlemage 12 GB) on the `ARC` tier.
 5. Promote Intel Arc from Tier C to Tier B after A770 + B580 real-hardware validation.
+
+## See also
+
+- [LINUX-PORTABILITY.md](LINUX-PORTABILITY.md) — Linux installer edge cases, `.env` validation, extension manifests.
