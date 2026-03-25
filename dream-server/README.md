@@ -37,6 +37,8 @@ Known-good version baselines: [`docs/KNOWN-GOOD-VERSIONS.md`](docs/KNOWN-GOOD-VE
 
 ## 5-Minute Quickstart (Linux)
 
+> **Prerequisites:** `curl` and `jq` must be installed. The installer will auto-install `jq` if missing, but `curl` is required to fetch the installer itself.
+
 ```bash
 # One-line install (Linux — NVIDIA or AMD)
 curl -fsSL https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.4.0/get-dream-server.sh | bash
