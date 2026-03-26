@@ -11,28 +11,24 @@ services:
       - GITEA_WORK_DIR=/var/lib/gitea
       - GITEA_CUSTOM=/var/lib/gitea/custom
       - GITEA_TEMP=/tmp/gitea
-      - GITEA_LOG__MODE=console
-      - GITEA_DATABASE__DB_TYPE=sqlite3
-      - GITEA_DATABASE__PATH=/var/lib/gitea/gitea.db
-      - GITEA_REPOSITORY__ROOT=/var/lib/gitea/git/repositories
-      - GITEA_SERVER__DOMAIN=${GITEA_HOST:-localhost}
-      - GITEA_SERVER__ROOT_URL=http://${GITEA_HOST:-localhost}:${GITEA_PORT:-7830}/
-      - GITEA_SERVER__HTTP_PORT=3000
-      - GITEA_SERVER__SSH_PORT=${GITEA_SSH_PORT:-2222}
-      - GITEA_SECURITY__INSTALL_LOCK=true
-      - GITEA_SERVICE__DISABLE_REGISTRATION=true
-      - GITEA_SERVICE__REQUIRE_SIGNIN_VIEW=true
-      - GITEA_SERVICE__DEFAULT_USER_IS_ADMIN=true
-      - GITEA__SECURITY__ADMIN_USER=${GITEA_ADMIN_USER:-}
-      - GITEA__SECURITY__ADMIN_PASSWORD=${GITEA_ADMIN_PASSWORD:-}
-      - GITEA__SECURITY__ADMIN_EMAIL=${GITEA_ADMIN_EMAIL:-admin@localhost}
+      - GITEA__LOG__MODE=console
+      - GITEA__DATABASE__DB_TYPE=sqlite3
+      - GITEA__DATABASE__PATH=/var/lib/gitea/gitea.db
+      - GITEA__REPOSITORY__ROOT=/var/lib/gitea/git/repositories
+      - GITEA__SERVER__DOMAIN=${GITEA_HOST:-localhost}
+      - GITEA__SERVER__ROOT_URL=http://${GITEA_HOST:-localhost}:${GITEA_PORT:-7830}/
+      - GITEA__SERVER__HTTP_PORT=3000
+      - GITEA__SERVER__SSH_PORT=${GITEA_SSH_PORT:-2222}
+      - GITEA__SECURITY__INSTALL_LOCK=true
+      - GITEA__SERVICE__DISABLE_REGISTRATION=true
+      - GITEA__SERVICE__REQUIRE_SIGNIN_VIEW=true
     volumes:
       - ./data/gitea:/var/lib/gitea:rw
     ports:
       - "127.0.0.1:${GITEA_PORT:-7830}:3000"
       - "127.0.0.1:${GITEA_SSH_PORT:-2222}:2222"
     healthcheck:
-      test: ["CMD", "/usr/local/bin/gitea", "healthcheck"]
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/api/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
