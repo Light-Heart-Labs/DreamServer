@@ -3,7 +3,7 @@ name: open-interpreter
 services:
   open-interpreter:
     build:
-      context: .
+      context: ./extensions/services/open-interpreter
       dockerfile: Dockerfile
     container_name: dream-open-interpreter
     restart: unless-stopped
