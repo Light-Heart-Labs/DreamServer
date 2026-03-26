@@ -36,12 +36,6 @@ services:
       - ./data/baserow:/baserow/data:rw
     ports:
       - "127.0.0.1:${BASEROW_PORT:-3007}:80"
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost/api/_health/"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 120s
     networks:
       - dream-network
     deploy:
