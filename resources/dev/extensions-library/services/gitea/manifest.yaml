@@ -28,13 +28,3 @@ service:
     - key: GITEA_APP_NAME
       description: "Display name for the Gitea instance"
       default: "Dream Server Git"
-    - key: GITEA_ADMIN_USER
-      description: "Default admin username (created on first run)"
-      default: ""
-    - key: GITEA_ADMIN_PASSWORD
-      description: "Default admin password (created on first run)"
-      secret: true
-      default: ""
-    - key: GITEA_ADMIN_EMAIL
-      description: "Default admin email"
-      default: "admin@localhost"
