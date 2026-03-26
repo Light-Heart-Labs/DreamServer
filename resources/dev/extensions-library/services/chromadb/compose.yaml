@@ -18,7 +18,7 @@ services:
           memory: 2G
           cpus: '2.0'
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v2/heartbeat"]
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/8000'"]
       interval: 30s
       timeout: 10s
       retries: 3
