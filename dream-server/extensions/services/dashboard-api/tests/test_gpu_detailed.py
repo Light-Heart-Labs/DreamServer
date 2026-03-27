@@ -209,30 +209,30 @@ class TestGetGpuInfoAmdDetailed:
         }
 
     def test_single_amd_card(self, monkeypatch):
+        """One AMD card returns a single IndividualGPU object."""
         sysfs = self._sysfs_values("card0")
-        monkeypatch.setattr("gpu._read_sysfs", lambda p: sysfs.get(p))
 
-        import glob as _glob
-        monkeypatch.setattr(
-            "gpu._glob.glob",
-            lambda pattern: ["/sys/class/drm/card0/device"] if "card*" in pattern else [],
-        )
+        def mock_read_sysfs(path: str):
+            if path.endswith("/vendor"):
+                return "0x1002"
+            return sysfs.get(path)
 
-        # vendor check
-        original_read = lambda p: "0x1002" if p.endswith("/vendor") else sysfs.get(p)
-        monkeypatch.setattr("gpu._read_sysfs", original_read)
+        monkeypatch.setattr("gpu._read_sysfs", mock_read_sysfs)
         monkeypatch.setattr(
             "gpu._find_hwmon_dir",
             lambda base: f"{base}/hwmon/hwmon0",
         )
 
-        import glob as real_glob
-        with patch("glob.glob", side_effect=lambda p: ["/sys/class/drm/card0/device"] if "card*/device" in p else real_glob.glob(p)):
+        with patch("glob.glob", return_value=["/sys/class/drm/card0/device"]):
             result = get_gpu_info_amd_detailed()
 
-        # If _glob is the issue, mock more directly
-        # This test validates the logic; mock at the function level for reliability
-        assert True  # structural test — coverage of multi-card path tested below
+        assert result is not None
+        assert len(result) == 1
+        assert result[0].index == 0
+        assert result[0].uuid == "card0"
+        assert result[0].memory_total_mb == 16 * 1024
+        assert result[0].temperature_c == 65
+        assert result[0].power_w == 200.0
 
     def test_returns_none_when_no_amd(self, monkeypatch):
         monkeypatch.setattr("gpu._read_sysfs", lambda p: None)

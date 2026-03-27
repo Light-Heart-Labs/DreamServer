@@ -198,6 +198,6 @@ async def poll_gpu_history() -> None:
                     },
                 }
                 _GPU_HISTORY.append(sample)
-        except Exception:
+        except Exception:  # Broad catch: background task must survive transient failures
             logger.exception("GPU history poll failed")
         await asyncio.sleep(_HISTORY_POLL_INTERVAL)

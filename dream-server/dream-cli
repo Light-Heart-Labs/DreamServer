@@ -2398,7 +2398,7 @@ _gpu_reassign() {
                 read -ra _flags <<< "$_flags_str"
                 cd "$INSTALL_DIR"
                 log "Recreating all containers with new GPU assignment..."
-                docker compose "${_flags[@]}" rm -sf
+                docker compose "${_flags[@]}" down --remove-orphans
                 docker compose "${_flags[@]}" up -d
                 success "All services recreated with new GPU assignment"
                 ;;
@@ -2475,7 +2475,7 @@ _gpu_reassign() {
             read -ra _flags <<< "$_flags_str"
             cd "$INSTALL_DIR"
             log "Recreating all containers with new GPU assignment..."
-            docker compose "${_flags[@]}" rm -sf
+            docker compose "${_flags[@]}" down --remove-orphans
             docker compose "${_flags[@]}" up -d
             success "All services recreated with new GPU assignment"
             ;;

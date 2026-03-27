@@ -19,6 +19,8 @@ load_env_file() {
         # Skip comments and blank lines
         [[ "$line" =~ ^[[:space:]]*# ]] && continue
         [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+        # Lines without '=' are not valid KEY=VALUE pairs
+        [[ "$line" == *=* ]] || continue
         # Split on first '=' only, preserve '=' in values (e.g. base64 padding)
         key="${line%%=*}"
         value="${line#*=}"

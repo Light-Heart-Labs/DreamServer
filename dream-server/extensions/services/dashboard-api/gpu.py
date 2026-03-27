@@ -349,10 +349,12 @@ def read_gpu_topology() -> Optional[dict]:
     install_dir = os.environ.get("DREAM_INSTALL_DIR", os.path.expanduser("~/dream-server"))
     topo_path = Path(install_dir) / "config" / "gpu-topology.json"
     if not topo_path.exists():
+        logger.warning("Topology file not found at %s", topo_path)
         return None
     try:
         return _json.loads(topo_path.read_text())
-    except (OSError, _json.JSONDecodeError):
+    except (OSError, _json.JSONDecodeError) as exc:
+        logger.warning("Failed to read topology file %s: %s", topo_path, exc)
         return None
 
 
@@ -368,7 +370,7 @@ def decode_gpu_assignment() -> Optional[dict]:
         return None
     try:
         return _json.loads(base64.b64decode(b64.strip()).decode("utf-8"))
-    except Exception:
+    except (base64.binascii.Error, _json.JSONDecodeError, UnicodeDecodeError):
         return None
 
 
@@ -420,8 +422,8 @@ def get_gpu_info_nvidia_detailed() -> Optional[list[IndividualGPU]]:
     uuid_service_map = _build_uuid_service_map(assignment) if assignment else {}
 
     gpus: list[IndividualGPU] = []
-    try:
-        for line in lines:
+    for line in lines:
+        try:
             parts = [p.strip() for p in line.split(",")]
             if len(parts) < 7:
                 continue
@@ -446,8 +448,8 @@ def get_gpu_info_nvidia_detailed() -> Optional[list[IndividualGPU]]:
                 power_w=power_w,
                 assigned_services=uuid_service_map.get(uuid, []),
             ))
-    except (ValueError, IndexError):
-        return None
+        except (ValueError, IndexError):
+            logger.warning("Skipping unparseable nvidia-smi row: %s", line)
 
     return gpus or None
 

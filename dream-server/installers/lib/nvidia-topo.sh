@@ -62,17 +62,19 @@ parse_nvidia_topo_matrix() {
   local pairs_tsv=""
 
   while IFS= read -r line; do
+    # Skip header line and blanks (header starts with whitespace, data rows don't)
+    [[ "$line" =~ ^[[:space:]] ]] && continue
+    [[ -z "$line" ]] && continue
     local row_label
     row_label=$(echo "$line" | awk '{print $1}')
     [[ "$row_label" =~ ^GPU[0-9]+$ ]] || continue
-    [[ "$row_label" =~ ^GPU ]] || continue # only GPU rows
     local gpu_a="${row_label#GPU}"
     local cells=()
     read -ra cells <<<"$line"
     # cells[0] = row label, cells[1..] = columns
     for col_idx in "${!headers[@]}"; do
       local col_header="${headers[$col_idx]}"
-      [[ "$col_header" =~ ^GPU ]] || continue
+      [[ "$col_header" =~ ^GPU[0-9]+$ ]] || continue
       local gpu_b="${col_header#GPU}"
       [[ "$gpu_a" == "$gpu_b" ]] && continue  # skip self
       [[ "$gpu_a" -ge "$gpu_b" ]] && continue # dedup (only A<B pairs)
