@@ -1,5 +1,3 @@
-name: crewai
-
 # CrewAI Studio — no-code multi-agent UI (https://github.com/strnad/CrewAI-Studio)
 # Image: tham0nk/crewai-studio (community build of strnad/CrewAI-Studio)
 # Digest pinned from Docker Hub tag "latest" as of 2024-09-06.

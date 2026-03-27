@@ -1,5 +1,3 @@
-name: langflow
-
 services:
   langflow:
     image: langflowai/langflow:1.8.0

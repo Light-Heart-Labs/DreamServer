@@ -1,5 +1,3 @@
-name: invokeai
-
 services:
   invokeai:
     image: ghcr.io/invoke-ai/invokeai:v6.11.1

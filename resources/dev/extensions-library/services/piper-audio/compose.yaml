@@ -1,5 +1,3 @@
-name: piper-audio
-
 services:
   piper-audio:
     image: lscr.io/linuxserver/piper:1.6.3
