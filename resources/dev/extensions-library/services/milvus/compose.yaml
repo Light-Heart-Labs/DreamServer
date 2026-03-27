@@ -8,6 +8,8 @@ services:
       - ./data/milvus:/var/lib/milvus
     environment:
       - MODE=standalone
+      - ETCD_USE_EMBED=true
+      - COMMON_STORAGETYPE=local
     command: ["milvus", "run", "standalone"]
     restart: unless-stopped
     security_opt:
