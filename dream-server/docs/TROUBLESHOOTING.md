@@ -215,6 +215,35 @@ docker compose up -d
 
 ---
 
+## Extension runtime check (post-install)
+
+After installation, phase 13 runs **manifest validation** and a **non-blocking** check of non-core services that have a compose fragment: it verifies whether each matching container exists, is running, and (when the manifest defines a health path and port) whether `http://127.0.0.1:<port><path>` responds.
+
+**Run manually** from your install directory (e.g. `~/dream-server`):
+
+```bash
+bash scripts/extension-runtime-check.sh .
+```
+
+**Strict mode** (fails if any running service fails its health probe — useful in CI or scripted verification):
+
+```bash
+EXTENSION_RUNTIME_CHECK_STRICT=1 bash scripts/extension-runtime-check.sh .
+```
+
+If Docker is not running or not reachable, the script skips checks and exits successfully. Install **jq** and **curl** where possible so related tooling and health probes behave consistently.
+
+If a service shows **running but health failed**, inspect logs and compose state:
+
+```bash
+cd ~/dream-server
+docker compose ps
+docker compose logs <service>
+dream status
+```
+
+---
+
 ## Getting Help
 
 1. **Check logs:**
