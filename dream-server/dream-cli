@@ -2062,6 +2062,7 @@ _gpu_topology() {
         . "$topo_lib"
         topo_json=$(detect_nvidia_topo 2>&1) || { warn "Failed to detect GPU topology"; return; }
         echo "$topo_json" > "$topo_file"
+        chmod 644 "$topo_file"
         log "Topology saved to $topo_file"
     fi
 
@@ -2286,6 +2287,7 @@ _gpu_reassign() {
     # Persist topology for the dashboard API
     mkdir -p "$INSTALL_DIR/config"
     echo "$topo_json" > "$INSTALL_DIR/config/gpu-topology.json"
+    chmod 644 "$INSTALL_DIR/config/gpu-topology.json"
 
     # Determine model size
     local model_size_mb="${LLM_MODEL_SIZE_MB:-}"
