@@ -37,7 +37,7 @@ services:
     ports:
       - "127.0.0.1:${BASEROW_PORT:-3007}:80"
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost/api/_health/"]
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8000/api/_health/"]
       interval: 30s
       timeout: 10s
       retries: 5

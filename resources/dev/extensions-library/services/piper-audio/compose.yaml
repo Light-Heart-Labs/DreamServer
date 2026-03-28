@@ -29,7 +29,7 @@ services:
           cpus: '0.25'
           memory: 128M
     healthcheck:
-      test: ["CMD-SHELL", "echo '{\"type\": \"describe\"}' | nc localhost 10200 || exit 1"]
+      test: ["CMD-SHELL", "echo '{\"type\": \"describe\"}' | nc -w 1 127.0.0.1 10200 | grep -q piper"]
       interval: 30s
       timeout: 30s
       retries: 3
