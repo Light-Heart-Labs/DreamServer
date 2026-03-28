@@ -61,3 +61,53 @@ def test_workflow_executions_authenticated(test_client):
         headers=test_client.auth_headers
     )
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Workflow ID Validation - Additional Edge Cases
+# ---------------------------------------------------------------------------
+
+
+def test_workflow_enable_with_spaces(test_client):
+    """POST /api/workflows with spaces in ID → 400 (regex rejects)."""
+    resp = test_client.post(
+        "/api/workflows/test workflow/enable",
+        headers=test_client.auth_headers,
+    )
+    assert resp.status_code == 400
+
+
+def test_workflow_enable_with_newline(test_client):
+    """POST /api/workflows with newline in ID → 400."""
+    resp = test_client.post(
+        "/api/workflows/test\nworkflow/enable",
+        headers=test_client.auth_headers,
+    )
+    assert resp.status_code == 400
+
+
+def test_workflow_enable_with_tab(test_client):
+    """POST /api/workflows with tab in ID → 400."""
+    resp = test_client.post(
+        "/api/workflows/test\tworkflow/enable",
+        headers=test_client.auth_headers,
+    )
+    assert resp.status_code == 400
+
+
+def test_workflow_disable_path_traversal(test_client):
+    """POST /api/workflows/{id}/disable with path traversal → 400."""
+    resp = test_client.post(
+        "/api/workflows/../../../etc/passwd/disable",
+        headers=test_client.auth_headers,
+    )
+    assert resp.status_code == 400
+
+
+def test_workflow_disable_command_injection(test_client):
+    """POST /api/workflows/{id}/disable with command injection → 400."""
+    resp = test_client.post(
+        "/api/workflows/test;rm -rf //disable",
+        headers=test_client.auth_headers,
+    )
+    assert resp.status_code == 400
