@@ -147,6 +147,10 @@ services:
       - DREAM_INSTALL_DIR=/dream-server
       - DREAM_DATA_DIR=/data
       - GPU_BACKEND=${GPU_BACKEND:-nvidia}
+      - GPU_COUNT=${GPU_COUNT:-1}
+      - GPU_ASSIGNMENT_JSON_B64=${GPU_ASSIGNMENT_JSON_B64:-}
+      - LLAMA_ARG_SPLIT_MODE=${LLAMA_ARG_SPLIT_MODE:-}
+      - LLAMA_ARG_TENSOR_SPLIT=${LLAMA_ARG_TENSOR_SPLIT:-}
       - HOST_RAM_GB=${HOST_RAM_GB:-0}
       - OLLAMA_URL=${LLM_API_URL:-http://llama-server:8080}
       - LLM_MODEL=${LLM_MODEL:-qwen3:30b-a3b}

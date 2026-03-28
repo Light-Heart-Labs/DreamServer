@@ -77,7 +77,7 @@ _STORAGE_CACHE_TTL = 30.0
 _SERVICE_POLL_INTERVAL = 10.0  # background health check interval
 
 # --- Router imports ---
-from routers import workflows, features, setup, updates, agents, privacy
+from routers import workflows, features, setup, updates, agents, privacy, gpu as gpu_router
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +126,7 @@ app.include_router(setup.router)
 app.include_router(updates.router)
 app.include_router(agents.router)
 app.include_router(privacy.router)
+app.include_router(gpu_router.router)
 
 
 # ================================================================
@@ -340,6 +341,19 @@ async def _build_api_status() -> dict:
 
     gpu_data = None
     if gpu_info:
+        # Infer gpu_count from display name ("RTX 4090 × 2") or env var GPU_COUNT
+        gpu_count = 1
+        gpu_count_env = os.environ.get("GPU_COUNT", "")
+        if gpu_count_env.isdigit():
+            gpu_count = int(gpu_count_env)
+        elif " \u00d7 " in gpu_info.name:
+            try:
+                gpu_count = int(gpu_info.name.rsplit(" \u00d7 ", 1)[-1])
+            except ValueError:
+                pass
+        elif " + " in gpu_info.name:
+            gpu_count = gpu_info.name.count(" + ") + 1
+
         gpu_data = {
             "name": gpu_info.name,
             "vramUsed": round(gpu_info.memory_used_mb / 1024, 1),
@@ -348,6 +362,7 @@ async def _build_api_status() -> dict:
             "temperature": gpu_info.temperature_c,
             "memoryType": gpu_info.memory_type,
             "backend": gpu_info.gpu_backend,
+            "gpu_count": gpu_count,
         }
         if gpu_info.power_w is not None:
             gpu_data["powerDraw"] = gpu_info.power_w
@@ -521,6 +536,7 @@ async def startup_event():
     """Start background tasks."""
     asyncio.create_task(collect_metrics())
     asyncio.create_task(_poll_service_health())
+    asyncio.create_task(gpu_router.poll_gpu_history())
 
 
 if __name__ == "__main__":

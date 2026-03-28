@@ -104,3 +104,27 @@ class PrivacyShieldStatus(BaseModel):
 
 class PrivacyShieldToggle(BaseModel):
     enable: bool
+
+
+class IndividualGPU(BaseModel):
+    index: int
+    uuid: str
+    name: str
+    memory_used_mb: int
+    memory_total_mb: int
+    memory_percent: float
+    utilization_percent: int
+    temperature_c: int
+    power_w: Optional[float] = None
+    assigned_services: list[str] = []
+
+
+class MultiGPUStatus(BaseModel):
+    gpu_count: int
+    backend: str  # "nvidia", "amd", "apple"
+    gpus: list[IndividualGPU]
+    topology: Optional[dict] = None
+    assignment: Optional[dict] = None
+    split_mode: Optional[str] = None
+    tensor_split: Optional[str] = None
+    aggregate: GPUInfo

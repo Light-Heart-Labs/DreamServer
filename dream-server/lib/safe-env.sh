@@ -14,13 +14,22 @@
 load_env_file() {
     local path="$1"
     [[ -f "$path" ]] || return 0
-    local key value
-    while IFS='=' read -r key value; do
-        [[ "$key" =~ ^[[:space:]]*# ]] && continue
+    local line key value
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        # Skip comments and blank lines
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+        # Lines without '=' are not valid KEY=VALUE pairs
+        [[ "$line" == *=* ]] || continue
+        # Split on first '=' only, preserve '=' in values (e.g. base64 padding)
+        key="${line%%=*}"
+        value="${line#*=}"
+        # Trim whitespace from key
         key="${key#"${key%%[![:space:]]*}"}"
         key="${key%"${key##*[![:space:]]}"}"
         [[ -z "$key" ]] && continue
         [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+        # Strip optional surrounding quotes and one leading space
         value="${value# }"
         value="${value%\"}"
         value="${value#\"}"

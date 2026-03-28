@@ -23,7 +23,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              count: all  # nvidia-smi needs visibility into all GPUs for monitoring
               capabilities: [utility]
 
   open-webui:
