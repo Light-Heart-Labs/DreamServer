@@ -26,7 +26,7 @@ services:
     ports:
       - "127.0.0.1:${ANYTHINGLLM_PORT:-7800}:3001"
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3001/api/health"]
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:3001/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3

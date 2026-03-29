@@ -29,7 +29,7 @@ services:
           memory: 4G
           cpus: '2.0'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:2283/api/server/ping"]
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:2283/api/server/ping"]
       interval: 30s
       timeout: 10s
       retries: 3

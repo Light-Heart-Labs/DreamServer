@@ -21,7 +21,7 @@ services:
           memory: 8G
           cpus: '4.0'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:7865"]
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:7865"]
       interval: 30s
       timeout: 10s
       retries: 3

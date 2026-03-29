@@ -20,7 +20,7 @@ services:
       - ./data/text-generation-webui/logs:/app/text-generation-webui/logs
       - ./data/text-generation-webui/extensions:/app/text-generation-webui/extensions
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:7860/"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7860/')"]
       interval: 30s
       timeout: 15s
       retries: 5
