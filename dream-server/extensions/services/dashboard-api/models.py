@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 
 from config import GPU_BACKEND
 
@@ -63,7 +63,13 @@ class FullStatus(BaseModel):
 
 
 class PortCheckRequest(BaseModel):
-    ports: list[int]
+    ports: list[int] = Field(..., description="List of ports to check (1-65535)")
+
+    @validator('ports', each_item=True)
+    def validate_port_range(cls, v):
+        if not (1 <= v <= 65535):
+            raise ValueError('Port must be between 1 and 65535')
+        return v
 
 
 class PortConflict(BaseModel):

@@ -250,18 +250,25 @@ async def _remove_workflow(workflow_id: str):
 @router.post("/api/workflows/{workflow_id}/disable")
 async def disable_workflow_post(workflow_id: str, api_key: str = Depends(verify_api_key)):
     """Remove a workflow from n8n (POST /disable)."""
+    if not re.match(r'^[a-zA-Z0-9_-]+$', workflow_id):
+        raise HTTPException(status_code=400, detail="Invalid workflow ID format")
     return await _remove_workflow(workflow_id)
 
 
 @router.delete("/api/workflows/{workflow_id}")
 async def disable_workflow(workflow_id: str, api_key: str = Depends(verify_api_key)):
     """Remove a workflow from n8n (DELETE)."""
+    if not re.match(r'^[a-zA-Z0-9_-]+$', workflow_id):
+        raise HTTPException(status_code=400, detail="Invalid workflow ID format")
     return await _remove_workflow(workflow_id)
 
 
 @router.get("/api/workflows/{workflow_id}/executions")
 async def workflow_executions(workflow_id: str, limit: int = 20, api_key: str = Depends(verify_api_key)):
     """Get recent executions for a workflow."""
+    if not re.match(r'^[a-zA-Z0-9_-]+$', workflow_id):
+        raise HTTPException(status_code=400, detail="Invalid workflow ID format")
+
     n8n_workflows = await get_n8n_workflows()
     catalog = load_workflow_catalog()
     wf_info = next((wf for wf in catalog.get("workflows", []) if wf["id"] == workflow_id), None)
