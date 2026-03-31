@@ -186,29 +186,56 @@ GTT_EOF
     # To re-enable later: sudo sed -i '/^GRUB_CMDLINE_LINUX_DEFAULT=/s/amd_iommu=off/iommu=pt/' /etc/default/grub && sudo update-grub
     if [[ -f /etc/default/grub ]]; then
         current_cmdline=$(grep '^GRUB_CMDLINE_LINUX_DEFAULT=' /etc/default/grub 2>/dev/null || true)
-        if [[ -n "$current_cmdline" ]] && ! echo "$current_cmdline" | grep -q 'amd_iommu=off'; then
-            # Replace iommu=pt if present, otherwise append amd_iommu=off
-            if echo "$current_cmdline" | grep -q 'iommu=pt'; then
-                if sudo -n sed -i '/^GRUB_CMDLINE_LINUX_DEFAULT=/s/iommu=pt/amd_iommu=off/' /etc/default/grub 2>/dev/null; then
-                    sudo -n update-grub >> "$LOG_FILE" 2>&1 || true
-                    ai_ok "GRUB: replaced iommu=pt with amd_iommu=off (~6% GPU bandwidth improvement)"
-                    _amd_needs_reboot=true
-                else
-                    ai_warn "Could not update GRUB (needs sudo). Run manually:"
-                    ai "  sudo sed -i 's/iommu=pt/amd_iommu=off/' /etc/default/grub && sudo update-grub"
-                fi
-            else
-                if sudo -n sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"/GRUB_CMDLINE_LINUX_DEFAULT="\1 amd_iommu=off"/' /etc/default/grub 2>/dev/null; then
-                    sudo -n update-grub >> "$LOG_FILE" 2>&1 || true
-                    ai_ok "GRUB: added amd_iommu=off (~6% GPU bandwidth improvement)"
-                    _amd_needs_reboot=true
-                else
-                    ai_warn "Could not update GRUB (needs sudo). Run manually:"
-                    ai "  sudo sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=\"\\(.*\\)\"/GRUB_CMDLINE_LINUX_DEFAULT=\"\\1 amd_iommu=off\"/' /etc/default/grub && sudo update-grub"
-                fi
+        if [[ "${GPU_COUNT:-1}" -gt 1 ]]; then
+            # Multi-GPU: iommu=pt is REQUIRED for proper device passthrough
+            if [[ -n "$current_cmdline" ]] && ! echo "$current_cmdline" | grep -q 'iommu=pt'; then
+                ai_warn "Multi-GPU requires 'iommu=pt' kernel parameter for device passthrough"
+                ai "  Add to GRUB_CMDLINE_LINUX_DEFAULT in /etc/default/grub:"
+                ai "  sudo sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=\"\\(.*\\)\"/GRUB_CMDLINE_LINUX_DEFAULT=\"\\1 iommu=pt\"/' /etc/default/grub && sudo update-grub"
+                ai "  Then reboot."
+            elif [[ -n "$current_cmdline" ]] && echo "$current_cmdline" | grep -q 'iommu=pt'; then
+                ai_ok "iommu=pt kernel parameter is set (required for multi-GPU)"
             fi
         else
-            ai_ok "GRUB: amd_iommu=off already set"
+            # Single GPU APU: amd_iommu=off gives ~6% memory bandwidth improvement
+            if [[ -n "$current_cmdline" ]] && ! echo "$current_cmdline" | grep -q 'amd_iommu=off'; then
+                # Replace iommu=pt if present, otherwise append amd_iommu=off
+                if echo "$current_cmdline" | grep -q 'iommu=pt'; then
+                    if sudo -n sed -i '/^GRUB_CMDLINE_LINUX_DEFAULT=/s/iommu=pt/amd_iommu=off/' /etc/default/grub 2>/dev/null; then
+                        sudo -n update-grub >> "$LOG_FILE" 2>&1 || true
+                        ai_ok "GRUB: replaced iommu=pt with amd_iommu=off (~6% GPU bandwidth improvement)"
+                        _amd_needs_reboot=true
+                    else
+                        ai_warn "Could not update GRUB (needs sudo). Run manually:"
+                        ai "  sudo sed -i 's/iommu=pt/amd_iommu=off/' /etc/default/grub && sudo update-grub"
+                    fi
+                else
+                    if sudo -n sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"/GRUB_CMDLINE_LINUX_DEFAULT="\1 amd_iommu=off"/' /etc/default/grub 2>/dev/null; then
+                        sudo -n update-grub >> "$LOG_FILE" 2>&1 || true
+                        ai_ok "GRUB: added amd_iommu=off (~6% GPU bandwidth improvement)"
+                        _amd_needs_reboot=true
+                    else
+                        ai_warn "Could not update GRUB (needs sudo). Run manually:"
+                        ai "  sudo sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=\"\\(.*\\)\"/GRUB_CMDLINE_LINUX_DEFAULT=\"\\1 amd_iommu=off\"/' /etc/default/grub && sudo update-grub"
+                    fi
+                fi
+            else
+                ai_ok "GRUB: amd_iommu=off already set"
+            fi
+        fi
+    fi
+
+    # Multi-GPU: verify render nodes for each GPU
+    if [[ "${GPU_COUNT:-1}" -gt 1 ]]; then
+        render_count=0
+        for rn in /dev/dri/renderD*; do
+            [[ -e "$rn" ]] && ((render_count++)) || true
+        done
+        if [[ "$render_count" -ge "${GPU_COUNT:-1}" ]]; then
+            ai_ok "Found ${render_count} render nodes for ${GPU_COUNT} GPUs"
+        else
+            ai_warn "Only ${render_count} render node(s) found but GPU_COUNT=${GPU_COUNT}"
+            ai_warn "Some GPUs may not be usable. Check: ls -la /dev/dri/renderD*"
         fi
     fi
 

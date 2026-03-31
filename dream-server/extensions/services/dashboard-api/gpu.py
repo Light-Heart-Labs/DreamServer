@@ -112,13 +112,8 @@ def get_gpu_info_amd() -> Optional[GPUInfo]:
         temp = 0
         power_w = None
         if hwmon:
-            temp_str = _read_sysfs(f"{hwmon}/temp1_input")
-            if temp_str:
-                temp = int(temp_str) // 1000
-
-            power_str = _read_sysfs(f"{hwmon}/power1_average")
-            if power_str:
-                power_w = round(int(power_str) / 1e6, 1)
+            temp = _find_hwmon_temp(hwmon)
+            power_w = _find_hwmon_power(hwmon)
 
         gpu_name = _read_sysfs(f"{base}/product_name")
         memory_type = "unified" if is_unified else "discrete"
@@ -553,9 +548,36 @@ def get_gpu_info_nvidia_detailed() -> Optional[list[IndividualGPU]]:
     return gpus or None
 
 
+def _find_hwmon_temp(hwmon_dir: str) -> int:
+    """Find GPU temperature via hwmon label-based discovery (junction > edge > temp1)."""
+    import glob as _glob
+    # Prefer junction temperature (accurate die temp), then edge
+    for label_path in sorted(_glob.glob(f"{hwmon_dir}/temp*_label")):
+        label = _read_sysfs(label_path)
+        if label and label.lower() in ("junction", "edge"):
+            input_path = label_path.replace("_label", "_input")
+            temp_str = _read_sysfs(input_path)
+            if temp_str:
+                return int(temp_str) // 1000
+    # Fallback to temp1_input
+    temp_str = _read_sysfs(f"{hwmon_dir}/temp1_input")
+    return int(temp_str) // 1000 if temp_str else 0
+
+
+def _find_hwmon_power(hwmon_dir: str) -> Optional[float]:
+    """Read GPU power: power1_average → power1_input fallback (microwatts → watts)."""
+    for attr in ("power1_average", "power1_input"):
+        power_str = _read_sysfs(f"{hwmon_dir}/{attr}")
+        if power_str:
+            return round(int(power_str) / 1e6, 1)
+    return None
+
+
 def get_gpu_info_amd_detailed() -> Optional[list[IndividualGPU]]:
     """Return one IndividualGPU per AMD GPU by iterating all amdgpu sysfs cards.
 
+    Uses topology JSON (if available) for stable UUIDs and assignment mapping.
+    Falls back to card index as UUID.
     Returns None if no AMD GPUs are found.
     """
     import glob as _glob
@@ -563,6 +585,15 @@ def get_gpu_info_amd_detailed() -> Optional[list[IndividualGPU]]:
     amd_cards = [d for d in card_dirs if _read_sysfs(f"{d}/vendor") == "0x1002"]
     if not amd_cards:
         return None
+
+    # Load topology for UUID mapping and assignment for service mapping
+    topo = read_gpu_topology()
+    topo_gpus = topo.get("gpus", []) if topo else []
+    # Build index→topology entry lookup
+    topo_by_index = {g["index"]: g for g in topo_gpus if "index" in g}
+
+    assignment = decode_gpu_assignment()
+    uuid_service_map = _build_uuid_service_map(assignment) if assignment else {}
 
     gpus: list[IndividualGPU] = []
     for idx, base in enumerate(amd_cards):
@@ -590,21 +621,20 @@ def get_gpu_info_amd_detailed() -> Optional[list[IndividualGPU]]:
             temp = 0
             power_w = None
             if hwmon:
-                temp_str = _read_sysfs(f"{hwmon}/temp1_input")
-                if temp_str:
-                    temp = int(temp_str) // 1000
-                power_str = _read_sysfs(f"{hwmon}/power1_average")
-                if power_str:
-                    power_w = round(int(power_str) / 1e6, 1)
+                temp = _find_hwmon_temp(hwmon)
+                power_w = _find_hwmon_power(hwmon)
 
-            gpu_name = _read_sysfs(f"{base}/product_name") or "AMD Radeon"
+            # Use topology UUID if available, otherwise fall back to card index
+            topo_entry = topo_by_index.get(idx, {})
+            gpu_uuid = topo_entry.get("uuid", f"card{idx}")
+            gpu_name = topo_entry.get("name") or _read_sysfs(f"{base}/product_name") or "AMD Radeon"
             card_id = base.split("/")[-2]  # "card0", "card1", …
             mem_used_mb = mem_used // (1024 * 1024)
             mem_total_mb = mem_total // (1024 * 1024)
 
             gpus.append(IndividualGPU(
                 index=idx,
-                uuid=card_id,
+                uuid=gpu_uuid,
                 name=gpu_name,
                 memory_used_mb=mem_used_mb,
                 memory_total_mb=mem_total_mb,
@@ -612,7 +642,7 @@ def get_gpu_info_amd_detailed() -> Optional[list[IndividualGPU]]:
                 utilization_percent=gpu_busy,
                 temperature_c=temp,
                 power_w=power_w,
-                assigned_services=[],  # AMD assignment uses NVIDIA UUIDs; not mapped here
+                assigned_services=uuid_service_map.get(gpu_uuid, []),
             ))
         except (ValueError, TypeError):
             continue
