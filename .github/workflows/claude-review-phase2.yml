@@ -16,8 +16,19 @@ jobs:
       is_high_stakes: ${{ steps.check.outputs.is_high_stakes }}
       sensitive_files: ${{ steps.check.outputs.sensitive_files }}
       reason: ${{ steps.check.outputs.reason }}
+      is_fork: ${{ steps.fork-check.outputs.is_fork }}
 
     steps:
+      - name: Check if fork PR
+        id: fork-check
+        run: |
+          if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
+            echo "is_fork=true" >> $GITHUB_OUTPUT
+            echo "::notice::Fork PR detected — Claude review requires repo secrets and will be skipped"
+          else
+            echo "is_fork=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
@@ -70,6 +81,7 @@ jobs:
     name: Claude Code Review
     needs: detect-high-stakes
     if: |
+      needs.detect-high-stakes.outputs.is_fork != 'true' &&
       github.actor != 'claude[bot]' &&
       github.actor != 'dependabot[bot]' &&
       github.actor != 'github-actions[bot]'
@@ -116,8 +128,10 @@ jobs:
   review-summary:
     name: Review Summary
     needs: [detect-high-stakes, claude-review]
-    if: always()
+    if: always() && needs.detect-high-stakes.outputs.is_fork != 'true'
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
 
     steps:
       - name: Post high-stakes notice

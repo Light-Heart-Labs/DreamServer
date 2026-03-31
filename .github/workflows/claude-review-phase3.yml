@@ -24,9 +24,10 @@ jobs:
   security-check:
     name: Pre-flight Security Check
     if: |
-      github.event_name == 'pull_request' ||
-      (github.event_name == 'issue_comment' &&
-       contains(github.event.comment.body, '/claude-review'))
+      (github.event_name == 'pull_request' ||
+       (github.event_name == 'issue_comment' &&
+        contains(github.event.comment.body, '/claude-review'))) &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     outputs:
       safe_to_proceed: ${{ steps.check.outputs.safe }}
