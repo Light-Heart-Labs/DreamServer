@@ -1,0 +1,160 @@
+name: Claude Review - Phase 2 (Sensitive File Detection)
+
+# Phase 2: Claude Review with enhanced detection for security-sensitive files
+# Flags high-stakes changes for extra human review attention
+# Estimated cost: ~$1.50/PR
+
+on:
+  pull_request:
+    types: [opened, ready_for_review, synchronize]
+
+jobs:
+  detect-high-stakes:
+    name: Detect High-Stakes Changes
+    runs-on: ubuntu-latest
+    outputs:
+      is_high_stakes: ${{ steps.check.outputs.is_high_stakes }}
+      sensitive_files: ${{ steps.check.outputs.sensitive_files }}
+      reason: ${{ steps.check.outputs.reason }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for high-stakes changes
+        id: check
+        run: |
+          HIGH_STAKES_PATTERNS=(
+            "dream-server/installers/"
+            "dream-server/dream-cli"
+            "dream-server/config/"
+            "dream-server/extensions/services/dashboard-api/security.py"
+            ".github/workflows/"
+            ".env"
+            "docker-compose"
+          )
+
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref || github.event.repository.default_branch || 'main' }}...HEAD)
+
+          IS_HIGH_STAKES="false"
+          SENSITIVE_FILES=""
+          REASON=""
+
+          for pattern in "${HIGH_STAKES_PATTERNS[@]}"; do
+            if echo "$CHANGED_FILES" | grep -i "$pattern" > /dev/null; then
+              IS_HIGH_STAKES="true"
+              SENSITIVE_FILES=$(echo "$CHANGED_FILES" | grep -i "$pattern" | head -5)
+              REASON="Security-sensitive files detected: $pattern"
+              break
+            fi
+          done
+
+          if [[ "${{ contains(github.event.pull_request.labels.*.name, 'ai-consensus') }}" == "true" ]]; then
+            IS_HIGH_STAKES="true"
+            REASON="Manual review escalation requested via label"
+          fi
+
+          echo "is_high_stakes=$IS_HIGH_STAKES" >> $GITHUB_OUTPUT
+          echo "sensitive_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$SENSITIVE_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "reason=$REASON" >> $GITHUB_OUTPUT
+
+          if [ "$IS_HIGH_STAKES" == "true" ]; then
+            echo "::notice::High-stakes changes detected — flagging for extra review"
+          fi
+
+  claude-review:
+    name: Claude Code Review
+    needs: detect-high-stakes
+    if: |
+      github.actor != 'claude[bot]' &&
+      github.actor != 'dependabot[bot]' &&
+      github.actor != 'github-actions[bot]'
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    concurrency:
+      group: claude-review-p2-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Claude Code Review
+        id: review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_args: |
+            code-review \
+            --model claude-opus-4-5-20251101 \
+            --max-turns 20 \
+            --allowedTools "Bash(git diff *),Bash(git log *),Bash(git blame *),Read"
+
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Save review artifact (high-stakes)
+        if: needs.detect-high-stakes.outputs.is_high_stakes == 'true'
+        run: |
+          mkdir -p /tmp/review-artifacts
+          echo "high-stakes review completed" > /tmp/review-artifacts/claude-review.txt
+
+      - name: Upload review artifact
+        if: needs.detect-high-stakes.outputs.is_high_stakes == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-review-result
+          path: /tmp/review-artifacts/
+
+  review-summary:
+    name: Review Summary
+    needs: [detect-high-stakes, claude-review]
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Post high-stakes notice
+        if: needs.detect-high-stakes.outputs.is_high_stakes == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const reason = `${{ needs.detect-high-stakes.outputs.reason }}`;
+            const sensitiveFiles = `${{ needs.detect-high-stakes.outputs.sensitive_files }}`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: `## Sensitive Files Detected
+
+            **Trigger**: ${reason}
+
+            **Files flagged**:
+            \`\`\`
+            ${sensitiveFiles}
+            \`\`\`
+
+            Extra human review is recommended for this PR.
+
+            ---
+            **Phase**: 2 (Sensitive File Detection) | **Estimated Cost**: ~$1.50`
+            });
+
+      - name: Generate summary
+        run: |
+          echo "### Review Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Phase**: 2 (Sensitive File Detection)" >> $GITHUB_STEP_SUMMARY
+          echo "- **High-Stakes**: ${{ needs.detect-high-stakes.outputs.is_high_stakes }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.detect-high-stakes.outputs.is_high_stakes }}" == "true" ]; then
+            echo "- **Reason**: ${{ needs.detect-high-stakes.outputs.reason }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "- **Estimated Cost**: ~\$1.50" >> $GITHUB_STEP_SUMMARY

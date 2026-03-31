@@ -1,0 +1,13 @@
+{
+  "action": "opened",
+  "issue": {
+    "number": 999,
+    "title": "Test: dashboard API returns 500 on empty GPU list",
+    "body": "When no GPU is detected, the /api/gpu endpoint crashes with a KeyError.\n\nSteps to reproduce:\n1. Start dashboard-api on a CPU-only machine\n2. Call GET /api/gpu\n3. Observe 500 error",
+    "html_url": "https://github.com/test/test/issues/999",
+    "user": {
+      "login": "testuser"
+    },
+    "labels": []
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "action": "opened",
+  "pull_request": {
+    "number": 100,
+    "title": "fix: handle missing GPU in dashboard-api",
+    "body": "Fixes #999",
+    "html_url": "https://github.com/test/test/pull/100",
+    "head": {
+      "ref": "fix/gpu-endpoint",
+      "sha": "abc1234"
+    },
+    "base": {
+      "ref": "main"
+    },
+    "user": {
+      "login": "testuser"
+    },
+    "labels": [],
+    "draft": false
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "action": "created",
+  "release": {
+    "tag_name": "v0.1.0",
+    "name": "v0.1.0",
+    "body": "",
+    "draft": false,
+    "prerelease": false
+  }
+}

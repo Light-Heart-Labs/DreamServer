@@ -1,0 +1,410 @@
+name: Issue to PR
+
+# Automatically reads new GitHub issues, has Claude implement code changes,
+# and creates draft PRs for human review.
+# Estimated cost: ~$5-15 per issue (claude-sonnet-4-6)
+
+on:
+  issues:
+    types: [opened]
+
+concurrency:
+  group: issue-to-pr-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================================
+  # Job 1: Validate — bot filter, secrets, duplicate PR check
+  # ============================================================
+  validate:
+    name: Validate Issue
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: >-
+      github.event.issue.user.login != 'claude[bot]' &&
+      github.event.issue.user.login != 'github-actions[bot]' &&
+      github.event.issue.user.login != 'dependabot[bot]'
+    outputs:
+      should_proceed: ${{ steps.dedup.outputs.should_proceed }}
+
+    steps:
+      - name: Validate required secrets
+        run: |
+          if [ -z "${{ secrets.PAT_TOKEN }}" ]; then
+            echo "::error::PAT_TOKEN required for PR creation"
+            exit 1
+          fi
+          if [ -z "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+            echo "::error::ANTHROPIC_API_KEY required for Claude Code"
+            exit 1
+          fi
+          echo "All required secrets present"
+
+      - name: Check for duplicate PRs
+        id: dedup
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          EXISTING_PR=$(gh pr list --repo "${{ github.repository }}" --state open \
+            --json number,headRefName \
+            --jq '[.[] | select(.headRefName | startswith("issue-fix/${{ github.event.issue.number }}-"))][0].number' \
+            2>/dev/null || echo "")
+          if [ -n "$EXISTING_PR" ] && [ "$EXISTING_PR" != "null" ]; then
+            echo "::notice::Existing PR #$EXISTING_PR for issue #${{ github.event.issue.number }} — skipping"
+            echo "should_proceed=false" >> $GITHUB_OUTPUT
+          else
+            echo "should_proceed=true" >> $GITHUB_OUTPUT
+          fi
+
+  # ============================================================
+  # Job 2: Implement — Claude reads issue, edits code, creates patch
+  # ============================================================
+  implement:
+    name: Implement Changes
+    needs: validate
+    if: needs.validate.outputs.should_proceed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      has_changes: ${{ steps.detect.outputs.has_changes }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install tools
+        run: pip install ruff
+
+      - name: Claude Code implementation
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+        run: |
+          {
+            cat .github/prompts/issue-to-pr.md
+            echo ""
+            echo "## Issue Details"
+            echo "- **Issue Number**: ${ISSUE_NUMBER}"
+            echo "- **Title**: ${ISSUE_TITLE}"
+            echo "- **URL**: ${ISSUE_URL}"
+            echo ""
+            echo "### Issue Body"
+            echo "${ISSUE_BODY}"
+          } | npx -y @anthropic-ai/claude-code \
+            --print \
+            --model claude-sonnet-4-6-v1 \
+            --max-turns 30 \
+            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git diff *),Bash(git log *),Bash(git status),Bash(ruff *),Bash(python -m py_compile *),Bash(pytest *),Bash(shellcheck *),Bash(bash -n *),Bash(ls *),Bash(find *),Bash(cat *),Bash(head *),Bash(tail *)"
+
+      - name: Detect changes
+        id: detect
+        run: |
+          if git diff --quiet; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "::notice::No code changes produced"
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "### Changes Produced" >> $GITHUB_STEP_SUMMARY
+            echo '```diff' >> $GITHUB_STEP_SUMMARY
+            git diff --stat >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Create and upload patch
+        if: steps.detect.outputs.has_changes == 'true'
+        run: |
+          mkdir -p /tmp/patch
+          git diff > /tmp/patch/issue-fix.patch
+
+      - name: Upload patch artifact
+        if: steps.detect.outputs.has_changes == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-fix-patch
+          path: /tmp/patch/issue-fix.patch
+          retention-days: 1
+
+      - name: Reset working tree
+        if: steps.detect.outputs.has_changes == 'true'
+        run: git checkout .
+
+  # ============================================================
+  # Job 3: Guardrails — protected files, secrets, size, syntax
+  # ============================================================
+  guardrails:
+    name: Guardrails
+    needs: implement
+    if: needs.implement.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      passed: ${{ steps.final.outputs.passed }}
+      diff_lines: ${{ steps.size.outputs.diff_lines }}
+      reverted_files: ${{ steps.protect.outputs.reverted_files }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Download patch
+        uses: actions/download-artifact@v4
+        with:
+          name: issue-fix-patch
+          path: /tmp/patch
+
+      - name: Apply patch
+        run: git apply /tmp/patch/issue-fix.patch
+
+      - name: Revert protected files
+        id: protect
+        run: |
+          PROTECTED_PATTERNS=(
+            ".github/workflows/*"
+            ".env*"
+            "dream-server/installers/*"
+            "dream-server/dream-cli"
+            "dream-server/config/*"
+          )
+
+          MODIFIED=$(git diff --name-only)
+          REVERTED=""
+
+          for file in $MODIFIED; do
+            for pattern in "${PROTECTED_PATTERNS[@]}"; do
+              if [[ "$file" == $pattern ]]; then
+                echo "::warning::Reverting protected file: $file"
+                git checkout -- "$file"
+                REVERTED="${REVERTED:+$REVERTED, }$file"
+                break
+              fi
+            done
+          done
+
+          echo "reverted_files=${REVERTED}" >> $GITHUB_OUTPUT
+
+      - name: Secret scanning
+        run: |
+          DIFF_CONTENT=$(git diff)
+          if [ -z "$DIFF_CONTENT" ]; then
+            exit 0
+          fi
+
+          if echo "$DIFF_CONTENT" | grep -iE '(sk-[a-zA-Z0-9]{20,}|AKIA[A-Z0-9]{16}|ghp_[a-zA-Z0-9]{36}|password\s*=\s*["\x27][^"\x27]+["\x27])' > /dev/null; then
+            echo "::error::Potential secret detected in changes — aborting"
+            git checkout -- .
+            exit 1
+          fi
+
+      - name: Diff size gate
+        id: size
+        run: |
+          if git diff --quiet; then
+            echo "diff_lines=0" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          INSERTIONS=$(git diff --numstat | awk '{s+=$1} END {print s+0}')
+          DELETIONS=$(git diff --numstat | awk '{s+=$2} END {print s+0}')
+          DIFF_LINES=$((INSERTIONS + DELETIONS))
+          echo "diff_lines=${DIFF_LINES}" >> $GITHUB_OUTPUT
+          echo "::notice::Diff size: +${INSERTIONS} -${DELETIONS} (${DIFF_LINES} total lines)"
+
+          if [ "$DIFF_LINES" -gt 1000 ]; then
+            echo "::error::Diff too large (${DIFF_LINES} lines). Aborting to prevent runaway changes."
+            git checkout -- .
+            exit 1
+          fi
+
+      - name: Python syntax validation
+        run: |
+          MODIFIED_PY=$(git diff --name-only | grep '\.py$' || true)
+          if [ -z "$MODIFIED_PY" ]; then
+            echo "No Python files modified"
+            exit 0
+          fi
+
+          ERRORS=""
+          for file in $MODIFIED_PY; do
+            if [ -f "$file" ]; then
+              if ! python3 -m py_compile "$file" 2>/tmp/pyerr.txt; then
+                ERRORS="${ERRORS}\n  - ${file}: $(cat /tmp/pyerr.txt)"
+              fi
+            fi
+          done
+
+          if [ -n "$ERRORS" ]; then
+            echo -e "::error::Python syntax errors:${ERRORS}"
+            exit 1
+          fi
+          echo "All modified Python files pass syntax validation"
+
+      - name: Shell syntax validation
+        run: |
+          MODIFIED_SH=$(git diff --name-only | grep '\.sh$' || true)
+          if [ -z "$MODIFIED_SH" ]; then
+            echo "No shell files modified"
+            exit 0
+          fi
+
+          ERRORS=""
+          for file in $MODIFIED_SH; do
+            if [ -f "$file" ]; then
+              if ! bash -n "$file" 2>/tmp/sherr.txt; then
+                ERRORS="${ERRORS}\n  - ${file}: $(cat /tmp/sherr.txt)"
+              fi
+            fi
+          done
+
+          if [ -n "$ERRORS" ]; then
+            echo -e "::error::Shell syntax errors:${ERRORS}"
+            exit 1
+          fi
+          echo "All modified shell files pass syntax validation"
+
+      - name: Final check and clean patch
+        id: final
+        run: |
+          if git diff --quiet; then
+            echo "::notice::No changes remain after guardrails"
+            echo "passed=false" >> $GITHUB_OUTPUT
+          else
+            echo "passed=true" >> $GITHUB_OUTPUT
+            mkdir -p /tmp/clean-patch
+            git diff > /tmp/clean-patch/issue-fix-clean.patch
+          fi
+
+      - name: Upload clean patch
+        if: steps.final.outputs.passed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-fix-clean-patch
+          path: /tmp/clean-patch/issue-fix-clean.patch
+          retention-days: 1
+
+  # ============================================================
+  # Job 4: Create PR — success path or failure comment
+  # ============================================================
+  create-pr:
+    name: Create Pull Request
+    needs: [validate, implement, guardrails]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      pr_number: ${{ steps.create.outputs.pull-request-number }}
+      pr_url: ${{ steps.create.outputs.pull-request-url }}
+
+    steps:
+      # ---- Success path ----
+      - name: Checkout repository
+        if: needs.guardrails.outputs.passed == 'true'
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - name: Download clean patch
+        if: needs.guardrails.outputs.passed == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: issue-fix-clean-patch
+          path: /tmp/clean-patch
+
+      - name: Apply clean patch
+        if: needs.guardrails.outputs.passed == 'true'
+        run: git apply /tmp/clean-patch/issue-fix-clean.patch
+
+      - name: Create Draft PR
+        id: create
+        if: needs.guardrails.outputs.passed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+          branch: issue-fix/${{ github.event.issue.number }}-${{ github.run_id }}
+          delete-branch: true
+          draft: true
+          title: "fix: implement issue #${{ github.event.issue.number }}"
+          commit-message: |
+            fix: implement issue #${{ github.event.issue.number }}
+
+            Closes #${{ github.event.issue.number }}
+
+            Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+          body: |
+            ## Automated Implementation
+
+            Implements **#${{ github.event.issue.number }}**: ${{ github.event.issue.title }}
+
+            ### Changes
+            - Diff size: ${{ needs.guardrails.outputs.diff_lines }} lines
+            ${{ needs.guardrails.outputs.reverted_files != '' && format('- Protected files reverted: {0}', needs.guardrails.outputs.reverted_files) || '' }}
+
+            ### Review Checklist
+            - [ ] Changes correctly address the issue
+            - [ ] No unintended side effects
+            - [ ] Tests pass (if applicable)
+
+            ---
+            Generated by [Claude Code](https://claude.com/claude-code) (claude-sonnet-4-6) | [Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          labels: |
+            ai-generated
+            needs-human-review
+            issue-fix
+
+      - name: Comment on issue (success)
+        if: needs.guardrails.outputs.passed == 'true' && steps.create.outputs.pull-request-number
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          gh issue comment "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --body "Draft PR created: #${{ steps.create.outputs.pull-request-number }}
+
+          A draft pull request has been created to address this issue. Please review the changes and provide feedback.
+
+          [View PR](${{ steps.create.outputs.pull-request-url }}) | [View Workflow](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+
+      # ---- Failure path ----
+      - name: Determine failure reason
+        id: failure
+        if: needs.guardrails.outputs.passed != 'true' && needs.validate.outputs.should_proceed == 'true'
+        run: |
+          if [ "${{ needs.implement.outputs.has_changes }}" != "true" ]; then
+            echo "reason=No code changes were produced. The issue may be too vague, not actionable, or already resolved." >> $GITHUB_OUTPUT
+          elif [ "${{ needs.guardrails.result }}" == "failure" ]; then
+            echo "reason=Changes were produced but failed guardrail checks (secret scanning, diff size, or syntax validation)." >> $GITHUB_OUTPUT
+          else
+            echo "reason=Changes were produced but did not survive guardrail checks (protected file reverts removed all changes)." >> $GITHUB_OUTPUT
+          fi
+
+      - name: Comment on issue (no PR)
+        if: needs.guardrails.outputs.passed != 'true' && needs.validate.outputs.should_proceed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+          FAILURE_REASON: ${{ steps.failure.outputs.reason }}
+        run: |
+          gh issue comment "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --body "No PR created: ${FAILURE_REASON}
+
+          [View Workflow](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"

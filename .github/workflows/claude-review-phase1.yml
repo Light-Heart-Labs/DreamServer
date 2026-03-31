@@ -1,0 +1,82 @@
+name: Claude Review - Phase 1 (Comment Only)
+
+# Phase 1: Basic Claude Code Review with comment-only mode
+# Safe starting point — no PR creation, just review comments
+# Estimated cost: ~$1.50/PR | Latency: 2-5 minutes
+
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+  issue_comment:
+    types: [created]
+
+jobs:
+  claude-review:
+    if: |
+      github.actor != 'claude[bot]' &&
+      github.actor != 'dependabot[bot]' &&
+      github.actor != 'github-actions[bot]' &&
+      (
+        github.event_name == 'pull_request' ||
+        (github.event_name == 'issue_comment' &&
+         github.event.issue.pull_request &&
+         contains(github.event.comment.body, '@claude-review'))
+      )
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    concurrency:
+      group: claude-review-${{ github.event.pull_request.number || github.event.issue.number }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check PR size (cost control)
+        id: pr_size
+        run: |
+          BASE_REF="${{ github.base_ref || github.event.repository.default_branch || 'main' }}"
+          FILES_CHANGED=$(git diff --name-only origin/${BASE_REF}...HEAD | wc -l)
+          LINES_CHANGED=$(git diff --stat origin/${BASE_REF}...HEAD | tail -1 | awk '{print $4+$6}')
+
+          echo "files_changed=$FILES_CHANGED" >> $GITHUB_OUTPUT
+          echo "lines_changed=$LINES_CHANGED" >> $GITHUB_OUTPUT
+
+          if [ "$LINES_CHANGED" -gt 1000 ]; then
+            echo "skip_review=true" >> $GITHUB_OUTPUT
+            echo "::warning::PR too large for AI review (>1000 lines). Add 'force-review' label to override."
+          else
+            echo "skip_review=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Skip large PR notice
+        if: steps.pr_size.outputs.skip_review == 'true' && !contains(github.event.pull_request.labels.*.name, 'force-review')
+        run: |
+          echo "::notice::Skipping review for large PR. Add 'force-review' label to override."
+          exit 0
+
+      - name: Run Claude Code Review
+        if: steps.pr_size.outputs.skip_review == 'false' || contains(github.event.pull_request.labels.*.name, 'force-review')
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_args: |
+            code-review --comment \
+            --model claude-opus-4-5-20251101 \
+            --max-turns 20 \
+            --allowedTools "Bash(git diff *),Bash(git log *),Bash(git blame *),Read"
+
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Review metrics
+        if: always()
+        run: |
+          echo "### Review Metrics" >> $GITHUB_STEP_SUMMARY
+          echo "- Files changed: ${{ steps.pr_size.outputs.files_changed }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Lines changed: ${{ steps.pr_size.outputs.lines_changed }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Estimated cost: ~\$1.50" >> $GITHUB_STEP_SUMMARY
+          echo "- Phase: 1 (Comment Only)" >> $GITHUB_STEP_SUMMARY

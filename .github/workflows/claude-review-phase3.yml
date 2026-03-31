@@ -1,0 +1,292 @@
+name: Claude Review - Phase 3 (Draft PR Creation)
+
+# Phase 3: Full pipeline with automated draft PR creation
+# Creates draft PRs with AI-suggested fixes (requires human approval to merge)
+# CRITICAL: Never auto-merges, always requires maintainer review
+# Estimated cost: $3-8/PR
+
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: claude-full-review-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  security-check:
+    name: Pre-flight Security Check
+    if: |
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'issue_comment' &&
+       contains(github.event.comment.body, '/claude-review'))
+    runs-on: ubuntu-latest
+    outputs:
+      safe_to_proceed: ${{ steps.check.outputs.safe }}
+      blocked_reason: ${{ steps.check.outputs.reason }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Security validation
+        id: check
+        run: |
+          SAFE="true"
+          REASON=""
+
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref || github.event.repository.default_branch || 'main' }}...HEAD)
+
+          BLOCKED_PATTERNS=(
+            ".github/workflows/"
+            ".github/actions/"
+            "dream-server/installers/"
+            "dream-server/dream-cli"
+            "dream-server/config/"
+            "\.env"
+            "\.env\."
+            "\.key$"
+            "\.pem$"
+            "credentials"
+          )
+
+          for pattern in "${BLOCKED_PATTERNS[@]}"; do
+            if echo "$CHANGED_FILES" | grep -qE "$pattern" 2>/dev/null; then
+              SAFE="false"
+              REASON="Modifications to protected files detected: $pattern. AI patch generation not allowed."
+              break
+            fi
+          done
+
+          if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
+            SAFE="false"
+            REASON="PR from fork — AI patch generation disabled for security"
+          fi
+
+          echo "safe=$SAFE" >> $GITHUB_OUTPUT
+          echo "reason=$REASON" >> $GITHUB_OUTPUT
+
+          if [ "$SAFE" == "false" ]; then
+            echo "::error::$REASON"
+          fi
+
+  claude-review:
+    name: Claude Code Review + Patch Generation
+    needs: security-check
+    if: |
+      needs.security-check.outputs.safe_to_proceed == 'true' &&
+      github.actor != 'claude[bot]' &&
+      github.actor != 'dependabot[bot]' &&
+      github.actor != 'github-actions[bot]'
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      has_suggestions: ${{ steps.parse.outputs.has_suggestions }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Run Claude Code Review with write permissions
+        id: review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_args: |
+            code-review \
+            --model claude-opus-4-5-20251101 \
+            --max-turns 25 \
+            --allowedTools "Bash(git diff *),Bash(git log *),Read,Edit,Write"
+
+          use_commit_signing: true
+          github_token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Parse review results
+        id: parse
+        run: |
+          if git diff --quiet; then
+            echo "has_suggestions=false" >> $GITHUB_OUTPUT
+            echo "::notice::No code changes suggested by AI review"
+          else
+            echo "has_suggestions=true" >> $GITHUB_OUTPUT
+
+            git diff > /tmp/ai-suggestions.patch
+
+            if git apply --check /tmp/ai-suggestions.patch 2>&1; then
+              echo "::notice::Valid patch generated — $(git diff --stat | tail -1)"
+            else
+              echo "has_suggestions=false" >> $GITHUB_OUTPUT
+              echo "::error::Generated patch cannot be cleanly applied"
+            fi
+          fi
+
+      - name: Upload patch artifact
+        if: steps.parse.outputs.has_suggestions == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-suggestions-patch
+          path: /tmp/ai-suggestions.patch
+
+  create-draft-pr:
+    name: Create Draft PR with AI Suggestions
+    needs: [security-check, claude-review]
+    if: needs.claude-review.outputs.has_suggestions == 'true'
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - name: Download patch
+        uses: actions/download-artifact@v4
+        with:
+          name: ai-suggestions-patch
+          path: /tmp/
+
+      - name: Apply AI suggestions
+        run: git apply /tmp/ai-suggestions.patch
+
+      - name: Run linters
+        run: |
+          pip install ruff 2>/dev/null || true
+          if command -v ruff &> /dev/null; then
+            ruff check . --fix || true
+            ruff format . || true
+          fi
+
+      - name: Run secret scanning
+        run: |
+          if git diff | grep -iE "(api[_-]?key|password|secret|token)" > /dev/null; then
+            echo "::warning::Potential secret detected in changes — manual review required"
+          fi
+
+      - name: Create Draft Pull Request
+        id: create_pr
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+          commit-message: |
+            AI-suggested improvements from PR #${{ github.event.pull_request.number }}
+
+            Generated by Claude Code Review.
+
+            Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+          branch: ai/auto-fix-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}
+          delete-branch: true
+          draft: true
+          title: "AI Suggestions: ${{ github.event.pull_request.title }}"
+          body: |
+            ## Automated Improvements
+
+            This draft PR contains AI-suggested improvements for PR #${{ github.event.pull_request.number }}.
+
+            ### Review Process
+
+            1. **Claude Code Review**: Analyzed code and generated suggestions
+            2. **Security Checks**: Passed pre-flight validation
+            3. **Patch Application**: Applied cleanly
+
+            ### Important
+
+            - **This is a DRAFT PR** — requires human review before merge
+            - **Do not auto-merge** — maintainer approval required
+            - Review all changes carefully before approving
+            - Run full CI/CD pipeline before merging
+
+            ---
+            Generated by [Claude Code](https://claude.com/claude-code) | Phase 3 (Draft PR Creation)
+          labels: |
+            ai-generated
+            needs-human-review
+          reviewers: ${{ github.event.pull_request.user.login }}
+
+      - name: Comment on original PR
+        if: steps.create_pr.outputs.pull-request-number
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = '${{ steps.create_pr.outputs.pull-request-number }}';
+            const prUrl = '${{ steps.create_pr.outputs.pull-request-url }}';
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## AI Suggestions Available
+
+            I've analyzed this PR and created a draft PR with suggested improvements: **#${prNumber}**
+
+            [View Draft PR with AI Suggestions](${prUrl})
+
+            ### What's included
+
+            - Security checks passed
+            - Patch applied cleanly
+
+            ### Next steps
+
+            1. Review the suggested changes in draft PR #${prNumber}
+            2. If approved, merge the draft PR
+
+            **The draft PR requires human approval** — do not auto-merge.
+
+            ---
+            Phase 3: Draft PR Creation`
+            });
+
+  blocked-security:
+    name: Security Block Notice
+    needs: security-check
+    if: needs.security-check.outputs.safe_to_proceed == 'false'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Post security notice
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const reason = `${{ needs.security-check.outputs.blocked_reason }}`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## AI Patch Generation Blocked
+
+            ${reason}
+
+            **Security Policy**: Automated patch generation is disabled for:
+            - Workflow files (.github/workflows/*)
+            - Installer code (dream-server/installers/*)
+            - CLI tool (dream-server/dream-cli)
+            - Configuration files (dream-server/config/*)
+            - Secrets and credentials
+            - PRs from forks
+
+            You can still get a review comment by using Phase 1 or Phase 2 workflows.`
+            });
+
+# Required secrets:
+# - GITHUB_TOKEN (automatically provided)
+# - PAT_TOKEN (Personal Access Token with repo scope)
+# - ANTHROPIC_API_KEY (for Claude Code review)

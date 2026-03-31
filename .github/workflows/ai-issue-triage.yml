@@ -1,0 +1,78 @@
+name: AI Issue Triage
+
+# Auto-label and categorize new issues using Claude
+# Advisory mode only — adds labels, doesn't close or modify issues
+# Estimated cost: ~$1.50/issue
+
+on:
+  issues:
+    types: [opened]
+
+concurrency:
+  group: issue-triage-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    name: Triage Issue
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.issue.user.login != 'github-actions[bot]' &&
+      github.event.issue.user.login != 'dependabot[bot]' &&
+      github.event.issue.user.login != 'claude[bot]'
+    permissions:
+      issues: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            dream-server/
+            CLAUDE.md
+          sparse-checkout-cone-mode: true
+
+      - name: Validate API key
+        run: |
+          if [ -z "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+            echo "::warning::ANTHROPIC_API_KEY not configured — skipping AI triage"
+            exit 0
+          fi
+
+      - name: AI Triage
+        uses: anthropics/claude-code-action@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            You are an issue triage bot for the DreamServer project (fully local AI stack: LLM inference, chat, voice, agents, workflows, RAG, image generation, privacy tools).
+
+            Architecture context:
+            - dream-server/installers/ = Bash installer libraries and phases
+            - dream-server/dream-cli = main CLI tool (~45K lines Bash)
+            - dream-server/extensions/services/dashboard-api/ = Python FastAPI backend
+            - dream-server/extensions/services/dashboard/ = React/Vite frontend
+            - dream-server/scripts/ = operational scripts
+            - dream-server/config/ = backend configs (GPU tiers, models)
+            - dream-server/tests/ = shell-based tests (BATS, contracts, smoke)
+            - dream-server/extensions/services/ = 17 service extensions with manifests
+
+            Analyze this new issue and apply appropriate labels:
+
+            **Issue #${{ github.event.issue.number }}**
+            **Title**: ${{ github.event.issue.title }}
+            **Body**: ${{ github.event.issue.body }}
+
+            ## Instructions
+
+            1. Read the issue title and body carefully
+            2. Determine the appropriate labels from this list:
+               - **Type labels** (pick one): `bug`, `enhancement`, `question`, `documentation`
+               - **Component labels** (pick all that apply): `installer`, `cli`, `dashboard`, `dashboard-api`, `extensions`, `docker`, `scripts`, `tests`, `docs`, `ci-cd`
+               - **Priority labels** (pick one): `priority:high`, `priority:medium`, `priority:low`
+            3. Apply the labels using: `gh issue edit ${{ github.event.issue.number }} --add-label "label1,label2"`
+            4. Do NOT close, assign, or comment on the issue — only add labels
+          claude_args: >-
+            --allowed-tools
+            "Bash(gh issue edit:*),Read,Glob,Grep"
+            --max-turns 5
