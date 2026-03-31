@@ -30,10 +30,11 @@ NON_LLAMA         = ["whisper", "comfyui", "embeddings"]
 
 @dataclass
 class GPU:
-    index:     int
-    uuid:      str
-    name:      str
-    memory_mb: float
+    index:       int
+    uuid:        str
+    name:        str
+    memory_mb:   float
+    memory_type: str = "discrete"  # "discrete" or "unified" (APU)
 
 @dataclass
 class Link:
@@ -79,6 +80,7 @@ def parse_gpus(topology: dict) -> list:
             uuid=g["uuid"],
             name=g["name"],
             memory_mb=g["memory_gb"] * 1024,
+            memory_type=g.get("memory_type", "discrete"),
         ))
     return gpus
 
@@ -198,7 +200,7 @@ def span_subsets(all_gpus: list, rank_matrix: dict, model_size_mb: float, ordere
     )
 
 
-def assign_services(all_gpus: list, llama_gpus: list, rank_matrix: dict, enabled_services: list) -> tuple:
+def assign_services(all_gpus: list, llama_gpus: list, rank_matrix: dict, enabled_services: list, vendor: str = "nvidia") -> tuple:
     """
     Assign remaining GPUs to non-llama services.
     Returns (service_assignments dict, final_llama_gpus list, strategy str).
@@ -209,6 +211,9 @@ def assign_services(all_gpus: list, llama_gpus: list, rank_matrix: dict, enabled
       remaining == 2  → whisper → [0], comfyui+embeddings → [1]    → colocated
       remaining >= 3  → whisper → [0], comfyui → [1], emb → [2]    → dedicated
                         remaining[3:] → back to llama
+
+    AMD APU+dGPU hybrid: if mixed memory types (unified + discrete), prefer APU
+    GPUs for auxiliary services (lower bandwidth but sufficient for whisper/embeddings).
     """
     llama_indices = {g.index for g in llama_gpus}
     remaining = sorted(
@@ -216,6 +221,15 @@ def assign_services(all_gpus: list, llama_gpus: list, rank_matrix: dict, enabled
         key=lambda g: g.memory_mb,
         reverse=True,
     )
+
+    # AMD hybrid strategy: sort remaining so APU GPUs come first for auxiliary
+    # services (they're better suited for lightweight tasks like whisper/embeddings,
+    # freeing discrete GPUs for LLM inference)
+    if vendor == "amd" and any(g.memory_type == "unified" for g in remaining):
+        remaining = sorted(
+            remaining,
+            key=lambda g: (0 if g.memory_type == "unified" else 1, -g.memory_mb),
+        )
 
     active_non_llama = [s for s in NON_LLAMA if s in enabled_services]
     assignments = {}
@@ -375,7 +389,10 @@ def build_output(result: AssignmentResult) -> dict:
     services = {}
 
     for name, assignment in result.services.items():
-        entry = {"gpus": [g.uuid for g in assignment.gpus]}
+        entry = {
+            "gpus": [g.uuid for g in assignment.gpus],
+            "gpu_indices": [g.index for g in assignment.gpus],
+        }
 
         if assignment.parallelism:
             p = assignment.parallelism
@@ -468,8 +485,25 @@ def main():
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
 
+    vendor = topology.get("vendor", "nvidia")
+
+    # AMD APU+dGPU hybrid: if topology has mixed memory types, ensure LLM
+    # gets discrete GPUs. Re-sort llama subset to prefer discrete over unified.
+    if vendor == "amd":
+        has_mixed = (
+            any(g.memory_type == "unified" for g in gpus)
+            and any(g.memory_type == "discrete" for g in gpus)
+        )
+        if has_mixed:
+            discrete_gpus = [g for g in llama_subset.gpus if g.memory_type == "discrete"]
+            if discrete_gpus:
+                # Rebuild llama subset using only discrete GPUs if they cover model size
+                discrete_subset = compute_subset(discrete_gpus, rank_matrix)
+                if discrete_subset.total_vram_mb >= model_size_mb:
+                    llama_subset = discrete_subset
+
     service_assignments, final_llama_gpus, strategy = assign_services(
-        gpus, llama_subset.gpus, rank_matrix, enabled_services
+        gpus, llama_subset.gpus, rank_matrix, enabled_services, vendor=vendor
     )
 
     #  Phase 3: Llama parallelism

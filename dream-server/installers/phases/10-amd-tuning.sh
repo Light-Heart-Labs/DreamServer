@@ -167,11 +167,38 @@ GTT_EOF
     # Configure kernel boot parameters for optimal GPU memory access
     if [[ -f /etc/default/grub ]]; then
         current_cmdline=$(grep '^GRUB_CMDLINE_LINUX_DEFAULT=' /etc/default/grub 2>/dev/null || true)
-        if [[ -n "$current_cmdline" ]] && ! echo "$current_cmdline" | grep -q 'amd_iommu=off'; then
-            ai "Recommended: add 'amd_iommu=off' to kernel boot parameters for ~2-6% GPU improvement"
-            ai "  Run: sudo sed -i 's/iommu=pt/amd_iommu=off/' /etc/default/grub && sudo update-grub"
-            ai "  Or if iommu=pt is not set:"
-            ai "  sudo sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=\"\\(.*\\)\"/GRUB_CMDLINE_LINUX_DEFAULT=\"\\1 amd_iommu=off\"/' /etc/default/grub && sudo update-grub"
+        if [[ "${GPU_COUNT:-1}" -gt 1 ]]; then
+            # Multi-GPU: iommu=pt is REQUIRED for proper device passthrough
+            if [[ -n "$current_cmdline" ]] && ! echo "$current_cmdline" | grep -q 'iommu=pt'; then
+                ai_warn "Multi-GPU requires 'iommu=pt' kernel parameter for device passthrough"
+                ai "  Add to GRUB_CMDLINE_LINUX_DEFAULT in /etc/default/grub:"
+                ai "  sudo sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=\"\\(.*\\)\"/GRUB_CMDLINE_LINUX_DEFAULT=\"\\1 iommu=pt\"/' /etc/default/grub && sudo update-grub"
+                ai "  Then reboot."
+            elif [[ -n "$current_cmdline" ]] && echo "$current_cmdline" | grep -q 'iommu=pt'; then
+                ai_ok "iommu=pt kernel parameter is set (required for multi-GPU)"
+            fi
+        else
+            # Single GPU APU: amd_iommu=off gives ~2-6% improvement
+            if [[ -n "$current_cmdline" ]] && ! echo "$current_cmdline" | grep -q 'amd_iommu=off'; then
+                ai "Recommended: add 'amd_iommu=off' to kernel boot parameters for ~2-6% GPU improvement"
+                ai "  Run: sudo sed -i 's/iommu=pt/amd_iommu=off/' /etc/default/grub && sudo update-grub"
+                ai "  Or if iommu=pt is not set:"
+                ai "  sudo sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=\"\\(.*\\)\"/GRUB_CMDLINE_LINUX_DEFAULT=\"\\1 amd_iommu=off\"/' /etc/default/grub && sudo update-grub"
+            fi
+        fi
+    fi
+
+    # Multi-GPU: verify render nodes for each GPU
+    if [[ "${GPU_COUNT:-1}" -gt 1 ]]; then
+        render_count=0
+        for rn in /dev/dri/renderD*; do
+            [[ -e "$rn" ]] && ((render_count++)) || true
+        done
+        if [[ "$render_count" -ge "${GPU_COUNT:-1}" ]]; then
+            ai_ok "Found ${render_count} render nodes for ${GPU_COUNT} GPUs"
+        else
+            ai_warn "Only ${render_count} render node(s) found but GPU_COUNT=${GPU_COUNT}"
+            ai_warn "Some GPUs may not be usable. Check: ls -la /dev/dri/renderD*"
         fi
     fi
 
