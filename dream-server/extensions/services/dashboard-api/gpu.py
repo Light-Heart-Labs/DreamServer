@@ -95,8 +95,13 @@ def get_gpu_info_amd() -> Optional[GPUInfo]:
             if power_str:
                 power_w = round(int(power_str) / 1e6, 1)
 
-        gpu_name = _read_sysfs(f"{base}/product_name") or "AMD Radeon"
+        gpu_name = _read_sysfs(f"{base}/product_name")
         memory_type = "unified" if is_unified else "discrete"
+        if not gpu_name:
+            if is_unified:
+                gpu_name = get_gpu_tier(mem_total / (1024**3), memory_type)
+            else:
+                gpu_name = "AMD Radeon"
 
         mem_used_mb = mem_used // (1024 * 1024)
         mem_total_mb = mem_total // (1024 * 1024)
