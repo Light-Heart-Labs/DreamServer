@@ -226,6 +226,14 @@ class AgentHandler(BaseHTTPRequestHandler):
             result = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=5,
             )
+            # Handle container not yet created (e.g. during image pull)
+            if result.returncode != 0 and "no such container" in (result.stderr or "").lower():
+                json_response(self, 200, {
+                    "service_id": service_id,
+                    "logs": "Container is starting up — logs will appear once it is running.",
+                    "lines": 0,
+                })
+                return
             # docker logs writes to stderr for some containers
             output = result.stdout or result.stderr or ""
             json_response(self, 200, {
