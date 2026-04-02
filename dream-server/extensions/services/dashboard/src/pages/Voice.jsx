@@ -27,8 +27,7 @@ import {
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useVoiceAgent } from '../hooks/useVoiceAgent'
 
-// Auto-detect host for remote access
-const API_BASE = import.meta.env.VITE_API_URL || ''
+// Auth: nginx injects Authorization header for all /api/ requests (see nginx.conf).
 
 // Hook to check voice services status
 function useVoiceServices() {
@@ -37,7 +36,7 @@ function useVoiceServices() {
 
   const checkServices = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/voice/status`)
+      const response = await fetch(`/api/voice/status`)
       if (response.ok) {
         const data = await response.json()
         setServices(data)

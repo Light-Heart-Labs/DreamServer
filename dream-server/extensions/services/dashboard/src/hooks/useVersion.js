@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 
-// C4 fix: Use relative URL to go through nginx proxy (works for remote access)
-const API_URL = import.meta.env.VITE_API_URL || ''
+// Auth: nginx injects Authorization header for all /api/ requests (see nginx.conf).
 
 export function useVersion() {
   const [version, setVersion] = useState(null)
@@ -11,7 +10,7 @@ export function useVersion() {
   useEffect(() => {
     const checkVersion = async () => {
       try {
-        const response = await fetch(`${API_URL}/api/version`)
+        const response = await fetch(`/api/version`)
         if (!response.ok) {
           throw new Error('Failed to check version')
         }
@@ -43,10 +42,7 @@ export function useVersion() {
 }
 
 export async function triggerUpdate(action) {
-  // C4 fix: Use relative URL for remote access
-  const apiUrl = import.meta.env.VITE_API_URL || ''
-  
-  const response = await fetch(`${apiUrl}/api/update`, {
+  const response = await fetch(`/api/update`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action })

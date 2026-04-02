@@ -1,7 +1,8 @@
 import { Settings as SettingsIcon, Server, HardDrive, RefreshCw, Download, Loader2, Network } from 'lucide-react'
 import { useState, useEffect } from 'react'
 
-const API_BASE = import.meta.env.VITE_API_URL || ''
+// Auth: nginx injects Authorization header for all /api/ requests (see nginx.conf).
+// All fetches use relative URLs through the nginx proxy.
 
 // Fetch with timeout to avoid hanging requests
 const fetchJson = async (url, ms = 8000) => {
@@ -32,9 +33,9 @@ export default function Settings() {
       setLoading(true)
       setError(null)
       const [versionRes, storageRes, statusRes] = await Promise.all([
-        fetchJson(`${API_BASE}/api/version`),
-        fetchJson(`${API_BASE}/api/storage`),
-        fetchJson(`${API_BASE}/api/status`)
+        fetchJson(`/api/version`),
+        fetchJson(`/api/storage`),
+        fetchJson(`/api/status`)
       ])
 
       const versionData = versionRes.ok ? await versionRes.json() : {}
@@ -73,7 +74,7 @@ export default function Settings() {
 
   const handleExportConfig = async () => {
     try {
-      const data = statusCache || (await (await fetchJson(`${API_BASE}/api/status`)).json())
+      const data = statusCache || (await (await fetchJson(`/api/status`)).json())
       const config = {
         exported_at: new Date().toISOString(),
         version: data.version,
