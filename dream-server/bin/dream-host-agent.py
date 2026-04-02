@@ -3,6 +3,7 @@
 
 import argparse
 import atexit
+import collections
 import json
 import logging
 import os
@@ -12,6 +13,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from socketserver import ThreadingMixIn
@@ -22,11 +24,25 @@ MAX_BODY = 4096
 SUBPROCESS_TIMEOUT = 120
 logger = logging.getLogger("dream-host-agent")
 
+# Hardcoded fallback — used when core-service-ids.json is missing or unreadable.
+# Prevents fail-open: without this, a missing JSON file would allow anyone with
+# the API key to stop core services like llama-server or dashboard-api.
+_FALLBACK_CORE_IDS = frozenset({
+    "dashboard-api", "dashboard", "llama-server", "open-webui",
+    "litellm", "langfuse", "n8n", "openclaw", "opencode",
+    "perplexica", "searxng", "qdrant", "tts", "whisper",
+    "embeddings", "token-spy", "comfyui", "ape", "privacy-shield",
+})
+
 INSTALL_DIR: Path = Path()
-DASHBOARD_API_KEY: str = ""
+AGENT_API_KEY: str = ""
 GPU_BACKEND: str = "nvidia"
 TIER: str = "1"
 CORE_SERVICE_IDS: set = set()
+USER_EXTENSIONS_DIR: Path = Path()
+
+# Per-service locks to prevent concurrent start+stop races on the same service
+_service_locks: dict[str, threading.Lock] = collections.defaultdict(threading.Lock)
 
 
 def load_env(env_path: Path) -> dict:
@@ -46,11 +62,15 @@ def load_env(env_path: Path) -> dict:
 
 def load_core_service_ids(config_path: Path) -> set:
     if not config_path.exists():
-        logger.warning("core-service-ids.json not found at %s", config_path)
-        return set()
-    with open(config_path, encoding="utf-8") as f:
-        ids = json.load(f)
-    return set(ids) if isinstance(ids, list) else set()
+        logger.warning("core-service-ids.json not found at %s — using hardcoded fallback", config_path)
+        return set(_FALLBACK_CORE_IDS)
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            ids = json.load(f)
+        return set(ids) if isinstance(ids, list) else set(_FALLBACK_CORE_IDS)
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("Failed to read core-service-ids.json: %s — using fallback", e)
+        return set(_FALLBACK_CORE_IDS)
 
 
 def resolve_compose_flags() -> list:
@@ -98,7 +118,7 @@ def check_auth(handler) -> bool:
     if not auth.startswith("Bearer "):
         json_response(handler, 401, {"error": "Authorization header required"})
         return False
-    if not secrets.compare_digest(auth[7:], DASHBOARD_API_KEY):
+    if not secrets.compare_digest(auth[7:], AGENT_API_KEY):
         json_response(handler, 403, {"error": "Invalid API key"})
         return False
     return True
@@ -127,6 +147,12 @@ def validate_service_id(handler, body: dict) -> str | None:
         return None
     if sid in CORE_SERVICE_IDS:
         json_response(handler, 403, {"error": f"Cannot manage core service: {sid}"})
+        return None
+    # Verify the service_id maps to an actual installed extension
+    ext_dir = USER_EXTENSIONS_DIR / sid
+    manifest_exists = any((ext_dir / n).exists() for n in ("manifest.yaml", "manifest.yml", "manifest.json"))
+    if not ext_dir.is_dir() or not manifest_exists:
+        json_response(handler, 404, {"error": f"Extension not found: {sid}"})
         return None
     return sid
 
@@ -160,6 +186,10 @@ class AgentHandler(BaseHTTPRequestHandler):
         if service_id is None:
             return
         logger.info("%s extension: %s", action, service_id)
+        lock = _service_locks[service_id]
+        if not lock.acquire(blocking=False):
+            json_response(self, 409, {"error": f"Operation already in progress for {service_id}"})
+            return
         try:
             ok, err = docker_compose_action(service_id, action)
         except RuntimeError as exc:
@@ -168,6 +198,8 @@ class AgentHandler(BaseHTTPRequestHandler):
         except subprocess.CalledProcessError as exc:
             json_response(self, 500, {"error": f"Compose resolution failed: {exc.stderr[:300]}"})
             return
+        finally:
+            lock.release()
         if ok:
             json_response(self, 200, {"status": "ok", "service_id": service_id, "action": action})
         else:
@@ -183,7 +215,10 @@ class AgentHandler(BaseHTTPRequestHandler):
         service_id = validate_service_id(self, body)
         if service_id is None:
             return
-        tail = min(int(body.get("tail", 100)), 500)
+        try:
+            tail = min(max(int(body.get("tail", 100)), 1), 500)
+        except (ValueError, TypeError):
+            tail = 100
         try:
             # Use docker logs directly (faster than docker compose logs, no flag resolution needed)
             container_name = f"dream-{service_id}"
@@ -209,7 +244,7 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 
 
 def main():
-    global INSTALL_DIR, DASHBOARD_API_KEY, GPU_BACKEND, TIER, CORE_SERVICE_IDS
+    global INSTALL_DIR, AGENT_API_KEY, GPU_BACKEND, TIER, CORE_SERVICE_IDS, USER_EXTENSIONS_DIR
 
     parser = argparse.ArgumentParser(description="DreamServer Host Agent")
     parser.add_argument("--port", type=int, default=7710, help="Listen port (default: 7710)")
@@ -232,12 +267,20 @@ def main():
         sys.exit(1)
 
     env = load_env(INSTALL_DIR / ".env")
-    DASHBOARD_API_KEY = env.get("DASHBOARD_API_KEY", "")
-    if not DASHBOARD_API_KEY:
-        logger.error("DASHBOARD_API_KEY not set in .env")
+    # Prefer dedicated DREAM_AGENT_KEY; fall back to DASHBOARD_API_KEY for
+    # existing installs that haven't generated a separate key yet.
+    AGENT_API_KEY = env.get("DREAM_AGENT_KEY", "") or env.get("DASHBOARD_API_KEY", "")
+    if not AGENT_API_KEY:
+        logger.error("Neither DREAM_AGENT_KEY nor DASHBOARD_API_KEY set in .env")
         sys.exit(1)
     GPU_BACKEND = env.get("GPU_BACKEND", "nvidia")
     TIER = env.get("TIER", "1")
+
+    data_dir = Path(env.get("DREAM_DATA_DIR", str(Path.home() / ".dream-server")))
+    USER_EXTENSIONS_DIR = Path(env.get(
+        "DREAM_USER_EXTENSIONS_DIR",
+        str(data_dir / "user-extensions"),
+    ))
 
     port = args.port
     env_port = env.get("DREAM_AGENT_PORT", "")
