@@ -1,0 +1,12 @@
+# GPU overlay for AMD ROCm - swaps CPU image for HIPBlas version
+services:
+  localai:
+    image: localai/localai:v3.12.1-aio-gpu-hipblas
+    devices:
+      - /dev/dri:/dev/dri
+      - /dev/kfd:/dev/kfd
+    group_add:
+      - "${VIDEO_GID:-44}"
+      - "${RENDER_GID:-992}"
+    environment:
+      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-}

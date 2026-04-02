@@ -1,0 +1,11 @@
+# GPU overlay for NVIDIA - swaps CPU image for CUDA 12 version
+services:
+  localai:
+    image: localai/localai:v3.12.1-aio-gpu-nvidia-cuda-12
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
