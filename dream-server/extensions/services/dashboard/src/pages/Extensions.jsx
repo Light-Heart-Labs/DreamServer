@@ -74,6 +74,13 @@ export default function Extensions() {
     }
   }, [toast])
 
+  useEffect(() => {
+    if (!confirm) return
+    const handler = (e) => { if (e.key === 'Escape') setConfirm(null) }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [confirm])
+
   const fetchCatalog = async () => {
     try {
       if (!catalog) setLoading(true)
@@ -294,14 +301,14 @@ export default function Extensions() {
 
       {/* Confirmation dialog */}
       {confirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 max-w-md mx-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setConfirm(null)}>
+          <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 max-w-md mx-4" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Confirm action">
             <h3 className="text-lg font-semibold text-white mb-2">
               {confirm.action === 'uninstall' ? 'Remove' : confirm.action.charAt(0).toUpperCase() + confirm.action.slice(1)} Extension
             </h3>
             <p className="text-sm text-zinc-400 mb-4">{confirm.message}</p>
             <div className="flex justify-end gap-3">
-              <button onClick={() => setConfirm(null)} className="px-4 py-2 text-sm text-zinc-400 hover:text-white transition-colors">Cancel</button>
+              <button onClick={() => setConfirm(null)} autoFocus className="px-4 py-2 text-sm text-zinc-400 hover:text-white transition-colors">Cancel</button>
               <button
                 onClick={() => handleMutation(confirm.ext.id, confirm.action)}
                 className={`px-4 py-2 text-sm rounded-lg transition-colors ${
@@ -491,6 +498,13 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
 }
 
 function DetailModal({ ext, gpuBackend, onClose }) {
+  useEffect(() => {
+    if (!ext) return
+    const handler = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [ext, onClose])
+
   if (!ext) return null
 
   const iconName = ext.features?.[0]?.icon
@@ -506,6 +520,7 @@ function DetailModal({ ext, gpuBackend, onClose }) {
       <div
         className="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-lg max-h-[80vh] overflow-y-auto mx-4"
         onClick={e => e.stopPropagation()}
+        role="dialog" aria-modal="true" aria-label={ext.name}
       >
         {/* Header */}
         <div className="sticky top-0 bg-zinc-900 border-b border-zinc-800 p-4 flex items-center justify-between rounded-t-xl">
@@ -521,7 +536,7 @@ function DetailModal({ ext, gpuBackend, onClose }) {
               </span>
             </div>
           </div>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 transition-colors p-1">
+          <button onClick={onClose} autoFocus className="text-zinc-500 hover:text-zinc-300 transition-colors p-1">
             <X size={18} />
           </button>
         </div>
@@ -645,6 +660,12 @@ function ConsoleModal({ ext, onClose }) {
   const isNearBottom = useRef(true)
 
   useEffect(() => {
+    const handler = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [onClose])
+
+  useEffect(() => {
     let active = true
     let fails = 0
 
@@ -727,6 +748,7 @@ function ConsoleModal({ ext, onClose }) {
       <div
         className="bg-[#0d0d11] border border-zinc-700 rounded-xl w-full max-w-3xl h-[70vh] flex flex-col mx-4"
         onClick={e => e.stopPropagation()}
+        role="dialog" aria-modal="true" aria-label={`${ext.name} logs`}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
           <div className="flex items-center gap-2">
@@ -739,7 +761,7 @@ function ConsoleModal({ ext, onClose }) {
               <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" title="Live" />
             )}
           </div>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 transition-colors p-1">
+          <button onClick={onClose} autoFocus className="text-zinc-500 hover:text-zinc-300 transition-colors p-1">
             <X size={16} />
           </button>
         </div>
