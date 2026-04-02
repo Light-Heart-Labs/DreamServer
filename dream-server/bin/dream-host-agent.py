@@ -99,7 +99,8 @@ def _precreate_data_dirs(service_id: str):
         # PyYAML not available — skip pre-creation
         logger.debug("PyYAML not available, skipping data dir pre-creation for %s", service_id)
         return
-    except Exception:
+    except Exception as e:
+        logger.debug("Failed to parse compose.yaml for %s: %s", service_id, e)
         return
     if not isinstance(data, dict):
         return
@@ -121,7 +122,12 @@ def _precreate_data_dirs(service_id: str):
         for vol in volumes:
             vol_str = str(vol).split(":")[0]
             if vol_str.startswith("./data/") or vol_str.startswith("data/"):
-                dir_path = INSTALL_DIR / vol_str.lstrip("./")
+                dir_path = (INSTALL_DIR / vol_str.lstrip("./")).resolve()
+                try:
+                    dir_path.relative_to(INSTALL_DIR.resolve())
+                except ValueError:
+                    logger.warning("Skipping out-of-tree volume path in %s: %s", service_id, vol_str)
+                    continue
                 try:
                     dir_path.mkdir(parents=True, exist_ok=True)
                     if uid is not None and os.getuid() == 0:
