@@ -48,8 +48,8 @@ detect_backend() {
         fi
     done
 
-    # 4. Default to nvidia (installer would have set .env anyway).
-    echo "nvidia"
+    # 4. No GPU detected — default to cpu.
+    echo "cpu"
 }
 
 BACKEND=$(detect_backend)
@@ -129,6 +129,9 @@ if [[ "$BACKEND" == "amd" ]]; then
             else
                 warn "/dev/kfd not found — ROCm containers may fail"
             fi
+            if [[ -d /dev/dri ]]; then
+                pass "AMD GPU device nodes available (/dev/dri)"
+            fi
             GPU_FOUND=true
             break
         fi
@@ -136,7 +139,7 @@ if [[ "$BACKEND" == "amd" ]]; then
     if [[ "$GPU_FOUND" == "false" ]]; then
         warn "No AMD GPU detected via sysfs"
     fi
-else
+elif [[ "$BACKEND" == "nvidia" ]]; then
     # NVIDIA: check nvidia-smi
     if command -v nvidia-smi &> /dev/null; then
         GPU_INFO=""
@@ -156,6 +159,8 @@ else
     else
         warn "nvidia-smi not found — NVIDIA GPU features unavailable"
     fi
+else
+    pass "CPU mode — no GPU runtime required"
 fi
 log ""
 
