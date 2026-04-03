@@ -583,7 +583,6 @@ def get_gpu_info_amd_detailed() -> Optional[list[IndividualGPU]]:
             topo_entry = topo_by_index.get(idx, {})
             gpu_uuid = topo_entry.get("uuid", f"card{idx}")
             gpu_name = topo_entry.get("name") or _read_sysfs(f"{base}/product_name") or "AMD Radeon"
-            card_id = base.split("/")[-2]  # "card0", "card1", …
             mem_used_mb = mem_used // (1024 * 1024)
             mem_total_mb = mem_total // (1024 * 1024)
 
