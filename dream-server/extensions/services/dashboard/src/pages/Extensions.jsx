@@ -152,7 +152,7 @@ export default function Extensions() {
   // Derive unique categories from features
   const categories = ['all', ...new Set(
     extensions
-      .map(ext => ext.features?.[0]?.category)
+      .flatMap(ext => ext.features?.map(f => f.category) || [])
       .filter(Boolean)
   )]
 
@@ -680,7 +680,7 @@ function ConsoleModal({ ext, onClose }) {
     const poll = async () => {
       if (!active) return
       try {
-        const res = await fetch(`${API_BASE}/api/extensions/${ext.id}/logs`, {
+        const res = await fetch(`/api/extensions/${ext.id}/logs`, {
           method: 'POST',
           signal: AbortSignal.timeout(8000),
         })
