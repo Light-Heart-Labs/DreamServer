@@ -1,7 +1,5 @@
 """Tests for AMD multi-GPU detection, hwmon helpers, and topology-aware naming."""
 
-import base64
-import json
 from unittest.mock import patch
 
 from gpu import (
