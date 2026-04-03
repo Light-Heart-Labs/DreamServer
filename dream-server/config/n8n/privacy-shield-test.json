@@ -1,0 +1,33 @@
+{
+  "name": "Privacy-Shield Proxy Test",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "content": "## Privacy-Shield Proxy Test\n\nThis is a template workflow for sending a test payload through Privacy Shield, verifying PII is redacted, and logging a compliance report.\n\nCustomize the nodes below to match your setup.",
+        "height": 200,
+        "width": 400
+      },
+      "id": "note",
+      "name": "Setup Instructions",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [440, 140]
+    }
+  ],
+  "connections": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateId": "privacy-shield-test"
+  },
+  "tags": []
+}

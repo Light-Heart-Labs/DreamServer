@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-03T09:13:20Z",
+  "generated_at": "2026-04-03T09:14:27Z",
   "schema_version": "1.0.0",
   "extensions": [
     {
@@ -759,12 +759,12 @@
     {
       "id": "fooocus",
       "name": "Fooocus",
-      "description": "Simplified Stable Diffusion interface inspired by Midjourney's ease of use.",
+      "description": "Simplified Stable Diffusion interface inspired by Midjourney's ease of use. Not yet supported for local deployment — requires RunPod cloud platform.",
       "category": "optional",
       "gpu_backends": [
         "nvidia"
       ],
-      "compose_file": "compose.yaml",
+      "compose_file": "",
       "depends_on": [],
       "port": 7865,
       "external_port_default": 7865,

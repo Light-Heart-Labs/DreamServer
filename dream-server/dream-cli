@@ -17,7 +17,13 @@ fi
 #=============================================================================
 # Configuration
 #=============================================================================
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_source="${BASH_SOURCE[0]}"
+while [[ -L "$_source" ]]; do
+    _dir="$(cd "$(dirname "$_source")" && pwd)"
+    _source="$(readlink "$_source")"
+    [[ "$_source" != /* ]] && _source="$_dir/$_source"
+done
+SCRIPT_DIR="$(cd "$(dirname "$_source")" && pwd)"
 INSTALL_DIR="${DREAM_HOME:-$HOME/dream-server}"
 VERSION="2.0.0"
 
@@ -46,7 +52,7 @@ _env_set() {
         # Use awk to avoid sed delimiter collisions with values containing | / or =
         awk -v k="$key" -v v="$val" '{
             if (index($0, k "=") == 1) print k "=" v; else print
-        }' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+        }' "$file" > "${file}.tmp" && cat "${file}.tmp" > "$file" && rm -f "${file}.tmp"
     else
         echo "${key}=${val}" >> "$file"
     fi
@@ -286,16 +292,21 @@ get_compose_flags() {
     # Fallback: resolve dynamically
     local base_flags
     if [[ -x "$INSTALL_DIR/scripts/resolve-compose-stack.sh" ]]; then
+        # Resolver handles base + GPU overlay + extension compose files
         base_flags=$("$INSTALL_DIR/scripts/resolve-compose-stack.sh" \
             --script-dir "$INSTALL_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}")
+        echo "$base_flags"
     elif [[ -f "$INSTALL_DIR/docker-compose.base.yml" ]]; then
         base_flags="-f docker-compose.base.yml"
+        local ext_flags
+        ext_flags=$(sr_compose_flags)
+        echo "$base_flags $ext_flags"
     else
         base_flags="-f docker-compose.yml"
+        local ext_flags
+        ext_flags=$(sr_compose_flags)
+        echo "$base_flags $ext_flags"
     fi
-    local ext_flags
-    ext_flags=$(sr_compose_flags)
-    echo "$base_flags $ext_flags"
 }
 
 #=============================================================================
@@ -523,6 +534,7 @@ cmd_logs() {
 cmd_restart() {
     check_install
     cd "$INSTALL_DIR"
+    load_env
 
     local service="${1:-}"
     local flags_str
@@ -545,6 +557,7 @@ cmd_restart() {
 cmd_stop() {
     check_install
     cd "$INSTALL_DIR"
+    load_env
 
     local service="${1:-}"
     local flags_str
@@ -567,6 +580,7 @@ cmd_stop() {
 cmd_start() {
     check_install
     cd "$INSTALL_DIR"
+    load_env
 
     local service="${1:-}"
     local flags_str
@@ -1058,7 +1072,7 @@ warnings = []
 if pf_checks:
     print(f"{CYAN}Preflight Checks:{NC}")
     for check in pf_checks:
-        name = check.get('name', 'Unknown')
+        name = check.get('name', check.get('id', 'Unknown'))
         status = check.get('status', 'unknown')
         message = check.get('message', '')
 
@@ -1303,6 +1317,9 @@ cmd_disable() {
 
 cmd_list() {
     sr_load
+    load_env 2>/dev/null || true
+    local active_flags
+    active_flags=$(get_compose_flags)
     echo -e "${BLUE}━━━ Available Services ━━━${NC}"
     printf "%-20s %-12s %-10s\n" "SERVICE" "CATEGORY" "STATUS"
     printf "%-20s %-12s %-10s\n" "───────" "────────" "──────"
@@ -1312,7 +1329,7 @@ cmd_list() {
         local status
         if [[ "$cat" == "core" ]]; then
             status="always-on"
-        elif [[ -n "$cf" && -f "$cf" ]]; then
+        elif [[ -n "$cf" && -f "$cf" && "$active_flags" == *"${cf#"$INSTALL_DIR/"}"* ]]; then
             status="enabled"
         else
             status="disabled"

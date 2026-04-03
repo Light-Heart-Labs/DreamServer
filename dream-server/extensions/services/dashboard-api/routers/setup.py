@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -170,7 +171,7 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
     payload = {
         "model": model,
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": request.message}],
-        "max_tokens": 256, "temperature": 0.7
+        "max_tokens": 2048, "temperature": 0.7
     }
 
     try:
@@ -180,6 +181,8 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
                 if resp.status == 200:
                     data = await resp.json()
                     response_text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    # Strip thinking model tags — content may contain <think>...</think> blocks
+                    response_text = re.sub(r'<think>[\s\S]*?</think>\s*', '', response_text).strip()
                     return {"response": response_text, "success": True}
                 else:
                     error_text = await resp.text()

@@ -26,8 +26,10 @@ if [[ ${EUID:-$(id -u)} -ne 0 ]]; then _SUDO="sudo"; fi
 # Sets: PKG_MANAGER, DISTRO_ID, DISTRO_ID_LIKE
 detect_pkg_manager() {
     if [[ -f /etc/os-release ]]; then
+        local _saved_version="${VERSION:-}"
         # shellcheck source=/dev/null
         source /etc/os-release
+        VERSION="$_saved_version"
         DISTRO_ID="${ID:-unknown}"
         DISTRO_ID_LIKE="${ID_LIKE:-}"
     else

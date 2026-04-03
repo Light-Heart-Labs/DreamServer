@@ -23,13 +23,31 @@ _VALID_ACTIONS = {"check", "backup", "update"}
 _GITHUB_HEADERS = {"Accept": "application/vnd.github.v3+json"}
 
 
+def _read_current_version() -> str:
+    """Read installed version from .env (preferred) or .version file."""
+    env_file = Path(INSTALL_DIR) / ".env"
+    if env_file.exists():
+        try:
+            for line in env_file.read_text().splitlines():
+                if line.startswith("DREAM_VERSION="):
+                    return line.split("=", 1)[1].strip().strip("\"'")
+        except OSError:
+            pass
+    version_file = Path(INSTALL_DIR) / ".version"
+    if version_file.exists():
+        try:
+            raw = version_file.read_text().strip()
+            if raw:
+                return raw
+        except OSError:
+            pass
+    return "0.0.0"
+
+
 @router.get("/api/version", response_model=VersionInfo, dependencies=[Depends(verify_api_key)])
 async def get_version():
     """Get current Dream Server version and check for updates (non-blocking)."""
-    version_file = Path(INSTALL_DIR) / ".version"
-    current = await asyncio.to_thread(
-        lambda: version_file.read_text().strip() if version_file.exists() else "0.0.0"
-    )
+    current = await asyncio.to_thread(_read_current_version)
 
     result = {"current": current, "latest": None, "update_available": False, "changelog_url": None, "checked_at": datetime.now(timezone.utc).isoformat() + "Z"}
 
@@ -73,10 +91,7 @@ async def get_release_manifest():
             "checked_at": datetime.now(timezone.utc).isoformat() + "Z"
         }
     except (httpx.HTTPError, httpx.TimeoutException, json.JSONDecodeError, OSError):
-        version_file = Path(INSTALL_DIR) / ".version"
-        current = await asyncio.to_thread(
-            lambda: version_file.read_text().strip() if version_file.exists() else "0.0.0"
-        )
+        current = await asyncio.to_thread(_read_current_version)
         return {
             "releases": [{"version": current, "date": datetime.now(timezone.utc).isoformat() + "Z", "title": f"Dream Server {current}", "changelog": "Release information unavailable. Check GitHub directly.", "url": "https://github.com/Light-Heart-Labs/DreamServer/releases", "prerelease": False}],
             "checked_at": datetime.now(timezone.utc).isoformat() + "Z",

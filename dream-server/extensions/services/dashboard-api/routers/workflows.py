@@ -1,5 +1,6 @@
 """Workflow management endpoints — n8n integration."""
 
+import asyncio
 import json
 import logging
 import re
@@ -82,10 +83,11 @@ async def check_workflow_dependencies(deps: list[str], health_cache: dict[str, b
 async def check_n8n_available() -> bool:
     """Check if n8n is responding."""
     try:
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3)) as session:
-            async with session.get(f"{N8N_URL}/healthz") as resp:
-                return resp.status < 500
-    except (aiohttp.ClientError, OSError):
+        from helpers import _get_aio_session
+        session = await _get_aio_session()
+        async with session.get(f"{N8N_URL}/healthz") as resp:
+            return resp.status < 500
+    except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
         return False
 
 

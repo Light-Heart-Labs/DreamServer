@@ -107,10 +107,10 @@ if command -v docker >/dev/null 2>&1; then
 fi
 
 if command -v curl >/dev/null 2>&1; then
-    if curl -sf --max-time 10 "http://localhost:${_DASHBOARD_PORT}" >/dev/null 2>&1; then
+    if curl -sf --max-time 10 "http://127.0.0.1:${_DASHBOARD_PORT}" >/dev/null 2>&1; then
         DASHBOARD_HTTP="true"
     fi
-    if curl -sf --max-time 10 "http://localhost:${_WEBUI_PORT}" >/dev/null 2>&1; then
+    if curl -sf --max-time 10 "http://127.0.0.1:${_WEBUI_PORT}" >/dev/null 2>&1; then
         WEBUI_HTTP="true"
     fi
 fi
@@ -150,7 +150,7 @@ collect_extension_diagnostics() {
                 local port="${SERVICE_PORTS[$sid]:-0}"
                 local health="${SERVICE_HEALTH[$sid]:-}"
                 if [[ "$port" != "0" && -n "$health" ]]; then
-                    if curl -sf --max-time 5 "http://localhost:${port}${health}" >/dev/null 2>&1; then
+                    if curl -sf --max-time 5 "http://127.0.0.1:${port}${health}" >/dev/null 2>&1; then
                         health_status="healthy"
                     else
                         health_status="unhealthy"
@@ -272,10 +272,14 @@ if runtime["docker_daemon"] and not runtime["webui_http"]:
 # Extension-specific hints
 for ext in ext_diagnostics:
     ext_id = ext.get("id", "unknown")
+    container_state = ext.get("container_state", "unknown")
     issues = ext.get("issues", [])
     for issue in issues:
         if issue == "container_not_running":
-            fix_hints.append(f"Extension {ext_id}: container not running. Run 'dream start {ext_id}'.")
+            if container_state == "not_found":
+                fix_hints.append(f"Extension {ext_id}: not installed (image not built). Skipped by installer or disabled by tier system.")
+            else:
+                fix_hints.append(f"Extension {ext_id}: container not running. Run 'dream start {ext_id}'.")
         elif issue == "health_check_failed":
             fix_hints.append(f"Extension {ext_id}: health check failed. Check logs with 'docker logs dream-{ext_id}'.")
         elif issue == "gpu_backend_incompatible":

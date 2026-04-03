@@ -306,10 +306,11 @@ def test_check_n8n_available_success(test_client):
 
     session_mock = AsyncMock()
     session_mock.get = MagicMock(return_value=ctx)
-    session_mock.__aenter__ = AsyncMock(return_value=session_mock)
-    session_mock.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("routers.workflows.aiohttp.ClientSession", return_value=session_mock):
+    async def fake_get_session():
+        return session_mock
+
+    with patch("helpers._get_aio_session", side_effect=fake_get_session):
         import asyncio
         result = asyncio.get_event_loop().run_until_complete(wf_mod.check_n8n_available())
 
@@ -322,10 +323,11 @@ def test_check_n8n_available_failure(test_client):
 
     session_mock = AsyncMock()
     session_mock.get = MagicMock(side_effect=aiohttp.ClientError("refused"))
-    session_mock.__aenter__ = AsyncMock(return_value=session_mock)
-    session_mock.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("routers.workflows.aiohttp.ClientSession", return_value=session_mock):
+    async def fake_get_session():
+        return session_mock
+
+    with patch("helpers._get_aio_session", side_effect=fake_get_session):
         import asyncio
         result = asyncio.get_event_loop().run_until_complete(wf_mod.check_n8n_available())
 
@@ -384,10 +386,11 @@ def test_n8n_status_available(test_client):
 
     session_mock = AsyncMock()
     session_mock.get = MagicMock(return_value=ctx)
-    session_mock.__aenter__ = AsyncMock(return_value=session_mock)
-    session_mock.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("routers.workflows.aiohttp.ClientSession", return_value=session_mock):
+    async def fake_get_session():
+        return session_mock
+
+    with patch("helpers._get_aio_session", side_effect=fake_get_session):
         resp = test_client.get("/api/workflows/n8n/status", headers=test_client.auth_headers)
 
     assert resp.status_code == 200
@@ -400,10 +403,11 @@ def test_n8n_status_unavailable(test_client):
     """GET /api/workflows/n8n/status → 200, returns available=False when n8n is down."""
     session_mock = AsyncMock()
     session_mock.get = MagicMock(side_effect=aiohttp.ClientError("refused"))
-    session_mock.__aenter__ = AsyncMock(return_value=session_mock)
-    session_mock.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("routers.workflows.aiohttp.ClientSession", return_value=session_mock):
+    async def fake_get_session():
+        return session_mock
+
+    with patch("helpers._get_aio_session", side_effect=fake_get_session):
         resp = test_client.get("/api/workflows/n8n/status", headers=test_client.auth_headers)
 
     assert resp.status_code == 200

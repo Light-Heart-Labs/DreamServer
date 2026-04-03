@@ -1,0 +1,33 @@
+{
+  "name": "RAG Demo",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "content": "## RAG Demo\n\nThis is a template workflow for retrieval-augmented generation.\n\nCustomize the nodes below to match your setup.",
+        "height": 200,
+        "width": 400
+      },
+      "id": "note",
+      "name": "Setup Instructions",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [440, 140]
+    }
+  ],
+  "connections": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateId": "rag-demo"
+  },
+  "tags": []
+}

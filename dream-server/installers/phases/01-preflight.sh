@@ -28,7 +28,9 @@ if [[ ! -f /etc/os-release ]]; then
     error "Unsupported OS. This installer requires Linux."
 fi
 
+_installer_version="$VERSION"
 source /etc/os-release
+VERSION="$_installer_version"
 log "Detected OS: $PRETTY_NAME"
 
 # Check for required tools

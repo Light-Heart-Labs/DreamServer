@@ -1,0 +1,33 @@
+{
+  "name": "Scheduled Web Search",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "content": "## Scheduled Web Search\n\nThis is a template workflow for running search queries on a cron schedule, summarizing top results with the LLM, and posting a digest.\n\nCustomize the nodes below to match your setup.",
+        "height": 200,
+        "width": 400
+      },
+      "id": "note",
+      "name": "Setup Instructions",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [440, 140]
+    }
+  ],
+  "connections": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateId": "scheduled-web-search"
+  },
+  "tags": []
+}

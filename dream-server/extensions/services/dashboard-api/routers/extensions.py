@@ -20,7 +20,7 @@ import yaml
 from fastapi import APIRouter, Depends, HTTPException
 
 from config import (
-    AGENT_URL, CORE_SERVICE_IDS, DASHBOARD_API_KEY, DATA_DIR,
+    AGENT_URL, CORE_SERVICE_IDS, DATA_DIR,
     DREAM_AGENT_KEY, EXTENSION_CATALOG, EXTENSIONS_DIR,
     EXTENSIONS_LIBRARY_DIR, GPU_BACKEND, SERVICES, USER_EXTENSIONS_DIR,
 )
@@ -786,4 +786,9 @@ def uninstall_extension(service_id: str, api_key: str = Depends(verify_api_key))
             raise HTTPException(status_code=500, detail=f"Failed to remove extension files: {e}")
 
     logger.info("Uninstalled extension: %s", service_id)
-    return {"id": service_id, "action": "uninstalled"}
+    return {
+        "id": service_id,
+        "action": "uninstalled",
+        "message": "Extension uninstalled. Docker volumes may remain — run 'docker volume ls' to check.",
+        "cleanup_hint": f"To remove orphaned volumes: docker volume ls --filter 'name={service_id}' -q | xargs docker volume rm",
+    }

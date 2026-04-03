@@ -243,9 +243,9 @@ MODELS_INI_EOF
         if [[ "$_BOOTSTRAP_ACTIVE" == "true" ]]; then
             _env_file="$INSTALL_DIR/.env"
             if [[ -f "$_env_file" ]]; then
-                awk -v v="$GGUF_FILE" '{ if (index($0, "GGUF_FILE=") == 1) print "GGUF_FILE=" v; else print }'                     "$_env_file" > "${_env_file}.tmp" && mv "${_env_file}.tmp" "$_env_file"
-                awk -v v="$LLM_MODEL" '{ if (index($0, "LLM_MODEL=") == 1) print "LLM_MODEL=" v; else print }'                     "$_env_file" > "${_env_file}.tmp" && mv "${_env_file}.tmp" "$_env_file"
-                awk -v v="$MAX_CONTEXT" '{ if (index($0, "MAX_CONTEXT=") == 1) print "MAX_CONTEXT=" v; else print }'                     "$_env_file" > "${_env_file}.tmp" && mv "${_env_file}.tmp" "$_env_file"
+                awk -v v="$GGUF_FILE" '{ if (index($0, "GGUF_FILE=") == 1) print "GGUF_FILE=" v; else print }'                     "$_env_file" > "${_env_file}.tmp" && cat "${_env_file}.tmp" > "$_env_file" && rm -f "${_env_file}.tmp"
+                awk -v v="$LLM_MODEL" '{ if (index($0, "LLM_MODEL=") == 1) print "LLM_MODEL=" v; else print }'                     "$_env_file" > "${_env_file}.tmp" && cat "${_env_file}.tmp" > "$_env_file" && rm -f "${_env_file}.tmp"
+                awk -v v="$MAX_CONTEXT" '{ if (index($0, "MAX_CONTEXT=") == 1) print "MAX_CONTEXT=" v; else print }'                     "$_env_file" > "${_env_file}.tmp" && cat "${_env_file}.tmp" > "$_env_file" && rm -f "${_env_file}.tmp"
                 ai_ok "Patched .env for bootstrap model ($GGUF_FILE)"
             fi
         fi

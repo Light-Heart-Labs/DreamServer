@@ -24,6 +24,19 @@ EXTENSIONS_DIR = Path(
 DEFAULT_SERVICE_HOST = os.environ.get("SERVICE_HOST", "host.docker.internal")
 GPU_BACKEND = os.environ.get("GPU_BACKEND", "nvidia")
 
+
+def _read_env_from_file(key: str) -> str:
+    """Read a variable from the .env file when not available in process environment."""
+    env_path = Path(INSTALL_DIR) / ".env"
+    try:
+        for line in env_path.read_text().splitlines():
+            if line.startswith(f"{key}="):
+                return line.split("=", 1)[1].strip().strip("\"'")
+    except OSError:
+        pass
+    return ""
+
+
 # --- Manifest Loading ---
 
 
@@ -100,7 +113,11 @@ def load_extension_manifests(
 
                 ext_port_env = service.get("external_port_env")
                 ext_port_default = service.get("external_port_default", service.get("port", 0))
-                external_port = int(os.environ.get(ext_port_env, str(ext_port_default))) if ext_port_env else int(ext_port_default)
+                if ext_port_env:
+                    val = os.environ.get(ext_port_env) or _read_env_from_file(ext_port_env)
+                    external_port = int(val) if val else int(ext_port_default)
+                else:
+                    external_port = int(ext_port_default)
 
                 services[service_id] = {
                     "host": host,

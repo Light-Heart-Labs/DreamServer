@@ -1,6 +1,7 @@
 """Tests for privacy router endpoints."""
 
 import asyncio
+import urllib.error
 
 import aiohttp
 from unittest.mock import patch, AsyncMock, MagicMock
@@ -34,18 +35,12 @@ def test_privacy_shield_stats_authenticated(test_client):
 
 
 # ---------------------------------------------------------------------------
-# /api/privacy-shield/status — container running + service healthy
+# /api/privacy-shield/status — health-based detection
 # ---------------------------------------------------------------------------
 
 
-def test_privacy_shield_status_container_running_healthy(test_client, monkeypatch):
-    """GET /api/privacy-shield/status with container running and healthy service."""
-    async def _fake_subprocess(*args, **kwargs):
-        proc = MagicMock()
-        proc.communicate = AsyncMock(return_value=(b"dream-privacy-shield\n", b""))
-        proc.returncode = 0
-        return proc
-
+def test_privacy_shield_status_healthy(test_client):
+    """GET /api/privacy-shield/status when health endpoint responds 200."""
     resp_mock = AsyncMock()
     resp_mock.status = 200
 
@@ -59,8 +54,7 @@ def test_privacy_shield_status_container_running_healthy(test_client, monkeypatc
     session_ctx.__aenter__ = AsyncMock(return_value=session_mock)
     session_ctx.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("asyncio.create_subprocess_exec", side_effect=_fake_subprocess), \
-         patch("routers.privacy.aiohttp.ClientSession", return_value=session_ctx):
+    with patch("routers.privacy.aiohttp.ClientSession", return_value=session_ctx):
         resp = test_client.get("/api/privacy-shield/status", headers=test_client.auth_headers)
 
     assert resp.status_code == 200
@@ -69,15 +63,15 @@ def test_privacy_shield_status_container_running_healthy(test_client, monkeypatc
     assert data["container_running"] is True
 
 
-def test_privacy_shield_status_container_not_running(test_client):
-    """GET /api/privacy-shield/status with no container."""
-    async def _fake_subprocess(*args, **kwargs):
-        proc = MagicMock()
-        proc.communicate = AsyncMock(return_value=(b"", b""))
-        proc.returncode = 0
-        return proc
+def test_privacy_shield_status_not_running(test_client):
+    """GET /api/privacy-shield/status when health endpoint fails."""
+    session_mock = MagicMock()
+    session_mock.get = MagicMock(side_effect=aiohttp.ClientError("refused"))
+    session_ctx = AsyncMock()
+    session_ctx.__aenter__ = AsyncMock(return_value=session_mock)
+    session_ctx.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("asyncio.create_subprocess_exec", side_effect=_fake_subprocess):
+    with patch("routers.privacy.aiohttp.ClientSession", return_value=session_ctx):
         resp = test_client.get("/api/privacy-shield/status", headers=test_client.auth_headers)
 
     assert resp.status_code == 200
@@ -87,19 +81,18 @@ def test_privacy_shield_status_container_not_running(test_client):
 
 
 # ---------------------------------------------------------------------------
-# /api/privacy-shield/toggle — enable/disable
+# /api/privacy-shield/toggle — host agent API
 # ---------------------------------------------------------------------------
 
 
-def test_privacy_shield_toggle_enable_success(test_client, monkeypatch):
-    """POST /api/privacy-shield/toggle enable=True → success."""
-    async def _fake_subprocess(*args, **kwargs):
-        proc = MagicMock()
-        proc.communicate = AsyncMock(return_value=(b"started\n", b""))
-        proc.returncode = 0
-        return proc
+def test_privacy_shield_toggle_enable_success(test_client):
+    """POST /api/privacy-shield/toggle enable=True → success via host agent."""
+    mock_resp = MagicMock()
+    mock_resp.status = 200
+    mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+    mock_resp.__exit__ = MagicMock(return_value=False)
 
-    with patch("asyncio.create_subprocess_exec", side_effect=_fake_subprocess):
+    with patch("routers.privacy.urllib.request.urlopen", return_value=mock_resp):
         resp = test_client.post(
             "/api/privacy-shield/toggle",
             json={"enable": True},
@@ -112,15 +105,14 @@ def test_privacy_shield_toggle_enable_success(test_client, monkeypatch):
     assert "started" in data["message"].lower() or "active" in data["message"].lower()
 
 
-def test_privacy_shield_toggle_disable_success(test_client, monkeypatch):
-    """POST /api/privacy-shield/toggle enable=False → success."""
-    async def _fake_subprocess(*args, **kwargs):
-        proc = MagicMock()
-        proc.communicate = AsyncMock(return_value=(b"stopped\n", b""))
-        proc.returncode = 0
-        return proc
+def test_privacy_shield_toggle_disable_success(test_client):
+    """POST /api/privacy-shield/toggle enable=False → success via host agent."""
+    mock_resp = MagicMock()
+    mock_resp.status = 200
+    mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+    mock_resp.__exit__ = MagicMock(return_value=False)
 
-    with patch("asyncio.create_subprocess_exec", side_effect=_fake_subprocess):
+    with patch("routers.privacy.urllib.request.urlopen", return_value=mock_resp):
         resp = test_client.post(
             "/api/privacy-shield/toggle",
             json={"enable": False},
@@ -133,15 +125,14 @@ def test_privacy_shield_toggle_disable_success(test_client, monkeypatch):
     assert "stopped" in data["message"].lower()
 
 
-def test_privacy_shield_toggle_enable_failure(test_client, monkeypatch):
-    """POST /api/privacy-shield/toggle enable=True when docker compose fails."""
-    async def _fake_subprocess(*args, **kwargs):
-        proc = MagicMock()
-        proc.communicate = AsyncMock(return_value=(b"", b"compose error"))
-        proc.returncode = 1
-        return proc
+def test_privacy_shield_toggle_agent_failure(test_client):
+    """POST /api/privacy-shield/toggle when host agent returns failure."""
+    mock_resp = MagicMock()
+    mock_resp.status = 500
+    mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+    mock_resp.__exit__ = MagicMock(return_value=False)
 
-    with patch("asyncio.create_subprocess_exec", side_effect=_fake_subprocess):
+    with patch("routers.privacy.urllib.request.urlopen", return_value=mock_resp):
         resp = test_client.post(
             "/api/privacy-shield/toggle",
             json={"enable": True},
@@ -153,9 +144,10 @@ def test_privacy_shield_toggle_enable_failure(test_client, monkeypatch):
     assert data["success"] is False
 
 
-def test_privacy_shield_toggle_docker_not_found(test_client):
-    """POST /api/privacy-shield/toggle when docker is not installed."""
-    with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError("docker")):
+def test_privacy_shield_toggle_agent_unreachable(test_client):
+    """POST /api/privacy-shield/toggle when host agent is not reachable."""
+    with patch("routers.privacy.urllib.request.urlopen",
+               side_effect=urllib.error.URLError("Connection refused")):
         resp = test_client.post(
             "/api/privacy-shield/toggle",
             json={"enable": True},
@@ -165,12 +157,13 @@ def test_privacy_shield_toggle_docker_not_found(test_client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["success"] is False
-    assert "Docker not available" in data["message"]
+    assert "host agent" in data["message"].lower()
 
 
 def test_privacy_shield_toggle_timeout(test_client):
     """POST /api/privacy-shield/toggle when operation times out."""
-    with patch("asyncio.create_subprocess_exec", side_effect=asyncio.TimeoutError()):
+    with patch("routers.privacy.urllib.request.urlopen",
+               side_effect=asyncio.TimeoutError()):
         resp = test_client.post(
             "/api/privacy-shield/toggle",
             json={"enable": True},
@@ -185,7 +178,8 @@ def test_privacy_shield_toggle_timeout(test_client):
 
 def test_privacy_shield_toggle_os_error(test_client):
     """POST /api/privacy-shield/toggle when OS error occurs."""
-    with patch("asyncio.create_subprocess_exec", side_effect=OSError("broken")):
+    with patch("routers.privacy.urllib.request.urlopen",
+               side_effect=OSError("broken")):
         resp = test_client.post(
             "/api/privacy-shield/toggle",
             json={"enable": True},

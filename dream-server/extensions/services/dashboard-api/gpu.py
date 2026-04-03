@@ -410,6 +410,44 @@ def _build_uuid_service_map(assignment: dict) -> dict[str, list[str]]:
     return result
 
 
+def _infer_gpu_services_from_processes() -> dict[str, list[str]]:
+    """Fallback: infer GPU service assignment from nvidia-smi compute processes.
+
+    Used when GPU_ASSIGNMENT_JSON_B64 is not set (single-GPU setups).
+    Maps GPU UUID -> list of likely service names based on running processes.
+    """
+    success, output = run_command([
+        "nvidia-smi",
+        "--query-compute-apps=gpu_uuid,pid,used_memory",
+        "--format=csv,noheader,nounits",
+    ])
+    if not success or not output:
+        return {}
+
+    # Collect UUIDs that have active compute processes
+    active_uuids: dict[str, int] = {}  # uuid -> total used memory MB
+    for line in output.strip().splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) >= 3:
+            uuid = parts[0]
+            try:
+                mem = int(parts[2])
+            except ValueError:
+                mem = 0
+            active_uuids[uuid] = active_uuids.get(uuid, 0) + mem
+
+    if not active_uuids:
+        return {}
+
+    # For each active GPU, attribute to llama-server (the primary GPU consumer)
+    result: dict[str, list[str]] = {}
+    for uuid, mem_mb in active_uuids.items():
+        if mem_mb > 100:
+            result[uuid] = ["llama-server"]
+
+    return result
+
+
 # ============================================================================
 # Per-GPU detailed detection
 # ============================================================================
@@ -432,7 +470,10 @@ def get_gpu_info_nvidia_detailed() -> Optional[list[IndividualGPU]]:
         return None
 
     assignment = decode_gpu_assignment()
-    uuid_service_map = _build_uuid_service_map(assignment) if assignment else {}
+    if assignment:
+        uuid_service_map = _build_uuid_service_map(assignment)
+    else:
+        uuid_service_map = _infer_gpu_services_from_processes()
 
     gpus: list[IndividualGPU] = []
     for line in lines:

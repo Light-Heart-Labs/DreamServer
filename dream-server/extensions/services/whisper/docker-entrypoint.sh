@@ -10,7 +10,7 @@ apply_vad_patch() {
     local stt_file="$1"
     echo "[dream-whisper] Applying VAD patch to $stt_file"
 
-    if [[ ! -f "$stt_file" ]]; then
+    if [ ! -f "$stt_file" ]; then
         echo "[dream-whisper] Warning: STT file not found: $stt_file"
         return 1
     fi
@@ -143,7 +143,7 @@ fi
 
 STT_FILE=$($PYTHON_CMD -c "import speaches.routers.stt as m; print(m.__file__)" 2>/dev/null || true)
 
-if [[ -n "$STT_FILE" ]]; then
+if [ -n "$STT_FILE" ]; then
     # Apply VAD patch with safe multi-line handling
     apply_vad_patch "$STT_FILE"
 else

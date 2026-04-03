@@ -187,8 +187,14 @@ async def preflight_gpu():
 @app.get("/api/preflight/required-ports")
 async def preflight_required_ports():
     """Return the list of service ports for preflight checking (no auth required)."""
+    # When health cache exists, filter out services not in the compose stack
+    cached = get_cached_services()
+    deployed = {s.id for s in cached if s.status != "not_deployed"} if cached else None
+
     ports = []
     for sid, cfg in SERVICES.items():
+        if deployed is not None and sid not in deployed:
+            continue
         ext_port = cfg.get("external_port", cfg.get("port", 0))
         if ext_port:
             ports.append({"port": ext_port, "service": cfg.get("name", sid)})
@@ -305,6 +311,8 @@ async def api_status(api_key: str = Depends(verify_api_key)):
             "version": app.version, "tier": "Unknown",
             "cpu": {"percent": 0, "temp_c": None},
             "ram": {"used_gb": 0, "total_gb": 0, "percent": 0},
+            "disk": {"used_gb": 0, "total_gb": 0, "percent": 0},
+            "system": {"uptime": 0, "hostname": os.environ.get("HOSTNAME", "dream-server")},
             "inference": {"tokensPerSecond": 0, "lifetimeTokens": 0,
                           "loadedModel": None, "contextSize": None},
             "manifest_errors": MANIFEST_ERRORS,
@@ -321,7 +329,7 @@ async def _build_api_status() -> dict:
     # Fan out: sync helpers in threads + async health checks simultaneously
     (
         gpu_info, model_info, bootstrap_info, uptime,
-        cpu_metrics, ram_metrics,
+        cpu_metrics, ram_metrics, disk_info,
         service_statuses, loaded_model,
     ) = await asyncio.gather(
         asyncio.to_thread(get_gpu_info),
@@ -330,6 +338,7 @@ async def _build_api_status() -> dict:
         asyncio.to_thread(get_uptime),
         asyncio.to_thread(get_cpu_metrics),
         asyncio.to_thread(get_ram_metrics),
+        asyncio.to_thread(get_disk_usage),
         _get_services(),
         get_loaded_model(),
     )
@@ -369,11 +378,11 @@ async def _build_api_status() -> dict:
             gpu_data["powerDraw"] = gpu_info.power_w
         gpu_data["memoryLabel"] = "VRAM Partition" if gpu_info.memory_type == "unified" else "VRAM"
 
-    services_data = [{"name": s.name, "status": s.status, "port": s.external_port, "uptime": None} for s in service_statuses]
+    services_data = [{"name": s.name, "status": s.status, "port": s.external_port, "uptime": uptime if s.status == "healthy" else None} for s in service_statuses]
 
     model_data = None
     if model_info:
-        model_data = {"name": model_info.name, "tokensPerSecond": None, "contextLength": model_info.context_length}
+        model_data = {"name": model_info.name, "tokensPerSecond": llama_metrics_data.get("tokens_per_second") or None, "contextLength": context_size or model_info.context_length}
 
     bootstrap_data = None
     if bootstrap_info.active:
@@ -401,6 +410,8 @@ async def _build_api_status() -> dict:
         "bootstrap": bootstrap_data, "uptime": uptime,
         "version": app.version, "tier": tier,
         "cpu": cpu_metrics, "ram": ram_metrics,
+        "disk": {"used_gb": disk_info.used_gb, "total_gb": disk_info.total_gb, "percent": disk_info.percent},
+        "system": {"uptime": uptime, "hostname": os.environ.get("HOSTNAME", "dream-server")},
         "inference": {
             "tokensPerSecond": llama_metrics_data.get("tokens_per_second", 0),
             "lifetimeTokens": llama_metrics_data.get("lifetime_tokens", 0),

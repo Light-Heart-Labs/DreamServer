@@ -1,13 +1,16 @@
 """Privacy Shield management endpoints."""
 
 import asyncio
+import json
 import logging
 import os
+import urllib.error
+import urllib.request
 
 import aiohttp
 from fastapi import APIRouter, Depends
 
-from config import SERVICES, INSTALL_DIR
+from config import AGENT_URL, DREAM_AGENT_KEY, SERVICES
 from models import PrivacyShieldStatus, PrivacyShieldToggle
 from security import verify_api_key
 
@@ -23,25 +26,16 @@ async def get_privacy_shield_status(api_key: str = Depends(verify_api_key)):
     shield_port = int(os.environ.get("SHIELD_PORT", str(_ps.get("port", 0))))
     shield_url = f"http://{_ps.get('host', 'privacy-shield')}:{shield_port}"
 
-    container_running = False
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "docker", "ps", "--filter", "name=dream-privacy-shield", "--format", "{{.Names}}",
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
-        container_running = "dream-privacy-shield" in stdout.decode()
-    except (FileNotFoundError, asyncio.TimeoutError, OSError):
-        logger.warning("Failed to check privacy-shield container status")
-
+    # Check health directly — no Docker socket needed
     service_healthy = False
-    if container_running:
-        try:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=2)) as session:
-                async with session.get(f"{shield_url}/health") as resp:
-                    service_healthy = resp.status == 200
-        except (asyncio.TimeoutError, aiohttp.ClientError):
-            logger.warning("Failed to reach privacy-shield health endpoint")
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3)) as session:
+            async with session.get(f"{shield_url}/health") as resp:
+                service_healthy = resp.status == 200
+    except (asyncio.TimeoutError, aiohttp.ClientError, OSError):
+        logger.debug("Privacy-shield health check failed")
+
+    container_running = service_healthy
 
     return PrivacyShieldStatus(
         enabled=container_running and service_healthy,
@@ -55,30 +49,28 @@ async def get_privacy_shield_status(api_key: str = Depends(verify_api_key)):
 
 @router.post("/api/privacy-shield/toggle")
 async def toggle_privacy_shield(request: PrivacyShieldToggle, api_key: str = Depends(verify_api_key)):
-    """Enable or disable Privacy Shield."""
+    """Enable or disable Privacy Shield via host agent."""
+    action = "start" if request.enable else "stop"
+
+    def _call_agent():
+        url = f"{AGENT_URL}/v1/extension/{action}"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {DREAM_AGENT_KEY}",
+        }
+        data = json.dumps({"service_id": "privacy-shield"}).encode()
+        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.status == 200
+
     try:
-        if request.enable:
-            proc = await asyncio.create_subprocess_exec(
-                "docker", "compose", "up", "-d", "privacy-shield",
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd=INSTALL_DIR
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
-            if proc.returncode == 0:
-                return {"success": True, "message": "Privacy Shield started. PII scrubbing is now active."}
-            else:
-                return {"success": False, "message": f"Failed to start: {stderr.decode()}"}
-        else:
-            proc = await asyncio.create_subprocess_exec(
-                "docker", "compose", "stop", "privacy-shield",
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd=INSTALL_DIR
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
-            if proc.returncode == 0:
-                return {"success": True, "message": "Privacy Shield stopped."}
-            else:
-                return {"success": False, "message": f"Failed to stop: {stderr.decode()}"}
-    except FileNotFoundError:
-        return {"success": False, "message": "Docker not available", "note": "Running in development mode without Docker"}
+        ok = await asyncio.to_thread(_call_agent)
+        if ok:
+            msg = "Privacy Shield started. PII scrubbing is now active." if request.enable else "Privacy Shield stopped."
+            return {"success": True, "message": msg}
+        return {"success": False, "message": f"Host agent returned failure for {action}"}
+    except urllib.error.URLError:
+        return {"success": False, "message": "Host agent not reachable", "note": "Ensure the dream host agent is running"}
     except asyncio.TimeoutError:
         return {"success": False, "message": "Operation timed out"}
     except OSError:

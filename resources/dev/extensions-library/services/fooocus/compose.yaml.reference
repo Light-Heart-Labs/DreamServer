@@ -1,3 +1,6 @@
+# NOT FUNCTIONAL: runpod/fooocus image requires RunPod cloud platform.
+# Renamed from compose.yaml to compose.yaml.reference so it is not copied
+# during install or discovered by resolve-compose-stack.sh.
 services:
   fooocus:
     image: runpod/fooocus:2.5.3

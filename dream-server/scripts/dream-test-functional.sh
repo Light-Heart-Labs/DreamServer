@@ -30,6 +30,9 @@ if [[ -f "$_FT_DIR/lib/service-registry.sh" ]]; then
     sr_resolve_ports
 fi
 
+# Ensure SERVICE_PORTS is declared even if service-registry.sh was not sourced
+declare -A SERVICE_PORTS 2>/dev/null || true
+
 # Service endpoints — resolved from registry
 LLM_URL="${LLM_URL:-http://localhost:${SERVICE_PORTS[llama-server]:-11434}}"
 WHISPER_URL="${WHISPER_URL:-http://localhost:${SERVICE_PORTS[whisper]:-9000}}"
