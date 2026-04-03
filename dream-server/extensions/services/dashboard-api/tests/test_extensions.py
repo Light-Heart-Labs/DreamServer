@@ -395,6 +395,28 @@ class TestInstallExtension:
         assert (user_dir / "my-ext").is_dir()
         assert (user_dir / "my-ext" / "compose.yaml").exists()
 
+    def test_install_cleans_broken_directory(self, test_client, monkeypatch, tmp_path):
+        """Install succeeds when dest dir exists but has no compose files (broken state)."""
+        lib_dir = _setup_library_ext(tmp_path, "my-ext")
+        # Create a broken user extension directory (no compose.yaml or compose.yaml.disabled)
+        user_dir = tmp_path / "user"
+        user_dir.mkdir(exist_ok=True)
+        broken_dir = user_dir / "my-ext"
+        broken_dir.mkdir(exist_ok=True)
+        (broken_dir / "manifest.yaml").write_text("leftover: true\n")
+        _patch_mutation_config(monkeypatch, tmp_path, lib_dir=lib_dir,
+                               user_dir=user_dir)
+
+        resp = test_client.post(
+            "/api/extensions/my-ext/install",
+            headers=test_client.auth_headers,
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["action"] == "installed"
+        assert (user_dir / "my-ext" / "compose.yaml").exists()
+
     def test_install_already_installed_409(self, test_client, monkeypatch, tmp_path):
         """409 when extension is already installed."""
         lib_dir = _setup_library_ext(tmp_path, "my-ext")
@@ -513,6 +535,21 @@ class TestEnableExtension:
             headers=test_client.auth_headers,
         )
         assert resp.status_code == 409
+
+    def test_enable_allows_core_service_dependency(self, test_client, monkeypatch, tmp_path):
+        """Enable succeeds when depends_on includes a core service."""
+        manifest = {"service": {"depends_on": ["open-webui"]}}
+        user_dir = _setup_user_ext(tmp_path, "my-ext", enabled=False,
+                                   manifest=manifest)
+        _patch_mutation_config(monkeypatch, tmp_path, user_dir=user_dir)
+
+        resp = test_client.post(
+            "/api/extensions/my-ext/enable",
+            headers=test_client.auth_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["action"] == "enabled"
 
     def test_enable_missing_dependency_400(self, test_client, monkeypatch, tmp_path):
         """400 when a dependency is not enabled."""
