@@ -243,7 +243,7 @@ start_llm() {
             # Use awk index() instead of sed to avoid delimiter collisions
             awk -v k="$MODEL_ENV_KEY" -v v="$model" '{
                 if (index($0, k "=") == 1) print k "=" v; else print
-            }' "$env_file" > "${env_file}.tmp" && mv "${env_file}.tmp" "$env_file"
+            }' "$env_file" > "${env_file}.tmp" && cat "${env_file}.tmp" > "$env_file" && rm -f "${env_file}.tmp"
         else
             echo "${MODEL_ENV_KEY}=$model" >> "$env_file"
         fi
