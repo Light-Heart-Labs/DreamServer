@@ -2759,10 +2759,6 @@ _gpu_reassign() {
 
     # AMD-specific: write render node, ROCR_VISIBLE_DEVICES, gfx overrides
     if [[ "$backend" == "amd" ]]; then
-        local llama_indices
-        llama_indices=$(echo "$assignment_json" | jq -r '
-            [.gpu_assignment.services.llama_server.gpus[]] as $uuids |
-            "" ' 2>/dev/null)
         # Extract llama GPU indices from assignment by matching UUIDs to topology
         local llama_idx_csv=""
         while IFS= read -r _uuid; do
