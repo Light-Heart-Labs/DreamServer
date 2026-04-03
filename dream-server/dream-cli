@@ -2252,7 +2252,7 @@ _gpu_status() {
                 if [[ -f "$hwmon_dir/power1_average" ]]; then
                     pw_uw=$(cat "$hwmon_dir/power1_average" 2>/dev/null) || pw_uw=0
                 fi
-                if [[ "$pw_uw" -eq 0 || ! "$pw_uw" =~ ^[0-9]+$ ]] && [[ -f "$hwmon_dir/power1_input" ]]; then
+                if [[ ! "$pw_uw" =~ ^[0-9]+$ || "$pw_uw" -eq 0 ]] && [[ -f "$hwmon_dir/power1_input" ]]; then
                     pw_uw=$(cat "$hwmon_dir/power1_input" 2>/dev/null) || pw_uw=0
                 fi
                 if [[ "$pw_uw" =~ ^[0-9]+$ && "$pw_uw" -gt 0 ]]; then
