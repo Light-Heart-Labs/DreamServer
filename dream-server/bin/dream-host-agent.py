@@ -210,6 +210,26 @@ def validate_service_id(handler, body: dict) -> str | None:
     return sid
 
 
+def _resolve_container_name(service_id: str) -> str:
+    """Resolve actual container name via Docker Compose labels.
+
+    Falls back to dream-{service_id} convention if label lookup fails.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--filter",
+             f"label=com.docker.compose.service={service_id}",
+             "--format", "{{.Names}}"],
+            capture_output=True, text=True, timeout=5,
+        )
+        names = result.stdout.strip().splitlines()
+        if names:
+            return names[0]
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+    return f"dream-{service_id}"
+
+
 class AgentHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         logger.info(fmt, *args)
@@ -228,6 +248,8 @@ class AgentHandler(BaseHTTPRequestHandler):
             self._handle_logs()
         elif self.path == "/v1/extension/setup-hook":
             self._handle_setup_hook()
+        elif self.path == "/v1/service/logs":
+            self._handle_service_logs()
         else:
             json_response(self, 404, {"error": "Not found"})
 
@@ -300,6 +322,54 @@ class AgentHandler(BaseHTTPRequestHandler):
             json_response(self, 503, {"error": "Log fetch timed out"})
         except Exception as exc:
             json_response(self, 500, {"error": f"Failed to fetch logs: {exc}"})
+
+
+    def _handle_service_logs(self):
+        """Read-only log access for ANY service (core + extensions).
+
+        Unlike _handle_logs() which uses validate_service_id() and blocks
+        core services, this endpoint only validates the service_id format.
+        """
+        if not check_auth(self):
+            return
+        body = read_json_body(self)
+        if body is None:
+            return
+
+        sid = body.get("service_id", "")
+        if not isinstance(sid, str) or not SERVICE_ID_RE.match(sid):
+            json_response(self, 400, {"error": "Invalid service_id"})
+            return
+
+        try:
+            tail = min(max(int(body.get("tail", 100)), 1), 500)
+        except (ValueError, TypeError):
+            tail = 100
+
+        container_name = _resolve_container_name(sid)
+
+        try:
+            result = subprocess.run(
+                ["docker", "logs", "--tail", str(tail), container_name],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode != 0 and "no such container" in (result.stderr or "").lower():
+                json_response(self, 200, {
+                    "service_id": sid,
+                    "container_name": container_name,
+                    "logs": "Container is not running.",
+                    "lines": 0,
+                })
+                return
+            output = result.stdout or result.stderr or ""
+            json_response(self, 200, {
+                "service_id": sid,
+                "container_name": container_name,
+                "logs": output[-50000:],
+                "lines": tail,
+            })
+        except subprocess.TimeoutExpired:
+            json_response(self, 503, {"error": "Log fetch timed out"})
 
 
     def _handle_setup_hook(self):
