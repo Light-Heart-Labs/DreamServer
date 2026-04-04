@@ -8,7 +8,9 @@ from collections import deque
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from security import verify_api_key
 
 from gpu import (
     decode_gpu_assignment,
@@ -93,7 +95,7 @@ def _build_aggregate(gpus: list[IndividualGPU], backend: str) -> GPUInfo:
 # Endpoints
 # ============================================================================
 
-@router.get("/api/gpu/detailed", response_model=MultiGPUStatus)
+@router.get("/api/gpu/detailed", response_model=MultiGPUStatus, dependencies=[Depends(verify_api_key)])
 async def gpu_detailed():
     """Per-GPU metrics with service assignment info (cached 3 s)."""
     now = time.monotonic()
@@ -125,7 +127,7 @@ async def gpu_detailed():
     return result
 
 
-@router.get("/api/gpu/topology")
+@router.get("/api/gpu/topology", dependencies=[Depends(verify_api_key)])
 async def gpu_topology():
     """GPU topology from config/gpu-topology.json (written by installer / dream-cli). Cached 300 s."""
     now = time.monotonic()
@@ -144,7 +146,7 @@ async def gpu_topology():
     return topo
 
 
-@router.get("/api/gpu/history")
+@router.get("/api/gpu/history", dependencies=[Depends(verify_api_key)])
 async def gpu_history():
     """Rolling 5-minute per-GPU metrics history sampled every 5 s."""
     if not _GPU_HISTORY:
