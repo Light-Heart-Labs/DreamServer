@@ -36,6 +36,85 @@ LOG_TAG="[BOOTSTRAP-UPGRADE]"
 log()  { echo "$LOG_TAG $(date '+%H:%M:%S') $*"; }
 fail() { log "ERROR: $*"; exit 1; }
 
+STATUS_FILE="$INSTALL_DIR/data/bootstrap-status.json"
+
+# Cross-platform file size (GNU stat on Linux/WSL2, BSD stat on macOS)
+# IMPORTANT: Try GNU stat -c %s FIRST (Linux). stat -f on Linux returns filesystem
+# block count (not file size). BSD stat -f %z is the macOS fallback.
+file_size() {
+    if stat -c %s "$1" 2>/dev/null; then
+        return
+    fi
+    stat -f %z "$1" 2>/dev/null || echo 0
+}
+
+# Get total size via HTTP HEAD request
+get_remote_size() {
+    local url="$1"
+    curl -sI -L --connect-timeout 10 "$url" 2>/dev/null \
+        | grep -i '^content-length:' | tail -1 | tr -dc '0-9'
+}
+
+# Write status JSON (atomic via mv)
+write_status() {
+    local status="$1" percent="${2:-}" downloaded="${3:-0}" total="${4:-0}" speed="${5:-0}" eta="${6:-}"
+    cat > "$STATUS_FILE.tmp" << STATUSEOF
+{
+  "status": "$status",
+  "model": "$FULL_GGUF_FILE",
+  "percent": ${percent:-null},
+  "bytesDownloaded": $downloaded,
+  "bytesTotal": $total,
+  "speedBytesPerSec": $speed,
+  "eta": "${eta:-}",
+  "updatedAt": "$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date '+%Y-%m-%dT%H:%M:%SZ')"
+}
+STATUSEOF
+    mv "$STATUS_FILE.tmp" "$STATUS_FILE"
+}
+
+# Background monitor: polls .part file size every 2s
+monitor_download() {
+    local part_file="$1" total_bytes="$2"
+    local prev_bytes=0 prev_time
+    prev_time=$(date +%s)
+
+    while [[ -f "$part_file" ]]; do
+        sleep 2
+        [[ -f "$part_file" ]] || break
+
+        local current_bytes
+        current_bytes=$(file_size "$part_file")
+        local now
+        now=$(date +%s)
+        local elapsed=$((now - prev_time))
+
+        local speed=0
+        if [[ $elapsed -gt 0 && $current_bytes -ge $prev_bytes ]]; then
+            speed=$(( (current_bytes - prev_bytes) / elapsed ))
+        fi
+
+        local percent="null"
+        local eta=""
+        if [[ $total_bytes -gt 0 ]]; then
+            percent=$(awk "BEGIN { printf \"%.1f\", ($current_bytes / $total_bytes) * 100 }")
+            if [[ $speed -gt 0 ]]; then
+                local remaining=$(( total_bytes - current_bytes ))
+                local eta_secs=$(( remaining / speed ))
+                local eta_min=$(( eta_secs / 60 ))
+                local eta_sec=$(( eta_secs % 60 ))
+                eta="${eta_min}m ${eta_sec}s"
+            else
+                eta="calculating..."
+            fi
+        fi
+
+        write_status "downloading" "$percent" "$current_bytes" "$total_bytes" "$speed" "$eta"
+        prev_bytes=$current_bytes
+        prev_time=$now
+    done
+}
+
 log "Starting full model download: $FULL_GGUF_FILE"
 log "URL: $FULL_GGUF_URL"
 log "Target: $MODELS_DIR/$FULL_GGUF_FILE"
@@ -43,9 +122,23 @@ log "Target: $MODELS_DIR/$FULL_GGUF_FILE"
 # ── Phase 1: Download the full model ──
 mkdir -p "$MODELS_DIR"
 
+# Get total file size for progress calculation
+TOTAL_BYTES=$(get_remote_size "$FULL_GGUF_URL")
+[[ -z "$TOTAL_BYTES" ]] && TOTAL_BYTES=0
+log "Expected file size: $TOTAL_BYTES bytes"
+
+# Write initial status
+write_status "starting" "" 0 "$TOTAL_BYTES" 0 "calculating..."
+
 if [[ -f "$MODELS_DIR/$FULL_GGUF_FILE" ]]; then
     log "Full model already exists on disk, skipping download"
+    write_status "complete"
 else
+    # Start background download monitor
+    monitor_download "$MODELS_DIR/$FULL_GGUF_FILE.part" "$TOTAL_BYTES" &
+    _monitor_pid=$!
+    trap 'kill $_monitor_pid 2>/dev/null || true' EXIT TERM INT
+
     # Download with resume support, retry up to 3 times
     _dl_success=false
     for _attempt in 1 2 3; do
@@ -59,23 +152,32 @@ else
         log "Download attempt $_attempt failed"
     done
 
+    # Stop background monitor
+    kill $_monitor_pid 2>/dev/null || true
+    trap - EXIT TERM INT
+
     if [[ "$_dl_success" != "true" ]]; then
         rm -f "$MODELS_DIR/$FULL_GGUF_FILE.part"
+        write_status "failed"
         fail "Download failed after 3 attempts. Bootstrap model will continue running."
     fi
 
+    write_status "complete"
     log "Download complete: $FULL_GGUF_FILE"
 fi
 
 # ── Phase 2: Verify integrity (if SHA256 provided) ──
 if [[ -n "$FULL_GGUF_SHA256" ]] && command -v sha256sum &>/dev/null; then
+    write_status "verifying" 100 "$TOTAL_BYTES" "$TOTAL_BYTES" 0 ""
     log "Verifying SHA256..."
     ACTUAL_HASH=$(sha256sum "$MODELS_DIR/$FULL_GGUF_FILE" 2>/dev/null | awk '{print $1}')
     if [[ "$ACTUAL_HASH" != "$FULL_GGUF_SHA256" ]]; then
         rm -f "$MODELS_DIR/$FULL_GGUF_FILE"
+        write_status "failed"
         fail "SHA256 mismatch (expected: $FULL_GGUF_SHA256, got: $ACTUAL_HASH). Deleted corrupt file."
     fi
     log "SHA256 verified"
+    write_status "complete"
 fi
 
 # ── Phase 3: Update .env ──
@@ -171,6 +273,71 @@ if command -v docker &>/dev/null && docker ps --filter name=dream-llama-server -
     else
         log "WARNING: llama-server health check timed out. The model may still be loading."
         log "Check: docker logs dream-llama-server"
+    fi
+elif [[ -f "$INSTALL_DIR/data/.llama-server.pid" ]]; then
+    # macOS native llama-server (Metal) — restart with new model
+    log "Detected native llama-server (macOS Metal mode)"
+
+    LLAMA_SERVER_BIN="$INSTALL_DIR/bin/llama-server"
+    LLAMA_SERVER_PID_FILE="$INSTALL_DIR/data/.llama-server.pid"
+    LLAMA_SERVER_LOG="$INSTALL_DIR/data/llama-server.log"
+
+    if [[ ! -x "$LLAMA_SERVER_BIN" ]]; then
+        log "WARNING: llama-server binary not found at $LLAMA_SERVER_BIN. Cannot hot-swap."
+        log "Run './dream-macos.sh restart' to load the new model manually."
+    else
+        # Read updated model config from .env
+        _gguf_file=$(grep '^GGUF_FILE=' "$ENV_FILE" | cut -d= -f2 | tr -d '"'"'")
+        _ctx_size=$(grep '^CTX_SIZE=' "$ENV_FILE" | cut -d= -f2 | tr -d '"'"'" || echo "")
+        [[ -z "$_ctx_size" ]] && _ctx_size=$(grep '^MAX_CONTEXT=' "$ENV_FILE" | cut -d= -f2 | tr -d '"'"'" || echo "")
+        [[ -z "$_ctx_size" ]] && _ctx_size="16384"
+        _model_path="$MODELS_DIR/${_gguf_file}"
+
+        if [[ ! -f "$_model_path" ]]; then
+            log "WARNING: Model file not found at $_model_path"
+        else
+            # Stop existing native llama-server
+            _old_pid=$(cat "$LLAMA_SERVER_PID_FILE" 2>/dev/null | tr -d '[:space:]')
+            if [[ -n "$_old_pid" ]] && kill -0 "$_old_pid" 2>/dev/null; then
+                log "Stopping native llama-server (PID $_old_pid)..."
+                kill "$_old_pid" 2>/dev/null || true
+                sleep 2
+                # Force kill if still running
+                if kill -0 "$_old_pid" 2>/dev/null; then
+                    kill -9 "$_old_pid" 2>/dev/null || true
+                fi
+            fi
+
+            # Relaunch with new model
+            log "Starting native llama-server with ${_gguf_file}..."
+            "$LLAMA_SERVER_BIN" \
+                --host 0.0.0.0 --port 8080 \
+                --model "$_model_path" \
+                --ctx-size "$_ctx_size" \
+                --n-gpu-layers 999 \
+                --metrics \
+                > "$LLAMA_SERVER_LOG" 2>&1 &
+            _new_pid=$!
+            echo "$_new_pid" > "$LLAMA_SERVER_PID_FILE"
+
+            # Wait for health
+            log "Waiting for native llama-server health..."
+            _healthy=false
+            for _i in $(seq 1 60); do
+                if curl -sf --max-time 5 "http://127.0.0.1:8080/health" &>/dev/null; then
+                    _healthy=true
+                    break
+                fi
+                sleep 5
+            done
+
+            if $_healthy; then
+                log "SUCCESS: Native llama-server running with ${_gguf_file} (PID $_new_pid)"
+            else
+                log "WARNING: Native llama-server health check timed out. Model may still be loading."
+                log "Check: tail -50 $LLAMA_SERVER_LOG"
+            fi
+        fi
     fi
 else
     log "Docker services not running. Config updated — full model will load on next start."

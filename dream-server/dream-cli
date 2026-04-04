@@ -409,6 +409,20 @@ cmd_status() {
         nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader,nounits | \
             awk -F', ' '{printf "  %s: %s%% GPU | %sMB/%sMB VRAM | %s°C\n", $1, $2, $3, $4, $5}'
     fi
+
+    # Bootstrap status
+    local bootstrap_file="$INSTALL_DIR/data/bootstrap-status.json"
+    if [[ -f "$bootstrap_file" ]]; then
+        local bs_status
+        bs_status=$(grep -o '"status"[[:space:]]*:[[:space:]]*"[^"]*"' "$bootstrap_file" | sed -n '1p' | sed 's/.*"status"[[:space:]]*:[[:space:]]*"//' | sed 's/"//')
+        if [[ "$bs_status" == "downloading" || "$bs_status" == "starting" || "$bs_status" == "verifying" ]]; then
+            local bs_model bs_percent
+            bs_model=$(grep -o '"model"[[:space:]]*:[[:space:]]*"[^"]*"' "$bootstrap_file" | sed -n '1p' | sed 's/.*"model"[[:space:]]*:[[:space:]]*"//' | sed 's/"//')
+            bs_percent=$(grep -o '"percent"[[:space:]]*:[[:space:]]*[0-9.]*' "$bootstrap_file" | sed -n '1p' | sed 's/.*:[[:space:]]*//')
+            log ""
+            log "  Model Upgrade: $bs_model (${bs_percent:-?}% downloaded)"
+        fi
+    fi
 }
 
 cmd_status_json() {
