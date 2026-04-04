@@ -62,7 +62,7 @@ wsl --status
 
 **Verify GPU in Docker:**
 ```powershell
-docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
+docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi
 ```
 
 ---

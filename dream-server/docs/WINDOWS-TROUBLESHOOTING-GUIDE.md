@@ -261,7 +261,7 @@ wsl nvidia-smi
 
 **Symptoms:**
 - `wsl nvidia-smi` works (shows GPU)
-- `docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi` fails
+- `docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi` fails
 
 **Solution:**
 1. Open Docker Desktop
@@ -492,7 +492,7 @@ wsl nvidia-smi
 
 ### 5. Check GPU in Docker
 ```powershell
-docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
+docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi
 ```
 ✅ Should show the same GPU information
 

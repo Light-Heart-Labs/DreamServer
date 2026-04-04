@@ -405,7 +405,7 @@ if ($dryRun) {
                 Write-AIWarn "NVIDIA GPU passthrough unavailable -- falling back to CPU-only inference."
                 Write-AI "  Inference will be slower but functional. To fix GPU passthrough:"
                 Write-AI "  1. Restart Docker Desktop and WSL: wsl --shutdown"
-                Write-AI "  2. Verify: docker run --rm --gpus all nvidia/cuda:12.0-base-ubuntu22.04 nvidia-smi"
+                Write-AI "  2. Verify: docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi"
                 $composeFlags += @("-f", "docker-compose.cpu.yml")
             } else {
                 $composeFlags += @("-f", "docker-compose.nvidia.yml")

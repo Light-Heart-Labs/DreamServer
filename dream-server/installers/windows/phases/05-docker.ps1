@@ -106,7 +106,7 @@ if ($dryRun) {
         Write-AI "Testing NVIDIA GPU passthrough in Docker (non-fatal)..."
         $prevEAP = $ErrorActionPreference
         $ErrorActionPreference = "SilentlyContinue"
-        $gpuTestOutput = & docker run --rm --gpus all nvidia/cuda:12.0-base-ubuntu22.04 nvidia-smi 2>&1
+        $gpuTestOutput = & docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi 2>&1
         $gpuTestExit = $LASTEXITCODE
         $ErrorActionPreference = $prevEAP
 
@@ -123,7 +123,7 @@ if ($dryRun) {
             Start-Sleep -Seconds 5
 
             $ErrorActionPreference = "SilentlyContinue"
-            $retryOutput = & docker run --rm --gpus all nvidia/cuda:12.0-base-ubuntu22.04 nvidia-smi 2>&1
+            $retryOutput = & docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi 2>&1
             $retryExit = $LASTEXITCODE
             $ErrorActionPreference = $prevEAP
 
@@ -162,7 +162,7 @@ sudo nvidia-ctk runtime configure --runtime=docker
 
                 # Step 3: Final retry
                 $ErrorActionPreference = "SilentlyContinue"
-                $finalOutput = & docker run --rm --gpus all nvidia/cuda:12.0-base-ubuntu22.04 nvidia-smi 2>&1
+                $finalOutput = & docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi 2>&1
                 $finalExit = $LASTEXITCODE
                 $ErrorActionPreference = $prevEAP
 

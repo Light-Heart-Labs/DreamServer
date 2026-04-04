@@ -40,7 +40,7 @@ nvidia-smi
 
 ### 5. Check GPU in Docker
 ```powershell
-docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
+docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi
 # Should show GPU info inside container
 ```
 
@@ -244,7 +244,7 @@ nvidia-smi
 wsl -e nvidia-smi
 
 # 3. Docker GPU access
-docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
+docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi
 
 # 4. llama-server health (after Dream Server starts)
 curl http://localhost:8080/health

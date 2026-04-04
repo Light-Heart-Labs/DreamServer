@@ -185,7 +185,7 @@ By following these guidelines, you can optimize Docker Desktop for running local
 1. Verify WSL2 backend is enabled
 2. Verify WSL2 integration for Ubuntu is on
 3. Restart Docker Desktop
-4. Test: `docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi`
+4. Test: `docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi`
 
 ### Issue: WSL2 distro won't start
 

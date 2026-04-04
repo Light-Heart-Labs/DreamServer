@@ -15,7 +15,7 @@ wsl
 nvidia-smi
 
 # In Docker container
-docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
+docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi
 ```
 
 All three should show your GPU. If any fail, see troubleshooting below.
@@ -103,7 +103,7 @@ wsl cat /proc/driver/nvidia/version
 
 **Symptoms:**
 - `wsl nvidia-smi` shows GPU ✓
-- `docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi` fails ✗
+- `docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi` fails ✗
 
 **Cause:** Docker Desktop not using WSL2 backend.
 
@@ -242,7 +242,7 @@ Before reporting issues, verify:
 - [ ] Docker Desktop is running
 - [ ] Docker Desktop uses WSL2 backend (Settings → General)
 - [ ] WSL integration enabled for Ubuntu (Settings → Resources → WSL Integration)
-- [ ] `docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi` shows GPU
+- [ ] `docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi` shows GPU
 
 ---
 
