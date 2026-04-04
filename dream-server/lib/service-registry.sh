@@ -92,7 +92,13 @@ ext_dir = Path(sys.argv[1])
 if not ext_dir.exists():
     sys.exit(0)
 
-for service_dir in sorted(ext_dir.iterdir()):
+# Collect service dirs from both built-in and dashboard-installed extensions
+_all_service_dirs = sorted(ext_dir.iterdir())
+user_ext_dir = ext_dir.parent.parent / "data" / "user-extensions"
+if user_ext_dir.exists():
+    _all_service_dirs += sorted(user_ext_dir.iterdir())
+
+for service_dir in _all_service_dirs:
     if not service_dir.is_dir():
         continue
     manifest_path = None
