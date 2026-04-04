@@ -1316,7 +1316,88 @@ cmd_disable() {
     docker compose "${flags[@]}" stop "$service_id" 2>/dev/null || true
     [[ -f "$cf" ]] && mv "$cf" "${cf}.disabled"
     rm -f "$INSTALL_DIR/.compose-flags"
-    success "$service_id disabled."
+    local _data_dir="$INSTALL_DIR/data/$service_id"
+    if [[ -d "$_data_dir" ]]; then
+        local _data_size
+        _data_size=$(du -sh "$_data_dir" 2>/dev/null | cut -f1)
+        success "$service_id disabled. Data preserved (${_data_size} in data/$service_id). Use 'dream purge $service_id' to delete."
+    else
+        success "$service_id disabled."
+    fi
+}
+
+cmd_purge() {
+    check_install
+    sr_load
+
+    if [[ $# -lt 1 ]]; then
+        error "Usage: dream purge <service>"
+    fi
+
+    local service_id
+    service_id=$(sr_resolve "$1")
+
+    # Validate against known service IDs
+    local _found=false
+    for _sid in "${SERVICE_IDS[@]}"; do
+        if [[ "$_sid" == "$service_id" ]]; then
+            _found=true
+            break
+        fi
+    done
+    if ! $_found; then
+        error "Unknown service: $service_id"
+    fi
+
+    # Block core services
+    local _cat="${SERVICE_CATEGORIES[$service_id]:-optional}"
+    if [[ "$_cat" == "core" ]]; then
+        error "Cannot purge core service data: $service_id"
+    fi
+
+    # Check if service is still enabled (compose.yaml exists = enabled)
+    local _cf="$INSTALL_DIR/extensions/services/$service_id/compose.yaml"
+    if [[ -f "$_cf" ]]; then
+        error "$service_id is still enabled. Run 'dream disable $service_id' first."
+    fi
+
+    # Check data directory exists
+    local _data_dir="$INSTALL_DIR/data/$service_id"
+    if [[ ! -d "$_data_dir" ]]; then
+        log "No data directory found for $service_id."
+        return 0
+    fi
+
+    # Show size and confirm
+    local _data_size
+    _data_size=$(du -sh "$_data_dir" 2>/dev/null | cut -f1)
+    warn "This will permanently delete all data for $service_id (${_data_size})."
+    warn "Directory: $_data_dir"
+    log ""
+
+    local _confirm
+    read -p "  Type '$service_id' to confirm deletion: " -r _confirm
+    if [[ "$_confirm" != "$service_id" ]]; then
+        log "Purge cancelled."
+        return 0
+    fi
+
+    # Delete data — try direct rm first, fall back to docker for root-owned files
+    rm -rf "$_data_dir" 2>/dev/null || true
+    if [[ -d "$_data_dir" ]]; then
+        log "Some files are owned by root (created by Docker). Removing via container..."
+        if command -v docker &>/dev/null; then
+            docker run --rm -v "$_data_dir:/purge-target" alpine \
+                sh -c 'rm -rf /purge-target/* /purge-target/.[!.]* 2>/dev/null; true' 2>/dev/null \
+                || warn "Docker cleanup failed (non-fatal)"
+            rm -rf "$_data_dir" 2>/dev/null || true
+        fi
+        if [[ -d "$_data_dir" ]]; then
+            error "Could not fully remove $_data_dir. Try: sudo rm -rf $_data_dir"
+        fi
+    fi
+
+    success "Purged $service_id data (${_data_size} freed)."
 }
 
 cmd_list() {
@@ -2689,6 +2770,7 @@ ${CYAN}Commands:${NC}
   list                List all services and their status
   enable <service>    Enable an extension service
   disable <service>   Disable an extension service
+  purge <service>     Permanently delete service data
   preset <action>     Save/load/list/delete/export/import presets
   mode [local|cloud|hybrid]
                       Switch between local/cloud/hybrid modes
@@ -2805,6 +2887,7 @@ case "${1:-help}" in
     list|ls)     cmd_list ;;
     enable)      shift; cmd_enable "$@" ;;
     disable)     shift; cmd_disable "$@" ;;
+    purge)       shift; cmd_purge "$@" ;;
     preset|p)    shift; cmd_preset "$@" ;;
     mode|m)      shift; cmd_mode "$@" ;;
     model)       shift; cmd_model "$@" ;;
