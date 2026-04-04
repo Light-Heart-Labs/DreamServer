@@ -157,6 +157,24 @@ def docker_compose_action(service_id: str, action: str) -> tuple:
         return False, f"Docker compose operation timed out ({timeout}s)"
 
 
+def _parse_mem_value(s: str) -> float:
+    """Parse Docker memory string like '256MiB' or '4GiB' to MB."""
+    s = s.strip()
+    multipliers = {"TiB": 1024*1024, "GiB": 1024, "MiB": 1, "KiB": 1/1024, "B": 1/(1024*1024)}
+    for suffix, mult in multipliers.items():
+        if s.endswith(suffix):
+            try:
+                return float(s[:-len(suffix)].strip()) * mult
+            except ValueError:
+                return 0.0
+    return 0.0
+
+
+def _iso_now() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
 def json_response(handler, code: int, body: dict):
     payload = json.dumps(body).encode("utf-8")
     handler.send_response(code)
@@ -217,8 +235,70 @@ class AgentHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
             json_response(self, 200, {"status": "ok", "version": VERSION})
+        elif self.path == "/v1/service/stats":
+            self._handle_service_stats()
         else:
             json_response(self, 404, {"error": "Not found"})
+
+    def _handle_service_stats(self):
+        """Return CPU/memory stats for all Dream-managed containers."""
+        if not check_auth(self):
+            return
+
+        try:
+            result = subprocess.run(
+                ["docker", "stats", "--no-stream",
+                 "--format", '{"name":"{{.Name}}","cpu":"{{.CPUPerc}}","mem_usage":"{{.MemUsage}}","mem_percent":"{{.MemPerc}}","pids":"{{.PIDs}}"}'],
+                capture_output=True, text=True, timeout=10,
+            )
+
+            containers = []
+            for line in result.stdout.strip().splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    raw = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                name = raw.get("name", "")
+                if not name.startswith("dream-"):
+                    continue
+
+                cpu_str = raw.get("cpu", "0%").rstrip("%")
+                try:
+                    cpu_percent = float(cpu_str)
+                except ValueError:
+                    cpu_percent = 0.0
+
+                mem_parts = raw.get("mem_usage", "0B / 0B").split("/")
+                mem_used_mb = _parse_mem_value(mem_parts[0].strip()) if len(mem_parts) >= 1 else 0
+                mem_limit_mb = _parse_mem_value(mem_parts[1].strip()) if len(mem_parts) >= 2 else 0
+
+                mem_pct_str = raw.get("mem_percent", "0%").rstrip("%")
+                try:
+                    mem_percent = float(mem_pct_str)
+                except ValueError:
+                    mem_percent = 0.0
+
+                service_id = name.removeprefix("dream-")
+
+                containers.append({
+                    "service_id": service_id,
+                    "container_name": name,
+                    "cpu_percent": round(cpu_percent, 1),
+                    "memory_used_mb": round(mem_used_mb),
+                    "memory_limit_mb": round(mem_limit_mb),
+                    "memory_percent": round(mem_percent, 1),
+                    "pids": int(raw.get("pids", "0") or "0"),
+                })
+
+            json_response(self, 200, {
+                "containers": containers,
+                "timestamp": _iso_now(),
+            })
+        except subprocess.TimeoutExpired:
+            json_response(self, 503, {"error": "docker stats timed out"})
 
     def do_POST(self):
         if self.path in ("/v1/extension/start", "/v1/extension/stop"):

@@ -40,6 +40,7 @@ from helpers import (
     get_disk_usage, get_model_info, get_bootstrap_status,
     get_uptime, get_cpu_metrics, get_ram_metrics,
     get_llama_metrics, get_loaded_model, get_llama_context_size,
+    dir_size_gb,
 )
 from agent_monitor import collect_metrics
 
@@ -480,21 +481,6 @@ async def api_storage(api_key: str = Depends(verify_api_key)):
         models_dir = Path(DATA_DIR) / "models"
         vector_dir = Path(DATA_DIR) / "qdrant"
         data_dir = Path(DATA_DIR)
-
-        def dir_size_gb(path: Path) -> float:
-            if not path.exists():
-                return 0.0
-            total = 0
-            try:
-                for f in path.rglob("*"):
-                    if f.is_file():
-                        try:
-                            total += f.stat().st_size
-                        except OSError:
-                            pass
-            except (PermissionError, OSError):
-                pass
-            return round(total / (1024**3), 2)
 
         disk_info = get_disk_usage()
         models_gb = dir_size_gb(models_dir)

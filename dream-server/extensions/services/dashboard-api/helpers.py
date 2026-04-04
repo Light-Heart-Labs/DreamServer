@@ -293,6 +293,26 @@ async def get_all_services() -> list[ServiceStatus]:
 
 # --- System Metrics ---
 
+def dir_size_gb(path: Path) -> float:
+    """Calculate total size of a directory in GB. Returns 0.0 if path doesn't exist.
+
+    Skips symlinks to avoid following links outside DATA_DIR and double-counting.
+    """
+    if not path.exists():
+        return 0.0
+    total = 0
+    try:
+        for f in path.rglob("*"):
+            try:
+                if f.is_file() and not f.is_symlink():
+                    total += f.stat().st_size
+            except (PermissionError, OSError):
+                pass
+    except (PermissionError, OSError):
+        pass
+    return round(total / (1024**3), 2)
+
+
 def get_disk_usage() -> DiskUsage:
     """Get disk usage for the Dream Server install directory."""
     path = INSTALL_DIR if os.path.exists(INSTALL_DIR) else os.path.expanduser("~")
