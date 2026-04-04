@@ -2,6 +2,8 @@
 
 This guide provides solutions for common issues encountered during the installation of Dream Server.
 
+For **Linux**, run `./scripts/linux-install-preflight.sh` (or `./dream-preflight.sh --install-env`) for a structured report with stable check IDs; see [LINUX-TROUBLESHOOTING-GUIDE.md](LINUX-TROUBLESHOOTING-GUIDE.md) for ID-by-ID fixes.
+
 ## Docker Issues
 
 ### Problem: Docker Not Installed

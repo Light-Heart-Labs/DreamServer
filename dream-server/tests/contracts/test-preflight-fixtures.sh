@@ -4,11 +4,14 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-require_jq() {
-  command -v jq >/dev/null 2>&1 || {
-    echo "[FAIL] jq is required"
-    exit 1
-  }
+# Prefer jq; fall back to Python so minimal dev images can run contracts.
+json_summary_blockers() {
+  local f="$1"
+  if command -v jq >/dev/null 2>&1; then
+    jq -r '.summary.blockers' "$f"
+  else
+    python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["summary"]["blockers"])' "$f"
+  fi
 }
 
 assert_eq() {
@@ -20,8 +23,6 @@ assert_eq() {
     exit 1
   fi
 }
-
-require_jq
 
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
@@ -39,7 +40,7 @@ scripts/preflight-engine.sh \
   --compose-overlays docker-compose.base.yml,docker-compose.nvidia.yml \
   --script-dir "$ROOT_DIR" \
   --env >/dev/null
-blockers="$(jq -r '.summary.blockers' "$tmpdir/linux-nvidia-good.json")"
+blockers="$(json_summary_blockers "$tmpdir/linux-nvidia-good.json")"
 assert_eq "$blockers" "0" "linux-nvidia-good blockers"
 
 echo "[contract] preflight fixture: windows-mvp-good"
@@ -55,7 +56,7 @@ scripts/preflight-engine.sh \
   --compose-overlays docker-compose.base.yml,docker-compose.nvidia.yml \
   --script-dir "$ROOT_DIR" \
   --env >/dev/null
-blockers="$(jq -r '.summary.blockers' "$tmpdir/windows-mvp-good.json")"
+blockers="$(json_summary_blockers "$tmpdir/windows-mvp-good.json")"
 assert_eq "$blockers" "0" "windows-mvp-good blockers"
 
 echo "[contract] preflight fixture: macos-mvp-good"
@@ -71,7 +72,7 @@ scripts/preflight-engine.sh \
   --compose-overlays docker-compose.base.yml,docker-compose.amd.yml \
   --script-dir "$ROOT_DIR" \
   --env >/dev/null
-blockers="$(jq -r '.summary.blockers' "$tmpdir/macos-mvp-good.json")"
+blockers="$(json_summary_blockers "$tmpdir/macos-mvp-good.json")"
 assert_eq "$blockers" "0" "macos-mvp-good blockers"
 
 echo "[contract] preflight fixture: disk-blocker"
@@ -87,7 +88,7 @@ scripts/preflight-engine.sh \
   --compose-overlays docker-compose.base.yml,docker-compose.nvidia.yml \
   --script-dir "$ROOT_DIR" \
   --env >/dev/null
-blockers="$(jq -r '.summary.blockers' "$tmpdir/disk-blocker.json")"
+blockers="$(json_summary_blockers "$tmpdir/disk-blocker.json")"
 if [[ "$blockers" -lt 1 ]]; then
   echo "[FAIL] disk-blocker expected >=1 blocker, got $blockers"
   exit 1

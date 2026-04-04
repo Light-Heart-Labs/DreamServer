@@ -3,11 +3,19 @@
 # Validates all services start correctly before user interaction
 # Backend-aware: detects AMD vs NVIDIA (both use llama-server)
 # Usage: ./dream-preflight.sh
+#        ./dream-preflight.sh --install-env   # Linux install environment report (JSON: see scripts/linux-install-preflight.sh --help)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DREAM_DIR="$SCRIPT_DIR"
+
+case "${1:-}" in
+    --install-env|--env-report)
+        shift
+        exec "$SCRIPT_DIR/scripts/linux-install-preflight.sh" "$@"
+        ;;
+esac
 LOG_FILE="$DREAM_DIR/preflight-$(date +%Y%m%d-%H%M%S).log"
 
 # Safe .env loading (no eval; use lib/safe-env.sh)

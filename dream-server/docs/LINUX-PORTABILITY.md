@@ -16,6 +16,9 @@ Services are declared under `extensions/services/<name>/manifest.yaml` for dashb
 
 1. Docker and Compose v2 work; your user can run containers (e.g. member of the `docker` group).
 2. `./install.sh --dry-run` finishes without errors.
-3. After a real install, run `./dream-preflight.sh` and `scripts/dream-doctor.sh` if you use them.
+3. Before or after install, run **`./scripts/linux-install-preflight.sh`** (or `./dream-preflight.sh --install-env`) for a structured environment report with stable check IDs and optional `--json` output.
+4. After a real install, run `./dream-preflight.sh` (service health) and `scripts/dream-doctor.sh` if you use them.
 
-More context: [SUPPORT-MATRIX.md](SUPPORT-MATRIX.md), [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+More context: [LINUX-TROUBLESHOOTING-GUIDE.md](LINUX-TROUBLESHOOTING-GUIDE.md) (ID-indexed fixes), [FIELD-INSTALL-REPORT-LINUX.md](FIELD-INSTALL-REPORT-LINUX.md) (bug report template), [SUPPORT-MATRIX.md](SUPPORT-MATRIX.md), [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+
+Extension PRs that touch catalog vs core: [EXTENSION-PR-BRANCHING.md](EXTENSION-PR-BRANCHING.md).

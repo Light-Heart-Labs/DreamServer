@@ -100,6 +100,7 @@ fi
 # 5. .env missing one required key → exit 2
 cat > "$TMP_DIR/missing.env" <<'EOF'
 WEBUI_SECRET=test-secret
+SEARXNG_SECRET=searxsecret
 N8N_USER=admin
 N8N_PASS=testpass
 LITELLM_KEY=testkey

@@ -53,12 +53,12 @@ if [[ ${#SERVICE_IDS[@]} -eq 0 ]]; then
 fi
 
 if ! command -v docker >/dev/null 2>&1; then
-    info "docker not in PATH — skipping extension runtime check"
+    info "Extension runtime check — docker not in PATH (skipping)"
     exit 0
 fi
 
 if ! docker info >/dev/null 2>&1; then
-    info "Docker daemon not reachable — skipping extension runtime check"
+    info "Extension runtime check — Docker daemon not reachable (skipping)"
     exit 0
 fi
 

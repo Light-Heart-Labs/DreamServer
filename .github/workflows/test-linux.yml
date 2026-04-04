@@ -74,6 +74,9 @@ jobs:
           bash tests/contracts/test-installer-contracts.sh
           bash tests/contracts/test-preflight-fixtures.sh
 
+      - name: Linux install preflight tests
+        run: bash tests/test-linux-install-preflight.sh
+
       - name: Installer Simulation Harness
         run: |
           bash scripts/simulate-installers.sh

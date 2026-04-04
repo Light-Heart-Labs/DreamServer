@@ -24,6 +24,9 @@ test: ## Run unit and contract tests
 	@bash tests/contracts/test-installer-contracts.sh
 	@bash tests/contracts/test-preflight-fixtures.sh
 	@echo ""
+	@echo "=== Linux install preflight ==="
+	@bash tests/test-linux-install-preflight.sh
+	@echo ""
 	@echo "=== AMD/Lemonade contracts ==="
 	@bash tests/contracts/test-amd-lemonade-contracts.sh
 
