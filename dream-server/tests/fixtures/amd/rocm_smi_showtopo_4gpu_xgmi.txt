@@ -1,0 +1,34 @@
+
+
+============================ ROCm System Management Interface ============================
+================================ Weight between two GPUs =================================
+       GPU0         GPU1         GPU2         GPU3         
+GPU0   0            15           15           15           
+GPU1   15           0            15           15           
+GPU2   15           15           0            15           
+GPU3   15           15           15           0            
+
+================================= Hops between two GPUs ==================================
+       GPU0         GPU1         GPU2         GPU3         
+GPU0   0            1            1            1            
+GPU1   1            0            1            1            
+GPU2   1            1            0            1            
+GPU3   1            1            1            0            
+
+=============================== Link Type between two GPUs ===============================
+       GPU0         GPU1         GPU2         GPU3         
+GPU0   0            XGMI         XGMI         XGMI         
+GPU1   XGMI         0            XGMI         XGMI         
+GPU2   XGMI         XGMI         0            XGMI         
+GPU3   XGMI         XGMI         XGMI         0            
+
+======================================= Numa Nodes =======================================
+GPU[0]		: (Topology) Numa Node: 3
+GPU[0]		: (Topology) Numa Affinity: 3
+GPU[1]		: (Topology) Numa Node: 2
+GPU[1]		: (Topology) Numa Affinity: 2
+GPU[2]		: (Topology) Numa Node: 1
+GPU[2]		: (Topology) Numa Affinity: 1
+GPU[3]		: (Topology) Numa Node: 0
+GPU[3]		: (Topology) Numa Affinity: 0
+================================== End of ROCm SMI Log ===================================

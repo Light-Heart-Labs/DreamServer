@@ -1,0 +1,12 @@
+# Whisper — AMD multi-GPU isolation overlay
+# Restricts Whisper to a single GPU via ROCR_VISIBLE_DEVICES.
+services:
+  whisper:
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - "${VIDEO_GID:-44}"
+      - "${RENDER_GID:-992}"
+    environment:
+      ROCR_VISIBLE_DEVICES: "${WHISPER_GPU_INDEX:-0}"

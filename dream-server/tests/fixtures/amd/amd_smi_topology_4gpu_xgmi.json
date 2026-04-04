@@ -1,0 +1,234 @@
+[
+    {
+        "gpu": 0,
+        "bdf": "0000:f9:00.0",
+        "links": [
+            {
+                "gpu": 0,
+                "bdf": "0000:f9:00.0",
+                "weight": 0,
+                "link_status": "ENABLED",
+                "link_type": "SELF",
+                "num_hops": 0,
+                "bandwidth": "N/A",
+                "coherent": "SELF",
+                "atomics": "SELF",
+                "dma": "SELF",
+                "bi_dir": "SELF"
+            },
+            {
+                "gpu": 1,
+                "bdf": "0000:fb:00.0",
+                "weight": 15,
+                "link_status": "ENABLED",
+                "link_type": "XGMI",
+                "num_hops": 1,
+                "bandwidth": "64000-64000",
+                "coherent": "C",
+                "atomics": "64,32",
+                "dma": "T",
+                "bi_dir": "T"
+            },
+            {
+                "gpu": 2,
+                "bdf": "0000:fd:00.0",
+                "weight": 15,
+                "link_status": "ENABLED",
+                "link_type": "XGMI",
+                "num_hops": 1,
+                "bandwidth": "64000-64000",
+                "coherent": "C",
+                "atomics": "64,32",
+                "dma": "T",
+                "bi_dir": "T"
+            },
+            {
+                "gpu": 3,
+                "bdf": "0000:ff:00.0",
+                "weight": 15,
+                "link_status": "ENABLED",
+                "link_type": "XGMI",
+                "num_hops": 1,
+                "bandwidth": "64000-64000",
+                "coherent": "C",
+                "atomics": "64,32",
+                "dma": "T",
+                "bi_dir": "T"
+            }
+        ]
+    },
+    {
+        "gpu": 1,
+        "bdf": "0000:fb:00.0",
+        "links": [
+            {
+                "gpu": 0,
+                "bdf": "0000:f9:00.0",
+                "weight": 15,
+                "link_status": "ENABLED",
+                "link_type": "XGMI",
+                "num_hops": 1,
+                "bandwidth": "64000-64000",
+                "coherent": "C",
+                "atomics": "64,32",
+                "dma": "T",
+                "bi_dir": "T"
+            },
+            {
+                "gpu": 1,
+                "bdf": "0000:fb:00.0",
+                "weight": 0,
+                "link_status": "ENABLED",
+                "link_type": "SELF",
+                "num_hops": 0,
+                "bandwidth": "N/A",
+                "coherent": "SELF",
+                "atomics": "SELF",
+                "dma": "SELF",
+                "bi_dir": "SELF"
+            },
+            {
+                "gpu": 2,
+                "bdf": "0000:fd:00.0",
+                "weight": 15,
+                "link_status": "ENABLED",
+                "link_type": "XGMI",
+                "num_hops": 1,
+                "bandwidth": "64000-64000",
+                "coherent": "C",
+                "atomics": "64,32",
+                "dma": "T",
+                "bi_dir": "T"
+            },
+            {
+                "gpu": 3,
+                "bdf": "0000:ff:00.0",
+                "weight": 15,
+                "link_status": "ENABLED",
+                "link_type": "XGMI",
+                "num_hops": 1,
+                "bandwidth": "64000-64000",
+                "coherent": "C",
+                "atomics": "64,32",
+                "dma": "T",
+                "bi_dir": "T"
+            }
+        ]
+    },
+    {
+        "gpu": 2,
+        "bdf": "0000:fd:00.0",
+        "links": [
+            {
+                "gpu": 0,
+                "bdf": "0000:f9:00.0",
+                "weight": 15,
+                "link_status": "ENABLED",
+                "link_type": "XGMI",
+                "num_hops": 1,
+                "bandwidth": "64000-64000",
+                "coherent": "C",
+                "atomics": "64,32",
+                "dma": "T",
+                "bi_dir": "T"
+            },
+            {
+                "gpu": 1,
+                "bdf": "0000:fb:00.0",
+                "weight": 15,
+                "link_status": "ENABLED",
+                "link_type": "XGMI",
+                "num_hops": 1,
+                "bandwidth": "64000-64000",
+                "coherent": "C",
+                "atomics": "64,32",
+                "dma": "T",
+                "bi_dir": "T"
+            },
+            {
+                "gpu": 2,
+                "bdf": "0000:fd:00.0",
+                "weight": 0,
+                "link_status": "ENABLED",
+                "link_type": "SELF",
+                "num_hops": 0,
+                "bandwidth": "N/A",
+                "coherent": "SELF",
+                "atomics": "SELF",
+                "dma": "SELF",
+                "bi_dir": "SELF"
+            },
+            {
+                "gpu": 3,
+                "bdf": "0000:ff:00.0",
+                "weight": 15,
+                "link_status": "ENABLED",
+                "link_type": "XGMI",
+                "num_hops": 1,
+                "bandwidth": "64000-64000",
+                "coherent": "C",
+                "atomics": "64,32",
+                "dma": "T",
+                "bi_dir": "T"
+            }
+        ]
+    },
+    {
+        "gpu": 3,
+        "bdf": "0000:ff:00.0",
+        "links": [
+            {
+                "gpu": 0,
+                "bdf": "0000:f9:00.0",
+                "weight": 15,
+                "link_status": "ENABLED",
+                "link_type": "XGMI",
+                "num_hops": 1,
+                "bandwidth": "64000-64000",
+                "coherent": "C",
+                "atomics": "64,32",
+                "dma": "T",
+                "bi_dir": "T"
+            },
+            {
+                "gpu": 1,
+                "bdf": "0000:fb:00.0",
+                "weight": 15,
+                "link_status": "ENABLED",
+                "link_type": "XGMI",
+                "num_hops": 1,
+                "bandwidth": "64000-64000",
+                "coherent": "C",
+                "atomics": "64,32",
+                "dma": "T",
+                "bi_dir": "T"
+            },
+            {
+                "gpu": 2,
+                "bdf": "0000:fd:00.0",
+                "weight": 15,
+                "link_status": "ENABLED",
+                "link_type": "XGMI",
+                "num_hops": 1,
+                "bandwidth": "64000-64000",
+                "coherent": "C",
+                "atomics": "64,32",
+                "dma": "T",
+                "bi_dir": "T"
+            },
+            {
+                "gpu": 3,
+                "bdf": "0000:ff:00.0",
+                "weight": 0,
+                "link_status": "ENABLED",
+                "link_type": "SELF",
+                "num_hops": 0,
+                "bandwidth": "N/A",
+                "coherent": "SELF",
+                "atomics": "SELF",
+                "dma": "SELF",
+                "bi_dir": "SELF"
+            }
+        ]
+    }
+]

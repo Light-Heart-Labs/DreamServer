@@ -157,45 +157,90 @@ detect_gpu() {
         done
     fi
 
-    # Try AMD APU (Strix Halo / unified memory) via sysfs
+    # Try AMD GPUs (discrete RDNA + APU) via sysfs
+    local amd_card_dirs=()
     for card_dir in /sys/class/drm/card*/device; do
         [[ -d "$card_dir" ]] || continue
         local vendor
         vendor=$(cat "$card_dir/vendor" 2>/dev/null) || continue
-        if [[ "$vendor" == "0x1002" ]]; then
-            local vram_bytes gtt_bytes
+        [[ "$vendor" == "0x1002" ]] && amd_card_dirs+=("$card_dir")
+    done
+
+    if [[ ${#amd_card_dirs[@]} -gt 0 ]]; then
+        GPU_BACKEND="amd"
+        GPU_COUNT=${#amd_card_dirs[@]}
+        local total_vram_mb=0
+        local gpu_names=()
+        local has_apu=false has_discrete=false
+
+        for card_dir in "${amd_card_dirs[@]}"; do
+            local vram_bytes gtt_bytes device_id
             vram_bytes=$(cat "$card_dir/mem_info_vram_total" 2>/dev/null) || vram_bytes=0
             gtt_bytes=$(cat "$card_dir/mem_info_gtt_total" 2>/dev/null) || gtt_bytes=0
+            device_id=$(cat "$card_dir/device" 2>/dev/null) || device_id="unknown"
+
+            local vram_mb=$(( vram_bytes / 1048576 ))
             local gtt_gb=$(( gtt_bytes / 1073741824 ))
             local vram_gb=$(( vram_bytes / 1073741824 ))
+            total_vram_mb=$(( total_vram_mb + vram_mb ))
 
-            # Read device ID from sysfs
-            GPU_DEVICE_ID=$(cat "$card_dir/device" 2>/dev/null) || GPU_DEVICE_ID="unknown"
-
-            # Detect APU: small VRAM + large GTT = unified memory
+            # Classify: APU has small VRAM + large GTT, or very large unified pool
             if [[ $gtt_gb -ge 16 && $vram_gb -le 4 ]] || [[ $gtt_gb -ge 32 ]] || [[ $vram_gb -ge 32 ]]; then
-                GPU_BACKEND="amd"
-                GPU_MEMORY_TYPE="unified"
-                GPU_VRAM=$(( vram_bytes / 1048576 ))  # in MB
-                GPU_COUNT=1
-                # Try marketing name
-                if [[ -f "$card_dir/product_name" ]]; then
-                    GPU_NAME=$(cat "$card_dir/product_name" 2>/dev/null) || GPU_NAME="AMD APU"
-                else
-                    GPU_NAME="AMD APU ($GPU_DEVICE_ID)"
-                fi
-                log "GPU: $GPU_NAME (unified memory, AMD APU, device_id=$GPU_DEVICE_ID)"
+                has_apu=true
+            else
+                has_discrete=true
+            fi
 
-                # Check for NPU (Ryzen AI) for Lemonade hybrid mode
-                HAS_NPU=false
-                if [[ -d /sys/class/misc/amdnpu ]] || lspci 2>/dev/null | grep -qi 'AMD.*NPU\|AMD.*IPU'; then
-                    HAS_NPU=true
-                    log "NPU detected: Ryzen AI Neural Processing Unit"
-                fi
-                return 0
+            # Get marketing name
+            local name
+            if [[ -f "$card_dir/product_name" ]]; then
+                name=$(cat "$card_dir/product_name" 2>/dev/null) || name="AMD GPU ($device_id)"
+            else
+                name="AMD GPU ($device_id)"
+            fi
+            gpu_names+=("$name")
+        done
+
+        GPU_VRAM=$total_vram_mb
+        GPU_DEVICE_ID=$(cat "${amd_card_dirs[0]}/device" 2>/dev/null) || GPU_DEVICE_ID="unknown"
+
+        # Determine memory type
+        if $has_apu && $has_discrete; then
+            GPU_MEMORY_TYPE="mixed"
+        elif $has_apu; then
+            GPU_MEMORY_TYPE="unified"
+        else
+            GPU_MEMORY_TYPE="discrete"
+        fi
+
+        # Build display name (mirrors NVIDIA multi-GPU naming)
+        if [[ $GPU_COUNT -eq 1 ]]; then
+            GPU_NAME="${gpu_names[0]}"
+        else
+            local first_name="${gpu_names[0]}"
+            local second_name="${gpu_names[1]}"
+            if [[ "$first_name" == "$second_name" ]]; then
+                GPU_NAME="${first_name} × ${GPU_COUNT}"
+            else
+                GPU_NAME="${first_name} + ${second_name}"
+                [[ $GPU_COUNT -gt 2 ]] && GPU_NAME="${GPU_NAME} + $((GPU_COUNT - 2)) more"
             fi
         fi
-    done
+
+        # Check for NPU (Ryzen AI) for Lemonade hybrid mode
+        HAS_NPU=false
+        if [[ -d /sys/class/misc/amdnpu ]] || lspci 2>/dev/null | grep -qi 'AMD.*NPU\|AMD.*IPU'; then
+            HAS_NPU=true
+            log "NPU detected: Ryzen AI Neural Processing Unit"
+        fi
+
+        if [[ $GPU_COUNT -gt 1 ]]; then
+            log "GPU: ${GPU_COUNT}x AMD (${GPU_VRAM}MB total VRAM, type=${GPU_MEMORY_TYPE}) — ${GPU_NAME}"
+        else
+            log "GPU: $GPU_NAME (${GPU_VRAM}MB VRAM, ${GPU_MEMORY_TYPE} memory, AMD)"
+        fi
+        return 0
+    fi
 
     # No GPU detected - fall back to CPU-only mode
     GPU_NAME="None (CPU-only mode)"
