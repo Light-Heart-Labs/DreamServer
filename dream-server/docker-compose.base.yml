@@ -47,6 +47,8 @@ services:
       - --parallel
       - "${LLAMA_PARALLEL:-1}"
       - --metrics
+    environment:
+      - LLAMA_ARG_REASONING=${LLAMA_REASONING:-auto}
     security_opt:
       - no-new-privileges:true
     logging: *default-logging

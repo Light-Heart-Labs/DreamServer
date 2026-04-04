@@ -100,6 +100,10 @@ if [[ -f "$ENV_FILE" ]]; then
         awk -v v="$FULL_MAX_CONTEXT" '{ if (index($0, "CTX_SIZE=") == 1) print "CTX_SIZE=" v; else print }' \
             "$ENV_FILE" > "${ENV_FILE}.tmp" && cat "${ENV_FILE}.tmp" > "$ENV_FILE" && rm -f "${ENV_FILE}.tmp"
     fi
+    # Remove bootstrap reasoning limit (restore default auto)
+    if grep -q '^LLAMA_REASONING=' "$ENV_FILE"; then
+        awk '!/^LLAMA_REASONING=/' "$ENV_FILE" > "${ENV_FILE}.tmp" && mv "${ENV_FILE}.tmp" "$ENV_FILE"
+    fi
     log ".env updated"
 else
     fail ".env not found at $ENV_FILE"

@@ -450,8 +450,11 @@ else
             sed -i '' "s|^LLM_MODEL=.*|LLM_MODEL=${LLM_MODEL}|" "$_env_file"
             sed -i '' "s|^MAX_CONTEXT=.*|MAX_CONTEXT=${MAX_CONTEXT}|" "$_env_file"
             sed -i '' "s|^CTX_SIZE=.*|CTX_SIZE=${MAX_CONTEXT}|" "$_env_file"
+            sed -i '' '/^LLAMA_REASONING=/d' "$_env_file"
+            echo "LLAMA_REASONING=off" >> "$_env_file"
             ai_ok "Patched .env for bootstrap model ($GGUF_FILE)"
         fi
+        LLAMA_REASONING="off"
     fi
 
     # ── Download and start native llama-server (Metal) ──
@@ -550,6 +553,7 @@ else
             --model "$MODEL_FULL_PATH" \
             --ctx-size "$MAX_CONTEXT" \
             --n-gpu-layers 999 \
+            --reasoning "${LLAMA_REASONING:-auto}" \
             --metrics \
             > "$LLAMA_SERVER_LOG" 2>&1 &
         LLAMA_PID=$!
