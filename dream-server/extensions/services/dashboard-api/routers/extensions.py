@@ -353,9 +353,11 @@ async def extensions_catalog(
     api_key: str = Depends(verify_api_key),
 ):
     """Get the extensions catalog with computed status."""
-    from helpers import get_all_services
+    from helpers import get_cached_services, get_all_services
 
-    service_list = await get_all_services()
+    service_list = get_cached_services()
+    if service_list is None:
+        service_list = await get_all_services()
     services_by_id = {s.id: s for s in service_list}
 
     extensions = []
