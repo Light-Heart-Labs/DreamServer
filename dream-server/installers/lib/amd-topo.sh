@@ -376,7 +376,7 @@ detect_amd_topo() {
 
         device_id=$(cat "$card_dir/device" 2>/dev/null | sed 's/^0x//') || device_id="0000"
         vram_bytes=$(cat "$card_dir/mem_info_vram_total" 2>/dev/null) || vram_bytes=0
-        vram_gb=$(awk "BEGIN { printf \"%.1f\", $vram_bytes / 1073741824 }")
+        vram_gb=$(awk -v bytes="$vram_bytes" 'BEGIN { printf "%.1f", bytes / 1073741824 }')
 
         uuid=$(amd_gpu_id "$card_dir" "$idx")
         gfx_ver=$(amd_gfx_version "$card_dir" "$idx")
@@ -387,10 +387,10 @@ detect_amd_topo() {
         pci_bdf=$(readlink -f "$card_dir" | grep -oP '[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9]' | tail -1) || pci_bdf="unknown"
         pcie_gen=$(cat "$card_dir/current_link_speed" 2>/dev/null | grep -oP '^\d+' || \
                    cat "$card_dir/max_link_speed" 2>/dev/null | grep -oP '^\d+' || echo "unknown")
-        pcie_width=$(cat "$card_dir/current_link_width" 2>/dev/null || \
-                     cat "$card_dir/max_link_width" 2>/dev/null || echo "unknown")
-        [[ "$pcie_width" == "0" || "$pcie_width" == "Unknown" ]] && \
-            pcie_width=$(cat "$card_dir/max_link_width" 2>/dev/null || echo "unknown")
+        pcie_width=$(cat "$card_dir/current_link_width" 2>/dev/null | grep -oP '^\d+' || \
+                     cat "$card_dir/max_link_width" 2>/dev/null | grep -oP '^\d+' || echo "unknown")
+        [[ "$pcie_width" == "0" ]] && \
+            pcie_width=$(cat "$card_dir/max_link_width" 2>/dev/null | grep -oP '^\d+' || echo "unknown")
 
         # Detect memory type per card
         local gtt_bytes mem_type
