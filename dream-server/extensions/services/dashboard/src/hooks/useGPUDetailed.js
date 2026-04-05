@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 
+// Auth: nginx injects Authorization header for all /api/ requests (see nginx.conf).
+
 const POLL_INTERVAL = 5000
 
 export function useGPUDetailed() {
