@@ -8,6 +8,15 @@ Dream Server is a self-hosted AI platform that orchestrates 19 microservices via
 
 The architecture follows a **layered compose model**: a base compose file defines core services, GPU-specific overlays configure hardware acceleration, and extension compose files add optional services. A registry-driven CLI (`dream-cli`) manages the lifecycle.
 
+### Codebase at a Glance
+
+| Metric | Value |
+|--------|-------|
+| Files | 1,193 |
+| Symbols | 12,331 |
+| Execution Flows | 300 |
+| Functional Clusters | 30 |
+
 ## System Architecture
 
 ```mermaid
@@ -147,9 +156,139 @@ The LLM inference engine (`llama-server`) is the foundation. GPU overlays select
 
 - **opencode** (port 3003) — Web IDE (runs as host systemd service, not Docker)
 
+## Code Clusters (GitNexus Analysis)
+
+The codebase organizes into 30 functional clusters identified by call-graph analysis. The top clusters by symbol count:
+
+| Cluster | Symbols | Cohesion | Primary Location | Purpose |
+|---------|---------|----------|-----------------|---------|
+| Tests | 659 | 69% | `tests/`, `**/test_*.py` | Shell (BATS), Python (pytest), smoke, integration |
+| Sidecar | 380 | 72% | `resources/products/token-spy/sidecar/` | API proxy, rate limiting, tenant/org middleware, DB backend |
+| Voice-classifier | 127 | 82% | `resources/products/voice-classifier/` | Intent classification, entity extraction, FSM routing |
+| Scripts | 82 | 77% | `dream-server/scripts/` | Health checks, validation, GPU assignment, model validation |
+| Privacy-shield | 81 | 87% | `resources/products/privacy-shield/` | PII detection/scrubbing with 10+ custom recognizers |
+| Hooks | 74 | 83% | `*/dashboard/src/hooks/`, `*/src/lib/api.ts` | React hooks and API client for dashboards |
+| Tools | 65 | 85% | `resources/tools/` | Dev tools, benchmarks, LiveKit testing |
+| Token-spy | 49 | 64% | `dream-server/extensions/services/token-spy/` | Gateway config, agent polling, streaming, settings |
+| Routers | 43 | 57% | `dream-server/extensions/services/dashboard-api/routers/` | FastAPI routers: workflows, extensions, privacy, updates |
+| Dashboard-api | 32 | 74% | `dream-server/extensions/services/dashboard-api/` | GPU detection, service health, system metrics |
+| Pages | 31 | 97% | `*/dashboard/src/pages/` | React UI pages (models, settings, provider keys) |
+| Dashboard | 29 | 68% | `resources/products/token-spy/dashboard/` | Token-spy dashboard: usage, costs, sessions, orgs |
+| Platform | 25 | 98% | `installer/src-tauri/src/` | Tauri GUI installer: platform detection, Docker management |
+| Components | 14 | 100% | `*/dashboard/src/components/` | Shared React UI components |
+
+### Token-spy Sidecar (Detailed)
+
+The Sidecar is the largest non-test cluster (380 symbols). It is a full API gateway subsystem:
+
+```mermaid
+graph LR
+    REQ["Incoming Request"] --> PROXY["proxy.py<br/>Chat/Message routing"]
+    PROXY --> TENANT["tenant_middleware.py<br/>Tenant extraction & features"]
+    PROXY --> KEYS["provider_keys.py<br/>Upstream API key lookup"]
+    PROXY --> RATE["rate_limiter.py<br/>Token bucket rate limiting"]
+    KEYS --> DB["db_backend.py<br/>Connection pool & queries"]
+    PROXY --> AUDIT["audit_logger.py<br/>Request/response logging"]
+    AUDIT --> DB
+    subgraph Management
+        ORG["org_api.py<br/>Organization CRUD"]
+        ORGMW["org_middleware.py<br/>Org context injection"]
+    end
+    ORG --> DB
+```
+
+### Privacy Shield Pipeline
+
+Privacy Shield intercepts chat requests and scrubs PII before they reach the LLM:
+
+```mermaid
+graph LR
+    CHAT["chat_completions()"] --> ANON["anonymize_messages()"]
+    ANON --> SHIELD["shield()"]
+    SHIELD --> ENGINES["get_engines()"]
+    ENGINES --> RECOG["get_custom_recognizers()"]
+    RECOG --> R1["SSNRecognizer"]
+    RECOG --> R2["OpenAIKeyRecognizer"]
+    RECOG --> R3["AnthropicKeyRecognizer"]
+    RECOG --> R4["AWSAccessKeyRecognizer"]
+    RECOG --> R5["JWTRecognizer"]
+    RECOG --> R6["ConnectionStringRecognizer"]
+    RECOG --> R7["+ 4 more recognizers"]
+```
+
+### Voice Classifier Architecture
+
+The voice classifier runs a finite state machine (FSM) for multi-turn voice interactions:
+
+```mermaid
+graph TB
+    ENTRY["entrypoint()"] --> AGENT["DreamVoiceAgent"]
+    AGENT --> CLASS["IntentClassifier / QwenClassifier"]
+    AGENT --> FSM["FlowContext (FSM)"]
+    FSM --> ROUTE["RoutingDecision"]
+    CLASS --> EXTRACT["Entity Extractors"]
+    EXTRACT --> E1["NameExtractor"]
+    EXTRACT --> E2["NumberExtractor"]
+    EXTRACT --> E3["DateExtractor"]
+```
+
+## Traced Execution Flows
+
+Key cross-module execution flows identified by call-graph tracing:
+
+### Chat Proxy → Database Pool (6 steps)
+
+```
+proxy_chat_completions (sidecar/proxy.py)
+  → get_upstream_api_key (sidecar/provider_keys.py)
+    → get_active_provider_key (sidecar/db_backend.py)
+      → get_db_connection (sidecar/db_backend.py)
+        → get_connection (sidecar/db_backend.py)
+          → init_pool (sidecar/db_backend.py)
+```
+
+Every chat/message proxy request traverses this path to resolve the upstream API key from the tenant's active provider configuration.
+
+### Chat → PII Scrubbing (6 steps)
+
+```
+chat_completions (privacy-shield/proxy.py)
+  → anonymize_messages (privacy-shield/proxy.py)
+    → shield (privacy-shield/shield.py)
+      → get_engines (privacy-shield/shield.py)
+        → get_custom_recognizers (privacy-shield/custom_recognizers.py)
+          → SSNRecognizer (privacy-shield/custom_recognizers.py)
+```
+
+Privacy Shield intercepts chat completions, passes messages through the Presidio-based anonymization engine with custom recognizers for API keys, SSNs, JWTs, and internal hostnames.
+
+### Audit Log Export → Database Pool (6 steps)
+
+```
+export_audit_logs (sidecar/api.py)
+  → log (sidecar/audit_logger.py)
+    → flush (sidecar/audit_logger.py)
+      → get_db_connection (sidecar/db_backend.py)
+        → get_connection (sidecar/db_backend.py)
+          → init_pool (sidecar/db_backend.py)
+```
+
+### Validation Pipeline (6 steps)
+
+```
+main (scripts/validate-sim-summary.py)
+  → validate_summary (scripts/validate-sim-summary.py)
+    → _require_nonempty_string (scripts/validate-sim-summary.py)
+      → _require_type (scripts/validate-sim-summary.py)
+        → add (scripts/validate-sim-summary.py)
+          → ValidationIssue (scripts/validate-sim-summary.py)
+```
+
+The validation pipeline verifies installer simulation summaries, ensuring all expected fields are present and correctly typed.
+
 ## Installer Architecture
 
-The installer is a 13-phase pipeline orchestrated by `install-core.sh`. Libraries in `installers/lib/` are pure functions (no side effects); phases in `installers/phases/` execute sequentially.
+The installer is a 13-phase pipeline orchestrated by `install-core.sh`. Libraries in `installers/lib/` are pure functions (no side effects); phases in `installers/phases/` execute sequentially. A Tauri-based GUI installer (`installer/src-tauri/`) provides a cross-platform graphical alternative with Rust backends for platform detection (`platform/linux.rs`, `platform/macos.rs`, `platform/windows.rs`), Docker management (`docker.rs`), and WSL2 provisioning.
 
 ```mermaid
 graph LR
@@ -295,6 +434,72 @@ The manifest schema is enforced by `extensions/schema/service-manifest.v1.json`.
 | `type-check-python.yml` | Python type checking (mypy) |
 | `secret-scan.yml` | GitLeaks secret detection |
 | `lint-powershell.yml` | PowerShell linting for Windows installer |
+
+## Component Interaction Map
+
+High-level view of how the major subsystems interact at the code level:
+
+```mermaid
+graph TB
+    subgraph Installer["Installation"]
+        BASH_INST["Bash Installer<br/>(13 phases)"]
+        TAURI["Tauri GUI Installer<br/>(Rust)"]
+        CLI["dream-cli<br/>(Bash, ~45K lines)"]
+    end
+
+    subgraph Runtime["Runtime Services (Docker)"]
+        subgraph Core
+            LLAMA["llama-server"]
+            WEBUI["open-webui"]
+        end
+
+        subgraph Gateway["API Gateway"]
+            LITE["litellm"]
+            SIDECAR["token-spy sidecar<br/>(proxy, rate limit,<br/>tenant, audit)"]
+        end
+
+        subgraph Intelligence["AI Services"]
+            VOICE["Voice Classifier<br/>(FSM + extractors)"]
+            AGENTS["openclaw + ape"]
+            RAG["qdrant + embeddings"]
+        end
+
+        subgraph Middleware["Middleware"]
+            PRIVACY["Privacy Shield<br/>(PII scrubbing)"]
+            LANG["langfuse<br/>(tracing)"]
+        end
+
+        subgraph UI["User Interfaces"]
+            DASH_UI["Dashboard<br/>(React/Vite)"]
+            DASH_API["Dashboard API<br/>(FastAPI)"]
+            SPY_DASH["Token-spy Dashboard<br/>(React)"]
+        end
+    end
+
+    subgraph Config["Configuration"]
+        MANIFESTS["Service Manifests<br/>(YAML)"]
+        BACKENDS["Backend Configs<br/>(JSON per GPU tier)"]
+        COMPOSE["Compose Stack<br/>(base + overlays)"]
+    end
+
+    BASH_INST -->|"detects GPU,<br/>selects tier"| BACKENDS
+    BASH_INST -->|"resolves stack"| COMPOSE
+    CLI -->|"manages lifecycle"| Runtime
+    TAURI -->|"platform checks"| BASH_INST
+
+    SIDECAR -->|"proxies to"| LLAMA
+    SIDECAR -->|"rate limits"| SIDECAR
+    PRIVACY -->|"scrubs PII"| LLAMA
+    WEBUI -->|"inference"| LLAMA
+    LITE -->|"routes"| LLAMA
+    AGENTS -->|"reasoning"| LLAMA
+    VOICE -->|"classification"| LLAMA
+
+    DASH_UI -->|"REST"| DASH_API
+    DASH_API -->|"health checks"| Runtime
+    DASH_API -->|"reads"| MANIFESTS
+    SPY_DASH -->|"REST"| SIDECAR
+```
 
 ## Design Principles
 
