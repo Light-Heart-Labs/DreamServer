@@ -3,6 +3,8 @@
 import asyncio
 import json
 import logging
+import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -21,6 +23,9 @@ router = APIRouter(tags=["updates"])
 _VALID_ACTIONS = {"check", "backup", "update"}
 
 _GITHUB_HEADERS = {"Accept": "application/vnd.github.v3+json"}
+_VERSION_CACHE_TTL = 300.0
+_version_cache: dict[str, object] = {"expires_at": 0.0, "payload": None}
+_version_refresh_task: Optional[asyncio.Task] = None
 
 
 def _read_current_version() -> str:
@@ -41,36 +46,116 @@ def _read_current_version() -> str:
                 return raw
         except OSError:
             pass
+    manifest_file = Path(INSTALL_DIR) / "manifest.json"
+    if manifest_file.exists():
+        try:
+            data = json.loads(manifest_file.read_text())
+            version = (
+                data.get("release", {}).get("version")
+                or data.get("dream_version")
+                or data.get("manifestVersion")
+            )
+            if version:
+                return str(version)
+        except (OSError, json.JSONDecodeError, ValueError, AttributeError):
+            pass
+    main_file = Path(__file__).resolve().parents[1] / "main.py"
+    if main_file.exists():
+        try:
+            match = re.search(r'version\s*=\s*"([^"]+)"', main_file.read_text())
+            if match:
+                return match.group(1)
+        except OSError:
+            pass
     return "0.0.0"
+
+
+def _get_cached_release_payload(allow_stale: bool = False) -> Optional[dict]:
+    payload = _version_cache.get("payload")
+    if payload is None:
+        return None
+    if allow_stale or time.monotonic() < float(_version_cache.get("expires_at", 0.0)):
+        return payload  # type: ignore[return-value]
+    return None
+
+
+def _build_version_result(current: str, payload: Optional[dict]) -> dict:
+    result = {
+        "current": current,
+        "latest": None,
+        "update_available": False,
+        "changelog_url": None,
+        "checked_at": datetime.now(timezone.utc).isoformat() + "Z",
+    }
+    if not payload:
+        return result
+
+    latest = (payload.get("latest") or "").lstrip("v")
+    if not latest:
+        return result
+
+    result["latest"] = latest
+    result["changelog_url"] = payload.get("changelog_url")
+    result["checked_at"] = payload.get("checked_at") or result["checked_at"]
+
+    current_parts = [int(x) for x in current.split(".") if x.isdigit()][:3]
+    latest_parts = [int(x) for x in latest.split(".") if x.isdigit()][:3]
+    current_parts += [0] * (3 - len(current_parts))
+    latest_parts += [0] * (3 - len(latest_parts))
+    result["update_available"] = latest_parts > current_parts
+    return result
+
+
+async def _refresh_release_cache() -> Optional[dict]:
+    global _version_cache
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(
+                "https://api.github.com/repos/Light-Heart-Labs/DreamServer/releases/latest",
+                headers=_GITHUB_HEADERS,
+            )
+        data = response.json()
+        payload = {
+            "latest": data.get("tag_name", "").lstrip("v"),
+            "changelog_url": data.get("html_url"),
+            "checked_at": datetime.now(timezone.utc).isoformat() + "Z",
+        }
+        _version_cache = {
+            "expires_at": time.monotonic() + _VERSION_CACHE_TTL,
+            "payload": payload,
+        }
+        return payload
+    except (httpx.HTTPError, httpx.TimeoutException, json.JSONDecodeError, OSError, ValueError):
+        return _get_cached_release_payload(allow_stale=True)
+
+
+def _ensure_release_refresh() -> asyncio.Task:
+    global _version_refresh_task
+    if _version_refresh_task is None or _version_refresh_task.done():
+        _version_refresh_task = asyncio.create_task(_refresh_release_cache())
+    return _version_refresh_task
 
 
 @router.get("/api/version", response_model=VersionInfo, dependencies=[Depends(verify_api_key)])
 async def get_version():
-    """Get current Dream Server version and check for updates (non-blocking)."""
+    """Get current Dream Server version without blocking page load on GitHub."""
     current = await asyncio.to_thread(_read_current_version)
+    cached = _get_cached_release_payload()
+    if cached:
+        return _build_version_result(current, cached)
 
-    result = {"current": current, "latest": None, "update_available": False, "changelog_url": None, "checked_at": datetime.now(timezone.utc).isoformat() + "Z"}
+    stale = _get_cached_release_payload(allow_stale=True)
+    refresh_task = _ensure_release_refresh()
+
+    if stale:
+        return _build_version_result(current, stale)
 
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(
-                "https://api.github.com/repos/Light-Heart-Labs/DreamServer/releases/latest",
-                headers=_GITHUB_HEADERS,
-            )
-        data = resp.json()
-        latest = data.get("tag_name", "").lstrip("v")
-        if latest:
-            result["latest"] = latest
-            result["changelog_url"] = data.get("html_url")
-            current_parts = [int(x) for x in current.split(".") if x.isdigit()][:3]
-            latest_parts = [int(x) for x in latest.split(".") if x.isdigit()][:3]
-            current_parts += [0] * (3 - len(current_parts))
-            latest_parts += [0] * (3 - len(latest_parts))
-            result["update_available"] = latest_parts > current_parts
-    except (httpx.HTTPError, httpx.TimeoutException, json.JSONDecodeError, ValueError, OSError):
-        pass
-
-    return result
+        payload = await asyncio.wait_for(asyncio.shield(refresh_task), timeout=1.25)
+        return _build_version_result(current, payload)
+    except asyncio.TimeoutError:
+        logger.debug("Version refresh still in progress; returning local version immediately")
+        return _build_version_result(current, None)
 
 
 @router.get("/api/releases/manifest", dependencies=[Depends(verify_api_key)])
