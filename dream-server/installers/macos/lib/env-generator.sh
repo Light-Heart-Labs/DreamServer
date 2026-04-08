@@ -160,12 +160,15 @@ OPENAI_API_KEY=
 TOGETHER_API_KEY=
 
 #=== LLM Settings (llama-server -- native Metal) ===
+MODEL_PROFILE=${MODEL_PROFILE_REQUESTED:-${MODEL_PROFILE:-qwen}}
+# Effective model profile for this hardware: ${MODEL_PROFILE_EFFECTIVE:-qwen}
 LLM_MODEL=${LLM_MODEL}
 GGUF_FILE=${GGUF_FILE}
 MAX_CONTEXT=${MAX_CONTEXT}
 CTX_SIZE=${MAX_CONTEXT}
 GPU_BACKEND=apple
 HOST_RAM_GB=${SYSTEM_RAM_GB}
+$(if [[ -n "${LLAMA_SERVER_IMAGE:-}" ]]; then echo "LLAMA_SERVER_IMAGE=${LLAMA_SERVER_IMAGE}"; fi)
 
 #=== Ports ===
 OLLAMA_PORT=8080

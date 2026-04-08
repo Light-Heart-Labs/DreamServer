@@ -55,7 +55,8 @@ echo ""
 echo "Tier 1 (Entry Level):"
 run_tier 1
 assert_eq "TIER_NAME"   "Entry Level"                          "$TIER_NAME"
-assert_eq "LLM_MODEL"   "qwen3.5-9b"                          "$LLM_MODEL"
+assert_eq "MODEL_PROFILE_EFFECTIVE" "qwen"                   "$MODEL_PROFILE_EFFECTIVE"
+assert_eq "LLM_MODEL"   "qwen3.5-9b"                         "$LLM_MODEL"
 assert_eq "GGUF_FILE"   "Qwen3.5-9B-Q4_K_M.gguf"             "$GGUF_FILE"
 assert_eq "MAX_CONTEXT"  "16384"                                "$MAX_CONTEXT"
 echo ""
@@ -64,7 +65,8 @@ echo ""
 echo "Tier 2 (Prosumer):"
 run_tier 2
 assert_eq "TIER_NAME"   "Prosumer"                             "$TIER_NAME"
-assert_eq "LLM_MODEL"   "qwen3.5-9b"                          "$LLM_MODEL"
+assert_eq "MODEL_PROFILE_EFFECTIVE" "qwen"                   "$MODEL_PROFILE_EFFECTIVE"
+assert_eq "LLM_MODEL"   "qwen3.5-9b"                         "$LLM_MODEL"
 assert_eq "GGUF_FILE"   "Qwen3.5-9B-Q4_K_M.gguf"             "$GGUF_FILE"
 assert_eq "MAX_CONTEXT"  "32768"                                "$MAX_CONTEXT"
 echo ""
@@ -73,8 +75,9 @@ echo ""
 echo "Tier 3 (Pro):"
 run_tier 3
 assert_eq "TIER_NAME"   "Pro"                                  "$TIER_NAME"
-assert_eq "LLM_MODEL"   "qwen3-30b-a3b"                         "$LLM_MODEL"
-assert_eq "GGUF_FILE"   "Qwen3-30B-A3B-Q4_K_M.gguf"            "$GGUF_FILE"
+assert_eq "MODEL_PROFILE_EFFECTIVE" "qwen"                   "$MODEL_PROFILE_EFFECTIVE"
+assert_eq "LLM_MODEL"   "qwen3-30b-a3b"                       "$LLM_MODEL"
+assert_eq "GGUF_FILE"   "Qwen3-30B-A3B-Q4_K_M.gguf"           "$GGUF_FILE"
 assert_eq "MAX_CONTEXT"  "32768"                                "$MAX_CONTEXT"
 echo ""
 
@@ -82,8 +85,9 @@ echo ""
 echo "Tier 4 (Enterprise):"
 run_tier 4
 assert_eq "TIER_NAME"   "Enterprise"                           "$TIER_NAME"
+assert_eq "MODEL_PROFILE_EFFECTIVE" "qwen"                   "$MODEL_PROFILE_EFFECTIVE"
 assert_eq "LLM_MODEL"   "qwen3-30b-a3b"                       "$LLM_MODEL"
-assert_eq "GGUF_FILE"   "Qwen3-30B-A3B-Q4_K_M.gguf"          "$GGUF_FILE"
+assert_eq "GGUF_FILE"   "Qwen3-30B-A3B-Q4_K_M.gguf"           "$GGUF_FILE"
 assert_eq "MAX_CONTEXT"  "131072"                               "$MAX_CONTEXT"
 echo ""
 
@@ -91,7 +95,8 @@ echo ""
 echo "NV_ULTRA (NVIDIA Ultra 90GB+):"
 run_tier NV_ULTRA
 assert_eq "TIER_NAME"   "NVIDIA Ultra (90GB+)"                 "$TIER_NAME"
-assert_eq "LLM_MODEL"   "qwen3-coder-next"                    "$LLM_MODEL"
+assert_eq "MODEL_PROFILE_EFFECTIVE" "qwen"                   "$MODEL_PROFILE_EFFECTIVE"
+assert_eq "LLM_MODEL"   "qwen3-coder-next"                   "$LLM_MODEL"
 assert_eq "GGUF_FILE"   "qwen3-coder-next-Q4_K_M.gguf"       "$GGUF_FILE"
 assert_eq "MAX_CONTEXT"  "131072"                               "$MAX_CONTEXT"
 echo ""
@@ -100,7 +105,8 @@ echo ""
 echo "SH_LARGE (Strix Halo 90+):"
 run_tier SH_LARGE
 assert_eq "TIER_NAME"   "Strix Halo 90+"                      "$TIER_NAME"
-assert_eq "LLM_MODEL"   "qwen3-coder-next"                    "$LLM_MODEL"
+assert_eq "MODEL_PROFILE_EFFECTIVE" "qwen"                   "$MODEL_PROFILE_EFFECTIVE"
+assert_eq "LLM_MODEL"   "qwen3-coder-next"                   "$LLM_MODEL"
 assert_eq "GGUF_FILE"   "qwen3-coder-next-Q4_K_M.gguf"       "$GGUF_FILE"
 assert_eq "MAX_CONTEXT"  "131072"                               "$MAX_CONTEXT"
 echo ""
@@ -109,8 +115,9 @@ echo ""
 echo "SH_COMPACT (Strix Halo Compact):"
 run_tier SH_COMPACT
 assert_eq "TIER_NAME"   "Strix Halo Compact"                  "$TIER_NAME"
+assert_eq "MODEL_PROFILE_EFFECTIVE" "qwen"                   "$MODEL_PROFILE_EFFECTIVE"
 assert_eq "LLM_MODEL"   "qwen3-30b-a3b"                       "$LLM_MODEL"
-assert_eq "GGUF_FILE"   "Qwen3-30B-A3B-Q4_K_M.gguf"          "$GGUF_FILE"
+assert_eq "GGUF_FILE"   "Qwen3-30B-A3B-Q4_K_M.gguf"           "$GGUF_FILE"
 assert_eq "MAX_CONTEXT"  "131072"                               "$MAX_CONTEXT"
 echo ""
 
@@ -118,7 +125,8 @@ echo ""
 echo "ARC (Intel Arc ≥12 GB, e.g. A770 16 GB):"
 run_tier ARC
 assert_eq "TIER_NAME"    "Intel Arc"                           "$TIER_NAME"
-assert_eq "LLM_MODEL"    "qwen3.5-9b"                         "$LLM_MODEL"
+assert_eq "MODEL_PROFILE_EFFECTIVE" "qwen"                   "$MODEL_PROFILE_EFFECTIVE"
+assert_eq "LLM_MODEL"    "qwen3.5-9b"                        "$LLM_MODEL"
 assert_eq "GGUF_FILE"    "Qwen3.5-9B-Q4_K_M.gguf"            "$GGUF_FILE"
 assert_eq "MAX_CONTEXT"  "32768"                               "$MAX_CONTEXT"
 assert_eq "GPU_BACKEND"  "sycl"                                "$GPU_BACKEND"
@@ -129,7 +137,8 @@ echo ""
 echo "ARC_LITE (Intel Arc <12 GB, e.g. A750 8 GB / A380 6 GB):"
 run_tier ARC_LITE
 assert_eq "TIER_NAME"    "Intel Arc Lite"                      "$TIER_NAME"
-assert_eq "LLM_MODEL"    "qwen3.5-4b"                         "$LLM_MODEL"
+assert_eq "MODEL_PROFILE_EFFECTIVE" "qwen"                   "$MODEL_PROFILE_EFFECTIVE"
+assert_eq "LLM_MODEL"    "qwen3.5-4b"                        "$LLM_MODEL"
 assert_eq "GGUF_FILE"    "Qwen3.5-4B-Q4_K_M.gguf"            "$GGUF_FILE"
 assert_eq "MAX_CONTEXT"  "16384"                               "$MAX_CONTEXT"
 assert_eq "GPU_BACKEND"  "sycl"                                "$GPU_BACKEND"
@@ -159,6 +168,55 @@ for t in 0 1 2 3 4 NV_ULTRA SH_LARGE SH_COMPACT ARC ARC_LITE; do
         ((FAIL++))
     fi
 done
+echo ""
+
+# --- Gemma 4 profile opt-in ---
+echo "Gemma 4 profile (tier 2):"
+MODEL_PROFILE=gemma4 run_tier 2
+assert_eq "MODEL_PROFILE_EFFECTIVE" "gemma4"                   "$MODEL_PROFILE_EFFECTIVE"
+assert_eq "LLM_MODEL"               "gemma-4-e4b-it"           "$LLM_MODEL"
+assert_eq "GGUF_FILE"               "gemma-4-E4B-it-Q4_K_M.gguf" "$GGUF_FILE"
+assert_eq "LLAMA_CPP_RELEASE_TAG_OVERRIDE" "b8648"             "$LLAMA_CPP_RELEASE_TAG_OVERRIDE"
+unset MODEL_PROFILE
+echo ""
+
+echo "Auto profile (tier 0 fallback):"
+MODEL_PROFILE=auto run_tier 0
+assert_eq "MODEL_PROFILE_EFFECTIVE" "qwen"                     "$MODEL_PROFILE_EFFECTIVE"
+assert_eq "LLM_MODEL"               "qwen3.5-2b"               "$LLM_MODEL"
+unset MODEL_PROFILE
+echo ""
+
+echo "Auto profile (tier 3 prefers Gemma with safer context):"
+MODEL_PROFILE=auto run_tier 3
+assert_eq "MODEL_PROFILE_EFFECTIVE" "gemma4"                   "$MODEL_PROFILE_EFFECTIVE"
+assert_eq "LLM_MODEL"               "gemma-4-26b-a4b-it"       "$LLM_MODEL"
+assert_eq "MAX_CONTEXT"             "16384"                    "$MAX_CONTEXT"
+unset MODEL_PROFILE
+echo ""
+
+echo "Auto profile (tier 4 prefers Gemma with safer context):"
+MODEL_PROFILE=auto run_tier 4
+assert_eq "MODEL_PROFILE_EFFECTIVE" "gemma4"                   "$MODEL_PROFILE_EFFECTIVE"
+assert_eq "LLM_MODEL"               "gemma-4-31b-it"           "$LLM_MODEL"
+assert_eq "MAX_CONTEXT"             "65536"                    "$MAX_CONTEXT"
+unset MODEL_PROFILE
+echo ""
+
+echo "Auto profile (SH_COMPACT prefers Gemma with safer context):"
+MODEL_PROFILE=auto run_tier SH_COMPACT
+assert_eq "MODEL_PROFILE_EFFECTIVE" "gemma4"                   "$MODEL_PROFILE_EFFECTIVE"
+assert_eq "LLM_MODEL"               "gemma-4-26b-a4b-it"       "$LLM_MODEL"
+assert_eq "MAX_CONTEXT"             "65536"                    "$MAX_CONTEXT"
+unset MODEL_PROFILE
+echo ""
+
+echo "Explicit qwen profile (tier 2):"
+MODEL_PROFILE=qwen run_tier 2
+assert_eq "MODEL_PROFILE_EFFECTIVE" "qwen"                     "$MODEL_PROFILE_EFFECTIVE"
+assert_eq "LLM_MODEL"               "qwen3.5-9b"               "$LLM_MODEL"
+assert_eq "GGUF_FILE"               "Qwen3.5-9B-Q4_K_M.gguf"   "$GGUF_FILE"
+unset MODEL_PROFILE
 echo ""
 
 # --- Summary ---

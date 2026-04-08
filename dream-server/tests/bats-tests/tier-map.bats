@@ -18,64 +18,75 @@ setup() {
     source "$BATS_TEST_DIRNAME/../../installers/lib/tier-map.sh"
 }
 
+teardown() {
+    unset MODEL_PROFILE
+}
+
 # ── resolve_tier_config ─────────────────────────────────────────────────────
 
-@test "resolve_tier_config: tier 1 sets Entry Level with qwen3.5-9b" {
+@test "resolve_tier_config: default profile keeps tier 1 on Qwen" {
     TIER=1
     resolve_tier_config
     assert_equal "$TIER_NAME" "Entry Level"
+    assert_equal "$MODEL_PROFILE_EFFECTIVE" "qwen"
     assert_equal "$LLM_MODEL" "qwen3.5-9b"
     assert_equal "$GGUF_FILE" "Qwen3.5-9B-Q4_K_M.gguf"
     assert_equal "$MAX_CONTEXT" "16384"
 }
 
-@test "resolve_tier_config: tier 2 sets Prosumer with qwen3.5-9b" {
+@test "resolve_tier_config: default profile keeps tier 2 on Qwen" {
     TIER=2
     resolve_tier_config
     assert_equal "$TIER_NAME" "Prosumer"
+    assert_equal "$MODEL_PROFILE_EFFECTIVE" "qwen"
     assert_equal "$LLM_MODEL" "qwen3.5-9b"
     assert_equal "$MAX_CONTEXT" "32768"
 }
 
-@test "resolve_tier_config: tier 3 sets Pro with qwen3-30b-a3b" {
+@test "resolve_tier_config: default profile keeps tier 3 on Qwen" {
     TIER=3
     resolve_tier_config
     assert_equal "$TIER_NAME" "Pro"
+    assert_equal "$MODEL_PROFILE_EFFECTIVE" "qwen"
     assert_equal "$LLM_MODEL" "qwen3-30b-a3b"
     assert_equal "$GGUF_FILE" "Qwen3-30B-A3B-Q4_K_M.gguf"
     assert_equal "$MAX_CONTEXT" "32768"
 }
 
-@test "resolve_tier_config: tier 4 sets Enterprise with qwen3-30b-a3b" {
+@test "resolve_tier_config: default profile keeps tier 4 on Qwen" {
     TIER=4
     resolve_tier_config
     assert_equal "$TIER_NAME" "Enterprise"
+    assert_equal "$MODEL_PROFILE_EFFECTIVE" "qwen"
     assert_equal "$LLM_MODEL" "qwen3-30b-a3b"
     assert_equal "$GGUF_FILE" "Qwen3-30B-A3B-Q4_K_M.gguf"
     assert_equal "$MAX_CONTEXT" "131072"
 }
 
-@test "resolve_tier_config: NV_ULTRA sets NVIDIA Ultra with qwen3-coder-next" {
+@test "resolve_tier_config: default profile keeps NV_ULTRA on Qwen Coder Next" {
     TIER=NV_ULTRA
     resolve_tier_config
     assert_equal "$TIER_NAME" "NVIDIA Ultra (90GB+)"
+    assert_equal "$MODEL_PROFILE_EFFECTIVE" "qwen"
     assert_equal "$LLM_MODEL" "qwen3-coder-next"
     assert_equal "$GGUF_FILE" "qwen3-coder-next-Q4_K_M.gguf"
     assert_equal "$MAX_CONTEXT" "131072"
 }
 
-@test "resolve_tier_config: SH_LARGE sets Strix Halo 90+ with qwen3-coder-next" {
+@test "resolve_tier_config: default profile keeps SH_LARGE on Qwen Coder Next" {
     TIER=SH_LARGE
     resolve_tier_config
     assert_equal "$TIER_NAME" "Strix Halo 90+"
+    assert_equal "$MODEL_PROFILE_EFFECTIVE" "qwen"
     assert_equal "$LLM_MODEL" "qwen3-coder-next"
     assert_equal "$MAX_CONTEXT" "131072"
 }
 
-@test "resolve_tier_config: SH_COMPACT sets Strix Halo Compact with qwen3-30b-a3b" {
+@test "resolve_tier_config: default profile keeps SH_COMPACT on Qwen 30B A3B" {
     TIER=SH_COMPACT
     resolve_tier_config
     assert_equal "$TIER_NAME" "Strix Halo Compact"
+    assert_equal "$MODEL_PROFILE_EFFECTIVE" "qwen"
     assert_equal "$LLM_MODEL" "qwen3-30b-a3b"
     assert_equal "$MAX_CONTEXT" "131072"
 }
@@ -99,7 +110,7 @@ setup() {
 
 # ── tier_to_model ────────────────────────────────────────────────────────────
 
-@test "tier_to_model: maps all numeric tiers correctly" {
+@test "tier_to_model: default profile keeps numeric tiers on Qwen" {
     run tier_to_model 1
     assert_output "qwen3.5-9b"
 
@@ -113,7 +124,7 @@ setup() {
     assert_output "qwen3-30b-a3b"
 }
 
-@test "tier_to_model: maps T-prefix aliases correctly" {
+@test "tier_to_model: default profile maps T-prefix aliases correctly" {
     run tier_to_model T1
     assert_output "qwen3.5-9b"
 
@@ -127,7 +138,7 @@ setup() {
     assert_output "qwen3-30b-a3b"
 }
 
-@test "tier_to_model: maps special tiers correctly" {
+@test "tier_to_model: default profile maps special tiers correctly" {
     run tier_to_model CLOUD
     assert_output "anthropic/claude-sonnet-4-5-20250514"
 
@@ -153,4 +164,89 @@ setup() {
 
     run tier_to_model ""
     assert_output ""
+}
+
+@test "resolve_tier_config: gemma4 profile maps tier 2 to Gemma 4 E4B" {
+    export MODEL_PROFILE=gemma4
+    TIER=2
+    resolve_tier_config
+    assert_equal "$LLM_MODEL" "gemma-4-e4b-it"
+    assert_equal "$GGUF_FILE" "gemma-4-E4B-it-Q4_K_M.gguf"
+    assert_equal "$MAX_CONTEXT" "32768"
+    assert_equal "$LLAMA_CPP_RELEASE_TAG_OVERRIDE" "b8648"
+}
+
+@test "resolve_tier_config: qwen profile preserves current tier 2 mapping" {
+    export MODEL_PROFILE=qwen
+    TIER=2
+    resolve_tier_config
+    assert_equal "$MODEL_PROFILE_EFFECTIVE" "qwen"
+    assert_equal "$LLM_MODEL" "qwen3.5-9b"
+    assert_equal "$GGUF_FILE" "Qwen3.5-9B-Q4_K_M.gguf"
+    assert_equal "$MAX_CONTEXT" "32768"
+}
+
+@test "resolve_tier_config: unset profile keeps the legacy qwen default" {
+    unset MODEL_PROFILE
+    TIER=2
+    resolve_tier_config
+    assert_equal "$MODEL_PROFILE_EFFECTIVE" "qwen"
+    assert_equal "$LLM_MODEL" "qwen3.5-9b"
+}
+
+@test "resolve_tier_config: auto profile keeps qwen on tier 0" {
+    export MODEL_PROFILE=auto
+    TIER=0
+    resolve_tier_config
+    assert_equal "$MODEL_PROFILE_EFFECTIVE" "qwen"
+    assert_equal "$LLM_MODEL" "qwen3.5-2b"
+}
+
+@test "resolve_tier_config: auto profile prefers Gemma on tier 3" {
+    export MODEL_PROFILE=auto
+    TIER=3
+    resolve_tier_config
+    assert_equal "$MODEL_PROFILE_EFFECTIVE" "gemma4"
+    assert_equal "$LLM_MODEL" "gemma-4-26b-a4b-it"
+    assert_equal "$MAX_CONTEXT" "16384"
+}
+
+@test "resolve_tier_config: auto profile prefers Gemma on tier 4 with safer context" {
+    export MODEL_PROFILE=auto
+    TIER=4
+    resolve_tier_config
+    assert_equal "$MODEL_PROFILE_EFFECTIVE" "gemma4"
+    assert_equal "$LLM_MODEL" "gemma-4-31b-it"
+    assert_equal "$MAX_CONTEXT" "65536"
+}
+
+@test "resolve_tier_config: auto profile prefers Gemma on SH_COMPACT with safer context" {
+    export MODEL_PROFILE=auto
+    TIER=SH_COMPACT
+    resolve_tier_config
+    assert_equal "$MODEL_PROFILE_EFFECTIVE" "gemma4"
+    assert_equal "$LLM_MODEL" "gemma-4-26b-a4b-it"
+    assert_equal "$MAX_CONTEXT" "65536"
+}
+
+@test "tier_to_model: gemma4 profile maps tiers correctly" {
+    run tier_to_model 1 gemma4
+    assert_output "gemma-4-e2b-it"
+
+    run tier_to_model 2 gemma4
+    assert_output "gemma-4-e4b-it"
+
+    run tier_to_model 4 gemma4
+    assert_output "gemma-4-31b-it"
+}
+
+@test "tier_to_model: qwen profile still maps tiers to the current defaults" {
+    run tier_to_model 1 qwen
+    assert_output "qwen3.5-9b"
+
+    run tier_to_model 3 qwen
+    assert_output "qwen3-30b-a3b"
+
+    run tier_to_model NV_ULTRA qwen
+    assert_output "qwen3-coder-next"
 }

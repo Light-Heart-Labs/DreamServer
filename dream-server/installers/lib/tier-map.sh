@@ -14,7 +14,43 @@
 #   Each tier maps to a specific GGUF quantization and context window.
 # ============================================================================
 
-resolve_tier_config() {
+normalize_model_profile() {
+    local profile="${1:-${MODEL_PROFILE:-qwen}}"
+    profile="$(printf '%s' "$profile" | tr '[:upper:]' '[:lower:]')"
+    case "$profile" in
+        auto)               echo "auto" ;;
+        gemma|gemma4|gemma-4) echo "gemma4" ;;
+        *)                  echo "qwen" ;;
+    esac
+}
+
+effective_model_profile() {
+    local requested
+    requested="$(normalize_model_profile "${1:-}")"
+    if [[ "$requested" == "auto" ]]; then
+        case "$TIER" in
+            CLOUD|0) echo "qwen" ;;
+            *)       echo "gemma4" ;;
+        esac
+    else
+        echo "$requested"
+    fi
+}
+
+configure_llama_runtime_defaults() {
+    LLAMA_SERVER_IMAGE=""
+    LLAMA_CPP_RELEASE_TAG_OVERRIDE=""
+
+    case "$MODEL_PROFILE_EFFECTIVE" in
+        gemma4)
+            # Gemma 4 GGUFs require a newer llama.cpp than the legacy DreamServer pin.
+            LLAMA_SERVER_IMAGE="ghcr.io/ggml-org/llama.cpp:server-cuda-b8648"
+            LLAMA_CPP_RELEASE_TAG_OVERRIDE="b8648"
+            ;;
+    esac
+}
+
+set_qwen_tier_config() {
     case $TIER in
         CLOUD)
             TIER_NAME="Cloud (API)"
@@ -130,21 +166,188 @@ resolve_tier_config() {
     esac
 }
 
+set_gemma4_tier_config() {
+    case $TIER in
+        CLOUD)
+            TIER_NAME="Cloud (API)"
+            LLM_MODEL="anthropic/claude-sonnet-4-5-20250514"
+            GGUF_FILE=""
+            GGUF_URL=""
+            GGUF_SHA256=""
+            MAX_CONTEXT=200000
+            LLM_MODEL_SIZE_MB=0
+            ;;
+        ARC)
+            TIER_NAME="Intel Arc"
+            LLM_MODEL="gemma-4-e4b-it"
+            GGUF_FILE="gemma-4-E4B-it-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/ggml-org/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf"
+            GGUF_SHA256=""
+            MAX_CONTEXT=32768
+            LLM_MODEL_SIZE_MB=5340
+            GPU_BACKEND="sycl"
+            N_GPU_LAYERS=99
+            ;;
+        ARC_LITE)
+            TIER_NAME="Intel Arc Lite"
+            LLM_MODEL="gemma-4-e2b-it"
+            GGUF_FILE="gemma-4-E2B-it-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf"
+            GGUF_SHA256=""
+            MAX_CONTEXT=16384
+            LLM_MODEL_SIZE_MB=2810
+            GPU_BACKEND="sycl"
+            N_GPU_LAYERS=99
+            ;;
+        NV_ULTRA)
+            TIER_NAME="NVIDIA Ultra (90GB+)"
+            LLM_MODEL="gemma-4-31b-it"
+            GGUF_FILE="gemma-4-31B-it-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/ggml-org/gemma-4-31B-it-GGUF/resolve/main/gemma-4-31B-it-Q4_K_M.gguf"
+            GGUF_SHA256=""
+            MAX_CONTEXT=131072
+            LLM_MODEL_SIZE_MB=19800
+            ;;
+        SH_LARGE)
+            TIER_NAME="Strix Halo 90+"
+            LLM_MODEL="gemma-4-31b-it"
+            GGUF_FILE="gemma-4-31B-it-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/ggml-org/gemma-4-31B-it-GGUF/resolve/main/gemma-4-31B-it-Q4_K_M.gguf"
+            GGUF_SHA256=""
+            MAX_CONTEXT=131072
+            LLM_MODEL_SIZE_MB=19800
+            ;;
+        SH_COMPACT)
+            TIER_NAME="Strix Halo Compact"
+            LLM_MODEL="gemma-4-26b-a4b-it"
+            GGUF_FILE="gemma-4-26B-A4B-it-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/ggml-org/gemma-4-26B-A4B-it-GGUF/resolve/main/gemma-4-26B-A4B-it-Q4_K_M.gguf"
+            GGUF_SHA256=""
+            MAX_CONTEXT=65536
+            LLM_MODEL_SIZE_MB=18000
+            ;;
+        0)
+            # Keep the current tiny bootstrap-friendly Qwen path for the absolute minimum tier.
+            TIER_NAME="Lightweight"
+            LLM_MODEL="qwen3.5-2b"
+            GGUF_FILE="Qwen3.5-2B-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf"
+            GGUF_SHA256=""
+            MAX_CONTEXT=8192
+            LLM_MODEL_SIZE_MB=1500
+            ;;
+        1)
+            TIER_NAME="Entry Level"
+            LLM_MODEL="gemma-4-e2b-it"
+            GGUF_FILE="gemma-4-E2B-it-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf"
+            GGUF_SHA256=""
+            MAX_CONTEXT=16384
+            LLM_MODEL_SIZE_MB=2810
+            ;;
+        2)
+            TIER_NAME="Prosumer"
+            LLM_MODEL="gemma-4-e4b-it"
+            GGUF_FILE="gemma-4-E4B-it-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/ggml-org/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf"
+            GGUF_SHA256=""
+            MAX_CONTEXT=32768
+            LLM_MODEL_SIZE_MB=5340
+            ;;
+        3)
+            TIER_NAME="Pro"
+            LLM_MODEL="gemma-4-26b-a4b-it"
+            GGUF_FILE="gemma-4-26B-A4B-it-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/ggml-org/gemma-4-26B-A4B-it-GGUF/resolve/main/gemma-4-26B-A4B-it-Q4_K_M.gguf"
+            GGUF_SHA256=""
+            MAX_CONTEXT=16384
+            LLM_MODEL_SIZE_MB=18000
+            ;;
+        4)
+            TIER_NAME="Enterprise"
+            LLM_MODEL="gemma-4-31b-it"
+            GGUF_FILE="gemma-4-31B-it-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/ggml-org/gemma-4-31B-it-GGUF/resolve/main/gemma-4-31B-it-Q4_K_M.gguf"
+            GGUF_SHA256=""
+            MAX_CONTEXT=65536
+            LLM_MODEL_SIZE_MB=19800
+            ;;
+        *)
+            error "Invalid tier: $TIER. Valid tiers: 0, 1, 2, 3, 4, CLOUD, NV_ULTRA, SH_LARGE, SH_COMPACT, ARC, ARC_LITE"
+            ;;
+    esac
+}
+
+resolve_tier_config() {
+    MODEL_PROFILE_REQUESTED="$(normalize_model_profile)"
+    MODEL_PROFILE_EFFECTIVE="$(effective_model_profile "$MODEL_PROFILE_REQUESTED")"
+
+    case "$MODEL_PROFILE_EFFECTIVE" in
+        gemma4)
+            if ! set_gemma4_tier_config; then
+                return 1
+            fi
+            ;;
+        *)
+            if ! set_qwen_tier_config; then
+                return 1
+            fi
+            ;;
+    esac
+
+    configure_llama_runtime_defaults
+}
+
 # Map a tier name to its LLM_MODEL value (used by dream model swap)
 tier_to_model() {
     local t="$1"
-    case "$t" in
-        CLOUD)          echo "anthropic/claude-sonnet-4-5-20250514" ;;
-        NV_ULTRA)       echo "qwen3-coder-next" ;;
-        SH_LARGE)       echo "qwen3-coder-next" ;;
-        SH_COMPACT|SH)  echo "qwen3-30b-a3b" ;;
-        ARC)            echo "qwen3.5-9b" ;;
-        ARC_LITE)       echo "qwen3.5-4b" ;;
-        0|T0)           echo "qwen3.5-2b" ;;
-        1|T1)           echo "qwen3.5-9b" ;;
-        2|T2)           echo "qwen3.5-9b" ;;
-        3|T3)           echo "qwen3-30b-a3b" ;;
-        4|T4)           echo "qwen3-30b-a3b" ;;
-        *)              echo "" ;;
+    local requested effective
+    local previous_tier="${TIER:-}"
+    requested="$(normalize_model_profile "${2:-}")"
+    TIER="$t"
+    effective="$(effective_model_profile "$requested")"
+
+    local model=""
+    case "$effective" in
+        gemma4)
+            case "$t" in
+                CLOUD)          model="anthropic/claude-sonnet-4-5-20250514" ;;
+                NV_ULTRA)       model="gemma-4-31b-it" ;;
+                SH_LARGE)       model="gemma-4-31b-it" ;;
+                SH_COMPACT|SH)  model="gemma-4-26b-a4b-it" ;;
+                ARC)            model="gemma-4-e4b-it" ;;
+                ARC_LITE)       model="gemma-4-e2b-it" ;;
+                0|T0)           model="qwen3.5-2b" ;;
+                1|T1)           model="gemma-4-e2b-it" ;;
+                2|T2)           model="gemma-4-e4b-it" ;;
+                3|T3)           model="gemma-4-26b-a4b-it" ;;
+                4|T4)           model="gemma-4-31b-it" ;;
+                *)              model="" ;;
+            esac
+            ;;
+        *)
+            case "$t" in
+                CLOUD)          model="anthropic/claude-sonnet-4-5-20250514" ;;
+                NV_ULTRA)       model="qwen3-coder-next" ;;
+                SH_LARGE)       model="qwen3-coder-next" ;;
+                SH_COMPACT|SH)  model="qwen3-30b-a3b" ;;
+                ARC)            model="qwen3.5-9b" ;;
+                ARC_LITE)       model="qwen3.5-4b" ;;
+                0|T0)           model="qwen3.5-2b" ;;
+                1|T1)           model="qwen3.5-9b" ;;
+                2|T2)           model="qwen3.5-9b" ;;
+                3|T3)           model="qwen3-30b-a3b" ;;
+                4|T4)           model="qwen3-30b-a3b" ;;
+                *)              model="" ;;
+            esac
+            ;;
     esac
+
+    if [[ -n "${previous_tier}" ]]; then
+        TIER="$previous_tier"
+    else
+        unset TIER
+    fi
+
+    echo "$model"
 }

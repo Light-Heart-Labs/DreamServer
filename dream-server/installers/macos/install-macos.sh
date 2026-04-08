@@ -199,17 +199,35 @@ else
     SELECTED_TIER=$(auto_select_tier "$SYSTEM_RAM_GB" "$APPLE_CHIP_VARIANT")
 fi
 
+if [[ -z "${MODEL_PROFILE:-}" ]]; then
+    if [[ -f "${INSTALL_DIR}/.env" ]]; then
+        _existing_model_profile=$(grep -m1 '^MODEL_PROFILE=' "${INSTALL_DIR}/.env" 2>/dev/null | cut -d= -f2- | tr -d '\r' || true)
+        MODEL_PROFILE="${_existing_model_profile:-qwen}"
+    else
+        MODEL_PROFILE="qwen"
+    fi
+fi
+
 resolve_tier_config "$SELECTED_TIER"
+if [[ -n "${LLAMA_CPP_RELEASE_TAG_OVERRIDE:-}" ]]; then
+    LLAMA_CPP_RELEASE_TAG="$LLAMA_CPP_RELEASE_TAG_OVERRIDE"
+    LLAMA_CPP_MACOS_ASSET="llama-${LLAMA_CPP_RELEASE_TAG}-bin-macos-arm64.tar.gz"
+    LLAMA_CPP_MACOS_URL="https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_CPP_RELEASE_TAG}/${LLAMA_CPP_MACOS_ASSET}"
+fi
 ai_ok "Selected tier: ${SELECTED_TIER} (${TIER_NAME})"
 info_box "Model:" "${LLM_MODEL}"
 info_box "GGUF:" "${GGUF_FILE}"
 info_box "Context:" "${MAX_CONTEXT}"
 
 # Re-check disk space for model + Docker images
-if [[ "$GGUF_FILE" =~ 30B ]]; then
+if [[ "$GGUF_FILE" =~ 31B ]]; then
+    NEEDED_GB=38
+elif [[ "$GGUF_FILE" =~ 30B|26B ]]; then
     NEEDED_GB=35
 elif [[ "$GGUF_FILE" =~ 14B ]]; then
     NEEDED_GB=27
+elif [[ "$GGUF_FILE" =~ E4B ]]; then
+    NEEDED_GB=25
 else
     NEEDED_GB=23
 fi

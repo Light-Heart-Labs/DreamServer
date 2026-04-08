@@ -393,30 +393,57 @@ get_apple_tier() {
 # Get tier description (supports NVIDIA, Strix Halo, and Apple tiers)
 tier_description() {
     case $1 in
-        T4)    echo "Ultimate (48GB+): Full 70B models, multi-model serving" ;;
-        T3)    echo "Pro (20-47GB): 32B models, comfortable headroom" ;;
-        T2)    echo "Starter (12-19GB): 7-14B models, lean configs" ;;
-        T1)    echo "Mini (<12GB): Small models or CPU inference" ;;
-        SH_LARGE)   echo "Strix Halo 90+: qwen3-coder-next 80B MoE (90GB+ unified)" ;;
-        SH_COMPACT) echo "Strix Halo Compact: qwen3:30b-a3b 30B MoE (<90GB unified)" ;;
-        AP_ULTRA)   echo "Apple Ultra (96GB+): 70B models via CPU inference in Docker" ;;
-        AP_PRO)     echo "Apple Pro (36GB+): 32B models via CPU inference in Docker" ;;
-        AP_BASE)    echo "Apple Base (<36GB): 7B models via CPU inference in Docker" ;;
+        T4)    echo "Ultimate (48GB+): large flagship local profile with long context headroom" ;;
+        T3)    echo "Pro (20-47GB): strong local profile with room for larger models" ;;
+        T2)    echo "Starter (12-19GB): mid-size local profile for everyday work" ;;
+        T1)    echo "Mini (<12GB): compact local profile or CPU inference" ;;
+        SH_LARGE)   echo "Strix Halo 90+: flagship unified-memory local profile" ;;
+        SH_COMPACT) echo "Strix Halo Compact: balanced unified-memory local profile" ;;
+        AP_ULTRA)   echo "Apple Ultra (96GB+): high-end local profile via CPU inference in Docker" ;;
+        AP_PRO)     echo "Apple Pro (36GB+): balanced local profile via CPU inference in Docker" ;;
+        AP_BASE)    echo "Apple Base (<36GB): compact local profile via CPU inference in Docker" ;;
+    esac
+}
+
+detect_model_profile() {
+    local profile="${MODEL_PROFILE:-qwen}"
+    profile="$(printf '%s' "$profile" | tr '[:upper:]' '[:lower:]')"
+    case "$profile" in
+        auto|gemma|gemma4|gemma-4) echo "gemma4" ;;
+        *)                         echo "qwen" ;;
     esac
 }
 
 # Get recommended model for tier
 tier_model() {
+    local profile
+    profile="$(detect_model_profile)"
+
+    if [[ "$profile" == "gemma4" ]]; then
+        case $1 in
+            T4)    echo "gemma-4-31b-it" ;;
+            T3)    echo "gemma-4-26b-a4b-it" ;;
+            T2)    echo "gemma-4-e4b-it" ;;
+            T1)    echo "gemma-4-e2b-it" ;;
+            SH_LARGE)   echo "gemma-4-31b-it" ;;
+            SH_COMPACT) echo "gemma-4-26b-a4b-it" ;;
+            AP_ULTRA)   echo "gemma-4-31b-it-Q4_K_M.gguf" ;;
+            AP_PRO)     echo "gemma-4-e4b-it-Q4_K_M.gguf" ;;
+            AP_BASE)    echo "gemma-4-e2b-it-Q4_K_M.gguf" ;;
+        esac
+        return
+    fi
+
     case $1 in
-        T4)    echo "Qwen/Qwen2.5-72B-Instruct-AWQ" ;;
-        T3)    echo "Qwen/Qwen2.5-32B-Instruct-AWQ" ;;
-        T2)    echo "Qwen/Qwen2.5-7B-Instruct-AWQ" ;;
-        T1)    echo "Qwen/Qwen2.5-1.5B-Instruct" ;;
+        T4)    echo "qwen3-coder-next" ;;
+        T3)    echo "qwen3-30b-a3b" ;;
+        T2)    echo "qwen3.5-9b" ;;
+        T1)    echo "qwen3.5-2b" ;;
         SH_LARGE)   echo "qwen3-coder-next" ;;
-        SH_COMPACT) echo "qwen3:30b-a3b" ;;
-        AP_ULTRA)   echo "Qwen/Qwen2.5-72B-Instruct-Q4_K_M.gguf" ;;
-        AP_PRO)     echo "Qwen/Qwen2.5-32B-Instruct-Q4_K_M.gguf" ;;
-        AP_BASE)    echo "Qwen/Qwen2.5-7B-Instruct-Q4_K_M.gguf" ;;
+        SH_COMPACT) echo "qwen3-30b-a3b" ;;
+        AP_ULTRA)   echo "qwen3-coder-next-Q4_K_M.gguf" ;;
+        AP_PRO)     echo "qwen3.5-9b-Q4_K_M.gguf" ;;
+        AP_BASE)    echo "qwen3.5-2b-Q4_K_M.gguf" ;;
     esac
 }
 
