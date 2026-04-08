@@ -7,7 +7,7 @@ services:
       - no-new-privileges:true
     environment:
       - STORAGE_DIR=/app/server/storage
-      - JWT_SECRET=${ANYTHINGLLM_JWT_SECRET:?ANYTHINGLLM_JWT_SECRET must be set}
+      - JWT_SECRET=${ANYTHINGLLM_JWT_SECRET:-change-me-in-production}
       - LLM_PROVIDER=${ANYTHINGLLM_LLM_PROVIDER:-ollama}
       - OLLAMA_BASE_PATH=${OLLAMA_BASE_PATH:-http://ollama:11434}
       - OLLAMA_MODEL_PREF=${OLLAMA_MODEL_PREF:-llama3.2}
@@ -20,7 +20,7 @@ services:
       - WHISPER_PROVIDER=${ANYTHINGLLM_WHISPER_PROVIDER:-local}
       - TTS_PROVIDER=${ANYTHINGLLM_TTS_PROVIDER:-native}
       - PASSWORDMINCHAR=${ANYTHINGLLM_PASSWORD_MIN:-8}
-      - AUTH_TOKEN=${ANYTHINGLLM_AUTH_TOKEN:?ANYTHINGLLM_AUTH_TOKEN must be set}
+      - AUTH_TOKEN=${ANYTHINGLLM_AUTH_TOKEN:-}
     volumes:
       - ./data/anythingllm:/app/server/storage:rw
     ports:

@@ -12,7 +12,7 @@ services:
       - "127.0.0.1:${FRIGATE_WEBRTC_PORT:-8555}:8555/tcp"
       - "127.0.0.1:${FRIGATE_WEBRTC_PORT:-8555}:8555/udp"
     environment:
-      - FRIGATE_RTSP_PASSWORD=${FRIGATE_RTSP_PASSWORD:?FRIGATE_RTSP_PASSWORD must be set}
+      - FRIGATE_RTSP_PASSWORD=${FRIGATE_RTSP_PASSWORD:-frigate}
     volumes:
       - ./data/frigate/config:/config
       - ./data/frigate/storage:/media/frigate

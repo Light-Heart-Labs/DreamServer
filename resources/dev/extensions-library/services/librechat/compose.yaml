@@ -34,10 +34,10 @@ services:
       - BINGAI_TOKEN=${BINGAI_TOKEN:-}
       - DALLE3_API_KEY=${DALLE3_API_KEY:-}
       - DALLE3_BASEURL=${DALLE3_BASEURL:-}
-      - "CREDS_KEY=${CREDS_KEY:?CREDS_KEY must be set – generate with: openssl rand -hex 32}"
-      - "CREDS_IV=${CREDS_IV:?CREDS_IV must be set – generate with: openssl rand -hex 16}"
-      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
-      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET must be set}
+      - "CREDS_KEY=${CREDS_KEY:-deadbeef1234567890abcdef1234567890abcdef1234567890abcdef12345678}"
+      - "CREDS_IV=${CREDS_IV:-deadbeef1234567890abcdef12345678}"
+      - JWT_SECRET=${JWT_SECRET:-change-me-jwt-secret-in-production}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-change-me-jwt-refresh-in-production}
       - APP_TITLE=${APP_TITLE:-LibreChat}
       - DOMAIN_CLIENT=${DOMAIN_CLIENT:-}
       - DOMAIN_SERVER=${DOMAIN_SERVER:-}
@@ -86,7 +86,7 @@ services:
       - no-new-privileges:true
     environment:
       - MONGO_INITDB_ROOT_USERNAME=librechat
-      - MONGO_INITDB_ROOT_PASSWORD=${LIBRECHAT_MONGO_PASSWORD:?LIBRECHAT_MONGO_PASSWORD must be set}
+      - MONGO_INITDB_ROOT_PASSWORD=${LIBRECHAT_MONGO_PASSWORD:-librechat}
     volumes:
       - ./data/librechat/mongodb:/data/db:rw
     healthcheck:
@@ -114,7 +114,7 @@ services:
       - no-new-privileges:true
     environment:
       - MEILI_ENV=production
-      - MEILI_MASTER_KEY=${LIBRECHAT_MEILI_KEY:?LIBRECHAT_MEILI_KEY must be set}
+      - MEILI_MASTER_KEY=${LIBRECHAT_MEILI_KEY:-meili-master-key-change-me}
     volumes:
       - ./data/librechat/meilisearch:/meili_data:rw
     healthcheck:
