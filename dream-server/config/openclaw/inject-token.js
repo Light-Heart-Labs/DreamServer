@@ -194,6 +194,22 @@ try {
       primary.gateway.http.endpoints.chatCompletions = { enabled: true };
     }
 
+    // Ensure gateway.controlUi settings are present (required when --bind lan
+    // exposes the gateway on a non-loopback interface).  Part 1 patches these
+    // into ~/.openclaw/openclaw.json but that write may fail (EACCES on
+    // Docker volume), so we must also set them here in the merged config.
+    if (!primary.gateway) primary.gateway = {};
+    if (!primary.gateway.controlUi) primary.gateway.controlUi = {};
+    primary.gateway.controlUi.allowInsecureAuth = true;
+    primary.gateway.controlUi.dangerouslyDisableDeviceAuth = true;
+    primary.gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback = true;
+    const extPort = process.env.OPENCLAW_EXTERNAL_PORT || '7860';
+    const origins = primary.gateway.controlUi.allowedOrigins || [];
+    for (const o of [`http://localhost:${extPort}`, `http://127.0.0.1:${extPort}`]) {
+      if (!origins.includes(o)) origins.push(o);
+    }
+    primary.gateway.controlUi.allowedOrigins = origins;
+
     // Fix provider baseUrl to match the actual LLM endpoint (OLLAMA_URL env)
     const ollamaUrl = process.env.OLLAMA_URL || '';
     if (ollamaUrl) {

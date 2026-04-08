@@ -141,100 +141,11 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
         _oc_key_esc=$(_sed_escape "${LITELLM_KEY:-none}")
         _sed_i "s|__LITELLM_KEY__|${_oc_key_esc}|g" "$INSTALL_DIR/config/openclaw/openclaw.json"
         log "Installed OpenClaw config: $OPENCLAW_CONFIG -> openclaw.json (model: $OPENCLAW_MODEL)"
-        mkdir -p "$INSTALL_DIR/data/openclaw/home/agents/main/sessions"
-        # Generate OpenClaw home config with local llama-server provider
+        # Generate OPENCLAW_TOKEN (used by compose env and inject-token.js)
         OPENCLAW_TOKEN=$(openssl rand -hex 24 2>/dev/null || head -c 24 /dev/urandom | xxd -p)
-
-        cat > "$INSTALL_DIR/data/openclaw/home/openclaw.json" << OCLAW_EOF
-{
-  "models": {
-    "providers": {
-      "${OPENCLAW_PROVIDER_NAME}": {
-        "baseUrl": "${OPENCLAW_PROVIDER_URL}",
-        "apiKey": "none",
-        "api": "openai-completions",
-        "models": [
-          {
-            "id": "${OPENCLAW_MODEL}",
-            "name": "Dream Server LLM (Local)",
-            "reasoning": false,
-            "input": ["text"],
-            "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
-            "contextWindow": ${OPENCLAW_CONTEXT},
-            "maxTokens": 8192,
-            "compat": {
-              "supportsStore": false,
-              "supportsDeveloperRole": false,
-              "supportsReasoningEffort": false,
-              "maxTokensField": "max_tokens"
-            }
-          }
-        ]
-      }
-    }
-  },
-  "agents": {
-    "defaults": {
-      "model": {"primary": "${OPENCLAW_PROVIDER_NAME}/${OPENCLAW_MODEL}"},
-      "models": {"${OPENCLAW_PROVIDER_NAME}/${OPENCLAW_MODEL}": {}},
-      "compaction": {"mode": "safeguard"},
-      "subagents": {"maxConcurrent": 20, "model": "${OPENCLAW_PROVIDER_NAME}/${OPENCLAW_MODEL}"}
-    }
-  },
-  "commands": {"native": "auto", "nativeSkills": "auto"},
-  "gateway": {
-    "mode": "local",
-    "bind": "lan",
-    "controlUi": {"allowInsecureAuth": true},
-    "auth": {"mode": "token", "token": "${OPENCLAW_TOKEN}"}
-  }
-}
-OCLAW_EOF
-        # Generate agent auth-profiles.json for llama-server provider
-        mkdir -p "$INSTALL_DIR/data/openclaw/home/agents/main/agent"
-        cat > "$INSTALL_DIR/data/openclaw/home/agents/main/agent/auth-profiles.json" << AUTH_EOF
-{
-  "version": 1,
-  "profiles": {
-    "${OPENCLAW_PROVIDER_NAME}:default": {
-      "type": "api_key",
-      "provider": "${OPENCLAW_PROVIDER_NAME}",
-      "key": "none"
-    }
-  },
-  "lastGood": {"${OPENCLAW_PROVIDER_NAME}": "${OPENCLAW_PROVIDER_NAME}:default"},
-  "usageStats": {}
-}
-AUTH_EOF
-        cat > "$INSTALL_DIR/data/openclaw/home/agents/main/agent/models.json" << MODELS_EOF
-{
-  "providers": {
-    "${OPENCLAW_PROVIDER_NAME}": {
-      "baseUrl": "${OPENCLAW_PROVIDER_URL}",
-      "apiKey": "none",
-      "api": "openai-completions",
-      "models": [
-        {
-          "id": "${OPENCLAW_MODEL}",
-          "name": "Dream Server LLM (Local)",
-          "reasoning": false,
-          "input": ["text"],
-          "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
-          "contextWindow": ${OPENCLAW_CONTEXT},
-          "maxTokens": 8192,
-          "compat": {
-            "supportsStore": false,
-            "supportsDeveloperRole": false,
-            "supportsReasoningEffort": false,
-            "maxTokensField": "max_tokens"
-          }
-        }
-      ]
-    }
-  }
-}
-MODELS_EOF
-        log "Generated OpenClaw home config (model: $OPENCLAW_MODEL, gateway token set)"
+        # Note: OpenClaw home dir uses a named Docker volume (openclaw-home).
+        # inject-token.js patches the runtime config at container startup,
+        # so we don't seed files into the volume from the installer.
         # Create workspace directory (must exist before Docker Compose,
         # otherwise Docker auto-creates it as root and the container can't write to it)
         mkdir -p "$INSTALL_DIR/config/openclaw/workspace/memory"
