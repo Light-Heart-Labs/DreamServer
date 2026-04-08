@@ -1,7 +1,6 @@
 """Extensions portal endpoints."""
 
 import contextlib
-import fcntl
 import json
 import logging
 import os
@@ -25,6 +24,14 @@ from config import (
     EXTENSIONS_LIBRARY_DIR, GPU_BACKEND, SERVICES, USER_EXTENSIONS_DIR,
 )
 from security import verify_api_key
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - only hit on Windows hosts
+    fcntl = None
+    import msvcrt
+else:  # pragma: no cover - platform branch
+    msvcrt = None
 
 logger = logging.getLogger(__name__)
 
@@ -351,13 +358,27 @@ def _extensions_lock():
     """Acquire an exclusive file lock for extension mutations."""
     lock_path = Path(DATA_DIR) / ".extensions-lock"
     lock_path.touch(exist_ok=True)
-    lockfile = open(lock_path, "w")
+    lockfile = open(lock_path, "a+b")
     try:
-        fcntl.flock(lockfile, fcntl.LOCK_EX)
+        if fcntl is not None:
+            fcntl.flock(lockfile, fcntl.LOCK_EX)
+        elif msvcrt is not None:
+            lockfile.seek(0, os.SEEK_END)
+            if lockfile.tell() == 0:
+                lockfile.write(b"\0")
+                lockfile.flush()
+            lockfile.seek(0)
+            msvcrt.locking(lockfile.fileno(), msvcrt.LK_LOCK, 1)
         yield
     finally:
-        fcntl.flock(lockfile, fcntl.LOCK_UN)
-        lockfile.close()
+        try:
+            if fcntl is not None:
+                fcntl.flock(lockfile, fcntl.LOCK_UN)
+            elif msvcrt is not None:
+                lockfile.seek(0)
+                msvcrt.locking(lockfile.fileno(), msvcrt.LK_UNLCK, 1)
+        finally:
+            lockfile.close()
 
 
 @router.get("/api/extensions/catalog")
