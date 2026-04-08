@@ -3149,6 +3149,478 @@ cmd_agent() {
 }
 
 #=============================================================================
+# cmd_cluster — LAN cluster management
+#=============================================================================
+
+_cluster_config_file() { echo "$INSTALL_DIR/config/cluster.json"; }
+
+_cluster_load_state() {
+    local cfg
+    cfg=$(_cluster_config_file)
+    if [[ -f "$cfg" ]]; then
+        cat "$cfg"
+    else
+        echo '{"enabled":false,"token":"","controller":{},"nodes":[]}'
+    fi
+}
+
+_cluster_save_state() {
+    local cfg
+    cfg=$(_cluster_config_file)
+    mkdir -p "$(dirname "$cfg")"
+    echo "$1" > "$cfg"
+}
+
+_cluster_enable() {
+    check_install
+    load_env
+
+    local cfg
+    cfg=$(_cluster_config_file)
+    if [[ -f "$cfg" ]] && [[ "$(python3 -c "import json,sys; print(json.load(open('$cfg')).get('enabled',False))" 2>/dev/null)" == "True" ]]; then
+        warn "Cluster mode is already enabled."
+        log "Run 'dream cluster status' to see current state."
+        return 0
+    fi
+
+    local token
+    token="dream_$(openssl rand -hex 16)"
+
+    # Detect controller GPU info
+    local gpu_name="Unknown" vram_mb=0 gpu_backend="${GPU_BACKEND:-nvidia}"
+    if [[ "$gpu_backend" == "nvidia" ]] && command -v nvidia-smi &>/dev/null; then
+        gpu_name=$(nvidia-smi --query-gpu=name --format=csv,noheader | head -1 | xargs)
+        vram_mb=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1 | xargs)
+    elif [[ "$gpu_backend" == "amd" ]]; then
+        for card_dir in /sys/class/drm/card*/device; do
+            [[ -f "$card_dir/vendor" ]] || continue
+            [[ "$(cat "$card_dir/vendor" 2>/dev/null)" == "0x1002" ]] || continue
+            gpu_name=$(cat "$card_dir/product_name" 2>/dev/null || echo "AMD Radeon")
+            local vram_bytes
+            vram_bytes=$(cat "$card_dir/mem_info_vram_total" 2>/dev/null || echo "0")
+            vram_mb=$((vram_bytes / 1048576))
+            break
+        done
+    fi
+
+    local controller_ip
+    controller_ip=$(hostname -I 2>/dev/null | awk '{print $1}') || controller_ip="<your-ip>"
+
+    # Write cluster state
+    local state
+    state=$(python3 -c "
+import json, sys
+state = {
+    'enabled': True,
+    'token': '$token',
+    'controller': {
+        'ip': '$controller_ip',
+        'gpu_backend': '$gpu_backend',
+        'gpus': [{'name': '$gpu_name', 'vram_mb': $vram_mb}]
+    },
+    'nodes': []
+}
+print(json.dumps(state, indent=2))
+")
+    _cluster_save_state "$state"
+
+    # Write env vars
+    _env_set "CLUSTER_ENABLED" "true"
+    _env_set "CLUSTER_TOKEN" "$token"
+    _env_set "CLUSTER_WORKERS" ""
+    _env_set "CLUSTER_TENSOR_SPLIT" ""
+
+    # Regenerate compose flags to pick up cluster overlay
+    _regenerate_compose_flags
+
+    echo ""
+    echo -e "${GREEN}━━━ LAN Cluster Enabled ━━━${NC}"
+    echo ""
+    echo -e "  Controller: ${BLUE}${controller_ip}${NC}"
+    echo -e "  GPU:        ${gpu_name} (${vram_mb} MB)"
+    echo -e "  Token:      ${token}"
+    echo ""
+    echo -e "${YELLOW}⚠ Security Warning${NC}"
+    echo "  llama.cpp RPC has NO encryption and NO authentication."
+    echo "  All tensor data flows in plaintext over the network."
+    echo "  Only run on trusted local networks."
+    echo "  For untrusted networks, use WireGuard or Tailscale tunnel IPs."
+    echo ""
+    echo -e "${CYAN}Next steps:${NC}"
+    echo "  1. On each worker machine, add it to the cluster:"
+    echo "       dream cluster add <WORKER_IP>"
+    echo ""
+    echo "  2. Restart llama-server to apply:"
+    echo "       dream restart llama-server"
+    echo ""
+}
+
+_cluster_disable() {
+    check_install
+    load_env
+
+    _env_set "CLUSTER_ENABLED" "false"
+    _env_set "CLUSTER_WORKERS" ""
+    _env_set "CLUSTER_TENSOR_SPLIT" ""
+
+    local cfg
+    cfg=$(_cluster_config_file)
+    if [[ -f "$cfg" ]]; then
+        python3 -c "
+import json
+with open('$cfg') as f:
+    state = json.load(f)
+state['enabled'] = False
+with open('$cfg', 'w') as f:
+    json.dump(state, f, indent=2)
+"
+    fi
+
+    _regenerate_compose_flags
+
+    success "Cluster mode disabled."
+    warn "Run 'dream restart llama-server' to apply."
+}
+
+_cluster_add() {
+    check_install
+    load_env
+
+    local worker_ip="${1:-}"
+    if [[ -z "$worker_ip" ]]; then
+        error "Usage: dream cluster add <WORKER_IP> [--port PORT]"
+    fi
+    local rpc_port=50052
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --port) rpc_port="${2:-50052}"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    log "Testing connectivity to ${worker_ip}:${rpc_port}..."
+
+    # TCP connectivity check
+    if ! timeout 5 bash -c "echo >/dev/tcp/${worker_ip}/${rpc_port}" 2>/dev/null; then
+        error "Cannot reach ${worker_ip}:${rpc_port}. Check that rpc-server is running and firewall allows TCP port ${rpc_port}."
+    fi
+    success "Worker ${worker_ip}:${rpc_port} is reachable."
+
+    # Get controller VRAM for tensor-split calculation
+    local controller_vram_mb=0
+    local gpu_backend="${GPU_BACKEND:-nvidia}"
+    if [[ "$gpu_backend" == "nvidia" ]] && command -v nvidia-smi &>/dev/null; then
+        controller_vram_mb=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1 | xargs)
+    elif [[ "$gpu_backend" == "amd" ]]; then
+        for card_dir in /sys/class/drm/card*/device; do
+            [[ -f "$card_dir/vendor" ]] || continue
+            [[ "$(cat "$card_dir/vendor" 2>/dev/null)" == "0x1002" ]] || continue
+            local vram_bytes
+            vram_bytes=$(cat "$card_dir/mem_info_vram_total" 2>/dev/null || echo "0")
+            controller_vram_mb=$((vram_bytes / 1048576))
+            break
+        done
+    fi
+
+    # Update cluster state
+    local cfg
+    cfg=$(_cluster_config_file)
+    if [[ ! -f "$cfg" ]]; then
+        warn "Cluster not enabled. Run 'dream cluster enable' first."
+        return 1
+    fi
+
+    python3 -c "
+import json, time
+
+with open('$cfg') as f:
+    state = json.load(f)
+
+# Check for duplicate
+for node in state['nodes']:
+    if node['ip'] == '$worker_ip' and node.get('rpc_port', 50052) == $rpc_port:
+        print('Worker ${worker_ip}:${rpc_port} is already in the cluster.')
+        exit(0)
+
+state['nodes'].append({
+    'ip': '$worker_ip',
+    'rpc_port': $rpc_port,
+    'agent_port': 50080,
+    'gpu_backend': 'unknown',
+    'gpus': [],
+    'added_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+    'status': 'online'
+})
+
+with open('$cfg', 'w') as f:
+    json.dump(state, f, indent=2)
+"
+
+    # Rebuild CLUSTER_WORKERS and CLUSTER_TENSOR_SPLIT from state
+    _cluster_rebuild_env
+
+    success "Worker ${worker_ip}:${rpc_port} added to cluster."
+    echo ""
+    log "Tensor split and worker list updated in .env"
+    warn "Run 'dream restart llama-server' to apply."
+}
+
+_cluster_remove() {
+    check_install
+    load_env
+
+    local worker_ip="${1:-}"
+    if [[ -z "$worker_ip" ]]; then
+        error "Usage: dream cluster remove <WORKER_IP>"
+    fi
+
+    local cfg
+    cfg=$(_cluster_config_file)
+    [[ -f "$cfg" ]] || error "No cluster config found. Run 'dream cluster enable' first."
+
+    python3 -c "
+import json
+with open('$cfg') as f:
+    state = json.load(f)
+before = len(state['nodes'])
+state['nodes'] = [n for n in state['nodes'] if n['ip'] != '$worker_ip']
+after = len(state['nodes'])
+if before == after:
+    print('Worker $worker_ip not found in cluster.')
+    exit(1)
+with open('$cfg', 'w') as f:
+    json.dump(state, f, indent=2)
+" || { warn "Worker $worker_ip not found in cluster."; return 1; }
+
+    _cluster_rebuild_env
+
+    success "Worker ${worker_ip} removed from cluster."
+    warn "Run 'dream restart llama-server' to apply."
+}
+
+_cluster_rebuild_env() {
+    # Rebuild CLUSTER_WORKERS and CLUSTER_TENSOR_SPLIT from cluster.json
+    local cfg
+    cfg=$(_cluster_config_file)
+    [[ -f "$cfg" ]] || return
+
+    local result
+    result=$(python3 -c "
+import json
+with open('$cfg') as f:
+    state = json.load(f)
+workers = ','.join(f\"{n['ip']}:{n.get('rpc_port', 50052)}\" for n in state['nodes'])
+# Simple equal-weight tensor split: controller + N workers
+count = len(state['nodes']) + 1
+split = ','.join(['1'] * count) if state['nodes'] else ''
+print(f'{workers}|{split}')
+")
+
+    local workers split
+    workers="${result%%|*}"
+    split="${result##*|}"
+
+    _env_set "CLUSTER_WORKERS" "$workers"
+    _env_set "CLUSTER_TENSOR_SPLIT" "$split"
+    _regenerate_compose_flags
+}
+
+_cluster_status() {
+    check_install
+    load_env
+
+    local cfg
+    cfg=$(_cluster_config_file)
+
+    if [[ ! -f "$cfg" ]] || [[ "${CLUSTER_ENABLED:-false}" != "true" ]]; then
+        echo -e "${BLUE}━━━ LAN Cluster Status ━━━${NC}"
+        echo ""
+        echo "  Cluster mode is not enabled."
+        echo "  Run 'dream cluster enable' to get started."
+        echo ""
+        return 0
+    fi
+
+    local state
+    state=$(cat "$cfg")
+
+    local gpu_backend="${GPU_BACKEND:-nvidia}"
+
+    # Gather controller info
+    local ctrl_gpu ctrl_vram_mb
+    ctrl_gpu=$(echo "$state" | python3 -c "import json,sys; c=json.load(sys.stdin).get('controller',{}); gpus=c.get('gpus',[]); print(gpus[0]['name'] if gpus else 'Unknown')")
+    ctrl_vram_mb=$(echo "$state" | python3 -c "import json,sys; c=json.load(sys.stdin).get('controller',{}); gpus=c.get('gpus',[]); print(gpus[0].get('vram_mb',0) if gpus else 0)")
+    local ctrl_vram_gb
+    ctrl_vram_gb=$(python3 -c "print(round($ctrl_vram_mb / 1024, 1))")
+
+    # Gather node info
+    local node_count
+    node_count=$(echo "$state" | python3 -c "import json,sys; print(len(json.load(sys.stdin).get('nodes',[])))")
+    local total_nodes=$((node_count + 1))
+
+    echo ""
+    echo -e "${BLUE}━━━ LAN Cluster Status ━━━${NC}"
+    echo ""
+    echo -e "  Nodes: ${total_nodes}  |  Workers: ${node_count}  |  Backend: ${gpu_backend}"
+    echo ""
+
+    # Controller row
+    printf "  %-18s %-20s %-10s %-8s %s\n" "Node" "GPU" "VRAM" "Status" "Ping"
+    printf "  %-18s %-20s %-10s %-8s %s\n" "──────────────────" "────────────────────" "──────────" "────────" "────"
+    printf "  %-18s %-20s %-10s ${GREEN}%-8s${NC} %s\n" "controller" "$ctrl_gpu" "${ctrl_vram_gb} GB" "online" "---"
+
+    # Worker rows
+    echo "$state" | python3 -c "
+import json, sys, socket, time
+
+state = json.load(sys.stdin)
+for node in state.get('nodes', []):
+    ip = node['ip']
+    port = node.get('rpc_port', 50052)
+    gpu_name = 'Unknown'
+    vram_gb = '?'
+    gpus = node.get('gpus', [])
+    if gpus:
+        gpu_name = gpus[0].get('name', 'Unknown')
+        vram_gb = f\"{round(gpus[0].get('vram_mb', 0) / 1024, 1)}\"
+
+    # TCP ping
+    status = 'offline'
+    ping_ms = '---'
+    try:
+        t0 = time.monotonic()
+        sock = socket.create_connection((ip, port), timeout=3)
+        sock.close()
+        elapsed = (time.monotonic() - t0) * 1000
+        status = 'online'
+        ping_ms = f'{elapsed:.0f}ms'
+    except (socket.timeout, ConnectionRefusedError, OSError):
+        pass
+
+    color = '\033[0;32m' if status == 'online' else '\033[0;31m'
+    nc = '\033[0m'
+    host = f'{ip}:{port}'
+    print(f'  {host:<18s} {gpu_name:<20s} {vram_gb + \" GB\":<10s} {color}{status:<8s}{nc} {ping_ms}')
+"
+
+    echo ""
+    local workers="${CLUSTER_WORKERS:-}"
+    local split="${CLUSTER_TENSOR_SPLIT:-}"
+    if [[ -n "$workers" ]]; then
+        echo "  Workers:      ${workers}"
+        echo "  Tensor Split: ${split:-auto}"
+    else
+        echo "  No workers configured. Run 'dream cluster add <WORKER_IP>' to add one."
+    fi
+    echo ""
+}
+
+_cluster_test() {
+    check_install
+    load_env
+
+    local workers="${CLUSTER_WORKERS:-}"
+    if [[ -z "$workers" ]]; then
+        warn "No workers configured. Run 'dream cluster add <WORKER_IP>' first."
+        return 1
+    fi
+
+    echo -e "${BLUE}━━━ LAN Cluster Connectivity Test ━━━${NC}"
+    echo ""
+
+    local all_ok=true
+    IFS=',' read -ra worker_list <<< "$workers"
+    for addr in "${worker_list[@]}"; do
+        addr=$(echo "$addr" | xargs)
+        local host="${addr%%:*}"
+        local port="${addr##*:}"
+
+        printf "  %-25s " "$addr"
+
+        # 10-sample TCP ping
+        local sum=0 count=0 min=999999 max=0
+        for _ in $(seq 1 10); do
+            local t0 t1 elapsed
+            t0=$(python3 -c "import time; print(time.monotonic())")
+            if timeout 3 bash -c "echo >/dev/tcp/${host}/${port}" 2>/dev/null; then
+                t1=$(python3 -c "import time; print(time.monotonic())")
+                elapsed=$(python3 -c "print(round(($t1 - $t0) * 1000, 1))")
+                sum=$(python3 -c "print($sum + $elapsed)")
+                count=$((count + 1))
+                [[ $(python3 -c "print(1 if $elapsed < $min else 0)") == "1" ]] && min=$elapsed
+                [[ $(python3 -c "print(1 if $elapsed > $max else 0)") == "1" ]] && max=$elapsed
+            fi
+        done
+
+        if [[ $count -eq 0 ]]; then
+            echo -e "${RED}UNREACHABLE${NC}  (0/10 succeeded)"
+            all_ok=false
+        else
+            local avg
+            avg=$(python3 -c "print(round($sum / $count, 1))")
+            echo -e "${GREEN}OK${NC}  ${count}/10  min=${min}ms  avg=${avg}ms  max=${max}ms"
+        fi
+    done
+
+    echo ""
+    if [[ "$all_ok" == "true" ]]; then
+        success "All workers reachable."
+    else
+        warn "Some workers are unreachable. Check firewalls and rpc-server containers."
+    fi
+}
+
+_cluster_help() {
+    cat << EOF
+${BLUE}dream cluster${NC} -- LAN cluster management
+
+${CYAN}Usage:${NC}
+  dream cluster [subcommand]
+
+${CYAN}Subcommands:${NC}
+  enable              Enable cluster mode, generate auth token
+  disable             Disable cluster mode, clear worker config
+  status              Show cluster nodes, connectivity, and VRAM pool
+  add <IP> [--port N] Add a worker node (default RPC port: 50052)
+  remove <IP>         Remove a worker node
+  test                TCP ping test to all workers (10 samples each)
+  help                Show this help
+
+${CYAN}Examples:${NC}
+  dream cluster enable                  # Initialize cluster on this machine
+  dream cluster add 192.168.1.101       # Add a worker
+  dream cluster add 192.168.1.102 --port 50053
+  dream cluster status                  # See all nodes + connectivity
+  dream cluster test                    # Latency test to all workers
+  dream cluster remove 192.168.1.101    # Remove a worker
+  dream cluster disable                 # Turn off cluster mode
+
+${CYAN}Workflow:${NC}
+  1. dream cluster enable           (on controller)
+  2. Start rpc-server on worker     (Docker or manual)
+  3. dream cluster add <WORKER_IP>  (on controller)
+  4. dream restart llama-server     (applies the cluster config)
+EOF
+}
+
+cmd_cluster() {
+    local subcommand="${1:-status}"
+    shift 2>/dev/null || true
+
+    case "$subcommand" in
+        status|s)           _cluster_status "$@" ;;
+        add|a)              _cluster_add "$@" ;;
+        remove|rm)          _cluster_remove "$@" ;;
+        test|t)             _cluster_test "$@" ;;
+        enable)             _cluster_enable "$@" ;;
+        disable)            _cluster_disable "$@" ;;
+        help|--help|-h)     _cluster_help ;;
+        *)  error "Unknown cluster subcommand: '${subcommand}'. Run 'dream cluster help'" ;;
+    esac
+}
+
+#=============================================================================
 # cmd_gpu — Multi-GPU inspection and management
 #=============================================================================
 
@@ -4313,6 +4785,8 @@ ${BLUE}Dream Server CLI v${VERSION}${NC}
 Usage: dream <command> [options]
 
 ${CYAN}Commands:${NC}
+  cluster [enable|disable|status|add|remove|test]
+                      LAN cluster management (multi-node inference)
   gpu [status|topology|assignment|validate|reassign]
                       Inspect and manage multi-GPU configuration
   status [--json]     Show service health and GPU status (--json = machine-readable)
@@ -4444,6 +4918,7 @@ EOF
 # Main
 #=============================================================================
 case "${1:-help}" in
+    cluster|cl)  shift; cmd_cluster "$@" ;;
     gpu|g)       shift; cmd_gpu "$@" ;;
     status|s)    shift; cmd_status "$@" ;;
     status-json) cmd_status_json ;;
