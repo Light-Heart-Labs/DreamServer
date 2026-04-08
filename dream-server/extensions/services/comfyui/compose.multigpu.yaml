@@ -7,3 +7,8 @@ services:
             - driver: nvidia
               device_ids: ["${COMFYUI_GPU_UUID}"]
               capabilities: [gpu]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

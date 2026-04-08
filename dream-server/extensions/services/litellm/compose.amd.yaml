@@ -22,3 +22,8 @@ services:
         else
           exec litellm --config /app/config.yaml --port 4000
         fi
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

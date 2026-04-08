@@ -26,3 +26,8 @@ services:
         reservations:
           cpus: '0.1'
           memory: 64M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

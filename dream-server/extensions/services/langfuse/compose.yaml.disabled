@@ -67,6 +67,11 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   langfuse-worker:
     image: langfuse/langfuse-worker:3.159.0
@@ -122,6 +127,11 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   langfuse-postgres:
     image: postgres:17.9-alpine
@@ -151,6 +161,11 @@ services:
         reservations:
           cpus: '0.1'
           memory: 128m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   langfuse-clickhouse:
     image: clickhouse/clickhouse-server:26.2.4.23
@@ -183,6 +198,11 @@ services:
         reservations:
           cpus: '0.5'
           memory: 256m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   langfuse-redis:
     image: redis:7.4.8-alpine
@@ -211,6 +231,11 @@ services:
         reservations:
           cpus: '0.1'
           memory: 64m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   langfuse-minio:
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
@@ -241,6 +266,11 @@ services:
         reservations:
           cpus: '0.1'
           memory: 128m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   langfuse-minio-init:
     image: minio/mc:RELEASE.2025-09-07T16-13-09Z
@@ -271,6 +301,11 @@ services:
         limits:
           cpus: '0.25'
           memory: 128m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Inject Langfuse credentials into LiteLLM when this extension is active.
   # The callback itself is conditionally enabled by litellm's own entrypoint
@@ -281,6 +316,11 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_PROJECT_SECRET_KEY:-}
       - LANGFUSE_HOST=http://langfuse:3000
       - LANGFUSE_TRACING_ENABLED=${LANGFUSE_ENABLED:-false}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   langfuse-internal:

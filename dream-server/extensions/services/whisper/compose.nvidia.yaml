@@ -11,3 +11,8 @@ services:
         limits:
           cpus: '4.0'
           memory: 8G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

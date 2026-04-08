@@ -44,6 +44,11 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # When OpenClaw is enabled, register it as a second model backend in Open WebUI.
   # Port 18790 is the OpenAI-compat shim (serves /v1/models + proxies /v1/chat/completions).
