@@ -69,10 +69,10 @@ export default function Models() {
           <div className="h-2 bg-theme-border rounded-full overflow-hidden">
             <div 
               className={`h-full rounded-full transition-all ${
-                (gpu.vramUsed / gpu.vramTotal) > 0.9 ? 'bg-red-500' :
-                (gpu.vramUsed / gpu.vramTotal) > 0.7 ? 'bg-yellow-500' : 'bg-theme-accent'
+                (gpu.vramTotal > 0 ? gpu.vramUsed / gpu.vramTotal : 0) > 0.9 ? 'bg-red-500' :
+                (gpu.vramTotal > 0 ? gpu.vramUsed / gpu.vramTotal : 0) > 0.7 ? 'bg-yellow-500' : 'bg-theme-accent'
               }`}
-              style={{ width: `${(gpu.vramUsed / gpu.vramTotal) * 100}%` }} 
+              style={{ width: `${gpu.vramTotal > 0 ? (gpu.vramUsed / gpu.vramTotal) * 100 : 0}%` }} 
             />
           </div>
           <p className="text-xs text-theme-text-muted mt-2">

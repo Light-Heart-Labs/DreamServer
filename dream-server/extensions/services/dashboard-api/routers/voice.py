@@ -29,6 +29,7 @@ async def voice_status(api_key: str = Depends(verify_api_key)):
                 result = await check_service_health(svc_key, cfg)
                 services_status[display_name] = {"status": result.status}
             except Exception:
+                logger.warning("Health check failed for %s", svc_key)
                 services_status[display_name] = {"status": "unavailable"}
         else:
             services_status[display_name] = {"status": "not_configured"}
@@ -40,6 +41,7 @@ async def voice_status(api_key: str = Depends(verify_api_key)):
             result = await check_service_health("livekit", livekit_cfg)
             services_status["livekit"] = {"status": result.status}
         except Exception:
+            logger.warning("Health check failed for livekit")
             services_status["livekit"] = {"status": "unavailable"}
     else:
         services_status["livekit"] = {"status": "not_configured"}

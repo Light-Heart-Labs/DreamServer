@@ -263,7 +263,7 @@ export default function Dashboard({ status, loading }) {
         label: 'VRAM',
         value: `${status.gpu.vramUsed.toFixed(1)} GB`,
         subvalue: `of ${status.gpu.vramTotal} GB`,
-        percent: (status.gpu.vramUsed / status.gpu.vramTotal) * 100,
+        percent: status.gpu.vramTotal > 0 ? (status.gpu.vramUsed / status.gpu.vramTotal) * 100 : 0,
       })
     }
   }
