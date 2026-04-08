@@ -81,7 +81,7 @@ _SETTINGS_SUMMARY_CACHE_TTL = 5.0
 _SERVICE_POLL_INTERVAL = 10.0  # background health check interval
 
 # --- Router imports ---
-from routers import workflows, features, setup, updates, agents, privacy, extensions, gpu as gpu_router, resources
+from routers import workflows, features, setup, updates, agents, privacy, extensions, gpu as gpu_router, resources, voice
 
 logger = logging.getLogger(__name__)
 
@@ -300,6 +300,7 @@ app.include_router(privacy.router)
 app.include_router(extensions.router)
 app.include_router(gpu_router.router)
 app.include_router(resources.router)
+app.include_router(voice.router)
 
 
 # ================================================================
