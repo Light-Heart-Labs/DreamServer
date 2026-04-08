@@ -211,6 +211,7 @@ OPENAI_API_KEY=$(Get-EnvOrNew "OPENAI_API_KEY" "")
 TOGETHER_API_KEY=$(Get-EnvOrNew "TOGETHER_API_KEY" "")
 
 #=== LLM Settings (llama-server) ===
+MODEL_PROFILE=$(Get-EnvOrNew "MODEL_PROFILE" "$(if ($TierConfig.ModelProfileRequested) { $TierConfig.ModelProfileRequested } else { "qwen" })")
 LLM_MODEL=$($TierConfig.LlmModel)
 GGUF_FILE=$($TierConfig.GgufFile)
 MAX_CONTEXT=$($TierConfig.MaxContext)

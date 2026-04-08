@@ -17,7 +17,38 @@
 #   set conservatively compared to discrete-GPU platforms.
 # ============================================================================
 
-resolve_tier_config() {
+normalize_model_profile() {
+    local profile="${1:-${MODEL_PROFILE:-qwen}}"
+    profile="$(printf '%s' "$profile" | tr '[:upper:]' '[:lower:]')"
+    case "$profile" in
+        auto)                 echo "auto" ;;
+        gemma|gemma4|gemma-4) echo "gemma4" ;;
+        *)                    echo "qwen" ;;
+    esac
+}
+
+effective_model_profile() {
+    local tier="$1"
+    local requested
+    requested="$(normalize_model_profile "${2:-}")"
+    if [[ "$requested" == "auto" ]]; then
+        case "$tier" in
+            CLOUD|0) echo "qwen" ;;
+            *)       echo "gemma4" ;;
+        esac
+    else
+        echo "$requested"
+    fi
+}
+
+configure_llama_runtime_defaults() {
+    LLAMA_CPP_RELEASE_TAG_OVERRIDE=""
+    case "$MODEL_PROFILE_EFFECTIVE" in
+        gemma4) LLAMA_CPP_RELEASE_TAG_OVERRIDE="b8648" ;;
+    esac
+}
+
+set_qwen_tier_config() {
     local tier="$1"
 
     case "$tier" in
@@ -74,6 +105,87 @@ resolve_tier_config() {
             exit 1
             ;;
     esac
+}
+
+set_gemma4_tier_config() {
+    local tier="$1"
+
+    case "$tier" in
+        CLOUD)
+            TIER_NAME="Cloud (API)"
+            LLM_MODEL="anthropic/claude-sonnet-4-5-20250514"
+            GGUF_FILE=""
+            GGUF_URL=""
+            GGUF_SHA256=""
+            MAX_CONTEXT=200000
+            ;;
+        4)
+            TIER_NAME="Enterprise"
+            LLM_MODEL="gemma-4-31b-it"
+            GGUF_FILE="gemma-4-31B-it-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/ggml-org/gemma-4-31B-it-GGUF/resolve/main/gemma-4-31B-it-Q4_K_M.gguf"
+            GGUF_SHA256=""
+            MAX_CONTEXT=65536
+            ;;
+        3)
+            TIER_NAME="Pro"
+            LLM_MODEL="gemma-4-26b-a4b-it"
+            GGUF_FILE="gemma-4-26B-A4B-it-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/ggml-org/gemma-4-26B-A4B-it-GGUF/resolve/main/gemma-4-26B-A4B-it-Q4_K_M.gguf"
+            GGUF_SHA256=""
+            MAX_CONTEXT=16384
+            ;;
+        2)
+            TIER_NAME="Prosumer"
+            LLM_MODEL="gemma-4-e4b-it"
+            GGUF_FILE="gemma-4-E4B-it-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf"
+            GGUF_SHA256=""
+            MAX_CONTEXT=32768
+            ;;
+        0)
+            TIER_NAME="Lightweight"
+            LLM_MODEL="qwen3.5-2b"
+            GGUF_FILE="Qwen3.5-2B-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf"
+            GGUF_SHA256=""
+            MAX_CONTEXT=8192
+            ;;
+        1)
+            TIER_NAME="Entry Level"
+            LLM_MODEL="gemma-4-e2b-it"
+            GGUF_FILE="gemma-4-E2B-it-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf"
+            GGUF_SHA256=""
+            MAX_CONTEXT=16384
+            ;;
+        *)
+            ai_err "Invalid tier: $tier. Valid tiers: 0, 1, 2, 3, 4, CLOUD"
+            exit 1
+            ;;
+    esac
+}
+
+resolve_tier_config() {
+    local tier="$1"
+
+    MODEL_PROFILE_REQUESTED="$(normalize_model_profile)"
+    MODEL_PROFILE_EFFECTIVE="$(effective_model_profile "$tier" "$MODEL_PROFILE_REQUESTED")"
+
+    case "$MODEL_PROFILE_EFFECTIVE" in
+        gemma4)
+            if ! set_gemma4_tier_config "$tier"; then
+                return 1
+            fi
+            ;;
+        *)
+            if ! set_qwen_tier_config "$tier"; then
+                return 1
+            fi
+            ;;
+    esac
+
+    configure_llama_runtime_defaults
 }
 
 # Auto-select tier based on Apple Silicon unified memory

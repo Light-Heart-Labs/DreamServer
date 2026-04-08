@@ -29,9 +29,9 @@ if [[ "$GPU_BACKEND" == "amd" ]]; then
     PULL_LIST+=("ghcr.io/lemonade-sdk/lemonade-server:v10.0.0|LEMONADE — downloading the brain (AMD ROCm)")
     [[ "$ENABLE_COMFYUI" == "true" ]] && PULL_LIST+=("ignatberesnev/comfyui-gfx1151:v0.2|COMFYUI — image generation engine (gfx1151)")
 elif [[ "$GPU_BACKEND" == "cpu" ]]; then
-    PULL_LIST+=("ghcr.io/ggml-org/llama.cpp:server-b8248|LLAMA-SERVER — downloading the brain (CPU)")
+    PULL_LIST+=("${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-b8248}|LLAMA-SERVER — downloading the brain (CPU)")
 else
-    PULL_LIST+=("ghcr.io/ggml-org/llama.cpp:server-cuda-b8248|LLAMA-SERVER — downloading the brain (NVIDIA CUDA)")
+    PULL_LIST+=("${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda-b8248}|LLAMA-SERVER — downloading the brain (NVIDIA CUDA)")
 fi
 PULL_LIST+=("ghcr.io/open-webui/open-webui:v0.7.2|OPEN WEBUI — interface module")
 PULL_LIST+=("itzcrazykns1337/perplexica:slim-latest@sha256:6e399abf4ff587822b0ef0df11f36088fb928e17ac61556fe89beb68d48c378e|PERPLEXICA — deep research engine")

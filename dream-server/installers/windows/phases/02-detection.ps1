@@ -80,11 +80,6 @@ if ($gpuInfo.Backend -eq "amd") {
     }
 }
 
-# ── Reserved for future use: custom llama-server image override ───────────────
-# Set $llamaServerImage to a fully-qualified image ref to override the default.
-# Leave empty to use the tier-default image from docker-compose.nvidia.yml.
-$llamaServerImage = ""
-
 # ── Tier selection ────────────────────────────────────────────────────────────
 if ($cloudMode) {
     $selectedTier = "CLOUD"
@@ -96,7 +91,29 @@ if ($cloudMode) {
     $selectedTier = ConvertTo-TierFromGpu -GpuInfo $gpuInfo -SystemRamGB $systemRamGB
 }
 
+if (-not $env:MODEL_PROFILE) {
+    $existingEnvPath = Join-Path $installDir ".env"
+    if (Test-Path $existingEnvPath) {
+        $existingProfile = Get-Content $existingEnvPath |
+            Where-Object { $_ -match '^MODEL_PROFILE=' } |
+            Select-Object -First 1
+        if ($existingProfile) {
+            $env:MODEL_PROFILE = ($existingProfile -split '=', 2)[1].Trim()
+        } else {
+            $env:MODEL_PROFILE = "qwen"
+        }
+    } else {
+        $env:MODEL_PROFILE = "qwen"
+    }
+}
+
 $tierConfig = Resolve-TierConfig -Tier $selectedTier
+$llamaServerImage = if ($tierConfig.LlamaServerImage) { $tierConfig.LlamaServerImage } else { "" }
+if ($tierConfig.LlamaCppReleaseTag) {
+    $script:LLAMA_CPP_RELEASE_TAG = $tierConfig.LlamaCppReleaseTag
+    $script:LLAMA_CPP_VULKAN_ASSET = "llama-$($script:LLAMA_CPP_RELEASE_TAG)-bin-win-vulkan-x64.zip"
+    $script:LLAMA_CPP_VULKAN_URL = "https://github.com/ggml-org/llama.cpp/releases/download/$($script:LLAMA_CPP_RELEASE_TAG)/$($script:LLAMA_CPP_VULKAN_ASSET)"
+}
 
 Write-Host ""
 Write-AISuccess "Selected tier: $selectedTier -- $($tierConfig.TierName)"
@@ -137,10 +154,12 @@ Write-InfoBox "  Capacity:" "$_usersEst"
 # model file + Docker image layers (~15 GB headroom).
 $_modelGB = $(
     if ($tierConfig.GgufFile -match "80B|Coder-Next") { 50 }
-    elseif ($tierConfig.GgufFile -match "30B") { 20 }
-    elseif ($tierConfig.GgufFile -match "30B") { 18 }
+    elseif ($tierConfig.GgufFile -match "31B") { 22 }
+    elseif ($tierConfig.GgufFile -match "30B|26B") { 20 }
     elseif ($tierConfig.GgufFile -match "20b") { 12 }
     elseif ($tierConfig.GgufFile -match "14B") { 12 }
+    elseif ($tierConfig.GgufFile -match "E4B")  { 8 }
+    elseif ($tierConfig.GgufFile -match "E2B")  { 5 }
     elseif ($tierConfig.GgufFile -match "9B|8B")  {  8 }
     else                                        {  5 }
 )

@@ -325,21 +325,62 @@ def get_model_info() -> Optional[ModelInfo]:
     env_path = Path(INSTALL_DIR) / ".env"
     if env_path.exists():
         try:
+            env_values = {}
             with open(env_path) as f:
                 for line in f:
-                    if line.startswith("LLM_MODEL="):
-                        model_name = line.split("=", 1)[1].strip().strip('"\'')
-                        size_gb, context, quant = 15.0, 32768, None
-                        import re as _re
-                        name_lower = model_name.lower()
-                        if _re.search(r'\b7b\b', name_lower): size_gb = 4.0
-                        elif _re.search(r'\b14b\b', name_lower): size_gb = 8.0
-                        elif _re.search(r'\b32b\b', name_lower): size_gb = 16.0
-                        elif _re.search(r'\b70b\b', name_lower): size_gb = 35.0
-                        if "awq" in name_lower: quant = "AWQ"
-                        elif "gptq" in name_lower: quant = "GPTQ"
-                        elif "gguf" in name_lower: quant = "GGUF"
-                        return ModelInfo(name=model_name, size_gb=size_gb, context_length=context, quantization=quant)
+                    if "=" not in line or line.lstrip().startswith("#"):
+                        continue
+                    key, value = line.split("=", 1)
+                    env_values[key.strip()] = value.strip().strip('"\'')
+
+            model_name = env_values.get("LLM_MODEL")
+            if model_name:
+                size_gb, quant = 15.0, None
+                context = int(env_values.get("MAX_CONTEXT") or env_values.get("CTX_SIZE") or 32768)
+
+                import re as _re
+
+                name_lower = model_name.lower()
+                if "gemma-4-e2b" in name_lower:
+                    size_gb = 2.8
+                elif "gemma-4-e4b" in name_lower:
+                    size_gb = 5.3
+                elif "gemma-4-26b" in name_lower:
+                    size_gb = 18.0
+                elif "gemma-4-31b" in name_lower:
+                    size_gb = 19.8
+                elif _re.search(r'\b2b\b', name_lower):
+                    size_gb = 1.5
+                elif _re.search(r'\b4b\b', name_lower):
+                    size_gb = 2.8
+                elif _re.search(r'\b7b\b', name_lower):
+                    size_gb = 4.0
+                elif _re.search(r'\b8b\b', name_lower):
+                    size_gb = 4.5
+                elif _re.search(r'\b9b\b', name_lower):
+                    size_gb = 5.8
+                elif _re.search(r'\b14b\b', name_lower):
+                    size_gb = 8.0
+                elif _re.search(r'\b26b\b', name_lower):
+                    size_gb = 18.0
+                elif _re.search(r'\b30b\b', name_lower):
+                    size_gb = 18.6
+                elif _re.search(r'\b31b\b', name_lower):
+                    size_gb = 19.8
+                elif _re.search(r'\b32b\b', name_lower):
+                    size_gb = 16.0
+                elif _re.search(r'\b70b\b', name_lower):
+                    size_gb = 35.0
+
+                gguf_file = env_values.get("GGUF_FILE", "").lower()
+                if "awq" in name_lower:
+                    quant = "AWQ"
+                elif "gptq" in name_lower:
+                    quant = "GPTQ"
+                elif "gguf" in name_lower or gguf_file.endswith(".gguf"):
+                    quant = "GGUF"
+
+                return ModelInfo(name=model_name, size_gb=size_gb, context_length=context, quantization=quant)
         except OSError as e:
             logger.warning("Failed to read .env for model info: %s", e)
     return None

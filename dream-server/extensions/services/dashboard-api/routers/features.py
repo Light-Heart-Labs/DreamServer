@@ -152,9 +152,9 @@ async def api_features(api_key: str = Depends(verify_api_key)):
     tier_recommendations = []
     if memory_type == "unified" and gpu_info and gpu_info.gpu_backend == "amd":
         if gpu_vram_gb >= 90:
-            tier_recommendations = ["Strix Halo 90+ — running qwen3-coder-next (80B MoE, 3B active)", "Plenty of headroom for the flagship model + bootstrap simultaneously", "Voice and Documents work alongside the LLM"]
+            tier_recommendations = ["Strix Halo 90+ — flagship local profile supported", "Plenty of headroom for large local models plus bootstrap simultaneously", "Voice and Documents work alongside the LLM"]
         else:
-            tier_recommendations = ["Strix Halo Compact — running qwen3:30b-a3b (30B MoE, 3B active)", "Fast MoE inference with low memory footprint", "Voice and Documents work alongside the LLM"]
+            tier_recommendations = ["Strix Halo Compact — balanced local profile supported", "Fast inference with good room for voice, documents, and agents", "Voice and Documents work alongside the LLM"]
     elif gpu_vram_gb >= 80:
         tier_recommendations = ["Your GPU can run all features simultaneously", "Consider enabling Voice + Documents for the full experience", "Image generation is supported at full quality"]
     elif gpu_vram_gb >= 24:
@@ -162,7 +162,7 @@ async def api_features(api_key: str = Depends(verify_api_key)):
     elif gpu_vram_gb >= 16:
         tier_recommendations = ["Solid GPU for core features", "Voice works well with the default model", "For images, use a smaller chat model"]
     elif gpu_vram_gb >= 8:
-        tier_recommendations = ["Entry-level GPU — focus on chat first", "Voice is possible with a smaller model", "Consider using the 7B model for better speed"]
+        tier_recommendations = ["Entry-level GPU — focus on chat first", "Voice is possible with a compact local profile", "Use the smaller local model profile for better speed"]
     else:
         tier_recommendations = ["Limited GPU memory — chat will work with small models", "Consider cloud hybrid mode for better quality"]
 
@@ -201,7 +201,7 @@ async def feature_enable_instructions(feature_id: str, api_key: str = Depends(ve
         "documents": {"steps": ["Ensure Qdrant vector database is running", "Enable the 'Document Q&A' workflow", "Upload documents via the workflow endpoint"], "links": [{"label": "Workflows", "url": f"{dashboard_url}/workflows"}]},
         "workflows": {"steps": [f"Ensure n8n is running on port {_svc_port('n8n')}", "Open the Workflows page to see available automations", "Click 'Enable' on any workflow to import it"], "links": [{"label": "n8n Dashboard", "url": n8n_url}, {"label": "Workflows", "url": f"{dashboard_url}/workflows"}]},
         "images": {"steps": ["Image generation requires additional setup", "Coming soon in a future update"], "links": []},
-        "coding": {"steps": ["Switch to the Qwen2.5-Coder model for best results", "Use the model manager to download and load it", "Chat will now be optimized for code"], "links": [{"label": "Model Manager", "url": f"{dashboard_url}/models"}]},
+        "coding": {"steps": ["Switch to a coding-oriented local model profile for best results", "Use the model manager to download and load it", "Chat will now be optimized for code"], "links": [{"label": "Model Manager", "url": f"{dashboard_url}/models"}]},
         "observability": {"steps": [f"Langfuse is running on port {_svc_port('langfuse')}", "Open Langfuse to view LLM traces and evaluations", "LiteLLM automatically sends traces — no additional configuration needed"], "links": [{"label": "Open Langfuse", "url": _svc_url("langfuse")}]},
     }
 

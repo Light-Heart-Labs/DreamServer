@@ -396,6 +396,18 @@ if [[ -n "${COMPOSE_FLAGS:-}" ]] && [[ -f "$INSTALL_DIR/.env" ]]; then
 fi
 
 # Resolve tier → model/GGUF/context
+if [[ -z "${MODEL_PROFILE:-}" ]]; then
+    if [[ -f "$INSTALL_DIR/.env" ]]; then
+        _existing_model_profile=$(grep -m1 '^MODEL_PROFILE=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2- | tr -d '\r' || true)
+        if [[ -n "$_existing_model_profile" ]]; then
+            MODEL_PROFILE="$_existing_model_profile"
+        else
+            MODEL_PROFILE="qwen"
+        fi
+    else
+        MODEL_PROFILE="qwen"
+    fi
+fi
 resolve_tier_config
 
 # Display hardware summary with nice formatting
