@@ -84,6 +84,17 @@ const STATUS_STYLES = {
   error:         'bg-red-500/20 text-red-300',
 }
 
+const STATUS_DESCRIPTIONS = {
+  enabled:       'Service is running and healthy',
+  disabled:      'Installed but turned off \u2014 won\u2019t start on restart',
+  stopped:       'Enabled but container is not running or unhealthy',
+  not_installed: 'Available to install from the extension library',
+  incompatible:  'Requires a GPU backend not available on this system',
+  installing:    'Being downloaded and set up',
+  setting_up:    'Running post-install configuration hooks',
+  error:         'Installation or startup failed \u2014 click for details',
+}
+
 export default function Extensions() {
   const [catalog, setCatalog] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -303,28 +314,28 @@ export default function Extensions() {
 
   return (
     <div className="p-8">
-      <div className="mb-8 flex items-center justify-between">
+      <div className="mb-8 flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-theme-text">Extensions</h1>
-          <p className="text-theme-text-muted mt-1">
+          <p className="mt-1 text-theme-text-secondary">
             Browse and discover add-on services.
           </p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="liquid-metal-frame liquid-metal-frame--soft flex items-center gap-4 text-xs text-theme-text-muted font-mono bg-theme-card border border-theme-border rounded-lg px-3 py-2">
           {catalog?.agent_available !== undefined && (
-            <div className="flex items-center gap-1.5 text-xs">
-              <span className={`w-1.5 h-1.5 rounded-full ${catalog.agent_available ? 'bg-green-500' : 'bg-theme-border'}`} />
-              <span className={catalog.agent_available ? 'text-green-400' : 'text-theme-text-muted'}>
-                {catalog.agent_available ? 'Agent' : 'Agent offline'}
+            <div className="flex items-center gap-1.5">
+              <span className={`w-1.5 h-1.5 rounded-full ${catalog.agent_available ? 'bg-emerald-400' : 'bg-red-500'}`} />
+              <span className={catalog.agent_available ? 'text-theme-text-secondary' : 'text-theme-text-muted'}>
+                {catalog.agent_available ? 'Agent online' : 'Agent offline'}
               </span>
             </div>
           )}
           <button
             onClick={fetchCatalog}
             disabled={refreshing}
-            className="text-sm text-theme-accent-light hover:text-theme-accent flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            className="text-theme-text-muted/65 hover:text-theme-text transition-colors disabled:opacity-50 flex items-center gap-1.5 uppercase tracking-[0.16em]"
           >
-            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+            <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />
             Refresh
           </button>
         </div>
@@ -347,19 +358,39 @@ export default function Extensions() {
           <SummaryItem label="Installing" value={summary.installing ?? 0} color="bg-blue-500" />
           <SummaryItem label="Error" value={summary.error ?? 0} color="bg-red-500" />
           <SummaryItem label="Incompatible" value={summary.incompatible ?? 0} color="bg-orange-500" />
+
+          {/* Status legend */}
+          <div className="relative ml-auto group/legend" data-tooltip>
+            <div className="flex items-center justify-center w-6 h-6 rounded-full border border-theme-border bg-theme-bg/80 text-theme-text-muted cursor-help transition-colors group-hover/legend:text-theme-text group-hover/legend:border-theme-text-muted">
+              <Info size={13} />
+            </div>
+            <div className="pointer-events-none absolute top-[calc(100%+0.5rem)] right-0 z-50 w-96 rounded-lg border border-white/10 bg-[#0d0b12]/95 px-4 py-3 opacity-0 shadow-2xl transition-all duration-150 translate-y-1 group-hover/legend:translate-y-0 group-hover/legend:opacity-100">
+              <h4 className="text-[10px] font-semibold text-theme-text-secondary uppercase tracking-[0.18em] mb-2.5">Status Legend</h4>
+              <div className="grid grid-cols-[5.5rem_1fr] gap-y-2 gap-x-3 items-baseline">
+                {Object.entries(STATUS_DESCRIPTIONS).map(([key, desc]) => (
+                  <div key={key} className="contents">
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full uppercase tracking-wider text-center ${STATUS_STYLES[key]}`}>
+                      {key.replace(/_/g, ' ')}
+                    </span>
+                    <span className="text-[11px] leading-4 text-theme-text-secondary">{desc}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Status filter row */}
-      <div className="flex flex-wrap gap-2 mb-3">
+      <div className="flex flex-wrap gap-1.5 mb-3">
         {STATUS_FILTERS.map(s => (
           <button
             key={s}
             onClick={() => setStatusFilter(s)}
-            className={`px-3 py-1 rounded-lg text-sm border transition-colors ${
+            className={`px-2.5 py-1 rounded-full text-[10px] font-medium uppercase tracking-[0.12em] border transition-colors ${
               statusFilter === s
-                ? 'bg-theme-accent/20 text-theme-accent-light border-theme-accent/30'
-                : 'bg-theme-card text-theme-text-muted hover:bg-theme-surface-hover border-transparent'
+                ? 'bg-theme-accent/15 text-theme-accent-light border-theme-accent/25'
+                : 'bg-transparent text-theme-text-muted/65 hover:text-theme-text-secondary hover:bg-white/[0.03] border-white/8'
             }`}
           >
             {STATUS_LABELS[s]}
@@ -369,15 +400,15 @@ export default function Extensions() {
 
       {/* Category filter row */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-6">
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5">
           {categories.map(cat => (
             <button
               key={cat}
               onClick={() => setCategory(cat)}
-              className={`px-3 py-1 rounded-lg text-xs border transition-colors ${
+              className={`px-2.5 py-1 rounded-full text-[10px] font-medium uppercase tracking-[0.12em] border transition-colors ${
                 category === cat
-                  ? 'bg-theme-surface-hover text-theme-text border-theme-border'
-                  : 'bg-theme-card/50 text-theme-text-muted hover:bg-theme-surface-hover border-transparent'
+                  ? 'bg-white/[0.06] text-theme-text-secondary border-white/10'
+                  : 'bg-transparent text-theme-text-muted/55 hover:text-theme-text-secondary hover:bg-white/[0.03] border-transparent'
               }`}
             >
               {cat === 'all' ? 'All Categories' : cat}
@@ -389,14 +420,14 @@ export default function Extensions() {
           placeholder="Search extensions..."
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="bg-theme-card border border-theme-border text-theme-text placeholder-theme-text-muted rounded-lg px-3 py-1.5 text-sm w-full sm:w-64 outline-none focus:border-theme-accent/50"
+          className="bg-black/[0.14] border border-white/8 text-theme-text placeholder-theme-text-muted/45 rounded-lg px-3 py-1.5 text-xs w-full sm:w-56 outline-none focus:border-theme-accent/30 transition-colors"
         />
       </div>
 
       {/* Agent offline banner */}
       {catalog?.agent_available === false && (
-        <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200 flex items-center gap-2">
-          <span className="shrink-0">⚠</span>
+        <div className="mb-4 rounded-xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3 text-[11px] text-amber-300/80 flex items-center gap-2.5">
+          <span className="shrink-0 text-amber-400">!</span>
           <span>Host agent is offline — install, enable, and disable operations are unavailable. Container logs cannot be fetched.</span>
         </div>
       )}
@@ -419,13 +450,13 @@ export default function Extensions() {
       })()}
 
       {filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-theme-text-muted">
-          <Package size={48} className="mb-4 opacity-40" />
-          <p className="text-lg">No extensions available</p>
-          <p className="text-sm mt-1">Try adjusting your search or filters.</p>
+        <div className="flex flex-col items-center justify-center py-16 text-theme-text-muted/50">
+          <Package size={40} className="mb-4 opacity-30" />
+          <p className="text-sm font-semibold text-theme-text-muted/60">No extensions match</p>
+          <p className="text-[10px] uppercase tracking-[0.14em] text-theme-text-muted/40 mt-1.5">Try adjusting your search or filters</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 liquid-metal-sequence-grid liquid-metal-sequence-grid--services">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 liquid-metal-sequence-grid liquid-metal-sequence-grid--services">
           {filtered.map(ext => (
             <ExtensionCard
               key={ext.id}
@@ -454,22 +485,22 @@ export default function Extensions() {
 
       {/* Confirmation dialog */}
       {confirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setConfirm(null)}>
-          <div className="bg-theme-card border border-theme-border rounded-xl p-6 max-w-md mx-4" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Confirm action">
-            <h3 className="text-lg font-semibold text-theme-text mb-2">
-              {confirm.action === 'uninstall' ? 'Remove' : confirm.action === 'purge' ? 'Purge Data —' : confirm.action.charAt(0).toUpperCase() + confirm.action.slice(1)} Extension
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setConfirm(null)}>
+          <div className="bg-theme-card border border-white/10 rounded-xl p-6 max-w-md mx-4 shadow-2xl" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Confirm action">
+            <h3 className="text-base font-semibold text-theme-text mb-2">
+              {confirm.action === 'uninstall' ? 'Remove' : confirm.action === 'purge' ? 'Purge Data' : confirm.action.charAt(0).toUpperCase() + confirm.action.slice(1)} Extension
             </h3>
-            <p className="text-sm text-theme-text-muted mb-4">{confirm.message}</p>
+            <p className="text-[11px] text-theme-text-muted/70 mb-5 leading-relaxed">{confirm.message}</p>
             {confirm.action === 'disable' && confirm.ext.dependents?.length > 0 && (
               <DisableDependentWarning dependents={confirm.ext.dependents} />
             )}
-            <div className="flex justify-end gap-3 mt-4">
-              <button onClick={() => setConfirm(null)} autoFocus className="px-4 py-2 text-sm text-theme-text-muted hover:text-theme-text transition-colors">Cancel</button>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setConfirm(null)} autoFocus className="px-4 py-2 text-[10px] font-mono uppercase tracking-[0.16em] text-theme-text-muted/65 hover:text-theme-text transition-colors">Cancel</button>
               <button
                 onClick={() => handleMutation(confirm.ext.id, confirm.action)}
-                className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                  confirm.action === 'uninstall' || confirm.action === 'purge' ? 'bg-red-500/20 text-red-300 hover:bg-red-500/30' :
-                  'bg-theme-accent/20 text-theme-accent-light hover:bg-theme-accent/30'
+                className={`px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] rounded-lg transition-colors ${
+                  confirm.action === 'uninstall' || confirm.action === 'purge' ? 'bg-red-500/15 text-red-400 hover:bg-red-500/25' :
+                  'bg-theme-accent/15 text-theme-accent-light hover:bg-theme-accent/25'
                 }`}
               >
                 {confirm.action === 'uninstall' ? 'Remove' : confirm.action === 'purge' ? 'Purge' : confirm.action.charAt(0).toUpperCase() + confirm.action.slice(1)}
@@ -491,14 +522,14 @@ export default function Extensions() {
 
       {/* Toast notification */}
       {toast && (
-        <div className={`fixed bottom-6 right-6 z-50 rounded-xl border p-4 text-sm max-w-sm shadow-lg ${
-          toast.type === 'error' ? 'border-red-500/20 bg-red-500/10 text-red-200' :
-          toast.type === 'info' ? 'border-theme-accent/20 bg-theme-accent/10 text-theme-accent-light' :
-          'border-green-500/20 bg-green-500/10 text-green-200'
+        <div className={`fixed bottom-6 right-6 z-50 rounded-xl border p-4 text-[11px] max-w-sm shadow-2xl ${
+          toast.type === 'error' ? 'border-red-500/20 bg-[#0d0b12]/95 text-red-300' :
+          toast.type === 'info' ? 'border-theme-accent/20 bg-[#0d0b12]/95 text-theme-accent-light' :
+          'border-green-500/20 bg-[#0d0b12]/95 text-green-300'
         }`}>
           <div className="flex items-center justify-between gap-3">
-            <span>{toast.text}</span>
-            <button onClick={() => setToast(null)} className="opacity-60 hover:opacity-100">×</button>
+            <span className="leading-relaxed">{toast.text}</span>
+            <button onClick={() => setToast(null)} className="text-theme-text-muted/45 hover:text-theme-text-secondary transition-colors">×</button>
           </div>
         </div>
       )}
@@ -509,9 +540,45 @@ export default function Extensions() {
 function SummaryItem({ label, value, color }) {
   return (
     <div className="flex items-center gap-2">
-      <span className={`w-2 h-2 rounded-full ${color}`} />
-      <span className="text-theme-text-muted">{label}</span>
-      <span className="text-theme-text font-medium">{value}</span>
+      <span className={`w-1.5 h-1.5 rounded-full ${color}`} />
+      <span className="text-[10px] font-semibold uppercase tracking-[0.13em] text-theme-text-muted/55">{label}</span>
+      <span className="text-theme-text font-medium font-mono">{value}</span>
+    </div>
+  )
+}
+
+function StatusBadge({ status, statusStyle, ext, gpuBackend, onConsole }) {
+  let tooltip = STATUS_DESCRIPTIONS[status] || ''
+  if (status === 'incompatible') {
+    tooltip += ` \u2014 requires ${ext.gpu_backends?.join(' or ') || 'specific GPU'}, your system: ${gpuBackend || 'unknown'}`
+  }
+
+  const badge = (status === 'installing' || status === 'setting_up') ? (
+    <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 flex items-center gap-1 cursor-help">
+      <Loader2 size={8} className="animate-spin" />
+      {status === 'setting_up' ? 'setting up' : 'installing'}
+    </span>
+  ) : status === 'error' ? (
+    <span
+      className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/20 text-red-300 cursor-pointer"
+      onClick={onConsole}
+    >
+      error
+    </span>
+  ) : (
+    <span className={`text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider cursor-help ${statusStyle}`}>
+      {status.replace(/_/g, ' ')}
+    </span>
+  )
+
+  return (
+    <div className="relative group/status z-[1] hover:z-[60]" data-tooltip>
+      {badge}
+      {tooltip && (
+        <div className="pointer-events-none absolute top-full right-0 z-[60] mt-1.5 w-48 rounded-lg border border-white/10 bg-[#0d0b12]/95 px-3 py-2 text-[11px] leading-4 text-theme-text-secondary opacity-0 shadow-2xl transition-all duration-150 translate-y-1 group-hover/status:translate-y-0 group-hover/status:opacity-100">
+          {tooltip}
+        </div>
+      )}
     </div>
   )
 }
@@ -531,7 +598,7 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
   const isUserExt = ext.source === 'user'
   const isError = status === 'error'
   const isStopped = status === 'stopped'
-  const isToggleable = isUserExt && (status === 'enabled' || status === 'disabled' || isStopped)
+  const isToggleable = isUserExt && (status === 'enabled' || status === 'disabled')
   const showRemove = isUserExt && (status === 'disabled' || isError)
   const showInstall = status === 'not_installed' && ext.installable
 
@@ -549,7 +616,7 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
               status === 'incompatible' ? 'bg-orange-500/10' :
               (status === 'installing' || status === 'setting_up') ? 'bg-blue-500/10' :
               status === 'error' ? 'bg-red-500/10' :
-              'bg-theme-card'
+              'bg-theme-bg border border-white/5'
             }`}>
               <Icon size={16} className={
                 status === 'enabled' ? 'text-green-400' :
@@ -563,7 +630,7 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
             <div>
               <h3 className="text-sm font-semibold text-theme-text leading-tight">{ext.name}</h3>
               {ext.features?.[0]?.category && (
-                <span className="text-[10px] text-theme-text-muted uppercase tracking-wider">{ext.features[0].category}</span>
+                <span className="text-[9px] text-theme-text-muted/55 uppercase tracking-[0.18em]">{ext.features[0].category}</span>
               )}
             </div>
           </div>
@@ -575,26 +642,8 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
               >
                 core
               </span>
-            ) : (status === 'installing' || status === 'setting_up') ? (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 flex items-center gap-1">
-                <Loader2 size={8} className="animate-spin" />
-                {status === 'setting_up' ? 'setting up' : 'installing'}
-              </span>
-            ) : status === 'error' ? (
-              <span
-                className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/20 text-red-300 cursor-pointer"
-                onClick={onConsole}
-                title="View error details"
-              >
-                error
-              </span>
             ) : (
-              <span
-                className={`text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider ${statusStyle} ${(status === 'incompatible' || status === 'stopped') ? 'cursor-help' : ''}`}
-                title={status === 'incompatible' ? `Requires ${ext.gpu_backends?.join(' or ') || 'specific GPU'} — your system: ${gpuBackend || 'unknown'}` : status === 'stopped' ? 'Enabled but container not running' : undefined}
-              >
-                {status.replace('_', ' ')}
-              </span>
+              <StatusBadge status={status} statusStyle={statusStyle} ext={ext} gpuBackend={gpuBackend} onConsole={onConsole} />
             )}
             {isToggleable && (
               <button
@@ -616,32 +665,32 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
             )}
           </div>
         </div>
-        <p className="text-xs text-theme-text-muted line-clamp-2 leading-relaxed">{ext.description || 'No description available.'}</p>
+        <p className="text-[11px] text-theme-text-muted/70 line-clamp-2 leading-relaxed">{ext.description || 'No description available.'}</p>
       </div>
 
       {/* Progress indicator — shows during active install/setup, survives page refresh */}
       {(progressData || ext.status === 'installing' || ext.status === 'setting_up') && (
-        <div className="px-4 py-2 border-t border-theme-border/60 text-xs text-blue-300 flex items-center gap-2">
+        <div className="px-4 py-2 border-t border-white/6 text-[10px] text-blue-400/80 flex items-center gap-2">
           <Loader2 size={12} className="animate-spin" />
           <span>{progressData?.phase_label || (ext.status === 'setting_up' ? 'Running setup...' : 'Installing...')}</span>
         </div>
       )}
       {/* Error message */}
       {ext.status === 'error' && progressData?.error && (
-        <div className="px-4 py-2 border-t border-red-500/30 text-xs text-red-300 leading-relaxed">
+        <div className="px-4 py-2 border-t border-red-500/15 text-[10px] text-red-300/80 leading-relaxed">
           {progressData.error.length > 200 ? progressData.error.slice(0, 200) + '...' : progressData.error}
         </div>
       )}
 
       {/* Card footer */}
-      <div className="border-t border-theme-border/60 px-4 py-2.5 flex items-center justify-between bg-theme-card/30">
+      <div className="border-t border-white/6 px-4 py-2.5 flex items-center justify-between bg-black/[0.08]">
         <div className="flex gap-1.5">
           {showInstall && (
             <button
               disabled={actionDisabled}
               title={disabledTitle}
               onClick={() => onAction(ext, 'install')}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-theme-accent text-white hover:bg-theme-accent-hover transition-colors disabled:opacity-50 shadow-sm shadow-theme-accent/20"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] rounded-lg bg-theme-accent text-white hover:bg-theme-accent-hover transition-colors disabled:opacity-50 shadow-sm shadow-theme-accent/20"
             >
               {isMutating ? <Loader2 size={12} className="animate-spin" /> : <><Download size={12} /> Install</>}
             </button>
@@ -651,7 +700,7 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
               disabled={actionDisabled}
               title={disabledTitle}
               onClick={() => onAction(ext, 'enable')}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-green-500/20 text-green-300 hover:bg-green-500/30 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] rounded-lg bg-green-500/15 text-green-400 hover:bg-green-500/25 transition-colors disabled:opacity-50"
             >
               {isMutating ? <Loader2 size={12} className="animate-spin" /> : 'Start'}
             </button>
@@ -661,7 +710,7 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
               disabled={actionDisabled}
               title={disabledTitle}
               onClick={() => onAction(ext, 'enable')}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] rounded-lg bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 transition-colors disabled:opacity-50"
             >
               {isMutating ? <Loader2 size={12} className="animate-spin" /> : <><RefreshCw size={12} /> Retry</>}
             </button>
@@ -671,7 +720,7 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
               disabled={actionDisabled}
               title={disabledTitle}
               onClick={() => onAction(ext, 'uninstall')}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-theme-card text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] rounded-lg bg-transparent text-red-400/80 hover:bg-red-500/15 hover:text-red-300 transition-colors disabled:opacity-50"
             >
               {isMutating ? <Loader2 size={12} className="animate-spin" /> : <><Trash2 size={12} /> Remove</>}
             </button>
@@ -681,13 +730,21 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
               disabled={actionDisabled}
               title={disabledTitle || 'Permanently delete service data'}
               onClick={() => onAction(ext, 'purge')}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-theme-card text-amber-400 hover:bg-amber-500/20 hover:text-amber-300 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] rounded-lg bg-transparent text-amber-400/80 hover:bg-amber-500/15 hover:text-amber-300 transition-colors disabled:opacity-50"
             >
               {isMutating ? <Loader2 size={12} className="animate-spin" /> : <><Database size={12} /> Purge Data</>}
             </button>
           )}
           {isUserExt && status === 'enabled' && (
-            <span className="text-[10px] text-theme-text-muted">Disable to remove</span>
+            <span className="text-[9px] uppercase tracking-[0.14em] text-theme-text-muted/45">Disable to remove</span>
+          )}
+          {!showInstall && !showRemove && !isToggleable && (
+            <div className="flex items-center gap-1" title={status === 'incompatible' && gpuBackend ? `Your system: ${gpuBackend}` : undefined}>
+              {status === 'incompatible' && <span className="text-[9px] uppercase tracking-[0.14em] text-theme-text-muted/45 mr-0.5">Requires:</span>}
+              {ext.gpu_backends?.slice(0, 3).map(gpu => (
+                <span key={gpu} className="text-[9px] px-1.5 py-0.5 rounded-full border border-white/8 bg-white/[0.03] text-theme-text-muted/65 font-mono uppercase tracking-[0.1em]">{gpu}</span>
+              ))}
+            </div>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -698,7 +755,7 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
               target="_blank"
               rel="noopener noreferrer"
               onClick={e => e.stopPropagation()}
-              className="flex items-center gap-1 px-2 py-1.5 text-xs text-theme-accent-light hover:text-theme-accent hover:bg-theme-accent/10 rounded-lg transition-colors"
+              className="flex items-center gap-1 px-2 py-1.5 text-[10px] font-mono text-theme-text-muted/75 hover:text-theme-text-secondary hover:bg-white/[0.04] rounded-lg transition-colors"
               title={`Open on port ${ext.external_port_default || ext.port}`}
             >
               <ExternalLink size={11} />
@@ -709,8 +766,8 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
             <button
               onClick={onConsole}
               disabled={agentOffline}
-              className={`flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg transition-colors ${
-                agentOffline ? 'text-theme-text-muted cursor-not-allowed' : 'text-theme-text-muted hover:text-green-400 hover:bg-green-500/10'
+              className={`flex items-center gap-1 px-2 py-1.5 text-[10px] rounded-lg transition-colors ${
+                agentOffline ? 'text-theme-text-muted/40 cursor-not-allowed' : 'text-theme-text-muted/65 hover:text-theme-text-secondary hover:bg-white/[0.04]'
               }`}
               title={agentOffline ? 'Agent offline' : 'View logs'}
             >
@@ -719,7 +776,7 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
           )}
           <button
             onClick={onDetails}
-            className="flex items-center gap-1 px-2 py-1.5 text-xs text-theme-text-muted hover:text-theme-text hover:bg-theme-surface-hover rounded-lg transition-colors"
+            className="flex items-center gap-1 px-2 py-1.5 text-[10px] text-theme-text-muted/65 hover:text-theme-text-secondary hover:bg-white/[0.04] rounded-lg transition-colors"
           >
             <Info size={11} />
           </button>

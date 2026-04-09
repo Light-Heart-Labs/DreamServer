@@ -455,6 +455,18 @@ a, button, input, select, textarea,
   filter: saturate(1.2) brightness(1.08);
 }
 
+/* Allow tooltips to escape liquid-metal-frame overflow clipping and stacking context */
+.liquid-metal-frame:has([data-tooltip]:hover) {
+  overflow: visible;
+  isolation: auto;
+  z-index: 10;
+}
+
+/* Elevate the card section containing a hovered tooltip above sibling sections (footer, progress) */
+.liquid-metal-frame > *:has([data-tooltip]:hover) {
+  z-index: 60;
+}
+
 .liquid-metal-frame--soft {
   background: var(--liquid-soft-fill, linear-gradient(var(--theme-card), var(--theme-card)));
 }
