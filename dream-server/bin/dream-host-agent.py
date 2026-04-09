@@ -47,6 +47,12 @@ USER_EXTENSIONS_DIR: Path = Path()
 # Per-service locks to prevent concurrent start+stop races on the same service
 _service_locks: dict[str, threading.Lock] = collections.defaultdict(threading.Lock)
 
+# Model download state — only one download at a time
+_model_download_lock = threading.Lock()
+_model_download_thread: threading.Thread | None = None
+# Model activation lock — prevent concurrent .env writes and Docker restarts
+_model_activate_lock = threading.Lock()
+
 
 def load_env(env_path: Path) -> dict:
     """Parse .env file, return dict of key=value pairs."""
@@ -259,6 +265,10 @@ class AgentHandler(BaseHTTPRequestHandler):
             json_response(self, 200, {"status": "ok", "version": VERSION})
         elif self.path == "/v1/service/stats":
             self._handle_service_stats()
+        elif self.path == "/v1/model/list":
+            self._handle_model_list()
+        elif self.path == "/v1/model/status":
+            self._handle_model_status()
         else:
             json_response(self, 404, {"error": "Not found"})
 
@@ -341,6 +351,12 @@ class AgentHandler(BaseHTTPRequestHandler):
             self._handle_setup_hook()
         elif self.path == "/v1/service/logs":
             self._handle_service_logs()
+        elif self.path == "/v1/model/download":
+            self._handle_model_download()
+        elif self.path == "/v1/model/activate":
+            self._handle_model_activate()
+        elif self.path == "/v1/model/delete":
+            self._handle_model_delete()
         else:
             json_response(self, 404, {"error": "Not found"})
 
@@ -545,6 +561,394 @@ class AgentHandler(BaseHTTPRequestHandler):
 
         logger.info("setup_hook completed for %s", service_id)
         json_response(self, 200, {"status": "ok", "service_id": service_id})
+
+
+    # ── Model management handlers ──
+
+    def _handle_model_list(self):
+        """Return model library catalog + on-disk GGUFs + active model."""
+        if not check_auth(self):
+            return
+        try:
+            models_dir = INSTALL_DIR / "data" / "models"
+            library_path = INSTALL_DIR / "config" / "model-library.json"
+            env_path = INSTALL_DIR / ".env"
+
+            # Load library
+            library = []
+            if library_path.exists():
+                try:
+                    library = json.loads(library_path.read_text(encoding="utf-8")).get("models", [])
+                except (json.JSONDecodeError, OSError):
+                    pass
+
+            # Scan downloaded GGUFs
+            downloaded = {}
+            if models_dir.is_dir():
+                for f in models_dir.iterdir():
+                    if f.is_file() and f.suffix == ".gguf" and not f.name.endswith(".part"):
+                        try:
+                            downloaded[f.name] = f.stat().st_size
+                        except OSError:
+                            pass
+
+            # Active model from .env
+            active_gguf = ""
+            if env_path.exists():
+                env = load_env(env_path)
+                active_gguf = env.get("GGUF_FILE", "")
+
+            json_response(self, 200, {
+                "library": library,
+                "downloaded": downloaded,
+                "active_gguf": active_gguf,
+            })
+        except Exception as exc:
+            json_response(self, 500, {"error": f"Failed to list models: {exc}"})
+
+    def _handle_model_status(self):
+        """Return current model download progress."""
+        if not check_auth(self):
+            return
+        status_path = INSTALL_DIR / "data" / "model-download-status.json"
+        if not status_path.exists():
+            json_response(self, 200, {"status": "idle"})
+            return
+        try:
+            data = json.loads(status_path.read_text(encoding="utf-8"))
+            json_response(self, 200, data)
+        except (json.JSONDecodeError, OSError):
+            json_response(self, 200, {"status": "idle"})
+
+    def _handle_model_download(self):
+        """Start async model download. Only one download at a time."""
+        global _model_download_thread
+        if not check_auth(self):
+            return
+        body = read_json_body(self)
+        if body is None:
+            return
+
+        gguf_file = body.get("gguf_file", "")
+        gguf_url = body.get("gguf_url", "")
+        gguf_sha256 = body.get("gguf_sha256", "")
+
+        if not gguf_file or not gguf_url:
+            json_response(self, 400, {"error": "gguf_file and gguf_url are required"})
+            return
+
+        # Validate against library (prevent arbitrary URL downloads)
+        library_path = INSTALL_DIR / "config" / "model-library.json"
+        allowed = False
+        if library_path.exists():
+            try:
+                lib = json.loads(library_path.read_text(encoding="utf-8"))
+                for m in lib.get("models", []):
+                    if m.get("gguf_file") == gguf_file and m.get("gguf_url") == gguf_url:
+                        allowed = True
+                        break
+            except (json.JSONDecodeError, OSError):
+                pass
+        if not allowed:
+            json_response(self, 403, {"error": "Model not in library catalog"})
+            return
+
+        models_dir = INSTALL_DIR / "data" / "models"
+        target = models_dir / gguf_file
+        if target.exists():
+            json_response(self, 200, {"status": "already_downloaded"})
+            return
+
+        # Check for concurrent download
+        with _model_download_lock:
+            if _model_download_thread is not None and _model_download_thread.is_alive():
+                json_response(self, 409, {"error": "Another download is in progress"})
+                return
+
+            def _download():
+                status_path = INSTALL_DIR / "data" / "model-download-status.json"
+                part_file = models_dir / f"{gguf_file}.part"
+                try:
+                    models_dir.mkdir(parents=True, exist_ok=True)
+                    # Write initial status
+                    _write_model_status(status_path, "downloading", gguf_file, 0, 0)
+
+                    # Get total size
+                    total_bytes = 0
+                    try:
+                        head_result = subprocess.run(
+                            ["curl", "-sI", "-L", "--connect-timeout", "10", gguf_url],
+                            capture_output=True, text=True, timeout=30,
+                        )
+                        for line in head_result.stdout.splitlines():
+                            if line.lower().startswith("content-length:"):
+                                total_bytes = int(line.split(":", 1)[1].strip())
+                                break
+                    except (subprocess.TimeoutExpired, ValueError):
+                        pass
+
+                    # Download with retry
+                    success = False
+                    for attempt in range(1, 4):
+                        if attempt > 1:
+                            logger.info("Model download retry %d/3", attempt)
+                            import time
+                            time.sleep(5)
+                        result = subprocess.run(
+                            ["curl", "-fSL", "-C", "-", "--connect-timeout", "30",
+                             "-o", str(part_file), gguf_url],
+                            capture_output=True, text=True, timeout=7200,
+                        )
+                        if result.returncode == 0:
+                            part_file.rename(target)
+                            success = True
+                            break
+                        _write_model_status(status_path, "downloading", gguf_file, 0, total_bytes, f"Retry {attempt}/3")
+
+                    if not success:
+                        part_file.unlink(missing_ok=True)
+                        _write_model_status(status_path, "failed", gguf_file, 0, total_bytes, "Download failed after 3 attempts")
+                        return
+
+                    # Verify SHA256 if provided
+                    if gguf_sha256:
+                        _write_model_status(status_path, "verifying", gguf_file, total_bytes, total_bytes)
+                        import hashlib
+                        sha = hashlib.sha256()
+                        with open(target, "rb") as f:
+                            for chunk in iter(lambda: f.read(1048576), b""):  # 1MB chunks
+                                sha.update(chunk)
+                        actual = sha.hexdigest()
+                        if actual != gguf_sha256:
+                            target.unlink(missing_ok=True)
+                            _write_model_status(status_path, "failed", gguf_file, 0, 0, f"SHA256 mismatch: expected {gguf_sha256[:12]}..., got {actual[:12]}...")
+                            return
+
+                    _write_model_status(status_path, "complete", gguf_file, total_bytes, total_bytes)
+                    logger.info("Model download complete: %s", gguf_file)
+                except Exception as exc:
+                    logger.error("Model download failed: %s", exc)
+                    _write_model_status(status_path, "failed", gguf_file, 0, 0, str(exc))
+
+            _model_download_thread = threading.Thread(target=_download, daemon=True)
+            _model_download_thread.start()
+
+        json_response(self, 200, {"status": "started"})
+
+    def _handle_model_activate(self):
+        """Swap active model: update .env + models.ini + restart llama-server."""
+        if not check_auth(self):
+            return
+        body = read_json_body(self)
+        if body is None:
+            return
+
+        model_id = body.get("model_id", "")
+        if not model_id:
+            json_response(self, 400, {"error": "model_id is required"})
+            return
+
+        if not _model_activate_lock.acquire(blocking=False):
+            json_response(self, 409, {"error": "Another model activation is in progress"})
+            return
+
+        try:
+            self._do_model_activate(model_id)
+        finally:
+            _model_activate_lock.release()
+
+    def _do_model_activate(self, model_id: str):
+        """Inner activate logic — called with _model_activate_lock held."""
+        # Look up model in library
+        library_path = INSTALL_DIR / "config" / "model-library.json"
+        model = None
+        if library_path.exists():
+            try:
+                lib = json.loads(library_path.read_text(encoding="utf-8"))
+                for m in lib.get("models", []):
+                    if m.get("id") == model_id:
+                        model = m
+                        break
+            except (json.JSONDecodeError, OSError):
+                pass
+        if model is None:
+            json_response(self, 404, {"error": f"Model '{model_id}' not found in library"})
+            return
+
+        gguf_file = model.get("gguf_file", "")
+        llm_model_name = model.get("llm_model_name", model_id)
+        context_length = model.get("context_length", 32768)
+
+        # Verify GGUF exists on disk
+        target = INSTALL_DIR / "data" / "models" / gguf_file
+        if not target.exists():
+            json_response(self, 400, {"error": f"Model file not downloaded: {gguf_file}"})
+            return
+
+        env_path = INSTALL_DIR / ".env"
+        models_ini = INSTALL_DIR / "config" / "llama-server" / "models.ini"
+
+        try:
+            # Save rollback snapshot
+            env_backup = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
+            ini_backup = models_ini.read_text(encoding="utf-8") if models_ini.exists() else ""
+
+            # Update .env
+            if env_path.exists():
+                lines = env_path.read_text(encoding="utf-8").splitlines()
+                updates = {
+                    "GGUF_FILE": gguf_file,
+                    "LLM_MODEL": llm_model_name,
+                    "CTX_SIZE": str(context_length),
+                    "MAX_CONTEXT": str(context_length),
+                }
+                new_lines = []
+                seen = set()
+                for line in lines:
+                    key = line.split("=", 1)[0] if "=" in line and not line.startswith("#") else None
+                    if key and key in updates:
+                        new_lines.append(f"{key}={updates[key]}")
+                        seen.add(key)
+                    else:
+                        new_lines.append(line)
+                for key, val in updates.items():
+                    if key not in seen:
+                        new_lines.append(f"{key}={val}")
+                env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+
+            # Update models.ini
+            models_ini.parent.mkdir(parents=True, exist_ok=True)
+            models_ini.write_text(
+                f"[{llm_model_name}]\n"
+                f"filename = {gguf_file}\n"
+                f"load-on-startup = true\n"
+                f"n-ctx = {context_length}\n",
+                encoding="utf-8",
+            )
+
+            # Restart llama-server
+            env = load_env(env_path)
+            gpu_backend = env.get("GPU_BACKEND", "nvidia")
+
+            compose_flags = []
+            flags_file = INSTALL_DIR / ".compose-flags"
+            if flags_file.exists():
+                compose_flags = flags_file.read_text(encoding="utf-8").strip().split()
+
+            if gpu_backend == "amd":
+                if compose_flags:
+                    subprocess.run(["docker", "compose"] + compose_flags + ["restart", "llama-server"],
+                                   cwd=str(INSTALL_DIR), capture_output=True, timeout=300)
+                else:
+                    subprocess.run(["docker", "restart", "dream-llama-server"],
+                                   capture_output=True, timeout=300)
+            else:
+                if compose_flags:
+                    subprocess.run(["docker", "compose"] + compose_flags + ["stop", "llama-server"],
+                                   cwd=str(INSTALL_DIR), capture_output=True, timeout=120)
+                    subprocess.run(["docker", "compose"] + compose_flags + ["up", "-d", "llama-server"],
+                                   cwd=str(INSTALL_DIR), capture_output=True, timeout=300)
+                else:
+                    subprocess.run(["docker", "stop", "dream-llama-server"], capture_output=True, timeout=120)
+                    subprocess.run(["docker", "start", "dream-llama-server"], capture_output=True, timeout=300)
+
+            # Health check (up to 5 min)
+            import time
+            health_url = f"http://localhost:{env.get('OLLAMA_PORT', '8080')}"
+            health_url += "/api/v1/health" if gpu_backend == "amd" else "/health"
+            healthy = False
+            for _ in range(60):
+                try:
+                    result = subprocess.run(
+                        ["curl", "-sf", "--max-time", "5", health_url],
+                        capture_output=True, timeout=10,
+                    )
+                    if result.returncode == 0:
+                        healthy = True
+                        break
+                except subprocess.TimeoutExpired:
+                    pass
+                time.sleep(5)
+
+            if healthy:
+                json_response(self, 200, {"status": "activated", "model_id": model_id})
+            else:
+                # Rollback
+                logger.warning("Model activation failed — rolling back")
+                env_path.write_text(env_backup, encoding="utf-8")
+                models_ini.write_text(ini_backup, encoding="utf-8")
+                if gpu_backend == "amd":
+                    subprocess.run(["docker", "restart", "dream-llama-server"],
+                                   capture_output=True, timeout=300)
+                else:
+                    if compose_flags:
+                        subprocess.run(["docker", "compose"] + compose_flags + ["stop", "llama-server"],
+                                       cwd=str(INSTALL_DIR), capture_output=True, timeout=120)
+                        subprocess.run(["docker", "compose"] + compose_flags + ["up", "-d", "llama-server"],
+                                       cwd=str(INSTALL_DIR), capture_output=True, timeout=300)
+                    else:
+                        subprocess.run(["docker", "stop", "dream-llama-server"], capture_output=True, timeout=120)
+                        subprocess.run(["docker", "start", "dream-llama-server"], capture_output=True, timeout=300)
+                json_response(self, 500, {"error": "Health check failed — rolled back to previous model", "rolled_back": True})
+
+        except Exception as exc:
+            json_response(self, 500, {"error": f"Model activation failed: {exc}"})
+
+    def _handle_model_delete(self):
+        """Delete a downloaded GGUF model file."""
+        if not check_auth(self):
+            return
+        body = read_json_body(self)
+        if body is None:
+            return
+
+        gguf_file = body.get("gguf_file", "")
+        if not gguf_file:
+            json_response(self, 400, {"error": "gguf_file is required"})
+            return
+
+        models_dir = INSTALL_DIR / "data" / "models"
+        target = (models_dir / gguf_file).resolve()
+
+        # Path traversal prevention
+        if not target.is_relative_to(models_dir.resolve()):
+            json_response(self, 400, {"error": "Invalid file path"})
+            return
+
+        if not target.exists():
+            json_response(self, 404, {"error": f"File not found: {gguf_file}"})
+            return
+
+        # Refuse to delete the active model
+        env = load_env(INSTALL_DIR / ".env")
+        if env.get("GGUF_FILE", "") == gguf_file:
+            json_response(self, 409, {"error": "Cannot delete the currently active model"})
+            return
+
+        try:
+            target.unlink()
+            json_response(self, 200, {"status": "deleted", "gguf_file": gguf_file})
+        except OSError as exc:
+            json_response(self, 500, {"error": f"Failed to delete: {exc}"})
+
+
+def _write_model_status(path: Path, status: str, model: str, downloaded: int, total: int, error: str = ""):
+    """Write model download status JSON atomically."""
+    data = {
+        "status": status,
+        "model": model,
+        "bytesDownloaded": downloaded,
+        "bytesTotal": total,
+        "updatedAt": _iso_now(),
+    }
+    if error:
+        data["error"] = error
+    tmp = path.with_suffix(".tmp")
+    try:
+        tmp.write_text(json.dumps(data), encoding="utf-8")
+        tmp.rename(path)
+    except OSError:
+        pass
 
 
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
