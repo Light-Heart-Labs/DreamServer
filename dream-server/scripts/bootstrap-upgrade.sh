@@ -257,17 +257,18 @@ fi
 if command -v docker &>/dev/null && docker ps --filter name=dream-llama-server --format '{{.Names}}' 2>/dev/null | grep -q dream-llama-server; then
     log "Restarting llama-server with full model..."
 
+    # Read GPU backend from .env (needed for health endpoint and restart strategy)
+    _gpu_backend=""
+    if [[ -f "$ENV_FILE" ]]; then
+        _gpu_backend=$(grep -E '^GPU_BACKEND=' "$ENV_FILE" | cut -d= -f2 | tr -d '"'"'")
+    fi
+
     # Detect compose files
     COMPOSE_ARGS=()
     if [[ -f "$INSTALL_DIR/.compose-flags" ]]; then
         read -ra COMPOSE_ARGS <<< "$(cat "$INSTALL_DIR/.compose-flags")"
     elif [[ -f "$INSTALL_DIR/docker-compose.base.yml" ]]; then
         COMPOSE_ARGS=(-f "$INSTALL_DIR/docker-compose.base.yml")
-        # Read GPU backend from .env to select the correct overlay
-        _gpu_backend=""
-        if [[ -f "$ENV_FILE" ]]; then
-            _gpu_backend=$(grep -E '^GPU_BACKEND=' "$ENV_FILE" | cut -d= -f2)
-        fi
         case "${_gpu_backend}" in
             nvidia) [[ -f "$INSTALL_DIR/docker-compose.nvidia.yml" ]] && COMPOSE_ARGS+=(-f "$INSTALL_DIR/docker-compose.nvidia.yml") ;;
             amd)    [[ -f "$INSTALL_DIR/docker-compose.amd.yml" ]]    && COMPOSE_ARGS+=(-f "$INSTALL_DIR/docker-compose.amd.yml") ;;
@@ -278,20 +279,44 @@ if command -v docker &>/dev/null && docker ps --filter name=dream-llama-server -
 
     cd "$INSTALL_DIR" || fail "Cannot cd to $INSTALL_DIR"
 
-    # Stop llama-server
-    if [[ ${#COMPOSE_ARGS[@]} -gt 0 ]]; then
-        docker compose "${COMPOSE_ARGS[@]}" stop llama-server 2>&1 || true
-        docker compose "${COMPOSE_ARGS[@]}" up -d llama-server 2>&1 || true
+    # Restart llama-server — strategy depends on GPU backend:
+    # - AMD (Lemonade): use 'restart' to preserve cached llama-server build.
+    #   Lemonade reads models.ini at startup, so it picks up the new model.
+    # - NVIDIA/CPU (llama.cpp): use 'stop + up -d' to recreate the container.
+    #   The model path is in the compose command (--model /models/${GGUF_FILE}),
+    #   which is only resolved from .env when the container is created.
+    log "Restarting llama-server container (backend: ${_gpu_backend:-unknown})..."
+    if [[ "$_gpu_backend" == "amd" ]]; then
+        # Lemonade: restart preserves cached binary, reads models.ini on boot
+        if [[ ${#COMPOSE_ARGS[@]} -gt 0 ]]; then
+            docker compose "${COMPOSE_ARGS[@]}" restart llama-server 2>&1 || true
+        else
+            docker restart dream-llama-server 2>&1 || true
+        fi
     else
-        docker stop dream-llama-server 2>&1 || true
-        docker start dream-llama-server 2>&1 || true
+        # llama.cpp: recreate to pick up new GGUF_FILE from .env
+        if [[ ${#COMPOSE_ARGS[@]} -gt 0 ]]; then
+            docker compose "${COMPOSE_ARGS[@]}" stop llama-server 2>&1 || true
+            docker compose "${COMPOSE_ARGS[@]}" up -d llama-server 2>&1 || true
+        else
+            docker stop dream-llama-server 2>&1 || true
+            docker start dream-llama-server 2>&1 || true
+        fi
+    fi
+
+    # Pick health endpoint based on GPU backend — Lemonade (AMD) serves
+    # /api/v1/health, llama.cpp (NVIDIA/Apple/CPU) serves /health.
+    if [[ "$_gpu_backend" == "amd" ]]; then
+        _health_url="http://localhost:${OLLAMA_PORT:-8080}/api/v1/health"
+    else
+        _health_url="http://localhost:${OLLAMA_PORT:-8080}/health"
     fi
 
     # Wait for health (up to 5 minutes for the larger model to load)
-    log "Waiting for llama-server health..."
+    log "Waiting for llama-server health at $_health_url ..."
     _healthy=false
     for _i in $(seq 1 60); do
-        if curl -sf --max-time 5 "http://localhost:${OLLAMA_PORT:-8080}/health" &>/dev/null; then
+        if curl -sf --max-time 5 "$_health_url" &>/dev/null; then
             _healthy=true
             break
         fi
