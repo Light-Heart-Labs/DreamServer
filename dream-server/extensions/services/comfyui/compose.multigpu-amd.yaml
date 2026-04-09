@@ -1,0 +1,9 @@
+# ComfyUI — AMD multi-GPU isolation overlay
+# compose.amd.yaml already mounts all of /dev/dri, and Docker Compose appends
+# device lists (no override). Render node passthrough is therefore redundant.
+# Use ROCR_VISIBLE_DEVICES to restrict ComfyUI to a single GPU at runtime.
+services:
+  comfyui:
+    # devices and group_add inherited from compose.amd.yaml
+    environment:
+      ROCR_VISIBLE_DEVICES: "${COMFYUI_GPU_INDEX:-0}"

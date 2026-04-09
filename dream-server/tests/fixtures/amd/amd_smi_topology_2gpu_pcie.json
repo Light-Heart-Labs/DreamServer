@@ -1,0 +1,46 @@
+[
+    {
+        "gpu": 0,
+        "bdf": "0000:03:00.0",
+        "links": [
+            {
+                "gpu": 0,
+                "bdf": "0000:03:00.0",
+                "weight": 0,
+                "link_status": "ENABLED",
+                "link_type": "SELF",
+                "num_hops": 0
+            },
+            {
+                "gpu": 1,
+                "bdf": "0000:0a:00.0",
+                "weight": 40,
+                "link_status": "ENABLED",
+                "link_type": "PCIE",
+                "num_hops": 2
+            }
+        ]
+    },
+    {
+        "gpu": 1,
+        "bdf": "0000:0a:00.0",
+        "links": [
+            {
+                "gpu": 0,
+                "bdf": "0000:03:00.0",
+                "weight": 40,
+                "link_status": "ENABLED",
+                "link_type": "PCIE",
+                "num_hops": 2
+            },
+            {
+                "gpu": 1,
+                "bdf": "0000:0a:00.0",
+                "weight": 0,
+                "link_status": "ENABLED",
+                "link_type": "SELF",
+                "num_hops": 0
+            }
+        ]
+    }
+]
