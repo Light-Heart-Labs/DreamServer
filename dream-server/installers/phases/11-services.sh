@@ -303,7 +303,7 @@ MODELS_INI_EOF
     [[ "$ENABLE_COMFYUI" == "true" ]] && _build_services+=(comfyui)
     if [[ "${ENABLE_DREAMFORGE:-}" == "true" ]]; then
         _dreamforge_image="${DREAMFORGE_IMAGE:-ghcr.io/light-heart-labs/dreamforge:latest}"
-        if ! docker image inspect "$_dreamforge_image" &>/dev/null; then
+        if ! $DOCKER_CMD image inspect "$_dreamforge_image" &>/dev/null; then
             _build_services+=(dreamforge)
         else
             log "DreamForge image found locally — skipping source build"
@@ -346,11 +346,11 @@ MODELS_INI_EOF
     # starting other containers. Some end up in "Created", others never got
     # past "Creating" because their dependencies weren't ready yet.
     # Step 1: start any containers already in Created state
-    docker start $(docker ps -a --filter status=created -q) 2>/dev/null || true
+    $DOCKER_CMD start $($DOCKER_CMD ps -a --filter status=created -q 2>/dev/null) 2>/dev/null || true
     # Step 2: second compose pass picks up services whose deps are now healthy
     $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up -d --no-build >> "$LOG_FILE" 2>&1 || true
     # Step 3: catch any stragglers from the second pass
-    docker start $(docker ps -a --filter status=created -q) 2>/dev/null || true
+    $DOCKER_CMD start $($DOCKER_CMD ps -a --filter status=created -q 2>/dev/null) 2>/dev/null || true
 
     if $compose_ok; then
         printf "\r  ${BGRN}✓${NC} %-60s\n" "All containers launched"

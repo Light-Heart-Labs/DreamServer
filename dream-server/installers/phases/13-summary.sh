@@ -288,7 +288,7 @@ fi
 #=============================================================================
 if ! $DRY_RUN; then
     # Check Perplexica config was seeded (phase 12 may have failed silently)
-    if docker inspect dream-perplexica &>/dev/null; then
+    if $DOCKER_CMD inspect dream-perplexica &>/dev/null; then
         _perplexica_status=$(curl -sf --max-time 5 "http://localhost:${SERVICE_PORTS[perplexica]:-3004}/api/config" 2>>"$LOG_FILE" | \
             "$PYTHON_CMD" -c "import sys,json;d=json.load(sys.stdin);print('ok' if d['values'].get('setupComplete') else 'needed')" 2>>"$LOG_FILE" || echo "skip")
         if [[ "$_perplexica_status" == "needed" ]]; then

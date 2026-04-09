@@ -86,7 +86,7 @@ fi
 # We use the /api/config HTTP endpoint to set values after the service starts.
 # Retry up to 5 times with 10s delay — Perplexica may still be starting
 # (especially if it was stuck in "Created" state and started late).
-if docker inspect dream-perplexica &>/dev/null; then
+if $DOCKER_CMD inspect dream-perplexica &>/dev/null; then
     PERPLEXICA_URL="http://localhost:${SERVICE_PORTS[perplexica]:-3004}"
     PYTHON_CMD="python3"
     if [[ -f "$SCRIPT_DIR/lib/python-cmd.sh" ]]; then
