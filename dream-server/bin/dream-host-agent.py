@@ -71,6 +71,8 @@ def _to_bash_path(path: Path) -> str:
 # Model download state — only one download at a time
 _model_download_lock = threading.Lock()
 _model_download_thread: threading.Thread | None = None
+# Model activation lock — prevent concurrent .env writes and Docker restarts
+_model_activate_lock = threading.Lock()
 
 
 def load_env(env_path: Path) -> dict:
@@ -821,7 +823,7 @@ class AgentHandler(BaseHTTPRequestHandler):
                         import hashlib
                         sha = hashlib.sha256()
                         with open(target, "rb") as f:
-                            for chunk in iter(lambda: f.read(8192), b""):
+                            for chunk in iter(lambda: f.read(1048576), b""):  # 1MB chunks
                                 sha.update(chunk)
                         actual = sha.hexdigest()
                         if actual != gguf_sha256:
@@ -853,6 +855,17 @@ class AgentHandler(BaseHTTPRequestHandler):
             json_response(self, 400, {"error": "model_id is required"})
             return
 
+        if not _model_activate_lock.acquire(blocking=False):
+            json_response(self, 409, {"error": "Another model activation is in progress"})
+            return
+
+        try:
+            self._do_model_activate(model_id)
+        finally:
+            _model_activate_lock.release()
+
+    def _do_model_activate(self, model_id: str):
+        """Inner activate logic — called with _model_activate_lock held."""
         # Look up model in library
         library_path = INSTALL_DIR / "config" / "model-library.json"
         model = None
