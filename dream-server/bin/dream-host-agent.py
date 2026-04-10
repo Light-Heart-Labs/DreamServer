@@ -79,6 +79,8 @@ def _to_bash_path(path: Path) -> str:
 # Model download state — only one download at a time
 _model_download_lock = threading.Lock()
 _model_download_thread: threading.Thread | None = None
+_model_download_proc: subprocess.Popen | None = None
+_model_download_cancel = threading.Event()
 # Model activation lock — prevent concurrent .env writes and Docker restarts
 _model_activate_lock = threading.Lock()
 
@@ -599,6 +601,8 @@ class AgentHandler(BaseHTTPRequestHandler):
             self._handle_service_logs()
         elif self.path == "/v1/model/download":
             self._handle_model_download()
+        elif self.path == "/v1/model/download/cancel":
+            self._handle_model_download_cancel()
         elif self.path == "/v1/model/activate":
             self._handle_model_activate()
         elif self.path == "/v1/model/delete":
@@ -1116,7 +1120,10 @@ class AgentHandler(BaseHTTPRequestHandler):
                 json_response(self, 409, {"error": "Another download is in progress"})
                 return
 
+            _model_download_cancel.clear()
+
             def _download():
+                global _model_download_proc
                 import time as _time
                 status_path = INSTALL_DIR / "data" / "model-download-status.json"
                 try:
@@ -1125,6 +1132,8 @@ class AgentHandler(BaseHTTPRequestHandler):
                     _write_model_status(status_path, "downloading", label, 0, 0)
 
                     for part_idx, (part_file_name, part_url) in enumerate(download_plan, 1):
+                        if _model_download_cancel.is_set():
+                            break
                         part_target = models_dir / part_file_name
                         part_tmp = models_dir / f"{part_file_name}.part"
                         part_label = part_file_name if len(download_plan) == 1 else f"{part_file_name} (part {part_idx}/{len(download_plan)})"
@@ -1147,11 +1156,19 @@ class AgentHandler(BaseHTTPRequestHandler):
 
                         _write_model_status(status_path, "downloading", part_label, 0, part_total)
 
-                        # Progress polling: update status by checking .part file size
+                        # Progress polling: update status by checking .part file size.
+                        # Also kills the active curl process when cancel is requested.
                         _stop_progress = threading.Event()
 
                         def _poll_progress():
                             while not _stop_progress.is_set():
+                                if _model_download_cancel.is_set():
+                                    proc_ref = _model_download_proc
+                                    if proc_ref is not None:
+                                        try:
+                                            proc_ref.kill()
+                                        except (OSError, AttributeError):
+                                            pass
                                 try:
                                     if part_tmp.exists():
                                         current = part_tmp.stat().st_size
@@ -1163,18 +1180,31 @@ class AgentHandler(BaseHTTPRequestHandler):
                         progress_thread = threading.Thread(target=_poll_progress, daemon=True)
                         progress_thread.start()
 
-                        # Download with retry
+                        # Download with retry. Use Popen (not run) so the process can
+                        # be killed from the cancel handler or _poll_progress thread.
                         success = False
                         for attempt in range(1, 4):
+                            if _model_download_cancel.is_set():
+                                break
                             if attempt > 1:
                                 logger.info("Model download retry %d/3 for %s", attempt, part_file_name)
                                 _time.sleep(5)
-                            result = subprocess.run(
+                            proc = subprocess.Popen(
                                 ["curl", "-fSL", "-C", "-", "--connect-timeout", "30",
                                  "-o", str(part_tmp), part_url],
-                                capture_output=True, text=True, timeout=14400,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                             )
-                            if result.returncode == 0:
+                            _model_download_proc = proc
+                            try:
+                                proc.wait(timeout=14400)
+                            except subprocess.TimeoutExpired:
+                                proc.kill()
+                                proc.wait(timeout=5)
+                            _model_download_proc = None
+
+                            if _model_download_cancel.is_set():
+                                break
+                            if proc.returncode == 0:
                                 _stop_progress.set()
                                 part_tmp.rename(part_target)
                                 success = True
@@ -1182,11 +1212,22 @@ class AgentHandler(BaseHTTPRequestHandler):
                             _write_model_status(status_path, "downloading", part_label, 0, part_total, f"Retry {attempt}/3")
 
                         _stop_progress.set()
+                        progress_thread.join(timeout=3)
+
+                        if _model_download_cancel.is_set():
+                            part_tmp.unlink(missing_ok=True)
+                            _write_model_status(status_path, "cancelled", gguf_file, 0, 0, "Download cancelled by user")
+                            logger.info("Model download cancelled: %s", gguf_file)
+                            return
 
                         if not success:
                             part_tmp.unlink(missing_ok=True)
                             _write_model_status(status_path, "failed", part_label, 0, part_total, "Download failed after 3 attempts")
                             return
+
+                    if _model_download_cancel.is_set():
+                        _write_model_status(status_path, "cancelled", gguf_file, 0, 0, "Download cancelled by user")
+                        return
 
                     # Verify SHA256 if provided (single-file only)
                     if gguf_sha256 and len(download_plan) == 1:
@@ -1214,6 +1255,25 @@ class AgentHandler(BaseHTTPRequestHandler):
             _model_download_thread.start()
 
         json_response(self, 200, {"status": "started"})
+
+    def _handle_model_download_cancel(self):
+        """Cancel an in-progress model download."""
+        if not check_auth(self):
+            return
+        with _model_download_lock:
+            if _model_download_thread is None or not _model_download_thread.is_alive():
+                json_response(self, 200, {"status": "no_download"})
+                return
+        _model_download_cancel.set()
+        # Capture local reference to avoid TOCTOU race — the download thread
+        # may null out _model_download_proc between the check and kill.
+        proc_ref = _model_download_proc
+        if proc_ref is not None:
+            try:
+                proc_ref.kill()
+            except (OSError, AttributeError):
+                pass
+        json_response(self, 200, {"status": "cancelling"})
 
     def _handle_model_activate(self):
         """Swap active model: update .env + models.ini + restart llama-server."""
@@ -1258,9 +1318,14 @@ class AgentHandler(BaseHTTPRequestHandler):
         gguf_file = model.get("gguf_file", "")
         llm_model_name = model.get("llm_model_name", model_id)
         context_length = model.get("context_length", 32768)
+        llama_server_image = model.get("llama_server_image")
 
-        # Verify GGUF exists on disk
-        target = INSTALL_DIR / "data" / "models" / gguf_file
+        # Verify GGUF exists on disk (with path traversal protection)
+        models_dir = INSTALL_DIR / "data" / "models"
+        target = (models_dir / gguf_file).resolve()
+        if not target.is_relative_to(models_dir.resolve()):
+            json_response(self, 400, {"error": "Invalid model file path"})
+            return
         if not target.exists():
             json_response(self, 400, {"error": f"Model file not downloaded: {gguf_file}"})
             return
@@ -1269,6 +1334,10 @@ class AgentHandler(BaseHTTPRequestHandler):
         models_ini = INSTALL_DIR / "config" / "llama-server" / "models.ini"
 
         try:
+            # Read current env BEFORE modification — needed for gpu_backend guard
+            env_pre = load_env(env_path)
+            gpu_backend = env_pre.get("GPU_BACKEND", "nvidia")
+
             # Save rollback snapshot
             env_backup = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
             ini_backup = models_ini.read_text(encoding="utf-8") if models_ini.exists() else ""
@@ -1282,10 +1351,10 @@ class AgentHandler(BaseHTTPRequestHandler):
                     "CTX_SIZE": str(context_length),
                     "MAX_CONTEXT": str(context_length),
                 }
-                # Update server image if the model requires a specific build
-                # (e.g., Gemma 4 needs server-cuda-b8648 instead of b8248)
-                if model.get("llama_server_image"):
-                    updates["LLAMA_SERVER_IMAGE"] = model["llama_server_image"]
+                # Only update LLAMA_SERVER_IMAGE on Docker backends.
+                # macOS runs llama-server natively (no Docker image to pull).
+                if llama_server_image and gpu_backend != "apple":
+                    updates["LLAMA_SERVER_IMAGE"] = llama_server_image
                 new_lines = []
                 seen = set()
                 for line in lines:
@@ -1311,18 +1380,78 @@ class AgentHandler(BaseHTTPRequestHandler):
             )
 
             # Restart llama-server with the new model.
-            # Two strategies depending on where the agent runs:
-            # - Host-native (Linux/macOS): docker compose stop+up, same as
-            #   bootstrap-upgrade.sh. Simple, correct, preserves all config.
-            # - Containerized (Docker Desktop WSL2): docker inspect+run.
-            #   Compose can't be used because relative bind-mount paths
-            #   resolve to the agent container's filesystem, not the host.
+            # Three strategies depending on platform / agent location:
+            # - apple (macOS): llama-server runs natively via Metal, not Docker.
+            #   Managed via PID file — SIGTERM the old process, launch new one.
+            # - _in_container (Docker Desktop / WSL2): docker inspect+run.
+            #   Compose can't be used because relative bind-mount paths resolve
+            #   to the agent container's filesystem, not the host.
+            # - Host-native Linux: docker compose stop+up, same as bootstrap-upgrade.sh.
             env = load_env(env_path)
-            gpu_backend = env.get("GPU_BACKEND", "nvidia")
             _in_container = bool(os.environ.get("DREAM_HOST_INSTALL_DIR"))
 
-            if _in_container:
-                override_image = model.get("llama_server_image") or ""
+            if gpu_backend == "apple":
+                # macOS: manage native llama-server process via PID file
+                pid_file = INSTALL_DIR / "data" / ".llama-server.pid"
+                llama_bin = INSTALL_DIR / "bin" / "llama-server"
+                llama_log = INSTALL_DIR / "data" / "llama-server.log"
+
+                if not llama_bin.exists():
+                    env_path.write_text(env_backup, encoding="utf-8")
+                    models_ini.write_text(ini_backup, encoding="utf-8")
+                    json_response(self, 500, {"error": "llama-server binary not found — re-run installer"})
+                    return
+
+                # Stop existing native process
+                if pid_file.exists():
+                    try:
+                        old_pid = int(pid_file.read_text(encoding="utf-8").strip())
+                        # Verify PID is llama-server before killing (prevent PID reuse accidents)
+                        try:
+                            ps_result = subprocess.run(
+                                ["ps", "-p", str(old_pid), "-o", "comm="],
+                                capture_output=True, text=True, timeout=5,
+                            )
+                            if "llama" not in ps_result.stdout.lower():
+                                raise OSError("PID is not llama-server")
+                        except (subprocess.TimeoutExpired, OSError):
+                            pid_file.unlink(missing_ok=True)
+                            raise OSError("stale PID")
+                        os.kill(old_pid, signal.SIGTERM)
+                        import time
+                        for _ in range(20):
+                            try:
+                                os.kill(old_pid, 0)
+                                time.sleep(0.5)
+                            except OSError:
+                                break
+                        else:
+                            os.kill(old_pid, signal.SIGKILL)
+                    except (ValueError, OSError):
+                        pass
+                    pid_file.unlink(missing_ok=True)
+
+                # Re-launch native llama-server with new model
+                updated_env = load_env(env_path)
+                new_gguf = updated_env.get("GGUF_FILE", gguf_file)
+                new_ctx = updated_env.get("CTX_SIZE", str(context_length))
+                model_path = INSTALL_DIR / "data" / "models" / new_gguf
+                reasoning = updated_env.get("LLAMA_REASONING", "off")
+                reasoning_fmt = {"off": "none", "on": "deepseek"}.get(reasoning, reasoning)
+                with open(llama_log, "a") as log_f:
+                    proc = subprocess.Popen(
+                        [str(llama_bin),
+                         "--host", "0.0.0.0", "--port", "8080",
+                         "--model", str(model_path),
+                         "--ctx-size", new_ctx,
+                         "--n-gpu-layers", "999",
+                         "--reasoning-format", reasoning_fmt,
+                         "--metrics"],
+                        stdout=log_f, stderr=log_f,
+                    )
+                pid_file.write_text(str(proc.pid), encoding="utf-8")
+            elif _in_container:
+                override_image = llama_server_image or ""
                 _recreate_llama_server(env, override_image=override_image)
             else:
                 _compose_restart_llama_server(env)
@@ -1334,12 +1463,14 @@ class AgentHandler(BaseHTTPRequestHandler):
             # Determine health check URL based on where the agent runs:
             # - Inside a container (DREAM_HOST_INSTALL_DIR set): use docker
             #   network name + internal port 8080
-            # - On the host (native systemd): use localhost + OLLAMA_PORT
+            # - On the host (native systemd or macOS): use 127.0.0.1 + OLLAMA_PORT.
+            #   (Use 127.0.0.1, not localhost — localhost resolves to ::1 on
+            #   IPv6-enabled hosts but Docker binds to 127.0.0.1 only.)
             if os.environ.get("DREAM_HOST_INSTALL_DIR"):
                 llama_host = "dream-llama-server"
                 llama_port = "8080"
             else:
-                llama_host = "localhost"
+                llama_host = "127.0.0.1"
                 llama_port = env.get("OLLAMA_PORT", "8080")
             health_path = "/api/v1/health" if gpu_backend == "amd" else "/health"
             health_url = f"http://{llama_host}:{llama_port}{health_path}"
@@ -1376,7 +1507,52 @@ class AgentHandler(BaseHTTPRequestHandler):
                 env_path.write_text(env_backup, encoding="utf-8")
                 models_ini.write_text(ini_backup, encoding="utf-8")
                 rollback_env = load_env(env_path)
-                if _in_container:
+                if gpu_backend == "apple":
+                    # Stop newly launched native process, re-launch with old params
+                    if pid_file.exists():
+                        try:
+                            new_pid = int(pid_file.read_text(encoding="utf-8").strip())
+                            try:
+                                ps_result = subprocess.run(
+                                    ["ps", "-p", str(new_pid), "-o", "comm="],
+                                    capture_output=True, text=True, timeout=5,
+                                )
+                                if "llama" not in ps_result.stdout.lower():
+                                    raise OSError("PID is not llama-server")
+                            except (subprocess.TimeoutExpired, OSError):
+                                pid_file.unlink(missing_ok=True)
+                                raise OSError("stale PID")
+                            os.kill(new_pid, signal.SIGTERM)
+                            for _ in range(20):
+                                try:
+                                    os.kill(new_pid, 0)
+                                    time.sleep(0.5)
+                                except OSError:
+                                    break
+                            else:
+                                os.kill(new_pid, signal.SIGKILL)
+                        except (ValueError, OSError):
+                            pass
+                        pid_file.unlink(missing_ok=True)
+                    rb_env = load_env(env_path)
+                    rb_gguf = rb_env.get("GGUF_FILE", gguf_file)
+                    rb_ctx = rb_env.get("CTX_SIZE", str(context_length))
+                    rb_model_path = INSTALL_DIR / "data" / "models" / rb_gguf
+                    rb_reasoning = rb_env.get("LLAMA_REASONING", "off")
+                    rb_reasoning_fmt = {"off": "none", "on": "deepseek"}.get(rb_reasoning, rb_reasoning)
+                    with open(llama_log, "a") as log_f:
+                        rb_proc = subprocess.Popen(
+                            [str(llama_bin),
+                             "--host", "0.0.0.0", "--port", "8080",
+                             "--model", str(rb_model_path),
+                             "--ctx-size", rb_ctx,
+                             "--n-gpu-layers", "999",
+                             "--reasoning-format", rb_reasoning_fmt,
+                             "--metrics"],
+                            stdout=log_f, stderr=log_f,
+                        )
+                    pid_file.write_text(str(rb_proc.pid), encoding="utf-8")
+                elif _in_container:
                     _recreate_llama_server(rollback_env)
                 else:
                     _compose_restart_llama_server(rollback_env)
@@ -1444,36 +1620,23 @@ class AgentHandler(BaseHTTPRequestHandler):
 def _compose_restart_llama_server(env: dict):
     """Restart llama-server via docker compose (host-native path).
 
-    This is the primary restart strategy for Linux (systemd) and macOS
-    (launchd) where the agent runs natively on the host.  It mirrors the
-    proven pattern from bootstrap-upgrade.sh lines 289-304.
+    This is the primary restart strategy for Linux (systemd) where the agent
+    runs natively on the host.  It mirrors the proven pattern from
+    bootstrap-upgrade.sh lines 289-304.
+
+    Uses resolve_compose_flags() so the compose stack is always built from the
+    current install state — avoids stale or missing .compose-flags files.
+    Uses stop + up -d (not restart) so that updated .env values are picked up
+    by the new container.
     """
     gpu_backend = env.get("GPU_BACKEND", "nvidia")
-    compose_flags = []
-    flags_file = INSTALL_DIR / ".compose-flags"
-    if flags_file.exists():
-        compose_flags = flags_file.read_text(encoding="utf-8").strip().split()
+    compose_flags = resolve_compose_flags()
 
-    if gpu_backend == "amd":
-        # Lemonade: restart preserves cached binary, reads models.ini on boot
-        if compose_flags:
-            subprocess.run(["docker", "compose"] + compose_flags + ["restart", "llama-server"],
-                           cwd=str(INSTALL_DIR), capture_output=True, timeout=300)
-        else:
-            subprocess.run(["docker", "restart", "dream-llama-server"],
-                           capture_output=True, timeout=300)
-    else:
-        # llama.cpp: recreate to pick up new GGUF_FILE from .env
-        if compose_flags:
-            subprocess.run(["docker", "compose"] + compose_flags + ["stop", "llama-server"],
-                           cwd=str(INSTALL_DIR), capture_output=True, timeout=120)
-            subprocess.run(["docker", "compose"] + compose_flags + ["up", "-d", "llama-server"],
-                           cwd=str(INSTALL_DIR), capture_output=True, timeout=300)
-        else:
-            subprocess.run(["docker", "stop", "dream-llama-server"],
-                           capture_output=True, timeout=120)
-            subprocess.run(["docker", "start", "dream-llama-server"],
-                           capture_output=True, timeout=300)
+    # stop + up -d re-reads .env on all backends (restart does not)
+    subprocess.run(["docker", "compose"] + compose_flags + ["stop", "llama-server"],
+                   cwd=str(INSTALL_DIR), capture_output=True, timeout=120)
+    subprocess.run(["docker", "compose"] + compose_flags + ["up", "-d", "llama-server"],
+                   cwd=str(INSTALL_DIR), capture_output=True, timeout=300)
 
     logger.info("llama-server restarted via compose (backend: %s)", gpu_backend)
 
