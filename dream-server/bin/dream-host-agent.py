@@ -785,9 +785,9 @@ class AgentHandler(BaseHTTPRequestHandler):
             return
 
         models_dir = INSTALL_DIR / "data" / "models"
-        # For split models, check if the first part exists
-        target = models_dir / download_plan[0][0]
-        if target.exists():
+        # For split models, check ALL parts exist (not just the first)
+        all_downloaded = all((models_dir / fn).exists() for fn, _ in download_plan)
+        if all_downloaded:
             json_response(self, 200, {"status": "already_downloaded"})
             return
 
@@ -963,6 +963,10 @@ class AgentHandler(BaseHTTPRequestHandler):
                     "CTX_SIZE": str(context_length),
                     "MAX_CONTEXT": str(context_length),
                 }
+                # Update server image if the model requires a specific build
+                # (e.g., Gemma 4 needs server-cuda-b8648 instead of b8248)
+                if model.get("llama_server_image"):
+                    updates["LLAMA_SERVER_IMAGE"] = model["llama_server_image"]
                 new_lines = []
                 seen = set()
                 for line in lines:
@@ -1279,6 +1283,11 @@ def _recreate_llama_server(env: dict, override_image: str = ""):
         run_cmd += ["--log-driver", log_config["Type"]]
         for k, v in (log_config.get("Config") or {}).items():
             run_cmd += ["--log-opt", f"{k}={v}"]
+
+    # Entrypoint (AMD Lemonade overrides this in compose)
+    entrypoint = config["Config"].get("Entrypoint")
+    if entrypoint:
+        run_cmd += ["--entrypoint", entrypoint[0]]
 
     # Image and command
     run_cmd.append(image)
