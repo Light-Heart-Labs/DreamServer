@@ -365,30 +365,15 @@ ENV_EOF
     ai_ok "Created $INSTALL_DIR"
     ai_ok "Generated secure secrets in .env (permissions: 600)"
 
-    # Generate LiteLLM config for Lemonade with baked-in model alias.
-    # model_name must be a literal string (os.environ/ not proven for routing keys).
-    # Uses BOOTSTRAP_GGUF_FILE because the full model may still be downloading
-    # when services first start. Background upgrade will update this config later.
+    # Generate LiteLLM config for Lemonade — wildcard-only.
+    # Lemonade auto-discovers models from --extra-models-dir and resolves
+    # model names internally. No hardcoded model aliases needed — the wildcard
+    # passes any model name through to Lemonade's OpenAI-compatible API.
+    # This avoids stale model references after bootstrap-upgrade swaps models.
     if [[ "$GPU_BACKEND" == "amd" ]]; then
-        source "$SCRIPT_DIR/installers/lib/bootstrap-model.sh"
-        _lemonade_gguf="${BOOTSTRAP_GGUF_FILE}"
         mkdir -p "$INSTALL_DIR/config/litellm"
         cat > "$INSTALL_DIR/config/litellm/lemonade.yaml" << LITELLM_EOF
 model_list:
-  # Tier model alias → bootstrap GGUF (upgraded later by background download)
-  - model_name: "${LLM_MODEL}"
-    litellm_params:
-      model: "openai/extra.${_lemonade_gguf}"
-      api_base: http://llama-server:8080/api/v1
-      api_key: sk-lemonade
-
-  # Bootstrap model alias → same GGUF (services use this after Phase 10 overwrites LLM_MODEL)
-  - model_name: "${BOOTSTRAP_LLM_MODEL}"
-    litellm_params:
-      model: "openai/extra.${_lemonade_gguf}"
-      api_base: http://llama-server:8080/api/v1
-      api_key: sk-lemonade
-
   - model_name: "*"
     litellm_params:
       model: openai/*
@@ -401,7 +386,7 @@ litellm_settings:
   request_timeout: 120
   stream_timeout: 60
 LITELLM_EOF
-        ai_ok "Generated LiteLLM config for Lemonade (model alias: ${LLM_MODEL})"
+        ai_ok "Generated LiteLLM config for Lemonade (wildcard routing)"
     fi
 
     # Validate generated .env against schema (fails fast on missing/unknown keys).

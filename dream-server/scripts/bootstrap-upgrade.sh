@@ -315,10 +315,13 @@ if command -v docker &>/dev/null && docker ps --filter name=dream-llama-server -
     # Wait for health (up to 5 minutes for the larger model to load)
     # For AMD/Lemonade: check that model_loaded is non-null in the JSON response.
     # Lemonade returns 200 with "model_loaded": null when no model is loaded yet.
+    # Lemonade doesn't auto-load models from models.ini — it uses --extra-models-dir
+    # for discovery but loads on-demand. We send a warm-up request to trigger loading.
     # For llama.cpp: a simple 200 check is sufficient — the server only starts
     # after loading the model specified in --model.
     log "Waiting for llama-server health at $_health_url ..."
     _healthy=false
+    _warmup_sent=false
     for _i in $(seq 1 60); do
         _resp=$(curl -sf --max-time 5 "$_health_url" 2>/dev/null || echo "")
         if [[ -n "$_resp" ]]; then
@@ -327,6 +330,24 @@ if command -v docker &>/dev/null && docker ps --filter name=dream-llama-server -
                 if echo "$_resp" | grep -q '"model_loaded"' && ! echo "$_resp" | grep -q '"model_loaded": *null'; then
                     _healthy=true
                     break
+                fi
+                # Lemonade is healthy but no model loaded — send a warm-up request
+                # to trigger on-demand loading of the new model. Lemonade caches the
+                # previously-loaded model name across restarts, which fails after the
+                # bootstrap GGUF is deleted. This request forces it to load the new one.
+                # Retry every 15s — the first request may fail if Lemonade isn't fully
+                # ready to accept chat completions yet.
+                if [[ "$_warmup_sent" == "false" ]] || (( _i % 3 == 0 )); then
+                    _model_id="extra.${FULL_GGUF_FILE}"
+                    log "Sending warm-up request to trigger model loading: $_model_id (attempt $_i/60)"
+                    if curl -sf --max-time 30 -X POST \
+                        "http://localhost:${OLLAMA_PORT:-8080}/api/v1/chat/completions" \
+                        -H "Content-Type: application/json" \
+                        -d "{\"model\":\"${_model_id}\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],\"max_tokens\":1}" \
+                        &>/dev/null; then
+                        _warmup_sent=true
+                        log "Warm-up request accepted — waiting for model to finish loading"
+                    fi
                 fi
                 log "Lemonade healthy but no model loaded yet (attempt $_i/60)"
             else
