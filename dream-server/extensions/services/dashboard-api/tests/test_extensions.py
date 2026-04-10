@@ -1,5 +1,6 @@
 """Tests for extensions portal endpoints."""
 
+import contextlib
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -680,6 +681,18 @@ class TestDisableExtension:
         resp = test_client.post("/api/extensions/my-ext/disable")
         assert resp.status_code == 401
 
+    def test_disable_skips_data_info(self, test_client, monkeypatch, tmp_path):
+        """include_data_info=false → data_info is None (skips expensive dir scan)."""
+        user_dir = _setup_user_ext(tmp_path, "my-ext", enabled=True)
+        _patch_mutation_config(monkeypatch, tmp_path, user_dir=user_dir)
+
+        resp = test_client.post(
+            "/api/extensions/my-ext/disable?include_data_info=false",
+            headers=test_client.auth_headers,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["data_info"] is None
+
 
 # --- Uninstall endpoint ---
 
@@ -744,6 +757,7 @@ class TestMutationPathTraversal:
             ("POST", "/api/extensions/{}/enable"),
             ("POST", "/api/extensions/{}/disable"),
             ("DELETE", "/api/extensions/{}"),
+            ("DELETE", "/api/extensions/{}/data"),
         ]
 
         for bad_id in bad_ids:
@@ -752,6 +766,12 @@ class TestMutationPathTraversal:
                 if method == "POST":
                     resp = test_client.post(
                         url, headers=test_client.auth_headers,
+                    )
+                elif "/data" in pattern:
+                    # Purge endpoint requires a JSON body (PurgeRequest)
+                    resp = test_client.request(
+                        "DELETE", url, headers=test_client.auth_headers,
+                        json={"confirm": False},
                     )
                 else:
                     resp = test_client.delete(
@@ -1326,3 +1346,273 @@ class TestSymlinkHandling:
         )
         assert resp.status_code == 400
         assert "symlink" in resp.json()["detail"]
+
+
+# --- Purge extension data ---
+
+
+class TestPurgeExtensionData:
+
+    def test_purge_happy_path(self, test_client, monkeypatch, tmp_path):
+        """Purge succeeds for disabled extension with existing data dir."""
+        _patch_mutation_config(monkeypatch, tmp_path)
+        data_dir = tmp_path / "my-ext"
+        data_dir.mkdir()
+        (data_dir / "some-file.db").write_text("data")
+
+        with patch("routers.extensions._extensions_lock", return_value=contextlib.nullcontext()), \
+             patch("helpers.dir_size_gb", return_value=1.5):
+            resp = test_client.request(
+                "DELETE", "/api/extensions/my-ext/data",
+                headers=test_client.auth_headers,
+                json={"confirm": True},
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["id"] == "my-ext"
+        assert data["action"] == "purged"
+        assert data["size_gb_freed"] == 1.5
+        assert not data_dir.exists()
+
+    def test_purge_400_when_enabled_builtin(self, test_client, monkeypatch, tmp_path):
+        """400 when extension is still enabled (compose.yaml in built-in dir)."""
+        _patch_mutation_config(monkeypatch, tmp_path)
+        # Create compose.yaml in the built-in extensions dir
+        builtin_dir = tmp_path / "builtin" / "my-ext"
+        builtin_dir.mkdir(parents=True)
+        (builtin_dir / "compose.yaml").write_text("version: '3'")
+        # Also need a data dir to get past later checks
+        data_dir = tmp_path / "my-ext"
+        data_dir.mkdir()
+
+        with patch("routers.extensions._extensions_lock", return_value=contextlib.nullcontext()):
+            resp = test_client.request(
+                "DELETE", "/api/extensions/my-ext/data",
+                headers=test_client.auth_headers,
+                json={"confirm": True},
+            )
+
+        assert resp.status_code == 400
+        assert "still enabled" in resp.json()["detail"]
+
+    def test_purge_400_when_enabled_user(self, test_client, monkeypatch, tmp_path):
+        """400 when extension is still enabled (compose.yaml in user dir)."""
+        user_dir = _setup_user_ext(tmp_path, "my-ext", enabled=True)
+        _patch_mutation_config(monkeypatch, tmp_path, user_dir=user_dir)
+
+        with patch("routers.extensions._extensions_lock", return_value=contextlib.nullcontext()):
+            resp = test_client.request(
+                "DELETE", "/api/extensions/my-ext/data",
+                headers=test_client.auth_headers,
+                json={"confirm": True},
+            )
+
+        assert resp.status_code == 400
+        assert "still enabled" in resp.json()["detail"]
+
+    def test_purge_403_core_service(self, test_client, monkeypatch, tmp_path):
+        """403 when trying to purge a core service."""
+        _patch_mutation_config(monkeypatch, tmp_path)
+
+        resp = test_client.request(
+            "DELETE", "/api/extensions/open-webui/data",
+            headers=test_client.auth_headers,
+            json={"confirm": True},
+        )
+
+        assert resp.status_code == 403
+        assert "core service" in resp.json()["detail"].lower()
+
+    def test_purge_404_invalid_id(self, test_client, monkeypatch, tmp_path):
+        """404 for service_id that fails regex validation."""
+        _patch_mutation_config(monkeypatch, tmp_path)
+
+        for bad_id in ["..etc", ".hidden", "UPPERCASE", "-starts-dash"]:
+            resp = test_client.request(
+                "DELETE", f"/api/extensions/{bad_id}/data",
+                headers=test_client.auth_headers,
+                json={"confirm": True},
+            )
+            assert resp.status_code == 404, f"Expected 404 for: {bad_id}"
+
+    def test_purge_404_no_data_dir(self, test_client, monkeypatch, tmp_path):
+        """404 when valid ID but no data directory exists."""
+        _patch_mutation_config(monkeypatch, tmp_path)
+
+        with patch("routers.extensions._extensions_lock", return_value=contextlib.nullcontext()):
+            resp = test_client.request(
+                "DELETE", "/api/extensions/my-ext/data",
+                headers=test_client.auth_headers,
+                json={"confirm": True},
+            )
+
+        assert resp.status_code == 404
+        assert "No data directory" in resp.json()["detail"]
+
+    def test_purge_400_confirm_false(self, test_client, monkeypatch, tmp_path):
+        """400 when data exists but confirm is false."""
+        _patch_mutation_config(monkeypatch, tmp_path)
+        data_dir = tmp_path / "my-ext"
+        data_dir.mkdir()
+
+        with patch("routers.extensions._extensions_lock", return_value=contextlib.nullcontext()):
+            resp = test_client.request(
+                "DELETE", "/api/extensions/my-ext/data",
+                headers=test_client.auth_headers,
+                json={"confirm": False},
+            )
+
+        assert resp.status_code == 400
+        assert "Confirmation required" in resp.json()["detail"]
+        # Data dir should still exist
+        assert data_dir.exists()
+
+    def test_purge_path_traversal(self, test_client, monkeypatch, tmp_path):
+        """Path traversal attempts are blocked by regex or path check."""
+        _patch_mutation_config(monkeypatch, tmp_path)
+
+        resp = test_client.request(
+            "DELETE", "/api/extensions/..%2fetc/data",
+            headers=test_client.auth_headers,
+            json={"confirm": True},
+        )
+        # Should fail at regex or Starlette routing level
+        assert resp.status_code in (404, 422)
+
+    def test_purge_requires_auth(self, test_client):
+        """DELETE /api/extensions/{id}/data without auth → 401."""
+        resp = test_client.request(
+            "DELETE", "/api/extensions/my-ext/data",
+            json={"confirm": True},
+        )
+        assert resp.status_code == 401
+
+
+# --- Orphaned storage ---
+
+
+class TestOrphanedStorage:
+
+    def test_orphaned_requires_auth(self, test_client):
+        """GET /api/storage/orphaned without auth → 401."""
+        resp = test_client.get("/api/storage/orphaned")
+        assert resp.status_code == 401
+
+    def test_orphaned_empty_data_dir(self, test_client, monkeypatch, tmp_path):
+        """Empty data dir returns empty orphaned list."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        monkeypatch.setattr("routers.extensions.DATA_DIR", str(data_dir))
+        monkeypatch.setattr("routers.extensions.SERVICES", {})
+
+        resp = test_client.get(
+            "/api/storage/orphaned",
+            headers=test_client.auth_headers,
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["orphaned"] == []
+        assert data["total_gb"] == 0
+
+    def test_orphaned_nonexistent_data_dir(self, test_client, monkeypatch, tmp_path):
+        """Non-existent data dir returns empty orphaned list."""
+        monkeypatch.setattr("routers.extensions.DATA_DIR",
+                            str(tmp_path / "nonexistent"))
+        monkeypatch.setattr("routers.extensions.SERVICES", {})
+
+        resp = test_client.get(
+            "/api/storage/orphaned",
+            headers=test_client.auth_headers,
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["orphaned"] == []
+        assert data["total_gb"] == 0
+
+    def test_orphaned_excludes_known_services(self, test_client, monkeypatch, tmp_path):
+        """Dirs matching SERVICES keys are not listed as orphaned."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "known-svc").mkdir()
+        monkeypatch.setattr("routers.extensions.DATA_DIR", str(data_dir))
+        monkeypatch.setattr("routers.extensions.SERVICES",
+                            {"known-svc": {"host": "localhost", "port": 8080}})
+
+        with patch("helpers.dir_size_gb", return_value=2.0):
+            resp = test_client.get(
+                "/api/storage/orphaned",
+                headers=test_client.auth_headers,
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["orphaned"] == []
+        assert data["total_gb"] == 0
+
+    def test_orphaned_excludes_system_dirs(self, test_client, monkeypatch, tmp_path):
+        """System dirs (models, config, etc.) are not listed as orphaned."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        for name in ("models", "config", "user-extensions", "extensions-library"):
+            (data_dir / name).mkdir()
+        monkeypatch.setattr("routers.extensions.DATA_DIR", str(data_dir))
+        monkeypatch.setattr("routers.extensions.SERVICES", {})
+
+        with patch("helpers.dir_size_gb", return_value=1.0):
+            resp = test_client.get(
+                "/api/storage/orphaned",
+                headers=test_client.auth_headers,
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["orphaned"] == []
+        assert data["total_gb"] == 0
+
+    def test_orphaned_includes_unknown_dirs(self, test_client, monkeypatch, tmp_path):
+        """Dirs not in SERVICES or system_dirs are listed as orphaned."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "mystery-data").mkdir()
+        (data_dir / "leftover-ext").mkdir()
+        monkeypatch.setattr("routers.extensions.DATA_DIR", str(data_dir))
+        monkeypatch.setattr("routers.extensions.SERVICES", {})
+
+        with patch("helpers.dir_size_gb", return_value=3.0):
+            resp = test_client.get(
+                "/api/storage/orphaned",
+                headers=test_client.auth_headers,
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["orphaned"]) == 2
+        names = [o["name"] for o in data["orphaned"]]
+        assert "mystery-data" in names
+        assert "leftover-ext" in names
+        assert data["orphaned"][0]["size_gb"] == 3.0
+        assert data["total_gb"] == 6.0
+
+    def test_orphaned_skips_files(self, test_client, monkeypatch, tmp_path):
+        """Regular files in data dir are not listed."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "some-file.txt").write_text("not a directory")
+        (data_dir / "orphan-dir").mkdir()
+        monkeypatch.setattr("routers.extensions.DATA_DIR", str(data_dir))
+        monkeypatch.setattr("routers.extensions.SERVICES", {})
+
+        with patch("helpers.dir_size_gb", return_value=0.5):
+            resp = test_client.get(
+                "/api/storage/orphaned",
+                headers=test_client.auth_headers,
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["orphaned"]) == 1
+        assert data["orphaned"][0]["name"] == "orphan-dir"
+        assert data["total_gb"] == 0.5

@@ -37,6 +37,10 @@ const friendlyError = (detail) => {
     return 'This extension is already disabled.'
   if (detail.includes('Disable extension before'))
     return 'Please disable this extension before removing it.'
+  if (detail.includes('still enabled'))
+    return 'Please disable this extension before purging its data.'
+  if (detail.includes('No data directory'))
+    return 'No data directory found for this extension.'
   if (detail.includes('Missing dependencies'))
     return detail
   return detail
@@ -105,17 +109,31 @@ export default function Extensions() {
     try {
       const url = action === 'uninstall'
         ? `/api/extensions/${serviceId}`
+        : action === 'purge'
+        ? `/api/extensions/${serviceId}/data`
         : `/api/extensions/${serviceId}/${action}`
-      const res = await fetch(url, {
-        method: action === 'uninstall' ? 'DELETE' : 'POST',
+      const opts = {
+        method: action === 'uninstall' || action === 'purge' ? 'DELETE' : 'POST',
         signal: AbortSignal.timeout(120000),
-      })
+      }
+      if (action === 'purge') {
+        opts.headers = { 'Content-Type': 'application/json' }
+        opts.body = JSON.stringify({ confirm: true })
+      }
+      const res = await fetch(url, opts)
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         throw new Error(err.detail || `Failed to ${action}`)
       }
       const data = await res.json()
-      const successText = data.message || (action === 'uninstall' ? 'Extension removed' : `Extension ${action}d`)
+      let successText = data.message || (
+        action === 'uninstall' ? 'Extension removed' :
+        action === 'purge' ? `Data purged — ${data.size_gb_freed ?? 0} GB freed` :
+        `Extension ${action}d`
+      )
+      if (data.data_info) {
+        successText += ` Data preserved (${data.data_info.size_gb} GB) — purge to remove.`
+      }
       if (data.restart_required) {
         setToast({ type: 'info', text: `${successText} — restart needed to apply.` })
       } else {
@@ -135,6 +153,7 @@ export default function Extensions() {
       enable: `Enable ${ext.name}? The service will be started.`,
       disable: `Disable ${ext.name}? The service will be stopped.`,
       uninstall: `Remove ${ext.name}? You can reinstall it from the library.`,
+      purge: `Permanently delete all data for ${ext.name}? This cannot be undone.`,
     }
     setConfirm({ action, ext, message: messages[action] })
   }
@@ -306,7 +325,7 @@ export default function Extensions() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setConfirm(null)}>
           <div className="bg-theme-card border border-theme-border rounded-xl p-6 max-w-md mx-4" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Confirm action">
             <h3 className="text-lg font-semibold text-theme-text mb-2">
-              {confirm.action === 'uninstall' ? 'Remove' : confirm.action.charAt(0).toUpperCase() + confirm.action.slice(1)} Extension
+              {confirm.action === 'uninstall' ? 'Remove' : confirm.action === 'purge' ? 'Purge Data —' : confirm.action.charAt(0).toUpperCase() + confirm.action.slice(1)} Extension
             </h3>
             <p className="text-sm text-theme-text-muted mb-4">{confirm.message}</p>
             <div className="flex justify-end gap-3">
@@ -314,11 +333,11 @@ export default function Extensions() {
               <button
                 onClick={() => handleMutation(confirm.ext.id, confirm.action)}
                 className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                  confirm.action === 'uninstall' ? 'bg-red-500/20 text-red-300 hover:bg-red-500/30' :
+                  confirm.action === 'uninstall' || confirm.action === 'purge' ? 'bg-red-500/20 text-red-300 hover:bg-red-500/30' :
                   'bg-theme-accent/20 text-theme-accent-light hover:bg-theme-accent/30'
                 }`}
               >
-                {confirm.action === 'uninstall' ? 'Remove' : confirm.action.charAt(0).toUpperCase() + confirm.action.slice(1)}
+                {confirm.action === 'uninstall' ? 'Remove' : confirm.action === 'purge' ? 'Purge' : confirm.action.charAt(0).toUpperCase() + confirm.action.slice(1)}
               </button>
             </div>
           </div>
@@ -468,6 +487,16 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-theme-card text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-colors disabled:opacity-50"
             >
               {isMutating ? <Loader2 size={12} className="animate-spin" /> : <><Trash2 size={12} /> Remove</>}
+            </button>
+          )}
+          {showRemove && (
+            <button
+              disabled={actionDisabled}
+              title={disabledTitle || 'Permanently delete service data'}
+              onClick={() => onAction(ext, 'purge')}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-theme-card text-amber-400 hover:bg-amber-500/20 hover:text-amber-300 transition-colors disabled:opacity-50"
+            >
+              {isMutating ? <Loader2 size={12} className="animate-spin" /> : <><Database size={12} /> Purge Data</>}
             </button>
           )}
           {isUserExt && status === 'enabled' && (

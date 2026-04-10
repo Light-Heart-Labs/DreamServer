@@ -44,10 +44,9 @@ from security import verify_api_key
 from gpu import get_gpu_info
 from helpers import (
     get_all_services, get_cached_services, set_services_cache,
-    get_disk_usage, get_model_info, get_bootstrap_status,
+    get_disk_usage, dir_size_gb, get_model_info, get_bootstrap_status,
     get_uptime, get_cpu_metrics, get_ram_metrics,
     get_llama_metrics, get_loaded_model, get_llama_context_size,
-    dir_size_gb,
 )
 from agent_monitor import collect_metrics
 
