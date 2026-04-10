@@ -1124,7 +1124,6 @@ class AgentHandler(BaseHTTPRequestHandler):
 
             def _download():
                 global _model_download_proc
-                import time as _time
                 status_path = INSTALL_DIR / "data" / "model-download-status.json"
                 try:
                     models_dir.mkdir(parents=True, exist_ok=True)
@@ -1188,7 +1187,8 @@ class AgentHandler(BaseHTTPRequestHandler):
                                 break
                             if attempt > 1:
                                 logger.info("Model download retry %d/3 for %s", attempt, part_file_name)
-                                _time.sleep(5)
+                                # Use wait() instead of sleep() so cancel is honored immediately
+                                _model_download_cancel.wait(5)
                             proc = subprocess.Popen(
                                 ["curl", "-fSL", "-C", "-", "--connect-timeout", "30",
                                  "-o", str(part_tmp), part_url],
@@ -1299,6 +1299,7 @@ class AgentHandler(BaseHTTPRequestHandler):
 
     def _do_model_activate(self, model_id: str):
         """Inner activate logic — called with _model_activate_lock held."""
+        import time
         # Look up model in library
         library_path = INSTALL_DIR / "config" / "model-library.json"
         model = None
@@ -1418,7 +1419,6 @@ class AgentHandler(BaseHTTPRequestHandler):
                             pid_file.unlink(missing_ok=True)
                             raise OSError("stale PID")
                         os.kill(old_pid, signal.SIGTERM)
-                        import time
                         for _ in range(20):
                             try:
                                 os.kill(old_pid, 0)
@@ -1432,24 +1432,7 @@ class AgentHandler(BaseHTTPRequestHandler):
                     pid_file.unlink(missing_ok=True)
 
                 # Re-launch native llama-server with new model
-                updated_env = load_env(env_path)
-                new_gguf = updated_env.get("GGUF_FILE", gguf_file)
-                new_ctx = updated_env.get("CTX_SIZE", str(context_length))
-                model_path = INSTALL_DIR / "data" / "models" / new_gguf
-                reasoning = updated_env.get("LLAMA_REASONING", "off")
-                reasoning_fmt = {"off": "none", "on": "deepseek"}.get(reasoning, reasoning)
-                with open(llama_log, "a") as log_f:
-                    proc = subprocess.Popen(
-                        [str(llama_bin),
-                         "--host", "0.0.0.0", "--port", "8080",
-                         "--model", str(model_path),
-                         "--ctx-size", new_ctx,
-                         "--n-gpu-layers", "999",
-                         "--reasoning-format", reasoning_fmt,
-                         "--metrics"],
-                        stdout=log_f, stderr=log_f,
-                    )
-                pid_file.write_text(str(proc.pid), encoding="utf-8")
+                _launch_native_llama_server(env_path, llama_bin, llama_log, pid_file)
             elif _in_container:
                 override_image = llama_server_image or ""
                 _recreate_llama_server(env, override_image=override_image)
@@ -1459,7 +1442,6 @@ class AgentHandler(BaseHTTPRequestHandler):
             # Health check (up to 5 min)
             # Use container name on docker network (localhost is the agent
             # container when running containerized, not the llama-server).
-            import time
             # Determine health check URL based on where the agent runs:
             # - Inside a container (DREAM_HOST_INSTALL_DIR set): use docker
             #   network name + internal port 8080
@@ -1534,24 +1516,7 @@ class AgentHandler(BaseHTTPRequestHandler):
                         except (ValueError, OSError):
                             pass
                         pid_file.unlink(missing_ok=True)
-                    rb_env = load_env(env_path)
-                    rb_gguf = rb_env.get("GGUF_FILE", gguf_file)
-                    rb_ctx = rb_env.get("CTX_SIZE", str(context_length))
-                    rb_model_path = INSTALL_DIR / "data" / "models" / rb_gguf
-                    rb_reasoning = rb_env.get("LLAMA_REASONING", "off")
-                    rb_reasoning_fmt = {"off": "none", "on": "deepseek"}.get(rb_reasoning, rb_reasoning)
-                    with open(llama_log, "a") as log_f:
-                        rb_proc = subprocess.Popen(
-                            [str(llama_bin),
-                             "--host", "0.0.0.0", "--port", "8080",
-                             "--model", str(rb_model_path),
-                             "--ctx-size", rb_ctx,
-                             "--n-gpu-layers", "999",
-                             "--reasoning-format", rb_reasoning_fmt,
-                             "--metrics"],
-                            stdout=log_f, stderr=log_f,
-                        )
-                    pid_file.write_text(str(rb_proc.pid), encoding="utf-8")
+                    _launch_native_llama_server(env_path, llama_bin, llama_log, pid_file)
                 elif _in_container:
                     _recreate_llama_server(rollback_env)
                 else:
@@ -1615,6 +1580,33 @@ class AgentHandler(BaseHTTPRequestHandler):
             json_response(self, 200, {"status": "deleted", "gguf_file": gguf_file})
         except OSError as exc:
             json_response(self, 500, {"error": f"Failed to delete: {exc}"})
+
+
+def _launch_native_llama_server(env_path: Path, llama_bin: Path, llama_log: Path, pid_file: Path):
+    """Launch the native (Metal) llama-server process and write its PID file.
+
+    Reads the current .env for GGUF_FILE, CTX_SIZE, and LLAMA_REASONING so
+    the caller only needs to ensure .env is up-to-date before calling.
+    """
+    env = load_env(env_path)
+    gguf_file = env.get("GGUF_FILE", "")
+    ctx_size = env.get("CTX_SIZE", "32768")
+    model_path = INSTALL_DIR / "data" / "models" / gguf_file
+    reasoning = env.get("LLAMA_REASONING", "off")
+    reasoning_fmt = {"off": "none", "on": "deepseek"}.get(reasoning, reasoning)
+    with open(llama_log, "a") as log_f:
+        proc = subprocess.Popen(
+            [str(llama_bin),
+             "--host", "0.0.0.0", "--port", "8080",
+             "--model", str(model_path),
+             "--ctx-size", ctx_size,
+             "--n-gpu-layers", "999",
+             "--reasoning-format", reasoning_fmt,
+             "--metrics"],
+            stdout=log_f, stderr=log_f,
+        )
+    pid_file.write_text(str(proc.pid), encoding="utf-8")
+    logger.info("Native llama-server launched (pid %d, model %s)", proc.pid, gguf_file)
 
 
 def _compose_restart_llama_server(env: dict):
