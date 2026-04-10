@@ -1,13 +1,11 @@
 model_list:
-  # Map friendly model alias (e.g. qwen3.5-2b) to Lemonade's internal ID
-  # (e.g. extra.Qwen3.5-2B-Q4_K_M.gguf). Both are set in .env by the installer.
-  - model_name: "os.environ/LLM_MODEL"
-    litellm_params:
-      model: "openai/os.environ/LEMONADE_MODEL_ID"
-      api_base: http://llama-server:8080/api/v1
-      api_key: sk-lemonade
-
-  # Wildcard fallback — pass through any other model name to Lemonade
+  # Wildcard — pass any model name through to Lemonade's OpenAI-compatible API.
+  # Lemonade auto-discovers models from --extra-models-dir and serves them
+  # at /api/v1. Uses the same wildcard approach as local.yaml (NVIDIA/CPU).
+  #
+  # The previous config tried to map os.environ/LLM_MODEL to a specific
+  # Lemonade model ID, but the env vars were never passed to the container
+  # and the model name changed after bootstrap upgrade.
   - model_name: "*"
     litellm_params:
       model: openai/*

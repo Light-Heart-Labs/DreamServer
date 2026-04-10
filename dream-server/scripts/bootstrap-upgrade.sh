@@ -340,6 +340,13 @@ if command -v docker &>/dev/null && docker ps --filter name=dream-llama-server -
 
     if $_healthy; then
         log "SUCCESS: llama-server is running with $FULL_LLM_MODEL"
+        # Restart LiteLLM so it picks up the new model context.
+        # The lemonade.yaml wildcard config passes any model name through,
+        # but LiteLLM caches routing state and may hold stale model references.
+        if docker ps --filter name=dream-litellm --format '{{.Names}}' 2>/dev/null | grep -q dream-litellm; then
+            log "Restarting LiteLLM to pick up model change..."
+            docker restart dream-litellm 2>&1 || log "WARNING: LiteLLM restart failed (non-fatal)"
+        fi
     else
         log "WARNING: llama-server health check timed out. The model may still be loading."
         log "Check: docker logs dream-llama-server"
