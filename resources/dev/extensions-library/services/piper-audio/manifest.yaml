@@ -19,6 +19,7 @@ service:
   env_vars:
     - key: PIPER_VOICE
       required: false
+      default: "en_US-lessac-medium"
       description: Default voice model
 
 features:
