@@ -13,6 +13,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -43,9 +44,95 @@ _SERVICE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 _MAX_EXTENSION_BYTES = 50 * 1024 * 1024  # 50 MB
 
 
+def _is_stale(iso_timestamp: str, max_age_seconds: int) -> bool:
+    """Check if an ISO timestamp is older than max_age_seconds."""
+    try:
+        ts = datetime.fromisoformat(iso_timestamp.replace("Z", "+00:00"))
+        age = (datetime.now(timezone.utc) - ts).total_seconds()
+        return age > max_age_seconds
+    except (ValueError, TypeError, AttributeError):
+        return True
+
+
+def _read_progress(service_id: str) -> dict | None:
+    """Read progress file for a service. Returns None if no active progress."""
+    progress_file = Path(DATA_DIR) / "extension-progress" / f"{service_id}.json"
+    if not progress_file.exists():
+        return None
+    try:
+        data = json.loads(progress_file.read_text(encoding="utf-8"))
+        updated = data.get("updated_at", "")
+        if updated and _is_stale(updated, max_age_seconds=3600):
+            if data.get("status") not in ("error",):
+                return None
+        return data
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _cleanup_stale_progress() -> None:
+    """Remove progress files in terminal state past their TTL."""
+    progress_dir = Path(DATA_DIR) / "extension-progress"
+    if not progress_dir.is_dir():
+        return
+    for f in progress_dir.glob("*.json"):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            if data.get("status") == "started" and _is_stale(data.get("updated_at", ""), 900):
+                f.unlink(missing_ok=True)
+            elif _is_stale(data.get("updated_at", ""), 3600):
+                f.unlink(missing_ok=True)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+
+def _write_initial_progress(service_id: str) -> None:
+    """Write an initial progress file so the UI sees 'installing' immediately."""
+    progress_dir = Path(DATA_DIR) / "extension-progress"
+    progress_dir.mkdir(parents=True, exist_ok=True)
+    now = datetime.now(timezone.utc).isoformat()
+    progress = {
+        "service_id": service_id,
+        "status": "pulling",
+        "phase_label": "Starting installation...",
+        "error": None,
+        "started_at": now,
+        "updated_at": now,
+    }
+    progress_file = progress_dir / f"{service_id}.json"
+    progress_file.write_text(json.dumps(progress), encoding="utf-8")
+
+
 def _compute_extension_status(ext: dict, services_by_id: dict) -> str:
     """Compute the runtime status of an extension."""
     ext_id = ext["id"]
+
+    # Check for in-flight install operations (progress files take priority)
+    progress = _read_progress(ext_id)
+    if progress:
+        ps = progress.get("status", "")
+        if ps in ("pulling", "starting"):
+            # If the progress was never updated by the host agent (started_at == updated_at)
+            # and is older than 2 min, the agent likely never picked it up — ignore.
+            started = progress.get("started_at", "")
+            updated = progress.get("updated_at", "")
+            if started == updated and _is_stale(updated, max_age_seconds=120):
+                pass  # fall through to normal status logic
+            else:
+                return "installing"
+        if ps == "setup_hook":
+            return "setting_up"
+        if ps == "error":
+            return "error"
+        if ps == "started":
+            # Container was started by the installer. If the progress is
+            # recent (<5 min), the healthcheck may still be running —
+            # show "installing". If older, the user likely stopped the
+            # container afterwards — fall through to normal status logic.
+            if not _is_stale(progress.get("updated_at", ""), max_age_seconds=300):
+                svc = services_by_id.get(ext_id)
+                if not (svc and svc.status == "healthy"):
+                    return "installing"
 
     # Core service loaded from manifests
     if ext_id in SERVICES:
@@ -353,6 +440,32 @@ def _call_agent_setup_hook(service_id: str) -> bool:
         return False
 
 
+def _call_agent_install(service_id: str) -> bool:
+    """Call host agent combined install endpoint."""
+    url = f"{AGENT_URL}/v1/extension/install"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {DREAM_AGENT_KEY}",
+    }
+    data = json.dumps({
+        "service_id": service_id,
+        "run_setup_hook": True,
+    }).encode()
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=_AGENT_TIMEOUT) as resp:
+            return resp.status in (200, 202)
+    except urllib.error.HTTPError as exc:
+        logger.warning("Host agent install failed for %s (HTTP %d)", service_id, exc.code)
+        return False
+    except urllib.error.URLError as exc:
+        logger.warning("Host agent unreachable for install at %s: %s", AGENT_URL, exc.reason)
+        return False
+    except OSError as exc:
+        logger.warning("Host agent install error for %s: %s", service_id, exc)
+        return False
+
+
 _agent_cache_lock = threading.Lock()
 _agent_cache = {"available": False, "checked_at": 0.0}
 
@@ -410,6 +523,8 @@ async def extensions_catalog(
     api_key: str = Depends(verify_api_key),
 ):
     """Get the extensions catalog with computed status."""
+    asyncio.get_running_loop().run_in_executor(None, _cleanup_stale_progress)
+
     from helpers import get_cached_services, get_all_services
 
     service_list = get_cached_services()
@@ -453,7 +568,8 @@ async def extensions_catalog(
         ext_id = ext["id"]
         user_dir = USER_EXTENSIONS_DIR / ext_id
         source = "user" if user_dir.is_dir() else ("core" if ext_id in SERVICES else "library")
-        enriched = {**ext, "status": status, "installable": installable, "source": source}
+        has_data = (Path(DATA_DIR) / ext_id).is_dir()
+        enriched = {**ext, "status": status, "installable": installable, "source": source, "has_data": has_data}
 
         if category and ext.get("category") != category:
             continue
@@ -470,6 +586,9 @@ async def extensions_catalog(
         "enabled": sum(1 for e in extensions if e["status"] == "enabled"),
         "disabled": sum(1 for e in extensions if e["status"] == "disabled"),
         "stopped": sum(1 for e in extensions if e["status"] == "stopped"),
+        "installing": sum(1 for e in extensions if e["status"] == "installing"),
+        "setting_up": sum(1 for e in extensions if e["status"] == "setting_up"),
+        "error": sum(1 for e in extensions if e["status"] == "error"),
         "not_installed": sum(1 for e in extensions if e["status"] == "not_installed"),
         "incompatible": sum(1 for e in extensions if e["status"] == "incompatible"),
     }
@@ -489,6 +608,23 @@ async def extensions_catalog(
         "library_available": lib_available,
         "agent_available": _check_agent_health(),
     }
+
+
+@router.get("/api/extensions/{service_id}/progress")
+def extension_progress(service_id: str, api_key: str = Depends(verify_api_key)):
+    """Get install progress for an extension."""
+    _validate_service_id(service_id)
+    progress_file = Path(DATA_DIR) / "extension-progress" / f"{service_id}.json"
+    if not progress_file.exists():
+        return {"service_id": service_id, "status": "idle"}
+    try:
+        data = json.loads(progress_file.read_text(encoding="utf-8"))
+        return data
+    except json.JSONDecodeError:
+        return {"service_id": service_id, "status": "idle"}
+    except OSError as exc:
+        logger.warning("Failed to read progress file for %s: %s", service_id, exc)
+        return {"service_id": service_id, "status": "idle"}
 
 
 @router.get("/api/extensions/{service_id}")
@@ -674,19 +810,21 @@ def install_extension(service_id: str, api_key: str = Depends(verify_api_key)):
             if Path(tmpdir).exists():
                 shutil.rmtree(tmpdir, ignore_errors=True)
 
-    # Run setup hook if extension has one (generates required env vars)
-    _call_agent_setup_hook(service_id)
+    # Write initial progress file so status shows "installing" immediately
+    # (before host agent starts processing — closes the race window)
+    _write_initial_progress(service_id)
 
-    # Call agent to start the container (outside lock)
-    agent_ok = _call_agent("start", service_id)
+    # Call host agent combined install (setup_hook → pull → start)
+    agent_ok = _call_agent_install(service_id)
 
     logger.info("Installed extension: %s", service_id)
     return {
         "id": service_id,
         "action": "installed",
         "restart_required": not agent_ok,
+        "progress_endpoint": f"/api/extensions/{service_id}/progress",
         "message": (
-            "Extension installed and started." if agent_ok
+            "Extension installed and starting." if agent_ok
             else "Extension installed. Run 'dream restart' to start."
         ),
     }
@@ -721,6 +859,7 @@ def enable_extension(service_id: str, api_key: str = Depends(verify_api_key)):
                 )
             _scan_compose_content(enabled_compose)
         # Dependencies were satisfied at install time; compose content is re-scanned above
+        _write_initial_progress(service_id)
         agent_ok = _call_agent("start", service_id)
         logger.info("Started stopped extension: %s", service_id)
         return {

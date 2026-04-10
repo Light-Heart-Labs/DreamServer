@@ -1,6 +1,7 @@
 """Tests for extensions portal endpoints."""
 
 import contextlib
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -1616,3 +1617,236 @@ class TestOrphanedStorage:
         assert len(data["orphaned"]) == 1
         assert data["orphaned"][0]["name"] == "orphan-dir"
         assert data["total_gb"] == 0.5
+
+# --- Install progress tracking ---
+
+
+class TestInstallProgress:
+
+    def test_progress_endpoint_no_progress(self, test_client, monkeypatch, tmp_path):
+        """GET progress when no file exists → idle."""
+        _patch_mutation_config(monkeypatch, tmp_path)
+
+        resp = test_client.get(
+            "/api/extensions/my-ext/progress",
+            headers=test_client.auth_headers,
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["service_id"] == "my-ext"
+        assert data["status"] == "idle"
+
+    def test_progress_endpoint_during_install(self, test_client, monkeypatch, tmp_path):
+        """GET progress with active progress file → returns data."""
+        _patch_mutation_config(monkeypatch, tmp_path)
+
+        progress_dir = tmp_path / "extension-progress"
+        progress_dir.mkdir()
+        progress_data = {
+            "service_id": "my-ext",
+            "status": "pulling",
+            "phase_label": "Downloading image...",
+            "error": None,
+            "started_at": "2026-04-06T10:00:00+00:00",
+            "updated_at": "2026-04-06T10:00:05+00:00",
+        }
+        (progress_dir / "my-ext.json").write_text(json.dumps(progress_data))
+
+        resp = test_client.get(
+            "/api/extensions/my-ext/progress",
+            headers=test_client.auth_headers,
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "pulling"
+        assert data["phase_label"] == "Downloading image..."
+
+    def test_status_installing_when_progress_pulling(self, monkeypatch, tmp_path):
+        """Progress file with status 'pulling' → _compute_extension_status returns 'installing'."""
+        from routers.extensions import _compute_extension_status
+
+        monkeypatch.setattr("routers.extensions.DATA_DIR", str(tmp_path))
+        monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", tmp_path / "user")
+        monkeypatch.setattr("routers.extensions.GPU_BACKEND", "nvidia")
+        monkeypatch.setattr("routers.extensions.SERVICES", {})
+
+        progress_dir = tmp_path / "extension-progress"
+        progress_dir.mkdir()
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        progress_data = {
+            "service_id": "my-ext",
+            "status": "pulling",
+            "phase_label": "Downloading image...",
+            "error": None,
+            "started_at": now,
+            "updated_at": now,
+        }
+        (progress_dir / "my-ext.json").write_text(json.dumps(progress_data))
+
+        ext = _make_catalog_ext("my-ext")
+        status = _compute_extension_status(ext, {})
+        assert status == "installing"
+
+    def test_status_installing_when_progress_starting(self, monkeypatch, tmp_path):
+        """Progress file with status 'starting' → _compute_extension_status returns 'installing'."""
+        from routers.extensions import _compute_extension_status
+
+        monkeypatch.setattr("routers.extensions.DATA_DIR", str(tmp_path))
+        monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", tmp_path / "user")
+        monkeypatch.setattr("routers.extensions.GPU_BACKEND", "nvidia")
+        monkeypatch.setattr("routers.extensions.SERVICES", {})
+
+        progress_dir = tmp_path / "extension-progress"
+        progress_dir.mkdir()
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        progress_data = {
+            "service_id": "my-ext",
+            "status": "starting",
+            "phase_label": "Starting container...",
+            "error": None,
+            "started_at": now,
+            "updated_at": now,
+        }
+        (progress_dir / "my-ext.json").write_text(json.dumps(progress_data))
+
+        ext = _make_catalog_ext("my-ext")
+        status = _compute_extension_status(ext, {})
+        assert status == "installing"
+
+    def test_status_setting_up_when_progress_setup_hook(self, monkeypatch, tmp_path):
+        """Progress file with status 'setup_hook' → returns 'setting_up'."""
+        from routers.extensions import _compute_extension_status
+
+        monkeypatch.setattr("routers.extensions.DATA_DIR", str(tmp_path))
+        monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", tmp_path / "user")
+        monkeypatch.setattr("routers.extensions.GPU_BACKEND", "nvidia")
+        monkeypatch.setattr("routers.extensions.SERVICES", {})
+
+        progress_dir = tmp_path / "extension-progress"
+        progress_dir.mkdir()
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        progress_data = {
+            "service_id": "my-ext",
+            "status": "setup_hook",
+            "phase_label": "Running setup...",
+            "error": None,
+            "started_at": now,
+            "updated_at": now,
+        }
+        (progress_dir / "my-ext.json").write_text(json.dumps(progress_data))
+
+        ext = _make_catalog_ext("my-ext")
+        status = _compute_extension_status(ext, {})
+        assert status == "setting_up"
+
+    def test_status_error_when_progress_error(self, monkeypatch, tmp_path):
+        """Progress file with status 'error' → returns 'error'."""
+        from routers.extensions import _compute_extension_status
+
+        monkeypatch.setattr("routers.extensions.DATA_DIR", str(tmp_path))
+        monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", tmp_path / "user")
+        monkeypatch.setattr("routers.extensions.GPU_BACKEND", "nvidia")
+        monkeypatch.setattr("routers.extensions.SERVICES", {})
+
+        progress_dir = tmp_path / "extension-progress"
+        progress_dir.mkdir()
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        progress_data = {
+            "service_id": "my-ext",
+            "status": "error",
+            "phase_label": "Installation failed",
+            "error": "something went wrong",
+            "started_at": now,
+            "updated_at": now,
+        }
+        (progress_dir / "my-ext.json").write_text(json.dumps(progress_data))
+
+        ext = _make_catalog_ext("my-ext")
+        status = _compute_extension_status(ext, {})
+        assert status == "error"
+
+    def test_stale_progress_ignored(self, monkeypatch, tmp_path):
+        """Progress file >1 hour old → _read_progress returns None."""
+        from routers.extensions import _read_progress
+
+        monkeypatch.setattr("routers.extensions.DATA_DIR", str(tmp_path))
+
+        progress_dir = tmp_path / "extension-progress"
+        progress_dir.mkdir()
+        # Set updated_at to far in the past (well over 1 hour)
+        progress_data = {
+            "service_id": "my-ext",
+            "status": "pulling",
+            "phase_label": "Downloading image...",
+            "error": None,
+            "started_at": "2020-01-01T00:00:00+00:00",
+            "updated_at": "2020-01-01T00:00:00+00:00",
+        }
+        (progress_dir / "my-ext.json").write_text(json.dumps(progress_data))
+
+        result = _read_progress("my-ext")
+        assert result is None
+
+    def test_stale_error_progress_preserved(self, monkeypatch, tmp_path):
+        """Stale progress file with status 'error' → _read_progress still returns it (not None)."""
+        from routers.extensions import _read_progress
+
+        monkeypatch.setattr("routers.extensions.DATA_DIR", str(tmp_path))
+
+        progress_dir = tmp_path / "extension-progress"
+        progress_dir.mkdir()
+        progress_data = {
+            "service_id": "my-ext",
+            "status": "error",
+            "phase_label": "Installation failed",
+            "error": "something went wrong",
+            "started_at": "2020-01-01T00:00:00+00:00",
+            "updated_at": "2020-01-01T00:00:00+00:00",
+        }
+        (progress_dir / "my-ext.json").write_text(json.dumps(progress_data))
+
+        result = _read_progress("my-ext")
+        assert result is not None
+        assert result["status"] == "error"
+
+    def test_progress_cleanup_removes_old_started(self, monkeypatch, tmp_path):
+        """_cleanup_stale_progress() removes 'started' files >15 min old."""
+        from routers.extensions import _cleanup_stale_progress
+
+        monkeypatch.setattr("routers.extensions.DATA_DIR", str(tmp_path))
+
+        progress_dir = tmp_path / "extension-progress"
+        progress_dir.mkdir()
+        progress_data = {
+            "service_id": "my-ext",
+            "status": "started",
+            "phase_label": "Service started",
+            "error": None,
+            "started_at": "2020-01-01T00:00:00+00:00",
+            "updated_at": "2020-01-01T00:00:00+00:00",
+        }
+        (progress_dir / "my-ext.json").write_text(json.dumps(progress_data))
+
+        _cleanup_stale_progress()
+
+        assert not (progress_dir / "my-ext.json").exists()
+
+    def test_install_returns_progress_endpoint(self, test_client, monkeypatch, tmp_path):
+        """Install response includes progress_endpoint field."""
+        lib_dir = _setup_library_ext(tmp_path, "my-ext")
+        _patch_mutation_config(monkeypatch, tmp_path, lib_dir=lib_dir)
+
+        resp = test_client.post(
+            "/api/extensions/my-ext/install",
+            headers=test_client.auth_headers,
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["progress_endpoint"] == "/api/extensions/my-ext/progress"
