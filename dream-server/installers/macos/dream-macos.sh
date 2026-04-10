@@ -20,6 +20,43 @@
 #
 # ============================================================================
 
+# Guard: macOS ships Bash 3.2 (GPL). dream-cli and our libs need Bash 4+.
+if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
+  # Default candidate paths cover standard Apple Silicon and Intel Homebrew
+  # prefixes. If brew is already on PATH we also ask it for its actual prefix,
+  # which handles custom installs (e.g. /Volumes/X/homebrew).
+  candidates=(/opt/homebrew/bin/bash /usr/local/bin/bash)
+  if command -v brew >/dev/null 2>&1; then
+    brew_prefix="$(brew --prefix 2>/dev/null)"
+    [ -n "$brew_prefix" ] && candidates=("$brew_prefix/bin/bash" "${candidates[@]}")
+  fi
+  for candidate in "${candidates[@]}"; do
+    if [ -x "$candidate" ]; then
+      exec "$candidate" "$0" "$@"
+    fi
+  done
+  if ! command -v brew >/dev/null 2>&1; then
+    echo "DreamServer requires Bash 4+ (you have ${BASH_VERSION})." >&2
+    echo "Install Homebrew first:" >&2
+    echo "  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"" >&2
+    echo "Then re-run this installer." >&2
+    exit 1
+  fi
+  echo "Installing Bash 4+ via Homebrew (one-time setup)..."
+  brew install bash || { echo "brew install bash failed" >&2; exit 1; }
+  brew_prefix="$(brew --prefix 2>/dev/null)"
+  if [ -n "$brew_prefix" ] && [ -x "$brew_prefix/bin/bash" ]; then
+    exec "$brew_prefix/bin/bash" "$0" "$@"
+  fi
+  for candidate in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+    if [ -x "$candidate" ]; then
+      exec "$candidate" "$0" "$@"
+    fi
+  done
+  echo "Homebrew bash installed but not found in expected paths." >&2
+  exit 1
+fi
+
 set -euo pipefail
 
 # ── Locate libraries ──
