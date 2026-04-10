@@ -327,27 +327,29 @@ MODELS_INI_EOF
             printf "\r  ${BGRN}✓${NC} %-60s\n" "$_svc built"
         fi
     done
-    # Start everything — --no-build skips services whose images failed to build
-    $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up -d --no-build >> "$LOG_FILE" 2>&1 &
-    compose_pid=$!
-    if spin_task $compose_pid "Launching containers..."; then
-        compose_ok=true
-    else
-        printf "\r  ${AMB}⚠${NC} %-60s\n" "Some services still starting..."
-        echo ""
-        ai_warn "Some containers need more time. Retrying..."
+    # Start everything — --no-build skips services whose images failed to build.
+    # Up to 3 attempts with increasing wait between retries. On AMD/Lemonade,
+    # the first boot builds a cached llama-server binary which can take 3-5 min.
+    for _attempt in 1 2 3; do
         $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up -d --no-build >> "$LOG_FILE" 2>&1 &
         compose_pid=$!
-        if spin_task $compose_pid "Waiting for remaining services..."; then
+        if spin_task $compose_pid "Launching containers (attempt $_attempt/3)..."; then
             compose_ok=true
+            break
         fi
-    fi
+        if [[ $_attempt -lt 3 ]]; then
+            printf "\r  ${AMB}⚠${NC} %-60s\n" "Some services still starting..."
+            ai_warn "Some containers need more time. Waiting 30s before retry..."
+            sleep 30
+        fi
+    done
     # Safety net: when --no-build hits a missing image, compose aborts before
     # starting other containers. Some end up in "Created", others never got
     # past "Creating" because their dependencies weren't ready yet.
     # Step 1: start any containers already in Created state
     docker start $(docker ps -a --filter status=created -q) 2>/dev/null || true
-    # Step 2: second compose pass picks up services whose deps are now healthy
+    # Step 2: wait for services to stabilize, then compose pass
+    sleep 10
     $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up -d --no-build >> "$LOG_FILE" 2>&1 || true
     # Step 3: catch any stragglers from the second pass
     docker start $(docker ps -a --filter status=created -q) 2>/dev/null || true

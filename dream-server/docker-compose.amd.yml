@@ -47,8 +47,8 @@ services:
       test: ["CMD", "curl", "-sf", "http://127.0.0.1:8080/api/v1/health"]
       interval: 15s
       timeout: 10s
-      retries: 5
-      start_period: 120s
+      retries: 10
+      start_period: 180s  # Lemonade ~45s typical, up to ~2min under load on first boot
     deploy:
       resources:
         limits:
