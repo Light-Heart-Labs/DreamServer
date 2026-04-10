@@ -48,7 +48,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 10
-      start_period: 300s  # Lemonade first boot builds llama-server binary (~3-5 min)
+      start_period: 180s  # Lemonade ~45s typical, up to ~2min under load on first boot
     deploy:
       resources:
         limits:
