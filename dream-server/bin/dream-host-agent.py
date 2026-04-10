@@ -987,20 +987,22 @@ class AgentHandler(BaseHTTPRequestHandler):
                 encoding="utf-8",
             )
 
-            # Restart llama-server by recreating the container directly.
-            # We avoid `docker compose up -d` because when the agent runs
-            # inside a container, compose resolves relative bind-mount paths
-            # (./data/models) to the agent container's filesystem, not the
-            # host. Instead, we inspect the old container's config, update
-            # the command args with the new model, and create a fresh one.
+            # Restart llama-server with the new model.
+            # Two strategies depending on where the agent runs:
+            # - Host-native (Linux/macOS): docker compose stop+up, same as
+            #   bootstrap-upgrade.sh. Simple, correct, preserves all config.
+            # - Containerized (Docker Desktop WSL2): docker inspect+run.
+            #   Compose can't be used because relative bind-mount paths
+            #   resolve to the agent container's filesystem, not the host.
             env = load_env(env_path)
             gpu_backend = env.get("GPU_BACKEND", "nvidia")
+            _in_container = bool(os.environ.get("DREAM_HOST_INSTALL_DIR"))
 
-            # Recreate llama-server with the new model.
-            # docker restart does NOT work — it preserves the old --model
-            # command arg since ${GGUF_FILE} is interpolated at create time.
-            override_image = model.get("llama_server_image") or ""
-            _recreate_llama_server(env, override_image=override_image)
+            if _in_container:
+                override_image = model.get("llama_server_image") or ""
+                _recreate_llama_server(env, override_image=override_image)
+            else:
+                _compose_restart_llama_server(env)
 
             # Health check (up to 5 min)
             # Use container name on docker network (localhost is the agent
@@ -1050,7 +1052,11 @@ class AgentHandler(BaseHTTPRequestHandler):
                 logger.warning("Model activation failed — rolling back")
                 env_path.write_text(env_backup, encoding="utf-8")
                 models_ini.write_text(ini_backup, encoding="utf-8")
-                _recreate_llama_server(load_env(env_path))
+                rollback_env = load_env(env_path)
+                if _in_container:
+                    _recreate_llama_server(rollback_env)
+                else:
+                    _compose_restart_llama_server(rollback_env)
                 json_response(self, 500, {"error": "Health check failed — rolled back to previous model", "rolled_back": True})
 
         except Exception as exc:
@@ -1110,6 +1116,43 @@ class AgentHandler(BaseHTTPRequestHandler):
             json_response(self, 200, {"status": "deleted", "gguf_file": gguf_file})
         except OSError as exc:
             json_response(self, 500, {"error": f"Failed to delete: {exc}"})
+
+
+def _compose_restart_llama_server(env: dict):
+    """Restart llama-server via docker compose (host-native path).
+
+    This is the primary restart strategy for Linux (systemd) and macOS
+    (launchd) where the agent runs natively on the host.  It mirrors the
+    proven pattern from bootstrap-upgrade.sh lines 289-304.
+    """
+    gpu_backend = env.get("GPU_BACKEND", "nvidia")
+    compose_flags = []
+    flags_file = INSTALL_DIR / ".compose-flags"
+    if flags_file.exists():
+        compose_flags = flags_file.read_text(encoding="utf-8").strip().split()
+
+    if gpu_backend == "amd":
+        # Lemonade: restart preserves cached binary, reads models.ini on boot
+        if compose_flags:
+            subprocess.run(["docker", "compose"] + compose_flags + ["restart", "llama-server"],
+                           cwd=str(INSTALL_DIR), capture_output=True, timeout=300)
+        else:
+            subprocess.run(["docker", "restart", "dream-llama-server"],
+                           capture_output=True, timeout=300)
+    else:
+        # llama.cpp: recreate to pick up new GGUF_FILE from .env
+        if compose_flags:
+            subprocess.run(["docker", "compose"] + compose_flags + ["stop", "llama-server"],
+                           cwd=str(INSTALL_DIR), capture_output=True, timeout=120)
+            subprocess.run(["docker", "compose"] + compose_flags + ["up", "-d", "llama-server"],
+                           cwd=str(INSTALL_DIR), capture_output=True, timeout=300)
+        else:
+            subprocess.run(["docker", "stop", "dream-llama-server"],
+                           capture_output=True, timeout=120)
+            subprocess.run(["docker", "start", "dream-llama-server"],
+                           capture_output=True, timeout=300)
+
+    logger.info("llama-server restarted via compose (backend: %s)", gpu_backend)
 
 
 def _recreate_llama_server(env: dict, override_image: str = ""):
