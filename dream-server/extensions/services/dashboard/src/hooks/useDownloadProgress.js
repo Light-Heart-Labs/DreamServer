@@ -15,24 +15,27 @@ export function useDownloadProgress(pollIntervalMs = 1000) {
       
       const data = await response.json()
       
-      if (data.status === 'downloading') {
+      if (data.status === 'downloading' || data.status === 'verifying') {
         setIsDownloading(true)
+        const percent = data.bytesTotal > 0
+          ? Math.min(Math.round((data.bytesDownloaded / data.bytesTotal) * 100), 100)
+          : 0
         setProgress({
           model: data.model,
-          percent: data.percent || 0,
+          status: data.status,
+          percent,
           bytesDownloaded: data.bytesDownloaded || 0,
           bytesTotal: data.bytesTotal || 0,
-          speedMbps: data.speedBytesPerSec ? data.speedBytesPerSec / (1024 * 1024) : 0,
-          eta: data.eta,
-          startedAt: data.startedAt
+          startedAt: data.startedAt,
+          updatedAt: data.updatedAt
         })
       } else if (data.status === 'complete' || data.status === 'idle') {
         setIsDownloading(false)
         setProgress(null)
-      } else if (data.status === 'error') {
+      } else if (data.status === 'failed' || data.status === 'cancelled') {
         setIsDownloading(false)
         setProgress({
-          error: data.message || 'Download failed',
+          error: data.error || (data.status === 'cancelled' ? 'Download cancelled' : 'Download failed'),
           model: data.model
         })
       }
@@ -71,11 +74,21 @@ export function useDownloadProgress(pollIntervalMs = 1000) {
     return eta
   }
 
+  const cancelDownload = useCallback(async () => {
+    try {
+      await fetch('/api/models/download/cancel', { method: 'POST' })
+      fetchProgress()
+    } catch (err) {
+      // Silently fail
+    }
+  }, [fetchProgress])
+
   return {
     isDownloading,
     progress,
     formatBytes,
     formatEta,
-    refresh: fetchProgress
+    refresh: fetchProgress,
+    cancelDownload
   }
 }

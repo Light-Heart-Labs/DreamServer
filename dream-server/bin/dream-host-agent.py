@@ -50,6 +50,8 @@ _service_locks: dict[str, threading.Lock] = collections.defaultdict(threading.Lo
 # Model download state — only one download at a time
 _model_download_lock = threading.Lock()
 _model_download_thread: threading.Thread | None = None
+_model_download_proc: subprocess.Popen | None = None
+_model_download_cancel = threading.Event()
 # Model activation lock — prevent concurrent .env writes and Docker restarts
 _model_activate_lock = threading.Lock()
 
@@ -353,6 +355,8 @@ class AgentHandler(BaseHTTPRequestHandler):
             self._handle_service_logs()
         elif self.path == "/v1/model/download":
             self._handle_model_download()
+        elif self.path == "/v1/model/download/cancel":
+            self._handle_model_download_cancel()
         elif self.path == "/v1/model/activate":
             self._handle_model_activate()
         elif self.path == "/v1/model/delete":
@@ -654,7 +658,10 @@ class AgentHandler(BaseHTTPRequestHandler):
             return
 
         models_dir = INSTALL_DIR / "data" / "models"
-        target = models_dir / gguf_file
+        target = (models_dir / gguf_file).resolve()
+        if not target.is_relative_to(models_dir.resolve()):
+            json_response(self, 400, {"error": "Invalid file path"})
+            return
         if target.exists():
             json_response(self, 200, {"status": "already_downloaded"})
             return
@@ -665,15 +672,20 @@ class AgentHandler(BaseHTTPRequestHandler):
                 json_response(self, 409, {"error": "Another download is in progress"})
                 return
 
+            _model_download_cancel.clear()
+
             def _download():
+                global _model_download_proc
                 status_path = INSTALL_DIR / "data" / "model-download-status.json"
                 part_file = models_dir / f"{gguf_file}.part"
+                started_at = ""
                 try:
                     models_dir.mkdir(parents=True, exist_ok=True)
-                    # Write initial status
-                    _write_model_status(status_path, "downloading", gguf_file, 0, 0)
+                    # Write initial status with startedAt
+                    started_at = _iso_now()
+                    _write_model_status(status_path, "downloading", gguf_file, 0, 0, started_at=started_at)
 
-                    # Get total size
+                    # Get total size — take the LAST Content-Length header (HuggingFace redirects)
                     total_bytes = 0
                     try:
                         head_result = subprocess.run(
@@ -683,36 +695,59 @@ class AgentHandler(BaseHTTPRequestHandler):
                         for line in head_result.stdout.splitlines():
                             if line.lower().startswith("content-length:"):
                                 total_bytes = int(line.split(":", 1)[1].strip())
-                                break
                     except (subprocess.TimeoutExpired, ValueError):
                         pass
 
-                    # Download with retry
+                    # Download with retry + cancel support
                     success = False
                     for attempt in range(1, 4):
+                        if _model_download_cancel.is_set():
+                            break
                         if attempt > 1:
                             logger.info("Model download retry %d/3", attempt)
                             import time
                             time.sleep(5)
-                        result = subprocess.run(
+                        proc = subprocess.Popen(
                             ["curl", "-fSL", "-C", "-", "--connect-timeout", "30",
                              "-o", str(part_file), gguf_url],
-                            capture_output=True, text=True, timeout=7200,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                         )
-                        if result.returncode == 0:
+                        _model_download_proc = proc
+                        # Poll part file size for real-time progress updates
+                        while proc.poll() is None:
+                            if _model_download_cancel.is_set():
+                                proc.kill()
+                                proc.wait(timeout=5)
+                                break
+                            import time
+                            time.sleep(2)
+                            try:
+                                current_bytes = part_file.stat().st_size if part_file.exists() else 0
+                            except OSError:
+                                current_bytes = 0
+                            _write_model_status(status_path, "downloading", gguf_file, current_bytes, total_bytes, started_at=started_at)
+                        _model_download_proc = None
+                        if _model_download_cancel.is_set():
+                            part_file.unlink(missing_ok=True)
+                            _write_model_status(status_path, "cancelled", gguf_file, 0, 0, "Download cancelled by user", started_at=started_at)
+                            logger.info("Model download cancelled: %s", gguf_file)
+                            return
+                        proc.communicate(timeout=10)
+                        if proc.returncode == 0:
                             part_file.rename(target)
                             success = True
                             break
-                        _write_model_status(status_path, "downloading", gguf_file, 0, total_bytes, f"Retry {attempt}/3")
+                        current = part_file.stat().st_size if part_file.exists() else 0
+                        _write_model_status(status_path, "downloading", gguf_file, current, total_bytes, f"Retry {attempt}/3", started_at=started_at)
 
-                    if not success:
+                    if not success and not _model_download_cancel.is_set():
                         part_file.unlink(missing_ok=True)
-                        _write_model_status(status_path, "failed", gguf_file, 0, total_bytes, "Download failed after 3 attempts")
+                        _write_model_status(status_path, "failed", gguf_file, 0, total_bytes, "Download failed after 3 attempts", started_at=started_at)
                         return
 
                     # Verify SHA256 if provided
                     if gguf_sha256:
-                        _write_model_status(status_path, "verifying", gguf_file, total_bytes, total_bytes)
+                        _write_model_status(status_path, "verifying", gguf_file, total_bytes, total_bytes, started_at=started_at)
                         import hashlib
                         sha = hashlib.sha256()
                         with open(target, "rb") as f:
@@ -721,19 +756,38 @@ class AgentHandler(BaseHTTPRequestHandler):
                         actual = sha.hexdigest()
                         if actual != gguf_sha256:
                             target.unlink(missing_ok=True)
-                            _write_model_status(status_path, "failed", gguf_file, 0, 0, f"SHA256 mismatch: expected {gguf_sha256[:12]}..., got {actual[:12]}...")
+                            _write_model_status(status_path, "failed", gguf_file, 0, 0, f"SHA256 mismatch: expected {gguf_sha256[:12]}..., got {actual[:12]}...", started_at=started_at)
                             return
 
-                    _write_model_status(status_path, "complete", gguf_file, total_bytes, total_bytes)
+                    _write_model_status(status_path, "complete", gguf_file, total_bytes, total_bytes, started_at=started_at)
                     logger.info("Model download complete: %s", gguf_file)
                 except Exception as exc:
                     logger.error("Model download failed: %s", exc)
-                    _write_model_status(status_path, "failed", gguf_file, 0, 0, str(exc))
+                    _write_model_status(status_path, "failed", gguf_file, 0, 0, str(exc), started_at=started_at)
 
             _model_download_thread = threading.Thread(target=_download, daemon=True)
             _model_download_thread.start()
 
         json_response(self, 200, {"status": "started"})
+
+    def _handle_model_download_cancel(self):
+        """Cancel an in-progress model download."""
+        if not check_auth(self):
+            return
+        with _model_download_lock:
+            if _model_download_thread is None or not _model_download_thread.is_alive():
+                json_response(self, 200, {"status": "no_download"})
+                return
+        _model_download_cancel.set()
+        # Capture local reference to avoid TOCTOU race — the download thread
+        # may null out _model_download_proc between the check and kill.
+        proc_ref = _model_download_proc
+        if proc_ref is not None:
+            try:
+                proc_ref.kill()
+            except (OSError, AttributeError):
+                pass
+        json_response(self, 200, {"status": "cancelling"})
 
     def _handle_model_activate(self):
         """Swap active model: update .env + models.ini + restart llama-server."""
@@ -778,9 +832,14 @@ class AgentHandler(BaseHTTPRequestHandler):
         gguf_file = model.get("gguf_file", "")
         llm_model_name = model.get("llm_model_name", model_id)
         context_length = model.get("context_length", 32768)
+        llama_server_image = model.get("llama_server_image")
 
-        # Verify GGUF exists on disk
-        target = INSTALL_DIR / "data" / "models" / gguf_file
+        # Verify GGUF exists on disk (with path traversal protection)
+        models_dir = INSTALL_DIR / "data" / "models"
+        target = (models_dir / gguf_file).resolve()
+        if not target.is_relative_to(models_dir.resolve()):
+            json_response(self, 400, {"error": "Invalid model file path"})
+            return
         if not target.exists():
             json_response(self, 400, {"error": f"Model file not downloaded: {gguf_file}"})
             return
@@ -789,6 +848,10 @@ class AgentHandler(BaseHTTPRequestHandler):
         models_ini = INSTALL_DIR / "config" / "llama-server" / "models.ini"
 
         try:
+            # Read current env BEFORE modification (needed for LLAMA_SERVER_IMAGE diff + gpu_backend)
+            env = load_env(env_path)
+            gpu_backend = env.get("GPU_BACKEND", "nvidia")
+
             # Save rollback snapshot
             env_backup = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
             ini_backup = models_ini.read_text(encoding="utf-8") if models_ini.exists() else ""
@@ -802,6 +865,9 @@ class AgentHandler(BaseHTTPRequestHandler):
                     "CTX_SIZE": str(context_length),
                     "MAX_CONTEXT": str(context_length),
                 }
+                # Only update LLAMA_SERVER_IMAGE on Docker backends (macOS runs native)
+                if llama_server_image and gpu_backend != "apple":
+                    updates["LLAMA_SERVER_IMAGE"] = llama_server_image
                 new_lines = []
                 seen = set()
                 for line in lines:
@@ -826,35 +892,94 @@ class AgentHandler(BaseHTTPRequestHandler):
                 encoding="utf-8",
             )
 
-            # Restart llama-server
-            env = load_env(env_path)
-            gpu_backend = env.get("GPU_BACKEND", "nvidia")
+            # Restart llama-server (platform-aware)
+            if gpu_backend == "apple":
+                # macOS: llama-server runs natively on host (not Docker)
+                pid_file = INSTALL_DIR / "data" / ".llama-server.pid"
+                llama_bin = INSTALL_DIR / "bin" / "llama-server"
+                llama_log = INSTALL_DIR / "data" / "llama-server.log"
 
-            compose_flags = []
-            flags_file = INSTALL_DIR / ".compose-flags"
-            if flags_file.exists():
-                compose_flags = flags_file.read_text(encoding="utf-8").strip().split()
+                if not llama_bin.exists():
+                    # Roll back .env/models.ini — can't restart
+                    env_path.write_text(env_backup, encoding="utf-8")
+                    models_ini.write_text(ini_backup, encoding="utf-8")
+                    json_response(self, 500, {"error": "llama-server binary not found — re-run installer"})
+                    return
 
-            if gpu_backend == "amd":
-                if compose_flags:
-                    subprocess.run(["docker", "compose"] + compose_flags + ["restart", "llama-server"],
-                                   cwd=str(INSTALL_DIR), capture_output=True, timeout=300)
-                else:
-                    subprocess.run(["docker", "restart", "dream-llama-server"],
-                                   capture_output=True, timeout=300)
+                # Stop existing native process
+                if pid_file.exists():
+                    try:
+                        old_pid = int(pid_file.read_text(encoding="utf-8").strip())
+                        # Verify PID is llama-server before killing (prevent PID reuse accidents)
+                        try:
+                            ps_result = subprocess.run(
+                                ["ps", "-p", str(old_pid), "-o", "comm="],
+                                capture_output=True, text=True, timeout=5,
+                            )
+                            if "llama" not in ps_result.stdout.lower():
+                                raise OSError("PID is not llama-server")
+                        except (subprocess.TimeoutExpired, OSError):
+                            pid_file.unlink(missing_ok=True)
+                            raise OSError("stale PID")
+                        os.kill(old_pid, signal.SIGTERM)
+                        for _ in range(20):
+                            try:
+                                os.kill(old_pid, 0)
+                                import time
+                                time.sleep(0.5)
+                            except OSError:
+                                break
+                        else:
+                            os.kill(old_pid, signal.SIGKILL)
+                    except (ValueError, OSError):
+                        pass
+                    pid_file.unlink(missing_ok=True)
+
+                # Re-launch native llama-server with new model
+                updated_env = load_env(env_path)
+                new_gguf = updated_env.get("GGUF_FILE", gguf_file)
+                new_ctx = updated_env.get("CTX_SIZE", str(context_length))
+                model_path = INSTALL_DIR / "data" / "models" / new_gguf
+                reasoning = updated_env.get("LLAMA_REASONING", "off")
+                reasoning_fmt_map = {"off": "none", "on": "deepseek"}
+                reasoning_fmt = reasoning_fmt_map.get(reasoning, reasoning)
+
+                with open(llama_log, "a") as log_f:
+                    proc = subprocess.Popen(
+                        [str(llama_bin),
+                         "--host", "0.0.0.0", "--port", "8080",
+                         "--model", str(model_path),
+                         "--ctx-size", new_ctx,
+                         "--n-gpu-layers", "999",
+                         "--reasoning-format", reasoning_fmt,
+                         "--metrics"],
+                        stdout=log_f, stderr=log_f,
+                    )
+                pid_file.write_text(str(proc.pid), encoding="utf-8")
             else:
-                if compose_flags:
-                    subprocess.run(["docker", "compose"] + compose_flags + ["stop", "llama-server"],
-                                   cwd=str(INSTALL_DIR), capture_output=True, timeout=120)
-                    subprocess.run(["docker", "compose"] + compose_flags + ["up", "-d", "llama-server"],
-                                   cwd=str(INSTALL_DIR), capture_output=True, timeout=300)
-                else:
-                    subprocess.run(["docker", "stop", "dream-llama-server"], capture_output=True, timeout=120)
-                    subprocess.run(["docker", "start", "dream-llama-server"], capture_output=True, timeout=300)
+                # Docker backends — resolve compose flags dynamically
+                compose_flags = resolve_compose_flags()
 
-            # Health check (up to 5 min)
+                # Pull new llama-server image if it changed (Gemma4 requires a specific version)
+                old_image = env.get("LLAMA_SERVER_IMAGE", "")
+                if llama_server_image and llama_server_image != old_image:
+                    try:
+                        subprocess.run(
+                            ["docker", "compose"] + compose_flags + ["pull", "llama-server"],
+                            cwd=str(INSTALL_DIR), capture_output=True, timeout=600,
+                        )
+                    except (subprocess.TimeoutExpired, OSError):
+                        pass  # Continue — image may be cached locally
+
+                # Stop + up -d re-reads .env (restart does not)
+                subprocess.run(["docker", "compose"] + compose_flags + ["stop", "llama-server"],
+                               cwd=str(INSTALL_DIR), capture_output=True, timeout=120)
+                subprocess.run(["docker", "compose"] + compose_flags + ["up", "-d", "llama-server"],
+                               cwd=str(INSTALL_DIR), capture_output=True, timeout=300)
+
+            # Health check (up to 5 min) — use 127.0.0.1 to avoid IPv6 resolution issues
             import time
-            health_url = f"http://localhost:{env.get('OLLAMA_PORT', '8080')}"
+            health_url = f"http://127.0.0.1:{env.get('OLLAMA_PORT', '8080')}"
             health_url += "/api/v1/health" if gpu_backend == "amd" else "/health"
             healthy = False
             for _ in range(60):
@@ -877,18 +1002,58 @@ class AgentHandler(BaseHTTPRequestHandler):
                 logger.warning("Model activation failed — rolling back")
                 env_path.write_text(env_backup, encoding="utf-8")
                 models_ini.write_text(ini_backup, encoding="utf-8")
-                if gpu_backend == "amd":
-                    subprocess.run(["docker", "restart", "dream-llama-server"],
-                                   capture_output=True, timeout=300)
+                if gpu_backend == "apple":
+                    # Stop newly launched native process, re-launch with old params
+                    if pid_file.exists():
+                        try:
+                            new_pid = int(pid_file.read_text(encoding="utf-8").strip())
+                            # Verify PID is llama-server before killing (consistency with forward path)
+                            try:
+                                ps_result = subprocess.run(
+                                    ["ps", "-p", str(new_pid), "-o", "comm="],
+                                    capture_output=True, text=True, timeout=5,
+                                )
+                                if "llama" not in ps_result.stdout.lower():
+                                    raise OSError("PID is not llama-server")
+                            except (subprocess.TimeoutExpired, OSError):
+                                pid_file.unlink(missing_ok=True)
+                                raise OSError("stale PID")
+                            os.kill(new_pid, signal.SIGTERM)
+                            for _ in range(20):
+                                try:
+                                    os.kill(new_pid, 0)
+                                    import time
+                                    time.sleep(0.5)
+                                except OSError:
+                                    break
+                            else:
+                                os.kill(new_pid, signal.SIGKILL)
+                        except (ValueError, OSError):
+                            pass
+                        pid_file.unlink(missing_ok=True)
+                    rollback_env = load_env(env_path)
+                    rb_gguf = rollback_env.get("GGUF_FILE", gguf_file)
+                    rb_ctx = rollback_env.get("CTX_SIZE", str(context_length))
+                    rb_model_path = INSTALL_DIR / "data" / "models" / rb_gguf
+                    rb_reasoning = rollback_env.get("LLAMA_REASONING", "off")
+                    rb_reasoning_fmt = reasoning_fmt_map.get(rb_reasoning, rb_reasoning)
+                    with open(llama_log, "a") as log_f:
+                        rb_proc = subprocess.Popen(
+                            [str(llama_bin),
+                             "--host", "0.0.0.0", "--port", "8080",
+                             "--model", str(rb_model_path),
+                             "--ctx-size", rb_ctx,
+                             "--n-gpu-layers", "999",
+                             "--reasoning-format", rb_reasoning_fmt,
+                             "--metrics"],
+                            stdout=log_f, stderr=log_f,
+                        )
+                    pid_file.write_text(str(rb_proc.pid), encoding="utf-8")
                 else:
-                    if compose_flags:
-                        subprocess.run(["docker", "compose"] + compose_flags + ["stop", "llama-server"],
-                                       cwd=str(INSTALL_DIR), capture_output=True, timeout=120)
-                        subprocess.run(["docker", "compose"] + compose_flags + ["up", "-d", "llama-server"],
-                                       cwd=str(INSTALL_DIR), capture_output=True, timeout=300)
-                    else:
-                        subprocess.run(["docker", "stop", "dream-llama-server"], capture_output=True, timeout=120)
-                        subprocess.run(["docker", "start", "dream-llama-server"], capture_output=True, timeout=300)
+                    subprocess.run(["docker", "compose"] + compose_flags + ["stop", "llama-server"],
+                                   cwd=str(INSTALL_DIR), capture_output=True, timeout=120)
+                    subprocess.run(["docker", "compose"] + compose_flags + ["up", "-d", "llama-server"],
+                                   cwd=str(INSTALL_DIR), capture_output=True, timeout=300)
                 json_response(self, 500, {"error": "Health check failed — rolled back to previous model", "rolled_back": True})
 
         except Exception as exc:
@@ -932,7 +1097,7 @@ class AgentHandler(BaseHTTPRequestHandler):
             json_response(self, 500, {"error": f"Failed to delete: {exc}"})
 
 
-def _write_model_status(path: Path, status: str, model: str, downloaded: int, total: int, error: str = ""):
+def _write_model_status(path: Path, status: str, model: str, downloaded: int, total: int, error: str = "", started_at: str = ""):
     """Write model download status JSON atomically."""
     data = {
         "status": status,
@@ -941,6 +1106,8 @@ def _write_model_status(path: Path, status: str, model: str, downloaded: int, to
         "bytesTotal": total,
         "updatedAt": _iso_now(),
     }
+    if started_at:
+        data["startedAt"] = started_at
     if error:
         data["error"] = error
     tmp = path.with_suffix(".tmp")
