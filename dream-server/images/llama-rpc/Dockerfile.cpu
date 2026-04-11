@@ -5,7 +5,7 @@ ARG LLAMA_CPP_TAG=b8672
 
 FROM ubuntu:24.04 AS build
 ARG LLAMA_CPP_TAG
-RUN apt-get update && apt-get install -y --no-install-recommends cmake git curl g++ ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends cmake make git curl g++ ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 RUN git clone --depth 1 -b "${LLAMA_CPP_TAG}" https://github.com/ggerganov/llama.cpp /llama.cpp
 WORKDIR /llama.cpp

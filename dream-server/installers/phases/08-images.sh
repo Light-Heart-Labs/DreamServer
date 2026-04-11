@@ -150,8 +150,7 @@ else
         bootline
         echo ""
 
-        local _rpc_dir="$SCRIPT_DIR/images/llama-rpc"
-        local _ctrl_dockerfile _ctrl_tag _worker_dockerfile _worker_tag
+        _rpc_dir="$SCRIPT_DIR/images/llama-rpc"
         if [[ "$GPU_BACKEND" == "amd" ]]; then
             _ctrl_dockerfile="Dockerfile.rocm"
             _ctrl_tag="dream-llama-rpc:rocm"
@@ -184,5 +183,7 @@ else
             ai_warn "Worker image build failed — check $LOG_FILE for details"
             ai "  You can retry later with: docker build -f $_rpc_dir/$_worker_dockerfile -t $_worker_tag $_rpc_dir"
         fi
+
+        unset _rpc_dir _ctrl_dockerfile _ctrl_tag _worker_dockerfile _worker_tag
     fi
 fi
