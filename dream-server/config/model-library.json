@@ -7,7 +7,7 @@
       "family": "qwen",
       "gguf_file": "Qwen3.5-2B-Q4_K_M.gguf",
       "gguf_url": "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf",
-      "gguf_sha256": "",
+      "gguf_sha256": "aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223",
       "size_mb": 1500,
       "vram_required_gb": 3,
       "context_length": 8192,
@@ -24,7 +24,7 @@
       "family": "phi",
       "gguf_file": "Phi-4-mini-instruct-Q4_K_M.gguf",
       "gguf_url": "https://huggingface.co/unsloth/Phi-4-mini-instruct-GGUF/resolve/main/Phi-4-mini-instruct-Q4_K_M.gguf",
-      "gguf_sha256": "",
+      "gguf_sha256": "88c00229914083cd112853aab84ed51b87bdf6b9ce42f532d8c85c7c63b1730a",
       "size_mb": 2490,
       "vram_required_gb": 4,
       "context_length": 128000,
@@ -58,7 +58,7 @@
       "family": "gemma4",
       "gguf_file": "gemma-4-E2B-it-Q4_K_M.gguf",
       "gguf_url": "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf",
-      "gguf_sha256": "",
+      "gguf_sha256": "ac0069ebccd39925d836f24a88c0f0c858d20578c29b21ab7cedce66ee576845",
       "size_mb": 2810,
       "vram_required_gb": 5,
       "context_length": 16384,
@@ -75,7 +75,7 @@
       "family": "deepseek",
       "gguf_file": "DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf",
       "gguf_url": "https://huggingface.co/unsloth/DeepSeek-R1-Distill-Qwen-7B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf",
-      "gguf_sha256": "",
+      "gguf_sha256": "78272d8d32084548bd450394a560eb2d70de8232ab96a725769b1f9171235c1c",
       "size_mb": 4680,
       "vram_required_gb": 7,
       "context_length": 32768,
@@ -92,7 +92,7 @@
       "family": "gemma4",
       "gguf_file": "gemma-4-E4B-it-Q4_K_M.gguf",
       "gguf_url": "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf",
-      "gguf_sha256": "",
+      "gguf_sha256": "dff0ffba4c90b4082d70214d53ce9504a28d4d8d998276dcb3b8881a656c742a",
       "size_mb": 5340,
       "vram_required_gb": 8,
       "context_length": 32768,
@@ -126,7 +126,7 @@
       "family": "phi",
       "gguf_file": "phi-4-Q4_K_M.gguf",
       "gguf_url": "https://huggingface.co/bartowski/phi-4-GGUF/resolve/main/phi-4-Q4_K_M.gguf",
-      "gguf_sha256": "",
+      "gguf_sha256": "009aba717c09d4a35890c7d35eb59d54e1dba884c7c526e7197d9c13ab5911d9",
       "size_mb": 9050,
       "vram_required_gb": 11,
       "context_length": 16384,
@@ -143,7 +143,7 @@
       "family": "deepseek",
       "gguf_file": "DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf",
       "gguf_url": "https://huggingface.co/unsloth/DeepSeek-R1-Distill-Qwen-14B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf",
-      "gguf_sha256": "",
+      "gguf_sha256": "67a7933cf2ad596a393c8e13b30bc4da2d50b283e250b78554aed18817eca31c",
       "size_mb": 8990,
       "vram_required_gb": 12,
       "context_length": 32768,
@@ -177,7 +177,7 @@
       "family": "gemma4",
       "gguf_file": "gemma-4-26B-A4B-it-Q4_K_M.gguf",
       "gguf_url": "https://huggingface.co/ggml-org/gemma-4-26B-A4B-it-GGUF/resolve/main/gemma-4-26B-A4B-it-Q4_K_M.gguf",
-      "gguf_sha256": "",
+      "gguf_sha256": "23c6997912cb7fa36147fe05877de73ddbb2a80ff69b18ff171b354dccf2b5b5",
       "size_mb": 18000,
       "vram_required_gb": 22,
       "context_length": 16384,
@@ -211,7 +211,7 @@
       "family": "gemma4",
       "gguf_file": "gemma-4-31B-it-Q4_K_M.gguf",
       "gguf_url": "https://huggingface.co/ggml-org/gemma-4-31B-it-GGUF/resolve/main/gemma-4-31B-it-Q4_K_M.gguf",
-      "gguf_sha256": "",
+      "gguf_sha256": "a20deaf2f8fc27c501f32fadfd538f8f31a76f10f47d5d3eb895f3d1112d752c",
       "size_mb": 19800,
       "vram_required_gb": 24,
       "context_length": 131072,
@@ -228,7 +228,7 @@
       "family": "deepseek",
       "gguf_file": "DeepSeek-R1-Distill-Qwen-32B-Q4_K_M.gguf",
       "gguf_url": "https://huggingface.co/unsloth/DeepSeek-R1-Distill-Qwen-32B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-32B-Q4_K_M.gguf",
-      "gguf_sha256": "",
+      "gguf_sha256": "ca171ca03554ee20cf67ad6b540610ae7eabb95af00c0abd36bb73542e140fb5",
       "size_mb": 19900,
       "vram_required_gb": 24,
       "context_length": 32768,
@@ -245,7 +245,7 @@
       "family": "qwen",
       "gguf_file": "Qwen3.5-35B-A3B-Q4_K_M.gguf",
       "gguf_url": "https://huggingface.co/unsloth/Qwen3.5-35B-A3B-GGUF/resolve/main/Qwen3.5-35B-A3B-Q4_K_M.gguf",
-      "gguf_sha256": "",
+      "gguf_sha256": "3b46d1066bc91cc2d613e3bc22ce691dd77e6f0d33c9060690d24ce6de494375",
       "size_mb": 22000,
       "vram_required_gb": 24,
       "context_length": 131072,
@@ -262,7 +262,7 @@
       "family": "deepseek",
       "gguf_file": "DeepSeek-R1-Distill-Llama-70B-Q4_K_M.gguf",
       "gguf_url": "https://huggingface.co/unsloth/DeepSeek-R1-Distill-Llama-70B-GGUF/resolve/main/DeepSeek-R1-Distill-Llama-70B-Q4_K_M.gguf",
-      "gguf_sha256": "",
+      "gguf_sha256": "952ff479c48ac3ece81fb6d9a5a03bfeac215e6caac780fbe91ff8cb0e05bcf3",
       "size_mb": 42500,
       "vram_required_gb": 48,
       "context_length": 32768,
@@ -300,11 +300,13 @@
       "gguf_parts": [
         {
           "file": "Llama-4-Scout-17B-16E-Instruct-Q4_K_M-00001-of-00002.gguf",
-          "url": "https://huggingface.co/unsloth/Llama-4-Scout-17B-16E-Instruct-GGUF/resolve/main/Q4_K_M/Llama-4-Scout-17B-16E-Instruct-Q4_K_M-00001-of-00002.gguf"
+          "url": "https://huggingface.co/unsloth/Llama-4-Scout-17B-16E-Instruct-GGUF/resolve/main/Q4_K_M/Llama-4-Scout-17B-16E-Instruct-Q4_K_M-00001-of-00002.gguf",
+          "sha256": "fbe956902467171ed7c0c326e5d868771a84d46468d407abecd0f289297313f9"
         },
         {
           "file": "Llama-4-Scout-17B-16E-Instruct-Q4_K_M-00002-of-00002.gguf",
-          "url": "https://huggingface.co/unsloth/Llama-4-Scout-17B-16E-Instruct-GGUF/resolve/main/Q4_K_M/Llama-4-Scout-17B-16E-Instruct-Q4_K_M-00002-of-00002.gguf"
+          "url": "https://huggingface.co/unsloth/Llama-4-Scout-17B-16E-Instruct-GGUF/resolve/main/Q4_K_M/Llama-4-Scout-17B-16E-Instruct-Q4_K_M-00002-of-00002.gguf",
+          "sha256": "e7330ae14527f08e8a44a6a573b45084052b8822c4b8a5179c5cad9cd6f6f795"
         }
       ],
       "size_mb": 65300,
@@ -327,15 +329,18 @@
       "gguf_parts": [
         {
           "file": "Qwen3.5-122B-A10B-Q4_K_M-00001-of-00003.gguf",
-          "url": "https://huggingface.co/unsloth/Qwen3.5-122B-A10B-GGUF/resolve/main/Q4_K_M/Qwen3.5-122B-A10B-Q4_K_M-00001-of-00003.gguf"
+          "url": "https://huggingface.co/unsloth/Qwen3.5-122B-A10B-GGUF/resolve/main/Q4_K_M/Qwen3.5-122B-A10B-Q4_K_M-00001-of-00003.gguf",
+          "sha256": "467c9bd92ea518539cf75bf5a5fbfbd35e9a0b40d766ccaa67bf120e12041df3"
         },
         {
           "file": "Qwen3.5-122B-A10B-Q4_K_M-00002-of-00003.gguf",
-          "url": "https://huggingface.co/unsloth/Qwen3.5-122B-A10B-GGUF/resolve/main/Q4_K_M/Qwen3.5-122B-A10B-Q4_K_M-00002-of-00003.gguf"
+          "url": "https://huggingface.co/unsloth/Qwen3.5-122B-A10B-GGUF/resolve/main/Q4_K_M/Qwen3.5-122B-A10B-Q4_K_M-00002-of-00003.gguf",
+          "sha256": "90db14846413aebdac365b57206441437cac5f7e5037d94b325f0167f902e6e7"
         },
         {
           "file": "Qwen3.5-122B-A10B-Q4_K_M-00003-of-00003.gguf",
-          "url": "https://huggingface.co/unsloth/Qwen3.5-122B-A10B-GGUF/resolve/main/Q4_K_M/Qwen3.5-122B-A10B-Q4_K_M-00003-of-00003.gguf"
+          "url": "https://huggingface.co/unsloth/Qwen3.5-122B-A10B-GGUF/resolve/main/Q4_K_M/Qwen3.5-122B-A10B-Q4_K_M-00003-of-00003.gguf",
+          "sha256": "e3c24b8ebec070bb4f69ea0aca25a16531da7440cd515529953e046882901f97"
         }
       ],
       "size_mb": 76500,

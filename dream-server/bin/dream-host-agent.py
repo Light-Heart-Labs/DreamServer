@@ -1063,7 +1063,6 @@ class AgentHandler(BaseHTTPRequestHandler):
 
         gguf_file = body.get("gguf_file", "")
         gguf_url = body.get("gguf_url", "")
-        gguf_sha256 = body.get("gguf_sha256", "")
         gguf_parts = body.get("gguf_parts", [])
 
         if not gguf_file or (not gguf_url and not gguf_parts):
@@ -1079,9 +1078,12 @@ class AgentHandler(BaseHTTPRequestHandler):
         else:
             download_plan = [(gguf_file, gguf_url)]
 
-        # Validate against library (prevent arbitrary URL downloads)
+        # Validate against library (prevent arbitrary URL downloads).
+        # Also harvest expected SHA256s keyed by filename so verification can
+        # cover every part of split-file downloads, not just single-file models.
         library_path = INSTALL_DIR / "config" / "model-library.json"
         allowed = False
+        expected_sha_by_file: dict = {}
         if library_path.exists():
             try:
                 lib = json.loads(library_path.read_text(encoding="utf-8"))
@@ -1090,12 +1092,21 @@ class AgentHandler(BaseHTTPRequestHandler):
                         continue
                     if gguf_parts:
                         # Verify every (file, url) in the request matches the library
-                        lib_parts = {(p["file"], p["url"]) for p in m.get("gguf_parts", [])}
+                        lib_parts_meta = {
+                            (p["file"], p["url"]): p.get("sha256", "")
+                            for p in m.get("gguf_parts", [])
+                            if p.get("file") and p.get("url")
+                        }
                         req_parts = set(download_plan)
-                        if req_parts and req_parts <= lib_parts:
+                        if req_parts and req_parts <= set(lib_parts_meta.keys()):
                             allowed = True
+                            expected_sha_by_file = {
+                                file: lib_parts_meta[(file, url)]
+                                for file, url in download_plan
+                            }
                     elif m.get("gguf_url") == gguf_url:
                         allowed = True
+                        expected_sha_by_file = {gguf_file: m.get("gguf_sha256", "")}
                     break
             except (json.JSONDecodeError, OSError):
                 pass
@@ -1188,20 +1199,43 @@ class AgentHandler(BaseHTTPRequestHandler):
                             _write_model_status(status_path, "failed", part_label, 0, part_total, "Download failed after 3 attempts")
                             return
 
-                    # Verify SHA256 if provided (single-file only)
-                    if gguf_sha256 and len(download_plan) == 1:
-                        final_target = models_dir / download_plan[0][0]
+                    # Verify SHA256 for every downloaded part. Catalog is the
+                    # source of truth: split-file models carry per-part sha256
+                    # in expected_sha_by_file, single-file models carry one
+                    # entry. Empty checksum -> warn (do not silently skip), so
+                    # missing catalog entries surface during operator review.
+                    import hashlib
+                    for part_idx, (part_file_name, _) in enumerate(download_plan, 1):
+                        expected = expected_sha_by_file.get(part_file_name, "")
+                        final_target = models_dir / part_file_name
+                        if not expected:
+                            logger.warning(
+                                "SHA256 verification skipped for %s: no checksum in model-library.json",
+                                part_file_name,
+                            )
+                            continue
                         final_size = final_target.stat().st_size
-                        _write_model_status(status_path, "verifying", gguf_file, final_size, final_size)
-                        import hashlib
+                        verify_label = (
+                            part_file_name
+                            if len(download_plan) == 1
+                            else f"{part_file_name} (part {part_idx}/{len(download_plan)})"
+                        )
+                        _write_model_status(status_path, "verifying", verify_label, final_size, final_size)
                         sha = hashlib.sha256()
                         with open(final_target, "rb") as f:
                             for chunk in iter(lambda: f.read(1048576), b""):
                                 sha.update(chunk)
                         actual = sha.hexdigest()
-                        if actual != gguf_sha256:
+                        if actual != expected:
                             final_target.unlink(missing_ok=True)
-                            _write_model_status(status_path, "failed", gguf_file, 0, 0, f"SHA256 mismatch: expected {gguf_sha256[:12]}..., got {actual[:12]}...")
+                            _write_model_status(
+                                status_path,
+                                "failed",
+                                part_file_name,
+                                0,
+                                0,
+                                f"SHA256 mismatch: expected {expected[:12]}..., got {actual[:12]}...",
+                            )
                             return
 
                     _write_model_status(status_path, "complete", gguf_file, 0, 0)
