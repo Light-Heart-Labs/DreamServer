@@ -22,8 +22,8 @@ services:
       - CONTINUE_PORT=${CONTINUE_PORT:-8890}
     volumes:
       - ./data/continue:/usr/share/nginx/html:rw
-      - ./extensions/services/continue/config/continue/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./extensions/services/continue/config/continue/entrypoint.sh:/docker-entrypoint.d/50-continue-init.sh:ro
+      - ./config/continue/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./config/continue/entrypoint.sh:/docker-entrypoint.d/50-continue-init.sh:ro
     ports:
       - "127.0.0.1:${CONTINUE_PORT:-8890}:8080"
     networks:

@@ -39,7 +39,7 @@ services:
     networks:
       - dream-network
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://127.0.0.1:80/api/_health/"]
+      test: ["CMD", "curl", "-sf", "-H", "Host: localhost:3007", "http://127.0.0.1:80/api/_health/"]
       interval: 30s
       timeout: 10s
       retries: 3
