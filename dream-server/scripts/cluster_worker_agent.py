@@ -296,6 +296,7 @@ def main():
     parser.add_argument("--status-port", type=int, default=50054, help="HTTP status port")
     parser.add_argument("--pid-file", help="Write PID to file")
     parser.add_argument("--interface", default="", help="Bind discovery to this network interface IP")
+    parser.add_argument("--controller", default="", help="Controller IP (skip UDP discovery)")
     args = parser.parse_args()
 
     if args.pid_file:
@@ -323,6 +324,11 @@ def main():
     gpu_backend = state.get("gpu_backend") or detect_gpu_backend()
     rpc_port = state.get("rpc_port", 50052)
     bind_ip = args.interface or state.get("interface", "") or ""
+
+    # If controller IP given via CLI, store it and skip discovery
+    if args.controller:
+        state.update(controller_ip=args.controller)
+
     state.update(gpu_backend=gpu_backend, rpc_port=rpc_port)
 
     # Main loop: discover → join → run → monitor

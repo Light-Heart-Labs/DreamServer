@@ -3940,13 +3940,14 @@ _cluster_agent() {
     local agent_script="$INSTALL_DIR/scripts/cluster_worker_agent.py"
     local status_port=50054
 
-    # Parse --token and --interface on first start
-    local token="" interface=""
+    # Parse --token, --interface, --controller on first start
+    local token="" interface="" controller=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --token) token="${2:-}"; shift 2 ;;
             --port) status_port="${2:-50054}"; shift 2 ;;
             --interface) interface="${2:-}"; shift 2 ;;
+            --controller) controller="${2:-}"; shift 2 ;;
             *) shift ;;
         esac
     done
@@ -3972,7 +3973,7 @@ else: print('cpu')
                 mkdir -p "$(dirname "$config_file")"
                 python3 -c "
 import json
-cfg = {'token': '$token', 'controller_ip': '', 'setup_port': 50051,
+cfg = {'token': '$token', 'controller_ip': '$controller', 'setup_port': 50051,
        'rpc_port': 50052, 'gpu_backend': '$gpu_backend', 'interface': '$interface', 'status': 'idle'}
 with open('$config_file', 'w') as f: json.dump(cfg, f, indent=2)
 "
@@ -4018,6 +4019,7 @@ with open('$config_file', 'w') as f: json.dump(cfg, f, indent=2)
                         --status-port "$status_port" \
                         --pid-file "$pid_file" \
                         ${interface:+--interface "$interface"} \
+                        ${controller:+--controller "$controller"} \
                         >> "$log_file" 2>&1 &disown
                     success "Cluster agent started (background, PID $!)"
                     ;;
@@ -4067,7 +4069,7 @@ with open('$config_file', 'w') as f: json.dump(cfg, f, indent=2)
             ;;
 
         *)
-            log "Usage: dream cluster agent [start|stop|status|logs] [--token TOKEN] [--interface IP]"
+            log "Usage: dream cluster agent [start|stop|status|logs] [--token TOKEN] [--controller IP] [--interface IP]"
             ;;
     esac
 }
@@ -4117,7 +4119,8 @@ ${CYAN}Examples:${NC}
   dream cluster join --discover --token dream_abc123           # Auto-discover + join
   dream cluster status                                        # See all nodes
   dream cluster test                                          # Latency test
-  dream cluster agent start --token dream_abc123               # Start worker agent
+  dream cluster agent start --token dream_abc123               # Start worker agent (auto-discover)
+  dream cluster agent start --token dream_abc123 --controller 192.168.1.100  # Skip discovery
   dream cluster agent start --token dream_abc123 --interface 192.168.1.50  # Specific NIC
   dream cluster agent status                                   # Check agent state
   dream cluster leave                                         # Worker leaves
