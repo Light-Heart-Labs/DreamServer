@@ -276,6 +276,10 @@ def _load_core_service_ids() -> frozenset:
 
 CORE_SERVICE_IDS = _load_core_service_ids()
 
+# Always-on services defined in docker-compose.base.yml — never manageable via API.
+# Distinct from CORE_SERVICE_IDS (the full built-in service allowlist).
+ALWAYS_ON_SERVICES: frozenset = frozenset({"llama-server", "open-webui", "dashboard", "dashboard-api"})
+
 
 def load_extension_catalog() -> list[dict]:
     """Load the static extensions catalog JSON. Returns empty list on failure."""
