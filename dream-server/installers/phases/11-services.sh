@@ -380,6 +380,7 @@ MODELS_INI_EOF
         nohup bash "$SCRIPT_DIR/scripts/bootstrap-upgrade.sh" \
             "$INSTALL_DIR" "$FULL_GGUF_FILE" "$FULL_GGUF_URL" \
             "$FULL_GGUF_SHA256" "$FULL_LLM_MODEL" "$FULL_MAX_CONTEXT" \
+            "$BOOTSTRAP_GGUF_FILE" \
             > "$INSTALL_DIR/logs/model-upgrade.log" 2>&1 &
         _upgrade_pid=$!
 

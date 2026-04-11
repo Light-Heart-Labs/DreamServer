@@ -9,8 +9,13 @@
 # Usage (called by phase 11, not directly by users):
 #   nohup bash bootstrap-upgrade.sh \
 #       <install_dir> <gguf_file> <gguf_url> <gguf_sha256> \
-#       <llm_model> <max_context> \
+#       <llm_model> <max_context> [<bootstrap_gguf_file>] \
 #       > logs/model-upgrade.log 2>&1 &
+#
+# Arg 7 (bootstrap_gguf_file) is optional and defaults to the historical
+# Qwen3.5-2B-Q4_K_M.gguf for backwards compatibility. Phase 11 must pass the
+# canonical $BOOTSTRAP_GGUF_FILE from installers/lib/bootstrap-model.sh so the
+# Phase 4b cleanup step removes the actual bootstrap model after hot-swap.
 #
 # On failure: logs the error and exits. The bootstrap model continues
 # running — the user can retry via re-running the installer.
@@ -27,6 +32,7 @@ FULL_GGUF_URL="$3"
 FULL_GGUF_SHA256="$4"
 FULL_LLM_MODEL="$5"
 FULL_MAX_CONTEXT="$6"
+BOOTSTRAP_GGUF_FILE="${7:-Qwen3.5-2B-Q4_K_M.gguf}"
 
 MODELS_DIR="$INSTALL_DIR/data/models"
 ENV_FILE="$INSTALL_DIR/.env"
@@ -123,6 +129,47 @@ monitor_download() {
         prev_time=$now
     done
 }
+
+# ── Docker permission detection ──
+# This script runs detached via nohup, so DOCKER_CMD from the parent installer
+# is not inherited. For Linux installs we MUST be able to talk to the docker
+# daemon — silently failing here leaves the user running the small bootstrap
+# model forever. macOS installs use a native llama-server PID file and never
+# enter the docker hot-swap path; skip detection there. Mirrors the
+# sudo-fallback pattern in installers/phases/05-docker.sh.
+DOCKER_CMD=""
+DOCKER_COMPOSE_CMD=""
+if command -v docker >/dev/null 2>&1; then
+    if docker info >/dev/null 2>&1; then
+        DOCKER_CMD="docker"
+    elif command -v sudo >/dev/null 2>&1 && sudo -n docker info >/dev/null 2>&1; then
+        DOCKER_CMD="sudo docker"
+        log "Detected docker requires sudo (user not in docker group). Using 'sudo docker'."
+    elif [[ ! -f "$INSTALL_DIR/data/.llama-server.pid" ]]; then
+        # Linux install: docker is the only hot-swap path. Failing silently
+        # would leave the bootstrap model running forever — fail loudly.
+        log "ERROR: docker is installed but not accessible by this user."
+        log "       Tried 'docker info' and 'sudo -n docker info' — both failed."
+        log "       The bootstrap model will continue running. Fix one of:"
+        log "         1. Re-login (so 'docker' group membership takes effect), then re-run this script."
+        log "         2. Configure passwordless sudo for 'docker' (e.g. NOPASSWD in /etc/sudoers.d)."
+        write_status "failed"
+        exit 1
+    fi
+
+    if [[ -n "$DOCKER_CMD" ]]; then
+        # Pick docker compose v2 (plugin) if available, else legacy docker-compose v1.
+        if $DOCKER_CMD compose version >/dev/null 2>&1; then
+            DOCKER_COMPOSE_CMD="$DOCKER_CMD compose"
+        elif command -v docker-compose >/dev/null 2>&1; then
+            if [[ "$DOCKER_CMD" == "sudo docker" ]]; then
+                DOCKER_COMPOSE_CMD="sudo docker-compose"
+            else
+                DOCKER_COMPOSE_CMD="docker-compose"
+            fi
+        fi
+    fi
+fi
 
 log "Starting full model download: $FULL_GGUF_FILE"
 log "URL: $FULL_GGUF_URL"
@@ -240,7 +287,7 @@ log "models.ini updated"
 # Lemonade's --extra-models-dir auto-discovers all GGUFs in /models and may
 # load the bootstrap model instead of the full one specified in models.ini.
 # Remove the bootstrap file to prevent this.
-BOOTSTRAP_GGUF="Qwen3.5-2B-Q4_K_M.gguf"
+BOOTSTRAP_GGUF="${BOOTSTRAP_GGUF_FILE:-Qwen3.5-2B-Q4_K_M.gguf}"
 BOOTSTRAP_PATH="$MODELS_DIR/$BOOTSTRAP_GGUF"
 if [[ -f "$BOOTSTRAP_PATH" && "$FULL_GGUF_FILE" != "$BOOTSTRAP_GGUF" ]]; then
     log "Removing bootstrap model: $BOOTSTRAP_GGUF"
@@ -254,7 +301,7 @@ if [[ -f "$ENV_FILE" ]]; then
     OLLAMA_PORT=$(grep -E '^OLLAMA_PORT=' "$ENV_FILE" | cut -d= -f2)
 fi
 
-if command -v docker &>/dev/null && docker ps --filter name=dream-llama-server --format '{{.Names}}' 2>/dev/null | grep -q dream-llama-server; then
+if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --format '{{.Names}}' 2>/dev/null | grep -q dream-llama-server; then
     log "Restarting llama-server with full model..."
 
     # Read GPU backend from .env (needed for health endpoint and restart strategy)
@@ -288,19 +335,19 @@ if command -v docker &>/dev/null && docker ps --filter name=dream-llama-server -
     log "Restarting llama-server container (backend: ${_gpu_backend:-unknown})..."
     if [[ "$_gpu_backend" == "amd" ]]; then
         # Lemonade: restart preserves cached binary, reads models.ini on boot
-        if [[ ${#COMPOSE_ARGS[@]} -gt 0 ]]; then
-            docker compose "${COMPOSE_ARGS[@]}" restart llama-server 2>&1 || true
+        if [[ ${#COMPOSE_ARGS[@]} -gt 0 && -n "$DOCKER_COMPOSE_CMD" ]]; then
+            $DOCKER_COMPOSE_CMD "${COMPOSE_ARGS[@]}" restart llama-server 2>&1 || true
         else
-            docker restart dream-llama-server 2>&1 || true
+            $DOCKER_CMD restart dream-llama-server 2>&1 || true
         fi
     else
         # llama.cpp: recreate to pick up new GGUF_FILE from .env
-        if [[ ${#COMPOSE_ARGS[@]} -gt 0 ]]; then
-            docker compose "${COMPOSE_ARGS[@]}" stop llama-server 2>&1 || true
-            docker compose "${COMPOSE_ARGS[@]}" up -d llama-server 2>&1 || true
+        if [[ ${#COMPOSE_ARGS[@]} -gt 0 && -n "$DOCKER_COMPOSE_CMD" ]]; then
+            $DOCKER_COMPOSE_CMD "${COMPOSE_ARGS[@]}" stop llama-server 2>&1 || true
+            $DOCKER_COMPOSE_CMD "${COMPOSE_ARGS[@]}" up -d llama-server 2>&1 || true
         else
-            docker stop dream-llama-server 2>&1 || true
-            docker start dream-llama-server 2>&1 || true
+            $DOCKER_CMD stop dream-llama-server 2>&1 || true
+            $DOCKER_CMD start dream-llama-server 2>&1 || true
         fi
     fi
 
@@ -338,7 +385,10 @@ if command -v docker &>/dev/null && docker ps --filter name=dream-llama-server -
                 # Retry every 15s — the first request may fail if Lemonade isn't fully
                 # ready to accept chat completions yet.
                 if [[ "$_warmup_sent" == "false" ]] || (( _i % 3 == 0 )); then
-                    _model_id="extra.${FULL_GGUF_FILE}"
+                    # Escape any double-quotes in the filename so the JSON body
+                    # below stays well-formed even for non-standard library entries.
+                    # Mirrors the _safe_model pattern in write_status() above.
+                    _model_id="extra.${FULL_GGUF_FILE//\"/\\\"}"
                     log "Sending warm-up request to trigger model loading: $_model_id (attempt $_i/60)"
                     if curl -sf --max-time 30 -X POST \
                         "http://localhost:${OLLAMA_PORT:-8080}/api/v1/chat/completions" \
@@ -364,9 +414,9 @@ if command -v docker &>/dev/null && docker ps --filter name=dream-llama-server -
         # Restart LiteLLM so it picks up the new model context.
         # The lemonade.yaml wildcard config passes any model name through,
         # but LiteLLM caches routing state and may hold stale model references.
-        if docker ps --filter name=dream-litellm --format '{{.Names}}' 2>/dev/null | grep -q dream-litellm; then
+        if $DOCKER_CMD ps --filter name=dream-litellm --format '{{.Names}}' 2>/dev/null | grep -q dream-litellm; then
             log "Restarting LiteLLM to pick up model change..."
-            docker restart dream-litellm 2>&1 || log "WARNING: LiteLLM restart failed (non-fatal)"
+            $DOCKER_CMD restart dream-litellm 2>&1 || log "WARNING: LiteLLM restart failed (non-fatal)"
         fi
     else
         log "WARNING: llama-server health check timed out. The model may still be loading."
