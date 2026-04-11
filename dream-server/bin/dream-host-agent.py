@@ -605,6 +605,8 @@ class AgentHandler(BaseHTTPRequestHandler):
             self._handle_model_delete()
         elif self.path == "/v1/compose/invalidate-cache":
             self._handle_invalidate_compose_cache()
+        elif self.path == "/v1/env/update":
+            self._handle_env_update()
         else:
             json_response(self, 404, {"error": "Not found"})
 
@@ -615,6 +617,114 @@ class AgentHandler(BaseHTTPRequestHandler):
         invalidate_compose_cache()
         logger.info("compose-flags cache invalidated")
         json_response(self, 200, {"status": "ok"})
+
+    def _handle_env_update(self):
+        """Write a validated .env file. Dashboard-api delegates here because the
+        container mount is :ro — only the host agent may write secrets to disk.
+
+        Bypasses read_json_body() because the default 16 KB body limit truncates
+        real .env files (.env.example alone is ~11 KB)."""
+        if not check_auth(self):
+            return
+
+        client_ip = self.client_address[0] if hasattr(self, "client_address") else "?"
+        MAX_ENV_BODY = 65536  # env files routinely exceed the default 16 KB cap
+
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except (TypeError, ValueError):
+            logger.warning("env_update rejected: invalid Content-Length from %s", client_ip)
+            json_response(self, 400, {"error": "Invalid Content-Length"})
+            return
+        if length <= 0:
+            logger.warning("env_update rejected: empty body from %s", client_ip)
+            json_response(self, 400, {"error": "Empty body"})
+            return
+        if length > MAX_ENV_BODY:
+            logger.warning("env_update rejected: body too large (%d bytes) from %s", length, client_ip)
+            json_response(self, 413, {"error": f"Body too large: {length} > {MAX_ENV_BODY}"})
+            return
+        try:
+            raw = self.rfile.read(length)
+            body = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
+            logger.warning("env_update rejected: invalid JSON from %s: %s", client_ip, exc)
+            json_response(self, 400, {"error": f"Invalid JSON: {exc}"})
+            return
+
+        raw_text = body.get("raw_text")
+        if not isinstance(raw_text, str) or not raw_text.strip():
+            logger.warning("env_update rejected: raw_text missing/empty from %s", client_ip)
+            json_response(self, 400, {"error": "raw_text required"})
+            return
+        backup = body.get("backup", True)
+
+        schema_path = INSTALL_DIR / ".env.schema.json"
+        if not schema_path.exists():
+            logger.warning("env_update rejected: schema missing at %s (request from %s)", schema_path, client_ip)
+            json_response(self, 500, {"error": f".env.schema.json not found at {schema_path}"})
+            return
+        try:
+            with open(schema_path, encoding="utf-8") as f:
+                schema = json.load(f)
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("env_update rejected: failed to read schema (request from %s): %s", client_ip, exc)
+            json_response(self, 500, {"error": f"Failed to read .env.schema.json: {exc}"})
+            return
+        allowed_keys = set(schema.get("properties", {}).keys())
+
+        for line in raw_text.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if "=" not in stripped:
+                logger.warning("env_update rejected: malformed line %r from %s", stripped[:80], client_ip)
+                json_response(self, 400, {"error": f"Malformed line: {stripped[:80]}"})
+                return
+            key, _, value = stripped.partition("=")
+            key = key.strip()
+            if key not in allowed_keys:
+                logger.warning("env_update rejected: unknown key %r from %s", key, client_ip)
+                json_response(self, 400, {"error": f"Unknown key: {key}"})
+                return
+            # Defense in depth: reject values containing control chars (null bytes,
+            # escape sequences, etc.). splitlines() already consumed \n/\r/\u2028/\u2029;
+            # this catches the residual edge cases flagged by security review.
+            if any(ord(c) < 32 and c != "\t" for c in value):
+                logger.warning("env_update rejected: control char in value for key %r from %s", key, client_ip)
+                json_response(self, 400, {"error": f"Value contains control characters for key: {key}"})
+                return
+
+        # Coordinate with model activation, which also writes .env under this lock.
+        if not _model_activate_lock.acquire(blocking=False):
+            logger.warning("env_update rejected: lock contention from %s", client_ip)
+            json_response(self, 409, {"error": "Model activation or another env update in progress; try again shortly"})
+            return
+
+        env_path = INSTALL_DIR / ".env"
+        backup_relative_path = None
+        try:
+            if backup and env_path.exists():
+                backup_dir = DATA_DIR / "config-backups"
+                backup_dir.mkdir(parents=True, exist_ok=True)
+                timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+                backup_path = backup_dir / f".env.backup.{timestamp}"
+                shutil.copy2(env_path, backup_path)
+                backup_relative_path = f"data/{backup_path.relative_to(DATA_DIR).as_posix()}"
+
+            payload_text = raw_text if raw_text.endswith("\n") else raw_text + "\n"
+            tmp_path = env_path.with_name(".env.tmp")
+            tmp_path.write_text(payload_text, encoding="utf-8")
+            os.replace(str(tmp_path), str(env_path))
+        except OSError as exc:
+            logger.warning("env_update OSError from %s: %s", client_ip, exc)
+            json_response(self, 500, {"error": str(exc)})
+            return
+        finally:
+            _model_activate_lock.release()
+
+        logger.info(".env updated via host agent from %s (backup=%s)", client_ip, backup_relative_path or "none")
+        json_response(self, 200, {"status": "ok", "backup_path": backup_relative_path})
 
     def _handle_core_recreate(self):
         if not check_auth(self):

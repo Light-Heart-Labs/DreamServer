@@ -1,8 +1,12 @@
 """Tests for dream-host-agent.py — _parse_mem_value and _iso_now."""
 
 import importlib.util
+import io
+import json
 import sys
 from pathlib import Path, PurePosixPath
+
+import pytest
 
 # Import the host agent module from bin/ using importlib.
 # The module has an ``if __name__ == "__main__":`` guard so no server starts.
@@ -180,3 +184,165 @@ class TestInvalidateComposeCache:
         monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
 
         invalidate_compose_cache()  # must not raise
+
+
+# --- _handle_env_update ---
+
+
+class _FakeHandler:
+    """Minimal stand-in for BaseHTTPRequestHandler used by _handle_env_update."""
+
+    def __init__(self, body: bytes, headers=None):
+        merged = {
+            "Authorization": "Bearer test-key",
+            "Content-Length": str(len(body)),
+        }
+        if headers:
+            merged.update(headers)
+        self.headers = merged
+        self.rfile = io.BytesIO(body)
+        self.wfile = io.BytesIO()
+        self.client_address = ("127.0.0.1", 12345)
+        self.response_code = None
+        self.response_headers = []
+
+    def send_response(self, code):
+        self.response_code = code
+
+    def send_header(self, name, value):
+        self.response_headers.append((name, value))
+
+    def end_headers(self):
+        pass
+
+    def parse_response(self):
+        # json_response writes the JSON body via wfile.write()
+        return json.loads(self.wfile.getvalue().decode("utf-8"))
+
+
+@pytest.fixture
+def env_update_env(tmp_path, monkeypatch):
+    """Wire up INSTALL_DIR/DATA_DIR/AGENT_API_KEY for _handle_env_update tests."""
+    install_dir = tmp_path / "install"
+    install_dir.mkdir()
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+
+    schema = {
+        "properties": {
+            "DREAM_AGENT_KEY": {"type": "string"},
+            "GGUF_FILE": {"type": "string"},
+        }
+    }
+    (install_dir / ".env.schema.json").write_text(json.dumps(schema), encoding="utf-8")
+    (install_dir / ".env").write_text("DREAM_AGENT_KEY=existing\n", encoding="utf-8")
+
+    monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+    monkeypatch.setattr(_mod, "DATA_DIR", data_dir)
+    monkeypatch.setattr(_mod, "AGENT_API_KEY", "test-key")
+    return install_dir, data_dir
+
+
+def _make_body(raw_text: str, backup: bool = True) -> bytes:
+    return json.dumps({"raw_text": raw_text, "backup": backup}).encode("utf-8")
+
+
+class TestHandleEnvUpdate:
+
+    def test_happy_path_writes_file_and_returns_backup(self, env_update_env):
+        install_dir, data_dir = env_update_env
+        body = _make_body("DREAM_AGENT_KEY=newvalue\nGGUF_FILE=/models/foo.gguf\n")
+        handler = _FakeHandler(body)
+
+        _mod.AgentHandler._handle_env_update(handler)
+
+        assert handler.response_code == 200
+        resp = handler.parse_response()
+        assert resp["status"] == "ok"
+        assert resp["backup_path"].startswith("data/config-backups/.env.backup.")
+        env_text = (install_dir / ".env").read_text(encoding="utf-8")
+        assert "DREAM_AGENT_KEY=newvalue" in env_text
+        assert "GGUF_FILE=/models/foo.gguf" in env_text
+        # backup file actually exists where the response says it does
+        backup_files = list((data_dir / "config-backups").glob(".env.backup.*"))
+        assert len(backup_files) == 1
+
+    def test_413_oversize_body(self, env_update_env):
+        # Construct headers claiming body is too large; rfile content is irrelevant.
+        handler = _FakeHandler(b"x", headers={"Content-Length": str(_mod.MAX_BODY + 999999) if hasattr(_mod, "MAX_BODY") else "100000"})
+        # MAX_ENV_BODY is hard-coded to 65536 inside the handler.
+        handler.headers["Content-Length"] = "70000"
+
+        _mod.AgentHandler._handle_env_update(handler)
+
+        assert handler.response_code == 413
+        assert "too large" in handler.parse_response()["error"].lower()
+
+    def test_400_unknown_key(self, env_update_env):
+        body = _make_body("NOT_IN_SCHEMA=foo\n")
+        handler = _FakeHandler(body)
+
+        _mod.AgentHandler._handle_env_update(handler)
+
+        assert handler.response_code == 400
+        assert "Unknown key" in handler.parse_response()["error"]
+
+    def test_400_malformed_line(self, env_update_env):
+        body = _make_body("THIS_LINE_HAS_NO_EQUALS\n")
+        handler = _FakeHandler(body)
+
+        _mod.AgentHandler._handle_env_update(handler)
+
+        assert handler.response_code == 400
+        assert "Malformed line" in handler.parse_response()["error"]
+
+    def test_400_control_char_in_value(self, env_update_env):
+        body = _make_body("DREAM_AGENT_KEY=foo\x00bar\n")
+        handler = _FakeHandler(body)
+
+        _mod.AgentHandler._handle_env_update(handler)
+
+        assert handler.response_code == 400
+        assert "control characters" in handler.parse_response()["error"]
+
+    def test_400_control_char_escape_sequence(self, env_update_env):
+        # ESC (0x1b) — common in injected ANSI sequences
+        body = _make_body("DREAM_AGENT_KEY=foo\x1b[31mbar\n")
+        handler = _FakeHandler(body)
+
+        _mod.AgentHandler._handle_env_update(handler)
+
+        assert handler.response_code == 400
+
+    def test_tab_in_value_is_allowed(self, env_update_env):
+        # Tab is the only sub-32 char that should pass through.
+        body = _make_body("DREAM_AGENT_KEY=foo\tbar\n")
+        handler = _FakeHandler(body)
+
+        _mod.AgentHandler._handle_env_update(handler)
+
+        assert handler.response_code == 200
+
+    def test_409_lock_contention(self, env_update_env):
+        body = _make_body("DREAM_AGENT_KEY=newvalue\n")
+        handler = _FakeHandler(body)
+
+        assert _mod._model_activate_lock.acquire(blocking=False)
+        try:
+            _mod.AgentHandler._handle_env_update(handler)
+        finally:
+            _mod._model_activate_lock.release()
+
+        assert handler.response_code == 409
+        assert "in progress" in handler.parse_response()["error"]
+
+    def test_500_missing_schema(self, env_update_env):
+        install_dir, _ = env_update_env
+        (install_dir / ".env.schema.json").unlink()
+        body = _make_body("DREAM_AGENT_KEY=newvalue\n")
+        handler = _FakeHandler(body)
+
+        _mod.AgentHandler._handle_env_update(handler)
+
+        assert handler.response_code == 500
+        assert ".env.schema.json not found" in handler.parse_response()["error"]
