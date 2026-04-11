@@ -32,6 +32,19 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY entrypoint.sh /entrypoint.sh
 RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
+# Create non-root user and set permissions for nginx
+RUN addgroup -g 1000 dreamer && \
+    adduser -D -u 1000 -G dreamer dreamer && \
+    chown -R dreamer:dreamer /usr/share/nginx/html && \
+    chown -R dreamer:dreamer /var/cache/nginx && \
+    chown -R dreamer:dreamer /var/log/nginx && \
+    chown -R dreamer:dreamer /etc/nginx/conf.d && \
+    touch /var/run/nginx.pid && \
+    chown -R dreamer:dreamer /var/run/nginx.pid && \
+    sed -i '/^user/d' /etc/nginx/nginx.conf
+
+USER dreamer
+
 # Expose port 3001
 EXPOSE 3001
 
