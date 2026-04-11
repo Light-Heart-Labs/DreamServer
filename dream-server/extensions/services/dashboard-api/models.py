@@ -52,6 +52,35 @@ class BootstrapStatus(BaseModel):
     eta_seconds: Optional[int] = None
 
 
+class ClusterGPU(BaseModel):
+    name: str
+    vram_mb: int
+
+
+class ClusterNode(BaseModel):
+    ip: str
+    rpc_port: int = 50052
+    gpu_backend: str
+    gpus: list[ClusterGPU]
+    status: str  # "online", "offline"
+    ping_ms: Optional[float] = None
+    added_at: Optional[str] = None
+
+
+class ClusterController(BaseModel):
+    ip: str
+    gpu_backend: str
+    gpus: list[ClusterGPU]
+
+
+class ClusterStatus(BaseModel):
+    enabled: bool
+    controller: Optional[ClusterController] = None
+    nodes: list[ClusterNode] = []
+    tensor_split: Optional[str] = None
+    worker_list: Optional[str] = None
+
+
 class FullStatus(BaseModel):
     timestamp: str
     gpu: Optional[GPUInfo] = None
@@ -60,6 +89,7 @@ class FullStatus(BaseModel):
     model: Optional[ModelInfo] = None
     bootstrap: BootstrapStatus
     uptime_seconds: int
+    cluster_enabled: bool = False
 
 
 PortNumber = Annotated[int, Field(ge=1, le=65535)]
