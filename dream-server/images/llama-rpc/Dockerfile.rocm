@@ -8,7 +8,7 @@ ARG AMDGPU_TARGETS="gfx1100;gfx1030;gfx942;gfx90a"
 FROM rocm/dev-ubuntu-24.04:7.0 AS build
 ARG LLAMA_CPP_TAG
 ARG AMDGPU_TARGETS
-RUN apt-get update && apt-get install -y --no-install-recommends cmake git curl \
+RUN apt-get update && apt-get install -y --no-install-recommends cmake git curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 RUN git clone --depth 1 -b "${LLAMA_CPP_TAG}" https://github.com/ggerganov/llama.cpp /llama.cpp
 WORKDIR /llama.cpp
