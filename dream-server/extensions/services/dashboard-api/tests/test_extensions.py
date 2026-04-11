@@ -815,6 +815,31 @@ class TestComposeCacheInvalidation:
         assert resp.status_code == 200
         assert len(calls) == 1
 
+    def test_enable_stopped_invalidates_cache(self, test_client, monkeypatch, tmp_path):
+        """Stopped-start branch: compose.yaml already exists (library extension
+        enabled flow). Cache must be invalidated BEFORE the host agent start
+        call so it sees the new compose set."""
+        user_dir = _setup_user_ext(tmp_path, "my-ext", enabled=True)
+        _patch_mutation_config(monkeypatch, tmp_path, user_dir=user_dir)
+
+        order: list[str] = []
+        monkeypatch.setattr(
+            "routers.extensions._call_agent_invalidate_compose_cache",
+            lambda: order.append("invalidate"),
+        )
+        monkeypatch.setattr(
+            "routers.extensions._call_agent",
+            lambda action, svc: order.append(f"agent:{action}:{svc}") or True,
+        )
+
+        resp = test_client.post(
+            "/api/extensions/my-ext/enable",
+            headers=test_client.auth_headers,
+        )
+        assert resp.status_code == 200
+        assert order.count("invalidate") == 1
+        assert order.index("invalidate") < order.index("agent:start:my-ext")
+
     def test_disable_invalidates_cache(self, test_client, monkeypatch, tmp_path):
         user_dir = _setup_user_ext(tmp_path, "my-ext", enabled=True)
         _patch_mutation_config(monkeypatch, tmp_path, user_dir=user_dir)

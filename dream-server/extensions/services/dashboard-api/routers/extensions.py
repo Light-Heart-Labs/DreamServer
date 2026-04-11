@@ -1051,6 +1051,9 @@ def enable_extension(
             _scan_compose_content(enabled_compose)
         # Dependencies were satisfied at install time; compose content is re-scanned above
         _write_initial_progress(service_id)
+        # Invalidate .compose-flags cache so dream-cli picks up this extension
+        # before the host agent starts the container.
+        _call_agent_invalidate_compose_cache()
         agent_ok = _call_agent("start", service_id)
         logger.info("Started stopped extension: %s", service_id)
         return {

@@ -647,12 +647,12 @@ cmd_restart() {
 
     if [[ -z "$service" ]]; then
         log "Restarting all services..."
-        docker compose "${flags[@]}" restart
+        docker compose "${flags[@]}" up -d
         success "All services restarted"
     else
         service=$(resolve_service "$service")
         log "Restarting $service..."
-        docker compose "${flags[@]}" restart "$service"
+        docker compose "${flags[@]}" up -d "$service"
         success "$service restarted"
     fi
 }

@@ -102,14 +102,24 @@ get_compose_flags() {
     local flags_file="${INSTALL_DIR}/.compose-flags"
     if [[ -f "$flags_file" ]]; then
         cat "$flags_file"
-    else
-        # Fallback: detect from available files
-        local flags="-f docker-compose.base.yml"
-        if [[ -f "${INSTALL_DIR}/installers/macos/docker-compose.macos.yml" ]]; then
-            flags="$flags -f installers/macos/docker-compose.macos.yml"
-        fi
-        echo "$flags"
+        return
     fi
+    # Fallback: dynamic resolution via resolve-compose-stack.sh so user-installed
+    # extensions in data/user-extensions/ are discovered when the .compose-flags
+    # cache is missing or stale. Mirrors dream-cli's get_compose_flags fallback.
+    if [[ -x "${INSTALL_DIR}/scripts/resolve-compose-stack.sh" ]]; then
+        "${INSTALL_DIR}/scripts/resolve-compose-stack.sh" \
+            --script-dir "$INSTALL_DIR" \
+            --tier "${TIER:-1}" \
+            --gpu-backend "${GPU_BACKEND:-apple}"
+        return
+    fi
+    # Last resort: resolver script missing — emit base + macos overlay
+    local flags="-f docker-compose.base.yml"
+    if [[ -f "${INSTALL_DIR}/installers/macos/docker-compose.macos.yml" ]]; then
+        flags="$flags -f installers/macos/docker-compose.macos.yml"
+    fi
+    echo "$flags"
 }
 
 read_dream_env() {
@@ -364,7 +374,7 @@ cmd_restart() {
     if [[ -n "$service" ]]; then
         ai "Restarting ${service}..."
         # shellcheck disable=SC2086
-        docker compose $flags restart "$service"
+        docker compose $flags up -d "$service"
         ai_ok "${service} restarted"
     else
         # Restart native llama-server
@@ -375,7 +385,7 @@ cmd_restart() {
 
         ai "Restarting all services..."
         # shellcheck disable=SC2086
-        docker compose $flags restart
+        docker compose $flags up -d
         ai_ok "All services restarted"
     fi
 }
