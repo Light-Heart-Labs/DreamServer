@@ -103,6 +103,36 @@ source "${LIB_DIR}/tier-map.sh"
 source "${LIB_DIR}/detection.sh"
 source "${LIB_DIR}/env-generator.sh"
 
+# ── File-local helpers ──
+# Build a launchd-friendly PATH that includes Docker and Homebrew prefixes.
+# launchd does NOT inherit the user's login shell PATH, so any path containing
+# `docker` or `brew`-installed tools must be baked into the plist explicitly.
+# Pass an optional leading directory (e.g. ~/.opencode/bin) as $1.
+_compute_launchd_path() {
+    local extra="${1:-}"
+    local docker_bin="" docker_dir="" brew_prefix=""
+    if command -v docker >/dev/null 2>&1; then
+        docker_bin="$(command -v docker)"
+        docker_dir="$(cd "$(dirname "$docker_bin")" && pwd)"
+    fi
+    if command -v brew >/dev/null 2>&1; then
+        brew_prefix="$(brew --prefix)"
+    fi
+    local entries=()
+    [[ -n "$extra" ]]                && entries+=("$extra")
+    [[ -n "$docker_dir" ]]           && entries+=("$docker_dir")
+    [[ -n "$brew_prefix" ]]          && entries+=("${brew_prefix}/bin")
+    entries+=("/opt/homebrew/bin" "/usr/local/bin" "/usr/bin" "/bin")
+    local seen=":" path_out="" d
+    for d in "${entries[@]}"; do
+        case "$seen" in
+            *":${d}:"*) ;;
+            *) seen="${seen}${d}:"; path_out="${path_out:+${path_out}:}${d}" ;;
+        esac
+    done
+    printf '%s' "$path_out"
+}
+
 # ── Resolve install directory ──
 INSTALL_DIR="${DS_INSTALL_DIR}"
 
@@ -376,12 +406,16 @@ else
         ai "Running in-place, skipping file copy"
     fi
 
-    # Copy extensions library to data dir for dashboard portal
-    _ext_lib_src="${SOURCE_ROOT}/resources/dev/extensions-library/services"
+    # Copy extensions library to data dir for dashboard portal.
+    # SOURCE_ROOT resolves to dream-server/, so we climb one more level
+    # ($SOURCE_ROOT/..) to reach the repo root where resources/ lives.
+    _ext_lib_src="${SOURCE_ROOT}/../resources/dev/extensions-library/services"
     if [[ -d "$_ext_lib_src" ]]; then
         mkdir -p "${INSTALL_DIR}/data/extensions-library"
         cp -r "$_ext_lib_src/." "${INSTALL_DIR}/data/extensions-library/"
         ai_ok "Extensions library copied to data/extensions-library/"
+    else
+        ai_warn "Extensions library not found at ${_ext_lib_src}; dashboard Extensions page will return 503 until populated"
     fi
 
     # Copy CLI tool to install root
@@ -831,6 +865,7 @@ OPENCODE_EOF
 
         # Install as macOS LaunchAgent (auto-start on login)
         mkdir -p "$HOME/Library/LaunchAgents"
+        OPENCODE_LAUNCHD_PATH="$(_compute_launchd_path "${HOME}/.opencode/bin")"
         cat > "$OPENCODE_PLIST" <<PLIST_EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -854,7 +889,7 @@ OPENCODE_EOF
         <key>HOME</key>
         <string>${HOME}</string>
         <key>PATH</key>
-        <string>${HOME}/.opencode/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <string>${OPENCODE_LAUNCHD_PATH}</string>
     </dict>
     <key>RunAtLoad</key>
     <true/>
@@ -871,12 +906,16 @@ OPENCODE_EOF
 </plist>
 PLIST_EOF
 
-        # Unload existing (if any) and load new plist
-        launchctl bootout "gui/$(id -u)/${OPENCODE_PLIST_LABEL}" 2>/dev/null || true
-        if launchctl bootstrap "gui/$(id -u)" "$OPENCODE_PLIST" 2>/dev/null; then
+        # Unload existing (if any) and load new plist. bootout legitimately
+        # errors when no service is loaded, so we keep that suppressed; the
+        # bootstrap call surfaces real failures (e.g. launchd throttle EIO).
+        launchctl bootout "gui/$(id -u)/${OPENCODE_PLIST_LABEL}" >/dev/null 2>&1 || true
+        _opencode_bootstrap_err="$(launchctl bootstrap "gui/$(id -u)" "$OPENCODE_PLIST" 2>&1)" && _opencode_bootstrap_rc=0 || _opencode_bootstrap_rc=$?
+        if [[ $_opencode_bootstrap_rc -eq 0 ]]; then
             ai_ok "OpenCode Web UI service installed (LaunchAgent, port 3003)"
         else
-            ai_warn "OpenCode LaunchAgent failed — start manually: opencode web --port 3003"
+            ai_warn "OpenCode LaunchAgent failed (rc=${_opencode_bootstrap_rc}): ${_opencode_bootstrap_err}"
+            ai_warn "Start manually: opencode web --port 3003"
         fi
     fi
 fi
@@ -885,6 +924,10 @@ fi
 AGENT_PYTHON="$(command -v python3)"
 if [[ -f "${INSTALL_DIR}/bin/dream-host-agent.py" ]] && [[ -n "$AGENT_PYTHON" ]]; then
     mkdir -p "$HOME/Library/LaunchAgents"
+    DREAM_AGENT_PATH="$(_compute_launchd_path "")"
+    if ! command -v docker >/dev/null 2>&1; then
+        ai_warn "docker not found on PATH at install time — host agent will fail to start until Docker Desktop is launched and 'docker' resolves on your shell PATH"
+    fi
     cat > "$DREAM_AGENT_PLIST" <<AGENT_PLIST_EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -907,7 +950,7 @@ if [[ -f "${INSTALL_DIR}/bin/dream-host-agent.py" ]] && [[ -n "$AGENT_PYTHON" ]]
         <key>HOME</key>
         <string>${HOME}</string>
         <key>PATH</key>
-        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <string>${DREAM_AGENT_PATH}</string>
     </dict>
     <key>RunAtLoad</key>
     <true/>
@@ -924,11 +967,17 @@ if [[ -f "${INSTALL_DIR}/bin/dream-host-agent.py" ]] && [[ -n "$AGENT_PYTHON" ]]
 </plist>
 AGENT_PLIST_EOF
 
-    launchctl bootout "gui/$(id -u)/${DREAM_AGENT_PLIST_LABEL}" 2>/dev/null || true
-    if launchctl bootstrap "gui/$(id -u)" "$DREAM_AGENT_PLIST" 2>/dev/null; then
+    launchctl bootout "gui/$(id -u)/${DREAM_AGENT_PLIST_LABEL}" >/dev/null 2>&1 || true
+    _agent_bootstrap_err="$(launchctl bootstrap "gui/$(id -u)" "$DREAM_AGENT_PLIST" 2>&1)" && _agent_bootstrap_rc=0 || _agent_bootstrap_rc=$?
+    if [[ $_agent_bootstrap_rc -eq 0 ]]; then
         ai_ok "Dream host agent installed (LaunchAgent, port ${DREAM_AGENT_PORT})"
     else
-        ai_warn "Dream host agent LaunchAgent failed — start manually: dream agent start"
+        ai_warn "Dream host agent LaunchAgent failed (rc=${_agent_bootstrap_rc}): ${_agent_bootstrap_err}"
+        if [[ "${_agent_bootstrap_err}" == *"Input/output error"* ]]; then
+            ai_warn "launchd is throttled. Recover with: launchctl bootout gui/\$(id -u)/${DREAM_AGENT_PLIST_LABEL}; sleep 10; then re-run this installer"
+        else
+            ai_warn "Start manually: dream agent start"
+        fi
     fi
 else
     [[ ! -f "${INSTALL_DIR}/bin/dream-host-agent.py" ]] && ai_warn "Host agent script not found, skipping"
