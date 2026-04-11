@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from config import (
-    AGENT_URL, CORE_SERVICE_IDS, DATA_DIR,
+    AGENT_URL, ALWAYS_ON_SERVICES, CORE_SERVICE_IDS, DATA_DIR,
     DREAM_AGENT_KEY, EXTENSION_CATALOG, EXTENSIONS_DIR,
     EXTENSIONS_LIBRARY_DIR, GPU_BACKEND, SERVICES, USER_EXTENSIONS_DIR,
 )
@@ -172,10 +172,15 @@ def _validate_service_id(service_id: str) -> None:
 
 
 def _assert_not_core(service_id: str) -> None:
-    """Raise 403 if the service_id belongs to a core service."""
-    if service_id in CORE_SERVICE_IDS:
+    """Raise 403 if the service_id is an always-on base-compose service.
+
+    Only blocks the 4 services from docker-compose.base.yml (llama-server,
+    open-webui, dashboard, dashboard-api). Built-in extensions (n8n, tts, etc.)
+    are allowed through because they're managed via compose.yaml toggle.
+    """
+    if service_id in ALWAYS_ON_SERVICES:
         raise HTTPException(
-            status_code=403, detail=f"Cannot modify core service: {service_id}",
+            status_code=403, detail=f"Cannot modify always-on service: {service_id}",
         )
 
 
@@ -933,8 +938,8 @@ def _read_direct_deps(service_id: str) -> list[str]:
 
 
 def _is_dep_satisfied(dep: str) -> bool:
-    """Check if a dependency is already enabled (core, built-in, or user)."""
-    if dep in CORE_SERVICE_IDS:
+    """Check if a dependency is already enabled (always-on, built-in, or user)."""
+    if dep in ALWAYS_ON_SERVICES:
         return True
     if (EXTENSIONS_DIR / dep / "compose.yaml").exists():
         return True
@@ -1278,8 +1283,8 @@ def purge_extension_data(
     if not _SERVICE_ID_RE.match(service_id):
         raise HTTPException(status_code=404, detail=f"Invalid service_id: {service_id}")
 
-    if service_id in CORE_SERVICE_IDS:
-        raise HTTPException(status_code=403, detail="Cannot purge core service data")
+    if service_id in ALWAYS_ON_SERVICES:
+        raise HTTPException(status_code=403, detail="Cannot purge always-on service data")
 
     with _extensions_lock():
         # Check if service is still enabled (built-in or user extension)
