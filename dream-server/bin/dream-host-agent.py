@@ -1444,9 +1444,11 @@ class AgentHandler(BaseHTTPRequestHandler):
 def _compose_restart_llama_server(env: dict):
     """Restart llama-server via docker compose (host-native path).
 
-    This is the primary restart strategy for Linux (systemd) and macOS
-    (launchd) where the agent runs natively on the host.  It mirrors the
-    proven pattern from bootstrap-upgrade.sh lines 289-304.
+    Primary restart strategy for Linux (systemd) and macOS (launchd) where the
+    agent runs natively on the host. Mirrors bootstrap-upgrade.sh lines 289-304.
+
+    Raises RuntimeError on any docker-layer failure so _do_model_activate can
+    surface the error immediately instead of waiting for the health-check loop.
     """
     gpu_backend = env.get("GPU_BACKEND", "nvidia")
     compose_flags = []
@@ -1454,26 +1456,31 @@ def _compose_restart_llama_server(env: dict):
     if flags_file.exists():
         compose_flags = flags_file.read_text(encoding="utf-8").strip().split()
 
+    def _run(argv, timeout):
+        result = subprocess.run(
+            argv, cwd=str(INSTALL_DIR),
+            capture_output=True, text=True, timeout=timeout,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"{' '.join(argv[:3])} failed (exit {result.returncode}): "
+                f"{(result.stderr or '').strip()[:300]}"
+            )
+
     if gpu_backend == "amd":
         # Lemonade: restart preserves cached binary, reads models.ini on boot
         if compose_flags:
-            subprocess.run(["docker", "compose"] + compose_flags + ["restart", "llama-server"],
-                           cwd=str(INSTALL_DIR), capture_output=True, timeout=300)
+            _run(["docker", "compose"] + compose_flags + ["restart", "llama-server"], 300)
         else:
-            subprocess.run(["docker", "restart", "dream-llama-server"],
-                           capture_output=True, timeout=300)
+            _run(["docker", "restart", "dream-llama-server"], 300)
     else:
         # llama.cpp: recreate to pick up new GGUF_FILE from .env
         if compose_flags:
-            subprocess.run(["docker", "compose"] + compose_flags + ["stop", "llama-server"],
-                           cwd=str(INSTALL_DIR), capture_output=True, timeout=120)
-            subprocess.run(["docker", "compose"] + compose_flags + ["up", "-d", "llama-server"],
-                           cwd=str(INSTALL_DIR), capture_output=True, timeout=300)
+            _run(["docker", "compose"] + compose_flags + ["stop", "llama-server"], 120)
+            _run(["docker", "compose"] + compose_flags + ["up", "-d", "llama-server"], 300)
         else:
-            subprocess.run(["docker", "stop", "dream-llama-server"],
-                           capture_output=True, timeout=120)
-            subprocess.run(["docker", "start", "dream-llama-server"],
-                           capture_output=True, timeout=300)
+            _run(["docker", "stop", "dream-llama-server"], 120)
+            _run(["docker", "start", "dream-llama-server"], 300)
 
     logger.info("llama-server restarted via compose (backend: %s)", gpu_backend)
 
