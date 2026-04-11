@@ -3037,7 +3037,7 @@ PYEOF
         fi
 
         log "  Enabling $svc..."
-        cmd_enable "$svc" || warn "  Failed to enable $svc (continuing)"
+        ( cmd_enable "$svc" ) || warn "  Failed to enable $svc (continuing)"
     done
     success "Template applied: $template_id"
 }
