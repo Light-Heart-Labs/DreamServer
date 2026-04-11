@@ -1,5 +1,6 @@
 """Service template endpoints."""
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -114,6 +115,29 @@ async def apply_template(template_id: str, api_key: str = Depends(verify_api_key
         _call_agent_invalidate_compose_cache,
     )
 
+    # Blocking sections run in the thread pool so the event loop stays
+    # responsive: urllib install fetches use 300s timeouts, and host-agent
+    # calls block on the network. _extensions_lock cannot cross thread
+    # boundaries, so each lock acquisition runs inside a single off-loop call.
+    def _install_with_lock(sid: str) -> None:
+        with _extensions_lock():
+            _install_from_library(sid)
+            _call_agent_invalidate_compose_cache()
+
+    def _activate_with_lock(sid: str, missing_deps, prior_results):
+        deps_enabled: list[str] = []
+        with _extensions_lock():
+            for dep in missing_deps:
+                if dep in prior_results:
+                    continue
+                dep_result = _activate_service(dep)
+                if dep_result.get("action") == "enabled":
+                    deps_enabled.append(dep)
+            main_result = _activate_service(sid)
+            if deps_enabled or main_result.get("action") == "enabled":
+                _call_agent_invalidate_compose_cache()
+        return deps_enabled, main_result
+
     service_list = get_cached_services()
     if service_list is None:
         service_list = await get_all_services()
@@ -145,10 +169,8 @@ async def apply_template(template_id: str, api_key: str = Depends(verify_api_key
             # will report "already_enabled" afterwards — we still want to start it.
             if _is_installable(svc_id) and not (USER_EXTENSIONS_DIR / svc_id).is_dir():
                 try:
-                    with _extensions_lock():
-                        _install_from_library(svc_id)
-                        _call_agent_invalidate_compose_cache()
-                    _call_agent_hook(svc_id, "post_install")
+                    await asyncio.to_thread(_install_with_lock, svc_id)
+                    await asyncio.to_thread(_call_agent_hook, svc_id, "post_install")
                     library_installed.append(svc_id)
                 except HTTPException as exc:
                     detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
@@ -161,21 +183,14 @@ async def apply_template(template_id: str, api_key: str = Depends(verify_api_key
 
             # Dep-aware enable: resolve transitive deps, activate leaves first.
             # _activate_service checks both user-installed and built-in extension dirs.
-            missing_deps = _get_missing_deps_transitive(svc_id)
+            missing_deps = await asyncio.to_thread(_get_missing_deps_transitive, svc_id)
 
-            with _extensions_lock():
-                activated_any = False
-                for dep in missing_deps:
-                    if dep in results:
-                        continue
-                    dep_result = _activate_service(dep)
-                    if dep_result.get("action") == "enabled":
-                        enabled_services.append(dep)
-                        results[dep] = "enabled_as_dependency"
-                        activated_any = True
-                result = _activate_service(svc_id)
-                if activated_any or result.get("action") == "enabled":
-                    _call_agent_invalidate_compose_cache()
+            deps_enabled, result = await asyncio.to_thread(
+                _activate_with_lock, svc_id, missing_deps, results,
+            )
+            for dep in deps_enabled:
+                enabled_services.append(dep)
+                results[dep] = "enabled_as_dependency"
 
             action = result.get("action", "skipped")
             if svc_id in library_installed:
@@ -196,8 +211,8 @@ async def apply_template(template_id: str, api_key: str = Depends(verify_api_key
         # Host agent can only start user-installed extensions
         user_ext_dir = USER_EXTENSIONS_DIR / svc_id
         if user_ext_dir.is_dir():
-            _call_agent_hook(svc_id, "pre_start")
-            start_ok = _call_agent("start", svc_id)
+            await asyncio.to_thread(_call_agent_hook, svc_id, "pre_start")
+            start_ok = await asyncio.to_thread(_call_agent, "start", svc_id)
             if not start_ok:
                 # Preserve library_installed label — user-visible install succeeded,
                 # only the start call failed.
@@ -205,7 +220,7 @@ async def apply_template(template_id: str, api_key: str = Depends(verify_api_key
                     results[svc_id] = "enabled_but_start_failed"
                 else:
                     logger.warning("Library-installed extension %s failed to start via agent", svc_id)
-            _call_agent_hook(svc_id, "post_start")
+            await asyncio.to_thread(_call_agent_hook, svc_id, "post_start")
         elif svc_id not in library_installed:
             # Built-in extension: compose file toggled, needs stack restart
             results[svc_id] = "enabled"

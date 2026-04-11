@@ -1975,3 +1975,92 @@ class TestInstallProgress:
         assert resp.status_code == 200
         data = resp.json()
         assert data["progress_endpoint"] == "/api/extensions/my-ext/progress"
+
+
+# --- _activate_service: built-in (EXTENSIONS_DIR) branch ---
+
+
+class TestActivateServiceBuiltinBranch:
+    """_activate_service must resolve services from EXTENSIONS_DIR (built-in)
+    when not present under USER_EXTENSIONS_DIR — required so templates can
+    enable built-in extensions like n8n, tts, etc."""
+
+    def test_activate_service_resolves_builtin_with_disabled_compose(
+        self, monkeypatch, tmp_path,
+    ):
+        """Built-in extension with compose.yaml.disabled is renamed to compose.yaml."""
+        from routers.extensions import _activate_service
+
+        builtin_root = tmp_path / "builtin"
+        user_root = tmp_path / "user"
+        builtin_root.mkdir()
+        user_root.mkdir()
+        ext_dir = builtin_root / "fakesvc"
+        ext_dir.mkdir()
+        (ext_dir / "compose.yaml.disabled").write_text(_SAFE_COMPOSE)
+
+        monkeypatch.setattr("routers.extensions.EXTENSIONS_DIR", builtin_root)
+        monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", user_root)
+
+        result = _activate_service("fakesvc")
+
+        assert result == {"id": "fakesvc", "action": "enabled"}
+        assert (ext_dir / "compose.yaml").exists()
+        assert not (ext_dir / "compose.yaml.disabled").exists()
+
+    def test_activate_service_resolves_builtin_already_enabled(
+        self, monkeypatch, tmp_path,
+    ):
+        """Built-in extension already enabled returns idempotent action without mutation."""
+        from routers.extensions import _activate_service
+
+        builtin_root = tmp_path / "builtin"
+        user_root = tmp_path / "user"
+        builtin_root.mkdir()
+        user_root.mkdir()
+        ext_dir = builtin_root / "fakesvc"
+        ext_dir.mkdir()
+        enabled_compose = ext_dir / "compose.yaml"
+        enabled_compose.write_text(_SAFE_COMPOSE)
+
+        monkeypatch.setattr("routers.extensions.EXTENSIONS_DIR", builtin_root)
+        monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", user_root)
+
+        result = _activate_service("fakesvc")
+
+        assert result == {"id": "fakesvc", "action": "already_enabled"}
+        assert enabled_compose.exists()
+        assert not (ext_dir / "compose.yaml.disabled").exists()
+
+    def test_activate_service_user_dir_takes_precedence_over_builtin(
+        self, monkeypatch, tmp_path,
+    ):
+        """When the same id exists in both, the user-installed copy wins."""
+        from routers.extensions import _activate_service
+
+        builtin_root = tmp_path / "builtin"
+        user_root = tmp_path / "user"
+        builtin_root.mkdir()
+        user_root.mkdir()
+
+        # User dir: disabled, expected to be activated
+        user_ext = user_root / "fakesvc"
+        user_ext.mkdir()
+        (user_ext / "compose.yaml.disabled").write_text(_SAFE_COMPOSE)
+
+        # Built-in: already enabled, must remain untouched
+        builtin_ext = builtin_root / "fakesvc"
+        builtin_ext.mkdir()
+        builtin_compose = builtin_ext / "compose.yaml"
+        builtin_compose.write_text(_SAFE_COMPOSE)
+
+        monkeypatch.setattr("routers.extensions.EXTENSIONS_DIR", builtin_root)
+        monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", user_root)
+
+        result = _activate_service("fakesvc")
+
+        assert result == {"id": "fakesvc", "action": "enabled"}
+        assert (user_ext / "compose.yaml").exists()
+        assert not (user_ext / "compose.yaml.disabled").exists()
+        # Built-in untouched
+        assert builtin_compose.exists()

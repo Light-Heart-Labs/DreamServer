@@ -977,15 +977,27 @@ def _get_missing_deps_transitive(
 def _activate_service(service_id: str) -> dict:
     """Core enable logic — NO lock acquisition. Called inside _extensions_lock.
 
+    Checks both USER_EXTENSIONS_DIR (user-installed) and EXTENSIONS_DIR
+    (built-in) so templates can enable built-in extensions like n8n, tts, etc.
+
     Returns a result dict for the service. Cycle detection is handled
     upstream by _get_missing_deps_transitive.
     """
-    ext_dir = (USER_EXTENSIONS_DIR / service_id).resolve()
-    if not ext_dir.is_relative_to(USER_EXTENSIONS_DIR.resolve()):
+    user_dir = (USER_EXTENSIONS_DIR / service_id).resolve()
+    builtin_dir = (EXTENSIONS_DIR / service_id).resolve()
+
+    in_user = user_dir.is_relative_to(USER_EXTENSIONS_DIR.resolve())
+    in_builtin = builtin_dir.is_relative_to(EXTENSIONS_DIR.resolve())
+    if not in_user and not in_builtin:
         raise HTTPException(
             status_code=404, detail=f"Extension not found: {service_id}",
         )
-    if not ext_dir.is_dir():
+
+    if in_user and user_dir.is_dir():
+        ext_dir = user_dir
+    elif in_builtin and builtin_dir.is_dir():
+        ext_dir = builtin_dir
+    else:
         raise HTTPException(
             status_code=404, detail=f"Extension not installed: {service_id}",
         )
