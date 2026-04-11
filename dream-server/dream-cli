@@ -3891,6 +3891,146 @@ _cluster_test() {
     fi
 }
 
+_cluster_agent() {
+    check_install
+    load_env 2>/dev/null || true
+
+    local action="${1:-status}"
+    shift 2>/dev/null || true
+
+    local config_file="$INSTALL_DIR/config/cluster-agent.json"
+    local pid_file="$INSTALL_DIR/data/cluster-agent.pid"
+    local log_file="$INSTALL_DIR/data/cluster-agent.log"
+    local agent_script="$INSTALL_DIR/scripts/cluster_worker_agent.py"
+    local status_port=50054
+
+    # Parse --token on first start
+    local token=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --token) token="${2:-}"; shift 2 ;;
+            --port) status_port="${2:-50054}"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    case "$action" in
+        start)
+            if ! command -v python3 &>/dev/null; then
+                error "python3 not found in PATH"
+            fi
+
+            # Initialize config if token provided
+            if [[ -n "$token" ]]; then
+                local gpu_backend="${GPU_BACKEND:-}"
+                [[ -z "$gpu_backend" ]] && gpu_backend=$(python3 -c "
+import subprocess, os
+if subprocess.run(['nvidia-smi'], capture_output=True).returncode == 0: print('nvidia')
+elif os.path.exists('/dev/kfd'): print('amd')
+else: print('cpu')
+")
+                mkdir -p "$(dirname "$config_file")"
+                python3 -c "
+import json
+cfg = {'token': '$token', 'controller_ip': '', 'setup_port': 50051,
+       'rpc_port': 50052, 'gpu_backend': '$gpu_backend', 'status': 'idle'}
+with open('$config_file', 'w') as f: json.dump(cfg, f, indent=2)
+"
+                log "Agent config initialized (backend: ${gpu_backend})"
+            fi
+
+            if [[ ! -f "$config_file" ]]; then
+                error "No agent config. Run: dream cluster agent start --token TOKEN"
+            fi
+
+            # Detect daemon type
+            local daemon_type="none"
+            if systemctl --user status >/dev/null 2>&1; then
+                daemon_type="systemd"
+            fi
+
+            case "$daemon_type" in
+                systemd)
+                    # Install unit if not present
+                    local unit_dir="${HOME}/.config/systemd/user"
+                    local unit_file="${unit_dir}/dream-cluster-agent.service"
+                    if [[ ! -f "$unit_file" ]]; then
+                        mkdir -p "$unit_dir"
+                        local python3_path
+                        python3_path=$(command -v python3)
+                        sed -e "s|__PYTHON3__|${python3_path}|g" \
+                            -e "s|__INSTALL_DIR__|${INSTALL_DIR}|g" \
+                            -e "s|__HOME__|${HOME}|g" \
+                            "$INSTALL_DIR/scripts/systemd/dream-cluster-agent.service" > "$unit_file"
+                        systemctl --user daemon-reload
+                    fi
+                    systemctl --user start dream-cluster-agent.service 2>/dev/null && \
+                        success "Cluster agent started (systemd)" || warn "Agent start failed"
+                    ;;
+                *)
+                    # Fallback: nohup
+                    if [[ -f "$pid_file" ]]; then
+                        kill "$(cat "$pid_file")" 2>/dev/null || true
+                        rm -f "$pid_file"
+                    fi
+                    nohup python3 "$agent_script" \
+                        --config "$config_file" \
+                        --status-port "$status_port" \
+                        --pid-file "$pid_file" \
+                        >> "$log_file" 2>&1 &disown
+                    success "Cluster agent started (background, PID $!)"
+                    ;;
+            esac
+            ;;
+
+        stop)
+            local daemon_type="none"
+            if systemctl --user status >/dev/null 2>&1; then
+                daemon_type="systemd"
+            fi
+
+            case "$daemon_type" in
+                systemd)
+                    systemctl --user stop dream-cluster-agent.service 2>/dev/null && \
+                        success "Cluster agent stopped" || warn "Agent not running"
+                    ;;
+                *)
+                    if [[ -f "$pid_file" ]]; then
+                        kill "$(cat "$pid_file")" 2>/dev/null && \
+                            success "Cluster agent stopped" || warn "Agent process not found"
+                        rm -f "$pid_file"
+                    else
+                        warn "Agent not running (no PID file)"
+                    fi
+                    ;;
+            esac
+            ;;
+
+        status)
+            if curl -sf --max-time 2 "http://127.0.0.1:${status_port}/health" 2>/dev/null; then
+                echo ""
+            else
+                warn "Cluster agent: not responding (port ${status_port})"
+                if [[ -f "$config_file" ]]; then
+                    echo "  Config: $(python3 -c "import json; s=json.load(open('$config_file')); print(f\"status={s.get('status','?')} controller={s.get('controller_ip','?')} backend={s.get('gpu_backend','?')}\")" 2>/dev/null)"
+                fi
+            fi
+            ;;
+
+        logs)
+            if [[ -f "$log_file" ]]; then
+                tail -f "$log_file"
+            else
+                warn "No log file at $log_file"
+            fi
+            ;;
+
+        *)
+            log "Usage: dream cluster agent [start|stop|status|logs] [--token TOKEN]"
+            ;;
+    esac
+}
+
 _cluster_help() {
     cat << EOF
 ${BLUE}dream cluster${NC} -- LAN cluster management
@@ -3909,7 +4049,12 @@ ${CYAN}Controller commands:${NC}
 
 ${CYAN}Worker commands:${NC}
   join <IP> --token T   Connect to controller, start rpc-server on accept
+  join --discover       Auto-discover controller on LAN, then join
   leave                 Stop rpc-server and leave the cluster
+  agent start --token T Start the worker agent (auto-discover + monitor)
+  agent stop            Stop the worker agent
+  agent status          Show agent state
+  agent logs            Tail agent log
 
 ${CYAN}Workflow:${NC}
   Controller:
@@ -3930,6 +4075,8 @@ ${CYAN}Examples:${NC}
   dream cluster join --discover --token dream_abc123           # Auto-discover + join
   dream cluster status                                        # See all nodes
   dream cluster test                                          # Latency test
+  dream cluster agent start --token dream_abc123               # Start worker agent
+  dream cluster agent status                                   # Check agent state
   dream cluster leave                                         # Worker leaves
   dream cluster remove 192.168.1.101                          # Remove worker
   dream cluster disable                                       # Turn off cluster
@@ -3950,6 +4097,7 @@ cmd_cluster() {
         add|a)              _cluster_add "$@" ;;
         remove|rm)          _cluster_remove "$@" ;;
         test|t)             _cluster_test "$@" ;;
+        agent)              _cluster_agent "$@" ;;
         help|--help|-h)     _cluster_help ;;
         *)  error "Unknown cluster subcommand: '${subcommand}'. Run 'dream cluster help'" ;;
     esac

@@ -1,0 +1,15 @@
+[Unit]
+Description=DreamServer Cluster Worker Agent
+After=docker.service
+
+[Service]
+Type=simple
+ExecStart=__PYTHON3__ __INSTALL_DIR__/scripts/cluster_worker_agent.py --config __INSTALL_DIR__/config/cluster-agent.json --pid-file __INSTALL_DIR__/data/cluster-agent.pid
+WorkingDirectory=__INSTALL_DIR__
+Environment=DREAM_HOME=__INSTALL_DIR__
+Environment=HOME=__HOME__
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
