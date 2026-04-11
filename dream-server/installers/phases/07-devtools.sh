@@ -160,6 +160,7 @@ OPENCODE_EOF
                      | .provider["llama-server"].options.apiKey = $key' \
                     "$OPENCODE_CONFIG_DIR/opencode.json" > "$_opencode_tmp"; then
                     mv "$_opencode_tmp" "$OPENCODE_CONFIG_DIR/opencode.json"
+                    ai_ok "OpenCode config updated (API key and URL refreshed)"
                 else
                     rm -f "$_opencode_tmp"
                     ai_warn "OpenCode config jq rewrite failed; leaving existing config in place"
@@ -169,8 +170,8 @@ OPENCODE_EOF
                 # preserving any trailing comma on the line
                 _sed_i "s|\"apiKey\": *\"[^\"]*\"|\"apiKey\": \"${_opencode_key}\"|" "$OPENCODE_CONFIG_DIR/opencode.json"
                 _sed_i "s|\"baseURL\": *\"[^\"]*\"|\"baseURL\": \"${_opencode_url}\"|" "$OPENCODE_CONFIG_DIR/opencode.json"
+                ai_ok "OpenCode config updated (API key and URL refreshed)"
             fi
-            ai_ok "OpenCode config updated (API key and URL refreshed)"
         fi
         # OpenCode reads config.json, not opencode.json — always sync
         cp "$OPENCODE_CONFIG_DIR/opencode.json" "$OPENCODE_CONFIG_DIR/config.json"
