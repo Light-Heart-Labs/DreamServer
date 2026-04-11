@@ -58,6 +58,7 @@ fi
 "$PYTHON_CMD" - "$SCRIPT_DIR" "$TIER" "$GPU_BACKEND" "$PROFILE_OVERLAYS" "$ENV_MODE" "$SKIP_BROKEN" "$GPU_COUNT" <<'PY'
 import os
 import pathlib
+import platform
 import sys
 import json
 
@@ -70,6 +71,9 @@ skip_broken = (sys.argv[6] or "false").lower() == "true"
 dream_mode = os.environ.get("DREAM_MODE", "local").lower()
 gpu_count = int(sys.argv[7] or "1")
 
+IS_DARWIN = platform.system() == "Darwin"
+APPLE_OVERLAY = "installers/macos/docker-compose.macos.yml" if IS_DARWIN else "docker-compose.apple.yml"
+
 def existing(overlays):
     return all((script_dir / f).exists() for f in overlays)
 
@@ -80,9 +84,9 @@ if profile_overlays and existing(profile_overlays):
     resolved = profile_overlays
     primary = profile_overlays[-1]
 elif tier in {"AP_ULTRA", "AP_PRO", "AP_BASE"}:
-    if existing(["docker-compose.base.yml", "docker-compose.apple.yml"]):
-        resolved = ["docker-compose.base.yml", "docker-compose.apple.yml"]
-        primary = "docker-compose.apple.yml"
+    if existing(["docker-compose.base.yml", APPLE_OVERLAY]):
+        resolved = ["docker-compose.base.yml", APPLE_OVERLAY]
+        primary = APPLE_OVERLAY
     elif existing(["docker-compose.base.yml"]):
         resolved = ["docker-compose.base.yml"]
         primary = "docker-compose.base.yml"
@@ -91,9 +95,9 @@ elif tier in {"SH_LARGE", "SH_COMPACT"}:
         resolved = ["docker-compose.base.yml", "docker-compose.amd.yml"]
         primary = "docker-compose.amd.yml"
 elif gpu_backend == "apple":
-    if existing(["docker-compose.base.yml", "docker-compose.apple.yml"]):
-        resolved = ["docker-compose.base.yml", "docker-compose.apple.yml"]
-        primary = "docker-compose.apple.yml"
+    if existing(["docker-compose.base.yml", APPLE_OVERLAY]):
+        resolved = ["docker-compose.base.yml", APPLE_OVERLAY]
+        primary = APPLE_OVERLAY
     elif existing(["docker-compose.base.yml"]):
         resolved = ["docker-compose.base.yml"]
         primary = "docker-compose.base.yml"
