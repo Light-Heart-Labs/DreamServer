@@ -34,10 +34,10 @@ export function useDownloadProgress(pollIntervalMs = 1000) {
       } else if (data.status === 'complete' || data.status === 'idle') {
         setIsDownloading(false)
         setProgress(null)
-      } else if (data.status === 'failed' || data.status === 'error') {
+      } else if (data.status === 'failed' || data.status === 'error' || data.status === 'cancelled') {
         setIsDownloading(false)
         setProgress({
-          error: data.error || data.message || 'Download failed',
+          error: data.error || data.message || (data.status === 'cancelled' ? 'Download cancelled' : 'Download failed'),
           model: data.model
         })
       }
@@ -76,11 +76,21 @@ export function useDownloadProgress(pollIntervalMs = 1000) {
     return eta
   }
 
+  const cancelDownload = useCallback(async () => {
+    try {
+      await fetch('/api/models/download/cancel', { method: 'POST' })
+      fetchProgress()
+    } catch (err) {
+      console.error('Failed to cancel download:', err)
+    }
+  }, [fetchProgress])
+
   return {
     isDownloading,
     progress,
     formatBytes,
     formatEta,
-    refresh: fetchProgress
+    refresh: fetchProgress,
+    cancelDownload
   }
 }

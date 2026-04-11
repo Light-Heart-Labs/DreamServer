@@ -210,6 +210,13 @@ def download_model(model_id: str, api_key: str = Depends(verify_api_key)):
     return result
 
 
+@router.post("/api/models/download/cancel")
+def cancel_download(api_key: str = Depends(verify_api_key)):
+    """Cancel an in-progress model download."""
+    result = _call_agent_model("/v1/model/download/cancel", {})
+    return result
+
+
 @router.post("/api/models/{model_id}/load")
 def load_model(model_id: str, api_key: str = Depends(verify_api_key)):
     """Activate a model — update config and restart llama-server."""
