@@ -59,10 +59,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '16.0'
+          cpus: '${LLAMA_CPU_LIMIT:-16.0}'
           memory: ${LLAMA_SERVER_MEMORY_LIMIT:-24G}
         reservations:
-          cpus: '2.0'
+          cpus: '${LLAMA_CPU_RESERVATION:-2.0}'
           memory: 4G
 
   dashboard-api:

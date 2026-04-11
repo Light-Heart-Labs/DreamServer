@@ -125,6 +125,7 @@ if bash -c "
     source installers/lib/constants.sh
     source installers/lib/logging.sh
     source installers/lib/ui.sh
+    source installers/lib/detection.sh
     source installers/lib/progress.sh
 
     # Stub UI functions
@@ -136,6 +137,14 @@ if bash -c "
     chapter() { :; }
     signal() { :; }
     show_phase() { :; }
+
+    docker() {
+        if [[ \"\$1\" == \"info\" && \"\${2:-}\" == \"--format\" ]]; then
+            echo 6
+            return 0
+        fi
+        command docker \"\$@\"
+    }
 
     # Run phase 06 (generates .env, configs)
     source installers/phases/06-directories.sh
@@ -159,6 +168,20 @@ if [[ "$ENV_GENERATED" == true && -f "$INSTALL_DIR/.env" ]]; then
     fi
 else
     fail ".env file was not generated"
+fi
+
+if [[ "$ENV_GENERATED" == true && -f "$INSTALL_DIR/.env" ]]; then
+    if grep -q '^LLAMA_CPU_LIMIT=6.0$' "$INSTALL_DIR/.env"; then
+        pass "LLAMA_CPU_LIMIT auto-caps to Docker CPU count"
+    else
+        fail "LLAMA_CPU_LIMIT was not auto-capped as expected"
+    fi
+
+    if grep -q '^LLAMA_CPU_RESERVATION=1.0$' "$INSTALL_DIR/.env"; then
+        pass "LLAMA_CPU_RESERVATION stays within the capped limit"
+    else
+        fail "LLAMA_CPU_RESERVATION was not written as expected"
+    fi
 fi
 
 # Check for duplicate keys

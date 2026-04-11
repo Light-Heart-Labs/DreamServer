@@ -88,6 +88,64 @@ load_backend_contract() {
     return 1
 }
 
+get_host_logical_cpus() {
+    local cores
+    cores=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo 2>/dev/null || echo "1")
+    if [[ "$cores" =~ ^[0-9]+$ ]] && [[ "$cores" -gt 0 ]]; then
+        echo "$cores"
+    else
+        echo "1"
+    fi
+}
+
+get_docker_available_cpus() {
+    local cores=""
+    if command -v docker &>/dev/null; then
+        cores=$(docker info --format '{{.NCPU}}' 2>/dev/null || true)
+        cores="${cores//[!0-9]/}"
+    fi
+
+    if [[ "$cores" =~ ^[0-9]+$ ]] && [[ "$cores" -gt 0 ]]; then
+        echo "$cores"
+        return 0
+    fi
+
+    get_host_logical_cpus
+}
+
+calculate_llama_cpu_budget() {
+    local backend="${1:-cpu}"
+    local available="${2:-$(get_docker_available_cpus)}"
+    local desired_limit=8
+    local desired_reservation=1
+
+    case "$backend" in
+        amd)
+            desired_limit=16
+            desired_reservation=4
+            ;;
+        nvidia|intel|sycl)
+            desired_limit=16
+            desired_reservation=2
+            ;;
+        apple)
+            desired_limit=8
+            desired_reservation=2
+            ;;
+    esac
+
+    if ! [[ "$available" =~ ^[0-9]+$ ]] || [[ "$available" -lt 1 ]]; then
+        available=1
+    fi
+
+    local limit="$desired_limit"
+    local reservation="$desired_reservation"
+    [[ "$available" -lt "$limit" ]] && limit="$available"
+    [[ "$reservation" -gt "$limit" ]] && reservation="$limit"
+
+    echo "$limit $reservation $available"
+}
+
 detect_gpu() {
     GPU_BACKEND="cpu"  # default to CPU-only fallback
     GPU_MEMORY_TYPE="none"

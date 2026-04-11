@@ -137,7 +137,7 @@ def get_gpu_info_nvidia() -> Optional[GPUInfo]:
         return None
 
     # nvidia-smi returns one line per GPU; split before parsing
-    lines = [l.strip() for l in output.strip().splitlines() if l.strip()]
+    lines = [line.strip() for line in output.strip().splitlines() if line.strip()]
     if not lines:
         return None
 

@@ -140,6 +140,108 @@ function Read-DreamEnv {
     return $result
 }
 
+function Set-DreamEnvValue {
+    <#
+    .SYNOPSIS
+        Upsert a KEY=VALUE pair in .env without adding a UTF-8 BOM.
+    #>
+    param(
+        [string]$Key,
+        [string]$Value
+    )
+
+    $envFile = Join-Path $InstallDir ".env"
+    if (-not (Test-Path $envFile)) { return }
+
+    $lines = New-Object 'System.Collections.Generic.List[string]'
+    Get-Content $envFile | ForEach-Object { [void]$lines.Add($_) }
+
+    $escapedKey = [regex]::Escape($Key)
+    $updated = $false
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match "^${escapedKey}=") {
+            $lines[$i] = "${Key}=${Value}"
+            $updated = $true
+            break
+        }
+    }
+
+    if (-not $updated) {
+        [void]$lines.Add("${Key}=${Value}")
+    }
+
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllLines($envFile, $lines.ToArray(), $utf8NoBom)
+}
+
+function Select-AutoCpuValue {
+    <#
+    .SYNOPSIS
+        Keep a manual CPU override only when it is valid and more conservative.
+    #>
+    param(
+        [string]$Existing,
+        [string]$Detected
+    )
+
+    $existingNumber = 0.0
+    $detectedNumber = 0.0
+    $style = [System.Globalization.NumberStyles]::Float
+    $culture = [System.Globalization.CultureInfo]::InvariantCulture
+    $existingValid = [double]::TryParse($Existing, $style, $culture, [ref]$existingNumber)
+    $detectedValid = [double]::TryParse($Detected, $style, $culture, [ref]$detectedNumber)
+
+    if ($existingValid -and $detectedValid -and $existingNumber -gt 0 -and $existingNumber -le $detectedNumber) {
+        return $Existing
+    }
+    return $Detected
+}
+
+function Ensure-LlamaCpuBudget {
+    <#
+    .SYNOPSIS
+        Backfill/cap llama-server CPU settings for existing installs.
+    #>
+    $envFile = Join-Path $InstallDir ".env"
+    if (-not (Test-Path $envFile)) { return }
+
+    $envVars = Read-DreamEnv
+    $gpuBackend = $envVars["GPU_BACKEND"]
+    if ([string]::IsNullOrWhiteSpace($gpuBackend) -or $gpuBackend -eq "none") {
+        $gpuBackend = "cpu"
+    }
+    $gpuBackend = $gpuBackend.ToLowerInvariant()
+
+    $budget = Get-LlamaCpuBudget -GpuBackend $gpuBackend
+    $llamaCpuLimit = Select-AutoCpuValue -Existing $envVars["LLAMA_CPU_LIMIT"] -Detected $budget.Limit
+    $llamaCpuReservation = Select-AutoCpuValue -Existing $envVars["LLAMA_CPU_RESERVATION"] -Detected $budget.Reservation
+
+    $limitNumber = 0.0
+    $reservationNumber = 0.0
+    $style = [System.Globalization.NumberStyles]::Float
+    $culture = [System.Globalization.CultureInfo]::InvariantCulture
+    if ([double]::TryParse($llamaCpuLimit, $style, $culture, [ref]$limitNumber) -and
+        [double]::TryParse($llamaCpuReservation, $style, $culture, [ref]$reservationNumber) -and
+        $reservationNumber -gt $limitNumber) {
+        $llamaCpuReservation = $llamaCpuLimit
+    }
+
+    $changed = $false
+    if ($envVars["LLAMA_CPU_LIMIT"] -ne $llamaCpuLimit) {
+        Set-DreamEnvValue -Key "LLAMA_CPU_LIMIT" -Value $llamaCpuLimit
+        $changed = $true
+    }
+    if ($envVars["LLAMA_CPU_RESERVATION"] -ne $llamaCpuReservation) {
+        Set-DreamEnvValue -Key "LLAMA_CPU_RESERVATION" -Value $llamaCpuReservation
+        $changed = $true
+    }
+
+    if ($changed) {
+        Write-AI ("Auto-adjusted llama-server CPU budget: limit={0}, reservation={1} (Docker CPUs: {2})" -f `
+            $llamaCpuLimit, $llamaCpuReservation, $budget.Available)
+    }
+}
+
 # ── AMD native inference server management (Lemonade or llama-server) ──
 
 function Get-NativeInferenceBackend {
@@ -405,6 +507,8 @@ function Invoke-Start {
     Test-Install
     Push-Location $InstallDir
     try {
+        Ensure-LlamaCpuBudget
+
         # Start native inference server first (AMD path: Lemonade or llama-server)
         if (-not $Service -and ((Get-NativeInferenceBackend) -ne "none")) {
             Start-NativeInferenceServer
@@ -482,6 +586,8 @@ function Invoke-Restart {
     Test-Install
     Push-Location $InstallDir
     try {
+        Ensure-LlamaCpuBudget
+
         $flags = Get-ComposeFlags
         if ($Service) {
             Write-AI "Restarting $Service..."
@@ -595,6 +701,8 @@ function Invoke-Update {
     Test-Install
     Push-Location $InstallDir
     try {
+        Ensure-LlamaCpuBudget
+
         $flags = Get-ComposeFlags
         Write-AI "Pulling latest images..."
         $pullExit = Invoke-DreamDockerCompose -InstallDir $InstallDir -ComposeFlags $flags -ComposeArgs @("pull")

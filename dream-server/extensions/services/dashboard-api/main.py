@@ -49,6 +49,10 @@ from helpers import (
     get_llama_metrics, get_loaded_model, get_llama_context_size,
 )
 from agent_monitor import collect_metrics
+from routers import (
+    workflows, features, setup, updates, agents, privacy, extensions,
+    gpu as gpu_router, resources, voice, models as models_router, templates,
+)
 
 
 # ================================================================
@@ -120,9 +124,6 @@ _MANUAL_RESTART_KEYS = {
     "DASHBOARD_API_KEY", "DREAM_AGENT_KEY", "DASHBOARD_PORT",
     "DASHBOARD_API_PORT", "DREAM_AGENT_PORT", "DREAM_AGENT_HOST",
 }
-
-# --- Router imports ---
-from routers import workflows, features, setup, updates, agents, privacy, extensions, gpu as gpu_router, resources, voice, models as models_router, templates
 
 logger = logging.getLogger(__name__)
 
@@ -1200,11 +1201,16 @@ async def _build_api_status() -> dict:
         vram_gb = gpu_info.memory_total_mb / 1024
         if gpu_info.memory_type == "unified" and gpu_info.gpu_backend == "amd":
             tier = "Strix Halo 90+" if vram_gb >= 90 else "Strix Halo Compact"
-        elif vram_gb >= 80: tier = "Professional"
-        elif vram_gb >= 24: tier = "Prosumer"
-        elif vram_gb >= 16: tier = "Standard"
-        elif vram_gb >= 8: tier = "Entry"
-        else: tier = "Minimal"
+        elif vram_gb >= 80:
+            tier = "Professional"
+        elif vram_gb >= 24:
+            tier = "Prosumer"
+        elif vram_gb >= 16:
+            tier = "Standard"
+        elif vram_gb >= 8:
+            tier = "Entry"
+        else:
+            tier = "Minimal"
 
     result = {
         "gpu": gpu_data, "services": services_data, "model": model_data,

@@ -17,7 +17,7 @@ services:
           cpus: '${LLAMA_CPU_LIMIT:-8.0}'
           memory: ${LLAMA_SERVER_MEMORY_LIMIT:-32G}
         reservations:
-          cpus: '2.0'
+          cpus: '${LLAMA_CPU_RESERVATION:-2.0}'
           memory: 4G
     environment:
       # Hint to llama.cpp for ARM NEON optimizations

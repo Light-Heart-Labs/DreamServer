@@ -31,7 +31,9 @@ async def get_agent_metrics_html(api_key: str = Depends(verify_api_key)):
     last_update_time = last_update.split("T")[1][:8] if "T" in last_update else "N/A"
 
     # Escape all interpolated values for HTML safety
-    esc = lambda v: html_mod.escape(str(v))
+    def esc(value):
+        return html_mod.escape(str(value))
+
     active_gpus = esc(cluster.get("active_gpus", 0))
     total_gpus = esc(cluster.get("total_gpus", 0))
     failover_safe = esc(failover_text)

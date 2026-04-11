@@ -222,6 +222,28 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
     LANGFUSE_INIT_USER_PASSWORD=$(_env_get LANGFUSE_INIT_USER_PASSWORD "$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
     MODEL_PROFILE_VALUE=$(_env_get MODEL_PROFILE "${MODEL_PROFILE_REQUESTED:-${MODEL_PROFILE:-qwen}}")
 
+    _select_auto_cpu_value() {
+        local key="$1" detected="$2"
+        local existing
+        existing=$(_env_get "$key" "")
+        if [[ "$existing" =~ ^[0-9]+([.][0-9]+)?$ ]] && awk "BEGIN { exit !($existing > 0 && $existing <= $detected) }"; then
+            echo "$existing"
+        else
+            echo "$detected"
+        fi
+    }
+
+    _cpu_backend="${GPU_BACKEND:-cpu}"
+    [[ "$_cpu_backend" == "none" ]] && _cpu_backend="cpu"
+    read -r _llama_cpu_limit_raw _llama_cpu_reservation_raw _docker_available_cpus <<< "$(calculate_llama_cpu_budget "$_cpu_backend")"
+    _llama_cpu_limit_detected="${_llama_cpu_limit_raw}.0"
+    _llama_cpu_reservation_detected="${_llama_cpu_reservation_raw}.0"
+    LLAMA_CPU_LIMIT=$(_select_auto_cpu_value LLAMA_CPU_LIMIT "${_llama_cpu_limit_detected}")
+    LLAMA_CPU_RESERVATION=$(_select_auto_cpu_value LLAMA_CPU_RESERVATION "${_llama_cpu_reservation_detected}")
+    if awk "BEGIN { exit !($LLAMA_CPU_RESERVATION > $LLAMA_CPU_LIMIT) }"; then
+        LLAMA_CPU_RESERVATION="$LLAMA_CPU_LIMIT"
+    fi
+
     # Preserve user-supplied cloud API keys
     ANTHROPIC_API_KEY=$(_env_get ANTHROPIC_API_KEY "${ANTHROPIC_API_KEY:-}")
     OPENAI_API_KEY=$(_env_get OPENAI_API_KEY "${OPENAI_API_KEY:-}")
@@ -264,6 +286,8 @@ CTX_SIZE=${MAX_CONTEXT}
 GPU_BACKEND=${GPU_BACKEND}
 N_GPU_LAYERS=${N_GPU_LAYERS:-99}
 $(if [[ -n "${LLAMA_SERVER_IMAGE:-}" ]]; then echo "LLAMA_SERVER_IMAGE=${LLAMA_SERVER_IMAGE}"; fi)
+LLAMA_CPU_LIMIT=${LLAMA_CPU_LIMIT}
+LLAMA_CPU_RESERVATION=${LLAMA_CPU_RESERVATION}
 
 $(if [[ "$GPU_BACKEND" == "amd" ]]; then cat << AMD_ENV
 #=== GPU Group IDs (for container device access) ===
