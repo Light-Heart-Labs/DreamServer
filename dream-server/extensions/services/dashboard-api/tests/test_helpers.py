@@ -293,6 +293,16 @@ class TestCheckServiceHealth:
         assert result.port == 8080
 
     @pytest.mark.asyncio
+    async def test_sends_host_localhost_header(self, mock_aiohttp_session, monkeypatch):
+        session = mock_aiohttp_session(status=200)
+        monkeypatch.setattr("helpers._get_aio_session", AsyncMock(return_value=session))
+
+        await check_service_health("test-svc", self._CONFIG)
+        session.get.assert_called_once()
+        _, kwargs = session.get.call_args
+        assert kwargs.get("headers", {}).get("Host") == "localhost"
+
+    @pytest.mark.asyncio
     async def test_unhealthy_on_500(self, mock_aiohttp_session, monkeypatch):
         session = mock_aiohttp_session(status=500)
         monkeypatch.setattr("helpers._get_aio_session", AsyncMock(return_value=session))
@@ -676,6 +686,15 @@ class TestCheckHostServiceHealth:
         monkeypatch.setattr("helpers._get_aio_session", AsyncMock(return_value=session))
         result = await _check_host_service_health("test-host-svc", self._CONFIG)
         assert result.status == "healthy"
+
+    @pytest.mark.asyncio
+    async def test_sends_host_localhost_header(self, mock_aiohttp_session, monkeypatch):
+        session = mock_aiohttp_session(status=200)
+        monkeypatch.setattr("helpers._get_aio_session", AsyncMock(return_value=session))
+        await _check_host_service_health("test-host-svc", self._CONFIG)
+        session.get.assert_called_once()
+        _, kwargs = session.get.call_args
+        assert kwargs.get("headers", {}).get("Host") == "localhost"
 
     @pytest.mark.asyncio
     async def test_down_on_timeout(self, monkeypatch):

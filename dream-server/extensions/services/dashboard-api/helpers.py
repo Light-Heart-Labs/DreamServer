@@ -227,7 +227,10 @@ async def check_service_health(service_id: str, config: dict) -> ServiceStatus:
     try:
         session = await _get_aio_session()
         start = asyncio.get_event_loop().time()
-        async with session.get(url) as resp:
+        # Send Host header so reverse-proxy services (e.g. Caddy in Baserow)
+        # route the request correctly instead of returning 404.
+        headers = {"Host": "localhost"}
+        async with session.get(url, headers=headers) as resp:
             response_time = (asyncio.get_event_loop().time() - start) * 1000
             status = "healthy" if resp.status < 400 else "unhealthy"
     except asyncio.TimeoutError:
@@ -261,7 +264,9 @@ async def _check_host_service_health(service_id: str, config: dict) -> ServiceSt
     try:
         session = await _get_aio_session()
         start = asyncio.get_event_loop().time()
-        async with session.get(url) as resp:
+        # Host header for reverse-proxy routing (see check_service_health)
+        headers = {"Host": "localhost"}
+        async with session.get(url, headers=headers) as resp:
             response_time = (asyncio.get_event_loop().time() - start) * 1000
             status = "healthy" if resp.status < 400 else "unhealthy"
     except asyncio.TimeoutError:
