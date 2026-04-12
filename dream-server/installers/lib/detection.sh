@@ -93,8 +93,14 @@ detect_gpu() {
     GPU_MEMORY_TYPE="none"
     GPU_DEVICE_ID=""
 
-    # Try NVIDIA first
-    if command -v nvidia-smi &> /dev/null; then
+    # Try NVIDIA first — validate hardware via sysfs vendor ID (0x10de)
+    # before trusting nvidia-smi, which may be installed without NVIDIA hardware
+    # (e.g. nvidia-container-toolkit on AMD-only systems).
+    local _nvidia_hw=false
+    for _v in /sys/class/drm/card*/device/vendor; do
+        [[ "$(cat "$_v" 2>/dev/null)" == "0x10de" ]] && _nvidia_hw=true && break
+    done
+    if $_nvidia_hw && command -v nvidia-smi &> /dev/null; then
         local raw
         if raw=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null) && [[ -n "$raw" ]]; then
             GPU_BACKEND="nvidia"
