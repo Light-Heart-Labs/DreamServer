@@ -223,12 +223,13 @@ def _scan_compose_content(
     if not isinstance(services, dict):
         return
 
-    for svc_name in services:
-        if svc_name in CORE_SERVICE_IDS:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Extension rejected: service name '{svc_name}' conflicts with core service",
-            )
+    if not skip_name_collision:
+        for svc_name in services:
+            if svc_name in CORE_SERVICE_IDS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Extension rejected: service name '{svc_name}' conflicts with core service",
+                )
 
     for svc_name, svc_def in services.items():
         if not isinstance(svc_def, dict):
@@ -1043,8 +1044,11 @@ def _activate_service(service_id: str) -> dict:
             status_code=404, detail=f"Extension has no compose file: {service_id}",
         )
 
-    # Re-scan compose content (TOCTOU prevention)
-    _scan_compose_content(disabled_compose)
+    # Re-scan compose content (TOCTOU prevention). Built-in extensions
+    # legitimately declare their own service name in their compose file, so
+    # skip the CORE_SERVICE_IDS name-collision check for them.
+    is_builtin = ext_dir.is_relative_to(EXTENSIONS_DIR.resolve())
+    _scan_compose_content(disabled_compose, skip_name_collision=is_builtin)
 
     # Reject symlinks
     st = os.lstat(disabled_compose)
