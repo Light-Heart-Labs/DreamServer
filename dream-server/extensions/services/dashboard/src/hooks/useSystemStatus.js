@@ -54,6 +54,12 @@ export function useSystemStatus() {
   // llama-server under inference load) we skip the next poll rather
   // than stacking concurrent requests that can amplify the problem.
   const fetchInFlight = useRef(false)
+  // Allow the very first fetch to run even on a hidden tab so that
+  // users who open the dashboard in a background window (multi-monitor,
+  // restored session, browser automation) don't see a permanently stuck
+  // loading skeleton. After the initial data lands, the hidden-tab
+  // guard engages for subsequent polls to save CPU/network.
+  const hasInitialData = useRef(false)
 
   useEffect(() => {
     const fetchStatus = async () => {
@@ -62,8 +68,9 @@ export function useSystemStatus() {
         return
       }
 
-      // Pause polling when the tab is hidden to save CPU/network
-      if (document.hidden) return
+      // Pause polling when the tab is hidden — but only after the first
+      // successful fetch so the loading skeleton is never permanent.
+      if (document.hidden && hasInitialData.current) return
 
       // Skip this tick if the previous fetch hasn't returned yet.
       if (fetchInFlight.current) return
@@ -75,6 +82,7 @@ export function useSystemStatus() {
         const data = await response.json()
         setStatus(data)
         setError(null)
+        hasInitialData.current = true
       } catch (err) {
         setError(err.message)
       } finally {
