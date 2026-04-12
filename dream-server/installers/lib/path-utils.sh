@@ -47,16 +47,24 @@ normalize_path() {
 # Resolve installation directory with precedence:
 # 1. INSTALL_DIR env var (if set)
 # 2. DREAM_HOME env var (if set) - legacy macOS
-# 3. DS_INSTALL_DIR env var (if set) - legacy macOS
-# 4. Default: $HOME/dream-server
+# 3. DREAM_SCRIPT_HINT env var, only when it points at a populated install
+#    (detected by presence of a .env sentinel at that root). Callers set this
+#    when they know the script lives inside the install dir (e.g. dream-macos.sh
+#    exports SCRIPT_DIR before sourcing constants.sh). The sentinel guard
+#    prevents false positives from /usr/local/bin PATH symlinks or scratch
+#    copies that lack an installer-generated .env.
+# 4. DS_INSTALL_DIR env var (if set) - legacy macOS
+# 5. Default: $HOME/dream-server
 resolve_install_dir() {
     local resolved=""
-    
+
     # Check precedence order
     if [[ -n "${INSTALL_DIR:-}" ]]; then
         resolved="$INSTALL_DIR"
     elif [[ -n "${DREAM_HOME:-}" ]]; then
         resolved="$DREAM_HOME"
+    elif [[ -n "${DREAM_SCRIPT_HINT:-}" ]] && [[ -f "${DREAM_SCRIPT_HINT}/.env" ]]; then
+        resolved="$DREAM_SCRIPT_HINT"
     elif [[ -n "${DS_INSTALL_DIR:-}" ]]; then
         resolved="$DS_INSTALL_DIR"
     else

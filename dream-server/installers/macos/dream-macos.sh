@@ -63,10 +63,19 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/lib"
 
+# Hint resolve_install_dir() that the script lives inside a populated install.
+# Lets `bash /path/to/install/dream-macos.sh status` work without DREAM_HOME
+# when /path/to/install contains an installer-generated .env sentinel. Unset
+# after the sourced chain so the hint does not leak into child processes we
+# spawn later (docker compose, curl, etc.).
+export DREAM_SCRIPT_HINT="$SCRIPT_DIR"
+
 # Source only what we need for CLI
 source "${LIB_DIR}/constants.sh"
 source "${LIB_DIR}/ui.sh"
 source "${LIB_DIR}/detection.sh"
+
+unset DREAM_SCRIPT_HINT
 
 # ── Resolve install directory ──
 INSTALL_DIR="${DS_INSTALL_DIR}"
@@ -86,7 +95,8 @@ test_docker_running() {
 
 test_install() {
     if [[ ! -d "$INSTALL_DIR" ]]; then
-        ai_err "Dream Server not found at ${INSTALL_DIR}. Set DREAM_HOME or run installer first."
+        ai_err "Dream Server not found at ${INSTALL_DIR}."
+        ai "Invoke from inside the install dir (bash <install>/dream-macos.sh status), export DREAM_HOME=<install>, or run the installer."
         exit 1
     fi
     local base_compose="${INSTALL_DIR}/docker-compose.base.yml"

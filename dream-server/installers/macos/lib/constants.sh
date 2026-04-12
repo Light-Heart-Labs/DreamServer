@@ -13,15 +13,29 @@
 
 DS_VERSION="2.4.0"
 
-# Install location - use shared path resolution if available
-MACOS_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-if [[ -f "$MACOS_SCRIPT_DIR/installers/lib/path-utils.sh" ]]; then
-    . "$MACOS_SCRIPT_DIR/installers/lib/path-utils.sh"
+# Install location - use shared path resolution if available.
+# constants.sh lives at two different depths depending on layout:
+#   source tree: dream-server/installers/macos/lib/constants.sh
+#   installed  : <install>/lib/constants.sh
+# so try both relative locations for path-utils.sh and pick whichever exists.
+_constants_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_path_utils=""
+for _candidate in \
+    "${_constants_dir}/../../lib/path-utils.sh" \
+    "${_constants_dir}/../installers/lib/path-utils.sh"; do
+    if [[ -f "$_candidate" ]]; then
+        _path_utils="$_candidate"
+        break
+    fi
+done
+if [[ -n "$_path_utils" ]]; then
+    . "$_path_utils"
     DS_INSTALL_DIR="$(resolve_install_dir)"
 else
     # Fallback to legacy behavior
     DS_INSTALL_DIR="${DREAM_HOME:-$HOME/dream-server}"
 fi
+unset _constants_dir _path_utils _candidate
 
 # Logging
 DS_LOG_FILE="/tmp/dream-server-install-macos.log"

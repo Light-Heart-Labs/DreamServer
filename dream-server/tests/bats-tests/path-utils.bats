@@ -11,6 +11,12 @@ load '../bats/bats-assert/load'
 setup() {
     # Source the library under test
     source "$BATS_TEST_DIRNAME/../../installers/lib/path-utils.sh"
+    # Ensure resolve_install_dir sees a clean env; each test sets its own.
+    unset INSTALL_DIR DREAM_HOME DS_INSTALL_DIR DREAM_SCRIPT_HINT
+}
+
+teardown() {
+    unset INSTALL_DIR DREAM_HOME DS_INSTALL_DIR DREAM_SCRIPT_HINT
 }
 
 # ── normalize_path ──────────────────────────────────────────────────────────
@@ -85,6 +91,24 @@ setup() {
     unset INSTALL_DIR
     unset DREAM_HOME
     unset DS_INSTALL_DIR
+    run resolve_install_dir
+    assert_success
+    assert_output "$HOME/dream-server"
+}
+
+@test "resolve_install_dir: DREAM_SCRIPT_HINT used when sentinel .env present" {
+    export DREAM_SCRIPT_HINT="$BATS_TEST_TMPDIR/dream-install-hint"
+    mkdir -p "$DREAM_SCRIPT_HINT"
+    touch "$DREAM_SCRIPT_HINT/.env"
+    run resolve_install_dir
+    assert_success
+    assert_output "$DREAM_SCRIPT_HINT"
+}
+
+@test "resolve_install_dir: DREAM_SCRIPT_HINT falls through when sentinel .env absent" {
+    export DREAM_SCRIPT_HINT="$BATS_TEST_TMPDIR/dream-install-no-sentinel"
+    mkdir -p "$DREAM_SCRIPT_HINT"
+    # No .env file created — hint must be rejected and fall through to default.
     run resolve_install_dir
     assert_success
     assert_output "$HOME/dream-server"
