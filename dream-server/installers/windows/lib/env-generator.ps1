@@ -75,7 +75,12 @@ function New-DreamEnv {
         [string]$Tier,
         [string]$GpuBackend = "nvidia",
         [string]$DreamMode = "local",
-        [string]$LlamaServerImage = ""
+        [string]$LlamaServerImage = "",
+        # Mirror the install-time ENABLE_LANGFUSE toggle from phase 03 into
+        # .env's LANGFUSE_ENABLED default. Re-install preserves whatever the
+        # user already had in .env (via Get-EnvOrNew), so manual
+        # `dream enable langfuse` edits survive.
+        [bool]$EnableLangfuse = $false
     )
 
     # Preserve existing secrets on re-install (mirrors Linux _env_get logic)
@@ -112,7 +117,8 @@ function New-DreamEnv {
 
     # Langfuse observability secrets
     $langfusePort              = Get-EnvOrNew "LANGFUSE_PORT"              "3006"
-    $langfuseEnabled           = Get-EnvOrNew "LANGFUSE_ENABLED"           "false"
+    $langfuseDefault           = if ($EnableLangfuse) { "true" } else { "false" }
+    $langfuseEnabled           = Get-EnvOrNew "LANGFUSE_ENABLED"           $langfuseDefault
     $langfuseNextauthSecret    = Get-EnvOrNew "LANGFUSE_NEXTAUTH_SECRET"   (New-SecureHex -Bytes 32)
     $langfuseSalt              = Get-EnvOrNew "LANGFUSE_SALT"              (New-SecureHex -Bytes 32)
     $langfuseEncryptionKey     = Get-EnvOrNew "LANGFUSE_ENCRYPTION_KEY"    (New-SecureHex -Bytes 32)

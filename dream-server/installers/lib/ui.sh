@@ -392,6 +392,7 @@ show_install_menu() {
             ENABLE_RAG=true
             ENABLE_OPENCLAW=true
             ENABLE_COMFYUI=true
+            ENABLE_LANGFUSE=true
 
             # Disable image generation on low-tier systems (insufficient RAM/VRAM)
             # ComfyUI requires shm_size 8GB + 24GB memory limit
@@ -412,6 +413,8 @@ show_install_menu() {
             ENABLE_RAG=false
             ENABLE_OPENCLAW=false
             ENABLE_COMFYUI=false
+            ENABLE_DREAMFORGE=false
+            ENABLE_LANGFUSE=false
             ;;
         3)
             signal "Acknowledged."
@@ -424,6 +427,7 @@ show_install_menu() {
             ENABLE_RAG=true
             ENABLE_OPENCLAW=true
             ENABLE_COMFYUI=true
+            ENABLE_LANGFUSE=true
 
             # Disable image generation on low-tier systems (insufficient RAM/VRAM)
             # ComfyUI requires shm_size 8GB + 24GB memory limit

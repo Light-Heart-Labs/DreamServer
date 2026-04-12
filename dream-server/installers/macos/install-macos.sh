@@ -65,6 +65,12 @@ ENABLE_VOICE=false
 ENABLE_WORKFLOWS=false
 ENABLE_RAG=false
 ENABLE_OPENCLAW=false
+# Langfuse defaults OFF because its clickhouse + postgres + minio stack adds
+# ~500MB baseline memory. Enable via --langfuse, --all, or post-install
+# `dream enable langfuse`. --no-langfuse honored as explicit override so a
+# --all run can still suppress Langfuse.
+ENABLE_LANGFUSE=false
+NO_LANGFUSE_EXPLICIT=false
 ALL_FEATURES=false
 CLOUD_MODE=false
 
@@ -78,6 +84,8 @@ while [[ $# -gt 0 ]]; do
         --workflows)     ENABLE_WORKFLOWS=true; shift ;;
         --rag)           ENABLE_RAG=true; shift ;;
         --openclaw)      ENABLE_OPENCLAW=true; shift ;;
+        --langfuse)      ENABLE_LANGFUSE=true; shift ;;
+        --no-langfuse)   ENABLE_LANGFUSE=false; NO_LANGFUSE_EXPLICIT=true; shift ;;
         --all)           ALL_FEATURES=true; shift ;;
         --cloud)         CLOUD_MODE=true; shift ;;
         *)               echo "Unknown option: $1"; exit 1 ;;
@@ -89,6 +97,8 @@ if $ALL_FEATURES; then
     ENABLE_WORKFLOWS=true
     ENABLE_RAG=true
     ENABLE_OPENCLAW=true
+    # --all enables Langfuse unless the user explicitly passed --no-langfuse.
+    $NO_LANGFUSE_EXPLICIT || ENABLE_LANGFUSE=true
 fi
 
 # ── Locate script directory and source tree root ──
@@ -323,10 +333,12 @@ if ! $NON_INTERACTIVE && ! $ALL_FEATURES && ! $DRY_RUN; then
         1)
             ENABLE_VOICE=true; ENABLE_WORKFLOWS=true
             ENABLE_RAG=true; ENABLE_OPENCLAW=true
+            ENABLE_LANGFUSE=true
             ;;
         2)
             ENABLE_VOICE=false; ENABLE_WORKFLOWS=false
             ENABLE_RAG=false; ENABLE_OPENCLAW=false
+            ENABLE_LANGFUSE=false
             ;;
         3)
             read -r -p "  Enable Voice (Whisper + Kokoro)? [y/N] " yn < /dev/tty
@@ -337,10 +349,13 @@ if ! $NON_INTERACTIVE && ! $ALL_FEATURES && ! $DRY_RUN; then
             [[ "$yn" =~ ^[yY] ]] && ENABLE_RAG=true
             read -r -p "  Enable OpenClaw (AI agents)?      [y/N] " yn < /dev/tty
             [[ "$yn" =~ ^[yY] ]] && ENABLE_OPENCLAW=true
+            read -r -p "  Enable Langfuse (LLM observability, ~500MB)? [y/N] " yn < /dev/tty
+            [[ "$yn" =~ ^[yY] ]] && ENABLE_LANGFUSE=true
             ;;
         *)
             ENABLE_VOICE=true; ENABLE_WORKFLOWS=true
             ENABLE_RAG=true; ENABLE_OPENCLAW=true
+            ENABLE_LANGFUSE=true
             ;;
     esac
 fi
@@ -350,6 +365,7 @@ info_box "  Voice:" "$(if $ENABLE_VOICE; then echo enabled; else echo disabled; 
 info_box "  Workflows:" "$(if $ENABLE_WORKFLOWS; then echo enabled; else echo disabled; fi)"
 info_box "  RAG:" "$(if $ENABLE_RAG; then echo enabled; else echo disabled; fi)"
 info_box "  OpenClaw:" "$(if $ENABLE_OPENCLAW; then echo enabled; else echo disabled; fi)"
+info_box "  Langfuse:" "$(if $ENABLE_LANGFUSE; then echo enabled; else echo disabled; fi)"
 
 # ============================================================================
 # PHASE 4 -- SETUP (directories, copy source, generate .env)
@@ -362,6 +378,7 @@ if $DRY_RUN; then
     ai "[DRY RUN] Would generate .env with secrets"
     ai "[DRY RUN] Would generate SearXNG config"
     $ENABLE_OPENCLAW && ai "[DRY RUN] Would configure OpenClaw"
+    $ENABLE_LANGFUSE && ai "[DRY RUN] Would enable Langfuse (LLM observability)"
 else
     # Create directory structure
     mkdir -p "${INSTALL_DIR}/config/searxng"
@@ -702,6 +719,28 @@ else
     CURRENT_BACKEND="apple"
     $CLOUD_MODE && CURRENT_BACKEND="none"
 
+    # Sync Langfuse compose state with ENABLE_LANGFUSE before manifest discovery.
+    # Langfuse ships as compose.yaml.disabled; enable it here when the user opted
+    # in so the manifest loop below picks it up on the first pass. Disable
+    # (rename back) when the user did not opt in so a re-install correctly drops it.
+    _langfuse_svc_dir="${EXT_DIR}/langfuse"
+    if [[ -d "$_langfuse_svc_dir" ]]; then
+        _langfuse_compose="${_langfuse_svc_dir}/compose.yaml"
+        if $ENABLE_LANGFUSE; then
+            if [[ ! -f "$_langfuse_compose" && -f "${_langfuse_compose}.disabled" ]]; then
+                mv "${_langfuse_compose}.disabled" "$_langfuse_compose"
+                ai_ok "Langfuse compose re-enabled"
+            fi
+        else
+            if [[ -f "$_langfuse_compose" ]]; then
+                mv "$_langfuse_compose" "${_langfuse_compose}.disabled"
+                log "Langfuse compose disabled (LLM observability not enabled)"
+            fi
+        fi
+        unset _langfuse_compose
+    fi
+    unset _langfuse_svc_dir
+
     if [[ -d "$EXT_DIR" ]]; then
         for SVC_DIR in "$EXT_DIR"/*/; do
             [[ ! -d "$SVC_DIR" ]] && continue
@@ -745,6 +784,7 @@ else
                 n8n)           $ENABLE_WORKFLOWS || SKIP=true ;;
                 qdrant|embeddings) $ENABLE_RAG || SKIP=true ;;
                 openclaw)      $ENABLE_OPENCLAW || SKIP=true ;;
+                langfuse)      $ENABLE_LANGFUSE || SKIP=true ;;
             esac
             $SKIP && continue
 

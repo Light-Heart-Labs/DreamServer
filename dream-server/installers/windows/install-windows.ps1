@@ -48,6 +48,8 @@ param(
     [switch]$Cloud,
     [switch]$Comfyui,
     [switch]$NoComfyui,
+    [switch]$Langfuse,
+    [switch]$NoLangfuse,
     [string]$SummaryJsonPath = ""
 )
 
@@ -83,6 +85,8 @@ $openClawFlag   = $OpenClaw.IsPresent
 $allFlag        = $All.IsPresent
 $comfyuiFlag    = $Comfyui.IsPresent
 $noComfyuiFlag  = $NoComfyui.IsPresent
+$langfuseFlag   = $Langfuse.IsPresent
+$noLangfuseFlag = $NoLangfuse.IsPresent
 $installDir     = $script:DS_INSTALL_DIR
 $sourceRoot     = $SourceRoot
 
