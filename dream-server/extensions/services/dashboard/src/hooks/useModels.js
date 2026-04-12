@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 // Mock data for development/demo - gated behind VITE_USE_MOCK_DATA env var
 const USE_MOCK_DATA = import.meta.env.VITE_USE_MOCK_DATA === 'true'
@@ -81,6 +81,7 @@ export function useModels() {
   const [loading, setLoading] = useState(USE_MOCK_DATA ? false : true)
   const [error, setError] = useState(null)
   const [actionLoading, setActionLoading] = useState(null)
+  const loadActiveRef = useRef(false)
 
   const fetchModels = useCallback(async () => {
     // If using mock data, don't attempt API call
@@ -128,18 +129,53 @@ export function useModels() {
   }
 
   const loadModel = async (modelId) => {
+    // Prevent concurrent activations — only one model can load at a time
+    if (loadActiveRef.current) return
+    loadActiveRef.current = true
     setActionLoading(modelId)
-    try {
-      const response = await fetch(`/api/models/${encodeURIComponent(modelId)}/load`, {
-        method: 'POST'
+    setError(null)
+
+    // Model activation is long-running (20-60s).  The browser connection
+    // often drops before the backend responds (nginx 499 / NetworkError),
+    // but the server still completes the activation.  Fire the POST
+    // without blocking and poll for status instead.
+    let serverError = null
+    fetch(`/api/models/${encodeURIComponent(modelId)}/load`, { method: 'POST' })
+      .then(async (res) => {
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          const detail = body.detail || ''
+          // 409/lock = another activation running — not a real error, keep polling
+          if (/in progress|lock|already/i.test(detail)) return
+          serverError = detail || 'Failed to load model'
+        }
       })
-      if (!response.ok) throw new Error('Failed to load model')
-      await fetchModels() // Refresh
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setActionLoading(null)
+      .catch(() => {}) // NetworkError — server still processing
+
+    // Poll until model loads, server error, or timeout (2.5 min)
+    for (let i = 0; i < 30; i++) {
+      await new Promise(r => setTimeout(r, 5000))
+      if (serverError) {
+        setError(serverError)
+        break
+      }
+      try {
+        const res = await fetch('/api/models')
+        if (res.ok) {
+          const data = await res.json()
+          if (data.currentModel === modelId) {
+            setModels(data.models)
+            setGpu(data.gpu)
+            setCurrentModel(data.currentModel)
+            break
+          }
+        }
+      } catch { /* poll failure, retry */ }
     }
+
+    await fetchModels()
+    setActionLoading(null)
+    loadActiveRef.current = false
   }
 
   const deleteModel = async (modelId) => {

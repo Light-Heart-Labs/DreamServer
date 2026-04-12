@@ -135,11 +135,21 @@ async def get_llama_metrics(model_hint: Optional[str] = None) -> dict:
 
 
 async def get_loaded_model() -> Optional[str]:
-    """Query llama-server /v1/models for actually loaded model name."""
+    """Query llama-server for actually loaded model name."""
     try:
         host = SERVICES["llama-server"]["host"]
         port = SERVICES["llama-server"]["port"]
         client = await _get_httpx_client()
+
+        # Lemonade lists ALL available models at /v1/models without a status
+        # field, so the first entry is arbitrary.  The health endpoint is the
+        # authoritative source for which model is actually loaded.
+        if LLM_BACKEND == "lemonade":
+            resp = await client.get(f"http://{host}:{port}{_LLM_API_PREFIX}/health")
+            loaded = resp.json().get("model_loaded")
+            return loaded if loaded else None
+
+        # llama.cpp: /v1/models returns the loaded model with status info.
         resp = await client.get(f"http://{host}:{port}{_LLM_API_PREFIX}/models")
         models = resp.json().get("data", [])
         for m in models:
@@ -148,7 +158,7 @@ async def get_loaded_model() -> Optional[str]:
                 return m.get("id")
         if models:
             return models[0].get("id")
-    except (httpx.HTTPError, httpx.TimeoutException) as e:
+    except (httpx.HTTPError, httpx.TimeoutException, ValueError) as e:
         logger.debug("get_loaded_model failed: %s", e)
     return None
 

@@ -103,6 +103,7 @@ export default function Models() {
             key={model.id}
             model={model}
             isLoading={actionLoading === model.id}
+            loadBusy={!!actionLoading}
             downloadBusy={downloadProgress.isDownloading}
             onDownload={() => downloadModel(model.id)}
             onLoad={() => loadModel(model.id)}
@@ -120,7 +121,7 @@ export default function Models() {
   )
 }
 
-function ModelCard({ model, isLoading, downloadBusy, onDownload, onLoad, onDelete }) {
+function ModelCard({ model, isLoading, loadBusy, downloadBusy, onDownload, onLoad, onDelete }) {
   const isLoaded = model.status === 'loaded'
   const isDownloaded = model.status === 'downloaded'
   const isAvailable = model.status === 'available'
@@ -211,15 +212,15 @@ function ModelCard({ model, isLoading, downloadBusy, onDownload, onLoad, onDelet
             </span>
           ) : isDownloaded ? (
             <>
-              <button 
+              <button
                 onClick={onLoad}
-                disabled={!model.fitsVram}
+                disabled={!model.fitsVram || loadBusy}
                 className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors ${
-                  model.fitsVram
+                  model.fitsVram && !loadBusy
                     ? 'bg-theme-accent hover:bg-theme-accent-hover text-white'
                     : 'bg-theme-border text-theme-text-muted cursor-not-allowed'
                 }`}
-                title={model.fitsVram ? 'Load this model' : 'Not enough VRAM'}
+                title={loadBusy ? 'Another model is loading' : model.fitsVram ? 'Load this model' : 'Not enough VRAM'}
               >
                 <Play size={16} />
                 Load

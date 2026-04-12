@@ -1267,11 +1267,13 @@ class AgentHandler(BaseHTTPRequestHandler):
 
         env_path = INSTALL_DIR / ".env"
         models_ini = INSTALL_DIR / "config" / "llama-server" / "models.ini"
+        lemonade_yaml = INSTALL_DIR / "config" / "litellm" / "lemonade.yaml"
 
         try:
             # Save rollback snapshot
             env_backup = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
             ini_backup = models_ini.read_text(encoding="utf-8") if models_ini.exists() else ""
+            lemonade_backup = lemonade_yaml.read_text(encoding="utf-8") if lemonade_yaml.exists() else None
 
             # Update .env
             if env_path.exists():
@@ -1372,6 +1374,7 @@ class AgentHandler(BaseHTTPRequestHandler):
             health_url = f"http://{llama_host}:{llama_port}{health_path}"
             logger.info("Waiting for llama-server health at %s", health_url)
             healthy = False
+            warmup_sent = False
             time.sleep(5)  # Give container time to start
             for attempt in range(60):
                 try:
@@ -1380,18 +1383,46 @@ class AgentHandler(BaseHTTPRequestHandler):
                         capture_output=True, text=True, timeout=10,
                     )
                     body = result.stdout.strip()
-                    if '"ok"' in body:
-                        healthy = True
+                    if gpu_backend == "amd":
+                        # Lemonade returns {"status":"ok","model_loaded":null}
+                        # before a model is loaded — must verify model_loaded
+                        # is non-null.  Mirrors bootstrap-upgrade.sh:330.
+                        if _check_lemonade_health(body):
+                            healthy = True
+                        elif body:
+                            # Send warm-up request every 3rd attempt (~15s)
+                            # to trigger on-demand model loading.
+                            if not warmup_sent or attempt % 3 == 0:
+                                warmup_sent = _send_lemonade_warmup(
+                                    llama_host, llama_port, gguf_file, attempt,
+                                )
+                            if attempt % 6 == 0:
+                                logger.info(
+                                    "Lemonade healthy but no model loaded (attempt %d)",
+                                    attempt + 1,
+                                )
+                    else:
+                        # llama.cpp: 200 with "ok" means model is loaded
+                        if '"ok"' in body:
+                            healthy = True
+                        elif attempt % 6 == 0:
+                            logger.info("Health check attempt %d: %s", attempt + 1, body[:100])
+                    if healthy:
                         logger.info("llama-server healthy after %d attempts", attempt + 1)
                         break
-                    if attempt % 6 == 0:
-                        logger.info("Health check attempt %d: %s", attempt + 1, body[:100])
                 except subprocess.TimeoutExpired:
                     if attempt % 6 == 0:
                         logger.info("Health check attempt %d: timeout", attempt + 1)
                 time.sleep(5)
 
             if healthy:
+                # Regenerate lemonade.yaml if active.  Lemonade requires the
+                # exact model ID (extra.<GGUF_FILE>) — a wildcard doesn't work.
+                # Mirrors bootstrap-upgrade.sh lines 364-384.
+                dream_mode = env.get("DREAM_MODE", "local")
+                if dream_mode == "lemonade":
+                    _write_lemonade_config(INSTALL_DIR, gguf_file)
+
                 # Restart dependent services so they pick up the new model
                 for svc in ["dream-litellm", "dream-dreamforge"]:
                     subprocess.run(["docker", "restart", svc],
@@ -1402,6 +1433,8 @@ class AgentHandler(BaseHTTPRequestHandler):
                 logger.warning("Model activation failed — rolling back")
                 env_path.write_text(env_backup, encoding="utf-8")
                 models_ini.write_text(ini_backup, encoding="utf-8")
+                if lemonade_backup is not None:
+                    lemonade_yaml.write_text(lemonade_backup, encoding="utf-8")
                 rollback_env = load_env(env_path)
                 if _in_container:
                     _recreate_llama_server(rollback_env)
@@ -1468,6 +1501,75 @@ class AgentHandler(BaseHTTPRequestHandler):
             json_response(self, 500, {"error": f"Failed to delete: {exc}"})
 
 
+def _check_lemonade_health(body: str) -> bool:
+    """Check if Lemonade health response indicates a model is loaded.
+
+    Lemonade returns {"status": "ok", "model_loaded": null} when healthy
+    but no model is loaded yet.  Returns True only when model_loaded is
+    non-null.  Mirrors bootstrap-upgrade.sh line 330.
+    """
+    try:
+        data = json.loads(body)
+        return data.get("model_loaded") is not None
+    except (json.JSONDecodeError, TypeError):
+        return False
+
+
+def _send_lemonade_warmup(host: str, port: str, gguf_file: str, attempt: int) -> bool:
+    """Send a warm-up chat completion to trigger Lemonade on-demand model load.
+
+    Lemonade discovers models via --extra-models-dir but only loads them when
+    a request arrives for that model ID.  Returns True if the request was
+    accepted (model is loading).  Mirrors bootstrap-upgrade.sh lines 343-347.
+    """
+    model_id = f"extra.{gguf_file}"
+    url = f"http://{host}:{port}/api/v1/chat/completions"
+    payload = json.dumps({
+        "model": model_id,
+        "messages": [{"role": "user", "content": "hello"}],
+        "max_tokens": 1,
+    })
+    logger.info("Sending warm-up request for %s (attempt %d/60)", model_id, attempt + 1)
+    try:
+        result = subprocess.run(
+            ["curl", "-sf", "--max-time", "30", "-X", "POST", url,
+             "-H", "Content-Type: application/json", "-d", payload],
+            capture_output=True, text=True, timeout=35,
+        )
+        if result.returncode == 0:
+            logger.info("Warm-up request accepted — model is loading")
+            return True
+    except subprocess.TimeoutExpired:
+        pass
+    return False
+
+
+def _write_lemonade_config(install_dir: Path, gguf_file: str):
+    """Regenerate lemonade.yaml with the correct model ID for LiteLLM.
+
+    Lemonade exposes models as ``extra.<GGUF_FILE>`` — the LiteLLM config
+    must reference the exact ID, not a wildcard passthrough.
+    Mirrors bootstrap-upgrade.sh lines 369-382.
+    """
+    config_path = install_dir / "config" / "litellm" / "lemonade.yaml"
+    content = (
+        "model_list:\n"
+        "  - model_name: \"*\"\n"
+        "    litellm_params:\n"
+        f"      model: openai/extra.{gguf_file}\n"
+        "      api_base: http://llama-server:8080/api/v1\n"
+        "      api_key: sk-lemonade\n"
+        "\n"
+        "litellm_settings:\n"
+        "  drop_params: true\n"
+        "  set_verbose: false\n"
+        "  request_timeout: 120\n"
+        "  stream_timeout: 60\n"
+    )
+    config_path.write_text(content, encoding="utf-8")
+    logger.info("Wrote lemonade.yaml for model: extra.%s", gguf_file)
+
+
 def _compose_restart_llama_server(env: dict):
     """Restart llama-server via docker compose (host-native path).
 
@@ -1497,10 +1599,11 @@ def _compose_restart_llama_server(env: dict):
             subprocess.run(["docker", "compose"] + compose_flags + ["up", "-d", "llama-server"],
                            cwd=str(INSTALL_DIR), capture_output=True, timeout=300)
         else:
-            subprocess.run(["docker", "stop", "dream-llama-server"],
-                           capture_output=True, timeout=120)
-            subprocess.run(["docker", "start", "dream-llama-server"],
-                           capture_output=True, timeout=300)
+            # No compose flags — cannot use compose.  Fall back to
+            # inspect-and-recreate, which picks up GGUF_FILE from .env.
+            # docker start alone re-uses the old container command.
+            logger.warning("No .compose-flags file — using container recreation fallback")
+            _recreate_llama_server(env)
 
     logger.info("llama-server restarted via compose (backend: %s)", gpu_backend)
 
