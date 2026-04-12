@@ -394,10 +394,18 @@ LITELLM_UPGRADE_EOF
             log "Restarting DreamForge to pick up model change..."
             docker restart dream-dreamforge 2>&1 || log "WARNING: DreamForge restart failed (non-fatal)"
         fi
-        # Restart OpenClaw so inject-token.js re-runs with updated GGUF_FILE/LLM_MODEL
+        # Recreate OpenClaw so inject-token.js re-runs with updated GGUF_FILE/LLM_MODEL.
+        # OpenClaw reads these from env vars baked at container creation —
+        # docker restart does NOT re-read .env, so we must recreate via compose.
         if docker ps --filter name=dream-openclaw --format '{{.Names}}' 2>/dev/null | grep -q dream-openclaw; then
-            log "Restarting OpenClaw to pick up model change..."
-            docker restart dream-openclaw 2>&1 || log "WARNING: OpenClaw restart failed (non-fatal)"
+            log "Recreating OpenClaw to pick up model change..."
+            if [[ ${#COMPOSE_ARGS[@]} -gt 0 ]]; then
+                docker compose "${COMPOSE_ARGS[@]}" up -d --no-deps openclaw 2>&1 \
+                    || log "WARNING: OpenClaw recreate failed (non-fatal)"
+            else
+                docker restart dream-openclaw 2>&1 \
+                    || log "WARNING: OpenClaw restart failed (non-fatal)"
+            fi
         fi
     else
         log "WARNING: llama-server health check timed out. The model may still be loading."
