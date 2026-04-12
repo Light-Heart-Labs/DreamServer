@@ -1423,10 +1423,33 @@ class AgentHandler(BaseHTTPRequestHandler):
                 if dream_mode == "lemonade":
                     _write_lemonade_config(INSTALL_DIR, gguf_file)
 
-                # Restart dependent services so they pick up the new model
+                # Restart dependent services so they pick up the new model.
+                # LiteLLM reads from mounted lemonade.yaml; DreamForge
+                # auto-detects from llama-server API — restart is enough.
                 for svc in ["dream-litellm", "dream-dreamforge"]:
                     subprocess.run(["docker", "restart", svc],
                                    capture_output=True, timeout=60)
+                # OpenClaw reads GGUF_FILE/LLM_MODEL from env vars baked
+                # at container creation — must recreate, not just restart.
+                # Compose can't run from inside a container (bind-mount
+                # paths resolve wrong), so fall back to docker restart.
+                if _in_container:
+                    subprocess.run(["docker", "restart", "dream-openclaw"],
+                                   capture_output=True, timeout=60)
+                else:
+                    flags_file = INSTALL_DIR / ".compose-flags"
+                    if flags_file.exists():
+                        compose_flags = flags_file.read_text(
+                            encoding="utf-8").strip().split()
+                        subprocess.run(
+                            ["docker", "compose"] + compose_flags +
+                            ["up", "-d", "--no-deps", "openclaw"],
+                            cwd=str(INSTALL_DIR), capture_output=True,
+                            timeout=60)
+                    else:
+                        subprocess.run(
+                            ["docker", "restart", "dream-openclaw"],
+                            capture_output=True, timeout=60)
                 json_response(self, 200, {"status": "activated", "model_id": model_id})
             else:
                 # Rollback

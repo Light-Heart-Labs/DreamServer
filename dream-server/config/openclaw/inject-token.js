@@ -28,6 +28,9 @@ const OPENCLAW_LLM_URL = process.env.OPENCLAW_LLM_URL || '';
 const OLLAMA_URL = process.env.OLLAMA_URL || '';
 const _isLemonade = /\/api\/?$/.test(OLLAMA_URL);
 const EFFECTIVE_MODEL = (_isLemonade && GGUF_FILE) ? `extra.${GGUF_FILE}` : LLM_MODEL;
+if (_isLemonade && !GGUF_FILE) {
+  console.warn('[inject-token] WARNING: Lemonade detected but GGUF_FILE is empty — model references may be incorrect');
+}
 const CONFIG_PATH = path.join(process.env.HOME || '/home/node', '.openclaw', 'openclaw.json');
 const HTML_PATH = '/app/dist/control-ui/index.html';
 const JS_PATH = '/app/dist/control-ui/auto-token.js';
