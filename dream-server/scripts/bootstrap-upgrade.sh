@@ -299,8 +299,14 @@ if command -v docker &>/dev/null && docker ps --filter name=dream-llama-server -
             docker compose "${COMPOSE_ARGS[@]}" stop llama-server 2>&1 || true
             docker compose "${COMPOSE_ARGS[@]}" up -d llama-server 2>&1 || true
         else
+            # No compose flags — use docker rm to force a fresh container that
+            # re-reads GGUF_FILE from the env file. 'docker start' reuses the old
+            # baked environment and would crash-loop if the bootstrap model was
+            # already deleted in Phase 4b.
             docker stop dream-llama-server 2>&1 || true
-            docker start dream-llama-server 2>&1 || true
+            docker rm dream-llama-server 2>&1 || true
+            log "WARNING: .compose-flags not found — container removed. Run 'dream restart' to bring llama-server back up with the correct model."
+            write_status "failed"
         fi
     fi
 
