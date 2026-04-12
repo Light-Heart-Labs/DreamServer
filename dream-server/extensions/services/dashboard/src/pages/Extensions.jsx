@@ -633,7 +633,7 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
             <div>
               <h3 className="text-sm font-semibold text-theme-text leading-tight">{ext.name}</h3>
               {ext.features?.[0]?.category && (
-                <span className="text-[9px] text-theme-text-muted/55 uppercase tracking-[0.18em]">{ext.features[0].category}</span>
+                <span className="text-[9px] text-theme-text-secondary/70 uppercase tracking-[0.18em]">{ext.features[0].category}</span>
               )}
             </div>
           </div>
@@ -670,7 +670,7 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
             )}
           </div>
         </div>
-        <p className="text-[11px] text-theme-text-muted/70 line-clamp-2 leading-relaxed">{ext.description || 'No description available.'}</p>
+        <p className="text-[11px] text-theme-text-secondary/85 line-clamp-2 leading-relaxed">{ext.description || 'No description available.'}</p>
       </div>
 
       {/* Progress indicator — shows during active install/setup, survives page refresh */}
@@ -765,7 +765,7 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={e => e.stopPropagation()}
-                className="flex items-center gap-1 px-2 py-1.5 text-[10px] font-mono text-theme-text-muted/75 hover:text-theme-text-secondary hover:bg-theme-surface-hover/40 rounded-lg transition-colors"
+                className="flex items-center gap-1 px-2 py-1.5 text-[10px] font-mono text-theme-text-secondary hover:text-theme-text hover:bg-theme-surface-hover/40 rounded-lg transition-colors"
                 title={`Open on port ${ext.external_port_default || ext.port}`}
               >
                 <ExternalLink size={11} />
@@ -781,7 +781,7 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
                 agentOffline ? 'text-theme-text-muted/40 cursor-not-allowed' :
                 isError ? 'text-red-400 hover:text-red-300 hover:bg-red-500/10' :
                 (status === 'installing' || isStopped) ? 'text-amber-400/80 hover:text-amber-300 hover:bg-amber-500/10' :
-                'text-theme-text-muted/85 hover:text-theme-text-secondary hover:bg-theme-surface-hover/40'
+                'text-theme-text-secondary hover:text-theme-text hover:bg-theme-surface-hover/40'
               }`}
               title={agentOffline ? 'Agent offline' : 'View logs'}
             >
@@ -791,7 +791,7 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
           )}
           <button
             onClick={onDetails}
-            className="flex items-center gap-1 px-2 py-1.5 text-[10px] text-theme-text-muted/65 hover:text-theme-text-secondary hover:bg-theme-surface-hover/40 rounded-lg transition-colors"
+            className="flex items-center gap-1 px-2 py-1.5 text-[10px] text-theme-text-secondary hover:text-theme-text hover:bg-theme-surface-hover/40 rounded-lg transition-colors"
           >
             <Info size={11} />
           </button>
