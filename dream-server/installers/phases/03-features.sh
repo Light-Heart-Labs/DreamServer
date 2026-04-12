@@ -51,6 +51,10 @@ if $INTERACTIVE && ! $DRY_RUN; then
         echo
         [[ $REPLY =~ ^[Nn]$ ]] || ENABLE_DREAMFORGE=true
 
+        read -p "  Enable Langfuse (LLM observability + telemetry, ~500MB)? [y/N] " -r < /dev/tty
+        echo
+        [[ $REPLY =~ ^[Yy]$ ]] && ENABLE_LANGFUSE=true
+
         # Warn if ComfyUI enabled on low-tier hardware
         if [[ "$ENABLE_COMFYUI" == "true" ]]; then
             case "${TIER:-}" in
@@ -76,39 +80,58 @@ if ! $INTERACTIVE && [[ "$ENABLE_COMFYUI" == "true" ]]; then
     esac
 fi
 
-# Sync ComfyUI compose state with ENABLE_COMFYUI — the resolver uses the
-# .disabled convention to exclude services from the compose stack.
-_comfyui_compose="$SCRIPT_DIR/extensions/services/comfyui/compose.yaml"
-if [[ "${ENABLE_COMFYUI:-}" == "true" ]]; then
-    # Re-enable if previously disabled (re-install with different options)
-    if [[ ! -f "$_comfyui_compose" && -f "${_comfyui_compose}.disabled" ]]; then
-        mv "${_comfyui_compose}.disabled" "$_comfyui_compose"
-        log "ComfyUI compose re-enabled"
+# Sync optional-extension compose state with the ENABLE_* flags — the
+# resolver uses the .disabled convention to exclude services from the compose
+# stack. These mv calls are skipped during --dry-run so the source tree is
+# never mutated by a preview invocation.
+if ! $DRY_RUN; then
+    _comfyui_compose="$SCRIPT_DIR/extensions/services/comfyui/compose.yaml"
+    if [[ "${ENABLE_COMFYUI:-}" == "true" ]]; then
+        # Re-enable if previously disabled (re-install with different options)
+        if [[ ! -f "$_comfyui_compose" && -f "${_comfyui_compose}.disabled" ]]; then
+            mv "${_comfyui_compose}.disabled" "$_comfyui_compose"
+            log "ComfyUI compose re-enabled"
+        fi
+    else
+        # Disable — prevents resolve-compose-stack.sh from including a compose
+        # file whose image was never built/pulled, blocking ALL containers.
+        if [[ -f "$_comfyui_compose" ]]; then
+            mv "$_comfyui_compose" "${_comfyui_compose}.disabled"
+            log "ComfyUI compose disabled (image generation not enabled)"
+        fi
     fi
-else
-    # Disable — prevents resolve-compose-stack.sh from including a compose
-    # file whose image was never built/pulled, blocking ALL containers.
-    if [[ -f "$_comfyui_compose" ]]; then
-        mv "$_comfyui_compose" "${_comfyui_compose}.disabled"
-        log "ComfyUI compose disabled (image generation not enabled)"
-    fi
-fi
-unset _comfyui_compose
+    unset _comfyui_compose
 
-# Sync DreamForge compose state with ENABLE_DREAMFORGE — same .disabled convention.
-_dreamforge_compose="$SCRIPT_DIR/extensions/services/dreamforge/compose.yaml"
-if [[ "${ENABLE_DREAMFORGE:-}" == "true" ]]; then
-    if [[ ! -f "$_dreamforge_compose" && -f "${_dreamforge_compose}.disabled" ]]; then
-        mv "${_dreamforge_compose}.disabled" "$_dreamforge_compose"
-        log "DreamForge compose re-enabled"
+    # Sync DreamForge compose state with ENABLE_DREAMFORGE — same .disabled convention.
+    _dreamforge_compose="$SCRIPT_DIR/extensions/services/dreamforge/compose.yaml"
+    if [[ "${ENABLE_DREAMFORGE:-}" == "true" ]]; then
+        if [[ ! -f "$_dreamforge_compose" && -f "${_dreamforge_compose}.disabled" ]]; then
+            mv "${_dreamforge_compose}.disabled" "$_dreamforge_compose"
+            log "DreamForge compose re-enabled"
+        fi
+    else
+        if [[ -f "$_dreamforge_compose" ]]; then
+            mv "$_dreamforge_compose" "${_dreamforge_compose}.disabled"
+            log "DreamForge compose disabled (agent system not enabled)"
+        fi
     fi
-else
-    if [[ -f "$_dreamforge_compose" ]]; then
-        mv "$_dreamforge_compose" "${_dreamforge_compose}.disabled"
-        log "DreamForge compose disabled (agent system not enabled)"
+    unset _dreamforge_compose
+
+    # Sync Langfuse compose state with ENABLE_LANGFUSE — same .disabled convention.
+    _langfuse_compose="$SCRIPT_DIR/extensions/services/langfuse/compose.yaml"
+    if [[ "${ENABLE_LANGFUSE:-}" == "true" ]]; then
+        if [[ ! -f "$_langfuse_compose" && -f "${_langfuse_compose}.disabled" ]]; then
+            mv "${_langfuse_compose}.disabled" "$_langfuse_compose"
+            log "Langfuse compose re-enabled"
+        fi
+    else
+        if [[ -f "$_langfuse_compose" ]]; then
+            mv "$_langfuse_compose" "${_langfuse_compose}.disabled"
+            log "Langfuse compose disabled (LLM observability not enabled)"
+        fi
     fi
+    unset _langfuse_compose
 fi
-unset _dreamforge_compose
 
 # Re-resolve compose flags now that feature selection may have disabled services.
 # Without this, Phases 4-11 use stale flags from Phase 2 that reference files

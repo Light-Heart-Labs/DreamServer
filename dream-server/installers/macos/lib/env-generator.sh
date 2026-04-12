@@ -216,7 +216,11 @@ N8N_WEBHOOK_URL=http://localhost:5678
 TIMEZONE=${tz}
 
 #=== Langfuse (LLM Observability) ===
-LANGFUSE_ENABLED=false
+# NOTE: this value is only written on first install or --force (the macOS
+# env-generator early-returns when .env already exists). Users who re-run
+# ./install-macos.sh --langfuse on an existing install should instead use
+# post-install: `dream enable langfuse`.
+LANGFUSE_ENABLED=${ENABLE_LANGFUSE:-false}
 LANGFUSE_NEXTAUTH_SECRET=${langfuse_nextauth_secret}
 LANGFUSE_SALT=${langfuse_salt}
 LANGFUSE_ENCRYPTION_KEY=${langfuse_encryption_key}

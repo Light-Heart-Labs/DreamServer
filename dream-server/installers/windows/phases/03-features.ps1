@@ -34,6 +34,11 @@ $enableWorkflows  = $workflowsFlag -or $allFlag
 $enableRag        = $ragFlag -or $allFlag
 $enableOpenClaw   = $openClawFlag -or $allFlag
 $enableComfyui    = -not $noComfyuiFlag
+# Langfuse defaults OFF on all tiers because its clickhouse + postgres + minio
+# stack adds ~500MB baseline memory. Opt in via -Langfuse, -All, the Custom
+# menu, or post-install `dream enable langfuse`. -NoLangfuse is honored as an
+# explicit override so a -All run can still suppress Langfuse.
+$enableLangfuse   = ($langfuseFlag -or $allFlag) -and (-not $noLangfuseFlag)
 
 # ── Interactive menu (skipped in non-interactive / dry-run / --All mode) ──────
 if (-not $nonInteractive -and -not $allFlag -and -not $dryRun) {
@@ -53,6 +58,7 @@ if (-not $nonInteractive -and -not $allFlag -and -not $dryRun) {
             $enableRag       = $false
             $enableOpenClaw  = $false
             $enableComfyui   = $false
+            $enableLangfuse  = $false
         }
         "3" {
             Write-Host ""
@@ -61,6 +67,7 @@ if (-not $nonInteractive -and -not $allFlag -and -not $dryRun) {
             $enableRag       = (Read-Host "  Enable RAG (Qdrant vector DB + embeddings)? [y/N]") -match "^[yY]"
             $enableOpenClaw  = (Read-Host "  Enable OpenClaw (autonomous AI agents)?    [y/N]") -match "^[yY]"
             $enableComfyui   = (Read-Host "  Enable image generation (ComfyUI + SDXL Lightning, ~6.5GB)? [y/N]") -match "^[yY]"
+            $enableLangfuse  = (Read-Host "  Enable Langfuse (LLM observability, ~500MB)? [y/N]") -match "^[yY]"
 
             # Warn on low-tier
             if ($enableComfyui -and ($selectedTier -eq "0" -or $selectedTier -eq "1")) {
@@ -75,6 +82,7 @@ if (-not $nonInteractive -and -not $allFlag -and -not $dryRun) {
             $enableRag       = $true
             $enableOpenClaw  = $true
             $enableComfyui   = $true
+            $enableLangfuse  = $true
 
             # Disable image generation on low-tier systems (insufficient RAM/VRAM)
             if ($selectedTier -eq "0" -or $selectedTier -eq "1") {
@@ -107,6 +115,7 @@ Write-InfoBox "  Workflows (n8n):"          $(if ($enableWorkflows) { "enabled" 
 Write-InfoBox "  RAG (Qdrant + embeddings):" $(if ($enableRag)      { "enabled" } else { "disabled" })
 Write-InfoBox "  Agents (OpenClaw):"         $(if ($enableOpenClaw) { "enabled" } else { "disabled" })
 Write-InfoBox "  Image gen (ComfyUI):"        $(if ($enableComfyui)  { "enabled" } else { "disabled" })
+Write-InfoBox "  Langfuse (observability):"   $(if ($enableLangfuse) { "enabled" } else { "disabled" })
 
 # ── Tier-appropriate OpenClaw config selection ────────────────────────────────
 # Mirrors bash phase 03 logic (config/openclaw/<profile>.json).
