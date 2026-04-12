@@ -816,6 +816,14 @@ else
         fi
     done
 
+    # ── Unload stale LaunchAgents before compose (crash-safe) ──
+    # If a previous install registered these agents and this run fails at
+    # compose-up, the old agents would keep running with stale paths
+    # (DREAM_HOME pointing at the deleted install dir).  Clearing them
+    # here guarantees a clean slate regardless of what happens below.
+    launchctl bootout "gui/$(id -u)/${DREAM_AGENT_PLIST_LABEL}" 2>/dev/null || true
+    launchctl bootout "gui/$(id -u)/${OPENCODE_PLIST_LABEL}" 2>/dev/null || true
+
     # ── Start Docker services ──
     chapter "STARTING SERVICES"
     ai "Running: docker compose ${COMPOSE_FLAGS[*]} up -d"
