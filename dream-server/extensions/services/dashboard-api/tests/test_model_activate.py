@@ -5,8 +5,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 # Import the host agent module from bin/ using importlib.
 # The module has an ``if __name__ == "__main__":`` guard so no server starts.
 _agent_path = Path(__file__).resolve().parents[4] / "bin" / "dream-host-agent.py"
