@@ -287,3 +287,25 @@ def test_api_settings_env_apply_rejects_disallowed_service(test_client):
 
     assert response.status_code == 400
     assert "not eligible" in response.json()["detail"]["message"].lower()
+
+
+# --- Render round-trip fidelity ---
+
+
+def test_render_env_preserves_extras_with_empty_values():
+    """Keys with empty values must survive _render_env_from_values round-trip.
+
+    Regression guard for fork issue #335: the old filter
+    ``value != ""`` silently dropped keys like LLAMA_ARG_TENSOR_SPLIT=""
+    on every save.
+    """
+    from main import _render_env_from_values
+
+    values = {
+        "LLM_BACKEND": "local",
+        "TENSOR_SPLIT": "",       # intentionally empty
+        "GPU_UUID": "GPU-abc123",
+    }
+    rendered = _render_env_from_values(values)
+    assert "TENSOR_SPLIT=" in rendered
+    assert "GPU_UUID=GPU-abc123" in rendered

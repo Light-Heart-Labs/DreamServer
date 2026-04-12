@@ -683,10 +683,17 @@ class AgentHandler(BaseHTTPRequestHandler):
                 return
             key, _, value = stripped.partition("=")
             key = key.strip()
-            if key not in allowed_keys:
-                logger.warning("env_update rejected: unknown key %r from %s", key, client_ip)
-                json_response(self, 400, {"error": f"Unknown key: {key}"})
+            if not re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', key):
+                logger.warning("env_update rejected: invalid key name %r from %s", key[:40], client_ip)
+                json_response(self, 400, {"error": f"Invalid key name: {key[:40]}"})
                 return
+            if key not in allowed_keys:
+                # Warn but accept — extension install hooks and GPU pinning write
+                # keys that are not in the core schema (e.g. JWT_SECRET from
+                # LibreChat, COMFYUI_GPU_UUID from the installer).  Rejecting
+                # them breaks the dashboard Settings save for any install that
+                # has ever enabled an extension.
+                logger.info("env_update: non-schema key %r from %s (accepted)", key, client_ip)
             # Defense in depth: reject values containing control chars (null bytes,
             # escape sequences, etc.). splitlines() already consumed \n/\r/\u2028/\u2029;
             # this catches the residual edge cases flagged by security review.

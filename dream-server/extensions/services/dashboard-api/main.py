@@ -707,7 +707,7 @@ def _render_env_from_values(values: dict[str, str]) -> str:
 
         output_lines.append(line)
 
-    extras = [(key, value) for key, value in values.items() if key not in seen and value != ""]
+    extras = [(key, value) for key, value in values.items() if key not in seen]
     if extras:
         if output_lines and output_lines[-1] != "":
             output_lines.append("")
