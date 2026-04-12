@@ -1424,7 +1424,7 @@ class AgentHandler(BaseHTTPRequestHandler):
                     _write_lemonade_config(INSTALL_DIR, gguf_file)
 
                 # Restart dependent services so they pick up the new model
-                for svc in ["dream-litellm", "dream-dreamforge"]:
+                for svc in ["dream-litellm", "dream-dreamforge", "dream-openclaw"]:
                     subprocess.run(["docker", "restart", svc],
                                    capture_output=True, timeout=60)
                 json_response(self, 200, {"status": "activated", "model_id": model_id})

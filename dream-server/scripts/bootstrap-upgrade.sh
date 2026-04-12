@@ -394,6 +394,11 @@ LITELLM_UPGRADE_EOF
             log "Restarting DreamForge to pick up model change..."
             docker restart dream-dreamforge 2>&1 || log "WARNING: DreamForge restart failed (non-fatal)"
         fi
+        # Restart OpenClaw so inject-token.js re-runs with updated GGUF_FILE/LLM_MODEL
+        if docker ps --filter name=dream-openclaw --format '{{.Names}}' 2>/dev/null | grep -q dream-openclaw; then
+            log "Restarting OpenClaw to pick up model change..."
+            docker restart dream-openclaw 2>&1 || log "WARNING: OpenClaw restart failed (non-fatal)"
+        fi
     else
         log "WARNING: llama-server health check timed out. The model may still be loading."
         log "Check: docker logs dream-llama-server"
