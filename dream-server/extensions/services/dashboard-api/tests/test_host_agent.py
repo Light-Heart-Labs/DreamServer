@@ -325,14 +325,19 @@ class TestHandleEnvUpdate:
         assert handler.response_code == 413
         assert "too large" in handler.parse_response()["error"].lower()
 
-    def test_400_unknown_key(self, env_update_env):
-        body = _make_body("NOT_IN_SCHEMA=foo\n")
+    def test_accepts_unknown_key_with_warning(self, env_update_env):
+        """Non-schema keys are accepted (warn, not reject) so extension-added
+        keys (e.g. JWT_SECRET from LibreChat) don't break Settings save."""
+        install_dir, data_dir = env_update_env
+        (install_dir / ".env").write_text("DREAM_AGENT_KEY=old\n", encoding="utf-8")
+        body = _make_body("DREAM_AGENT_KEY=old\nNOT_IN_SCHEMA=foo\n")
         handler = _FakeHandler(body)
 
         _mod.AgentHandler._handle_env_update(handler)
 
-        assert handler.response_code == 400
-        assert "Unknown key" in handler.parse_response()["error"]
+        assert handler.response_code == 200
+        env_text = (install_dir / ".env").read_text(encoding="utf-8")
+        assert "NOT_IN_SCHEMA=foo" in env_text
 
     def test_400_malformed_line(self, env_update_env):
         body = _make_body("THIS_LINE_HAS_NO_EQUALS\n")
