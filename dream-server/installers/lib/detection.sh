@@ -100,6 +100,11 @@ detect_gpu() {
     for _v in /sys/class/drm/card*/device/vendor; do
         [[ "$(cat "$_v" 2>/dev/null)" == "0x10de" ]] && _nvidia_hw=true && break
     done
+    # WSL2: /sys/class/drm/ only contains a 'version' file — no card* entries exist.
+    # Fall back to nvidia-smi as the sole hardware witness on WSL2.
+    if ! $_nvidia_hw && grep -qiE "microsoft|wsl" /proc/sys/kernel/osrelease 2>/dev/null; then
+        command -v nvidia-smi &>/dev/null && _nvidia_hw=true
+    fi
     if $_nvidia_hw && command -v nvidia-smi &> /dev/null; then
         local raw
         if raw=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null) && [[ -n "$raw" ]]; then
