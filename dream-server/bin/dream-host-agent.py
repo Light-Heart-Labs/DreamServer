@@ -185,40 +185,6 @@ def _precreate_data_dirs(service_id: str):
                     logger.warning("Failed to pre-create %s: %s", dir_path, e)
 
 
-def _resolve_setup_hook(ext_dir: Path) -> Path | None:
-    """Read manifest to find setup_hook path. Returns None if no hook defined."""
-    manifest_path = None
-    for name in ("manifest.yaml", "manifest.yml"):
-        candidate = ext_dir / name
-        if candidate.exists():
-            manifest_path = candidate
-            break
-    if manifest_path is None:
-        return None
-    try:
-        import yaml
-        manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
-    except (ImportError, OSError):
-        return None
-    if not isinstance(manifest, dict):
-        return None
-    service_def = manifest.get("service", {})
-    if not isinstance(service_def, dict):
-        return None
-    setup_hook = service_def.get("setup_hook", "")
-    if not isinstance(setup_hook, str) or not setup_hook:
-        return None
-    hook_path = (ext_dir / setup_hook).resolve()
-    try:
-        hook_path.relative_to(ext_dir.resolve())
-    except ValueError:
-        logger.warning("Path traversal attempt in setup_hook for %s: %s", ext_dir.name, setup_hook)
-        return None
-    if not hook_path.is_file():
-        return None
-    return hook_path
-
-
 def docker_compose_action(service_id: str, action: str) -> tuple:
     flags = resolve_compose_flags()
     if action == "start":
@@ -931,11 +897,27 @@ class AgentHandler(BaseHTTPRequestHandler):
                 if run_setup_hook:
                     _write_progress(service_id, "setup_hook", "Running setup...")
                     ext_dir = USER_EXTENSIONS_DIR / service_id
-                    hook_path = _resolve_setup_hook(ext_dir)
+                    hook_path = _resolve_hook(ext_dir, "post_install")
                     if hook_path:
+                        # Minimal allowlist env — mirror _execute_hook (L856-866)
+                        # to prevent leaking host-agent secrets to extension scripts.
+                        manifest = _read_manifest(ext_dir)
+                        service_def = manifest.get("service", {}) if manifest else {}
+                        if not isinstance(service_def, dict):
+                            service_def = {}
+                        hook_env = {
+                            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                            "HOME": os.environ.get("HOME", ""),
+                            "SERVICE_ID": service_id,
+                            "SERVICE_PORT": str(service_def.get("port", 0)),
+                            "SERVICE_DATA_DIR": str(DATA_DIR / service_id),
+                            "DREAM_VERSION": DREAM_VERSION,
+                            "GPU_BACKEND": GPU_BACKEND,
+                            "HOOK_NAME": "post_install",
+                        }
                         result = subprocess.run(
                             ["bash", str(hook_path), str(INSTALL_DIR), GPU_BACKEND],
-                            cwd=str(ext_dir),
+                            cwd=str(ext_dir), env=hook_env,
                             capture_output=True, text=True,
                             timeout=SUBPROCESS_TIMEOUT_START,
                         )
