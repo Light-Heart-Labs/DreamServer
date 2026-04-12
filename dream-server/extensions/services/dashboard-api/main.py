@@ -742,6 +742,23 @@ def _call_agent_core_recreate(service_ids: list[str]) -> dict[str, Any]:
         return json.loads(response.read().decode("utf-8"))
 
 
+def _call_agent_env_update(raw_text: str) -> dict[str, Any]:
+    """Route .env writes through the host agent (filesystem is :ro in container)."""
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {DREAM_AGENT_KEY}",
+    }
+    data = json.dumps({"raw_text": raw_text, "backup": True}).encode("utf-8")
+    request = urllib.request.Request(
+        f"{AGENT_URL}/v1/env/update",
+        data=data,
+        headers=headers,
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=60) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
 def _check_host_agent_available() -> bool:
     try:
         with urllib.request.urlopen(f"{AGENT_URL}/health", timeout=3) as response:
@@ -800,45 +817,6 @@ def _relative_install_path(path: Path) -> str:
         return str(path.relative_to(_resolve_install_root())).replace("\\", "/")
     except ValueError:
         return str(path).replace("\\", "/")
-
-
-def _resolve_env_backup_root() -> Path:
-    backup_root = Path(DATA_DIR) / "config-backups"
-    backup_root.mkdir(parents=True, exist_ok=True)
-    return backup_root
-
-
-def _display_backup_path(path: Path) -> str:
-    data_root = Path(DATA_DIR)
-    try:
-        return f"data/{path.relative_to(data_root).as_posix()}"
-    except ValueError:
-        return str(path).replace("\\", "/")
-
-
-def _write_text_atomic(path: Path, raw_text: str):
-    temp_path = path.with_name(f"{path.name}.tmp-{os.getpid()}-{int(time.time() * 1000)}")
-    try:
-        try:
-            temp_path.write_text(raw_text, encoding="utf-8")
-            if path.exists():
-                try:
-                    shutil.copymode(path, temp_path)
-                except OSError:
-                    pass
-            os.replace(temp_path, path)
-            return
-        except PermissionError:
-            if not path.exists():
-                raise
-            path.write_text(raw_text, encoding="utf-8")
-            return
-    finally:
-        try:
-            if temp_path.exists():
-                temp_path.unlink()
-        except OSError:
-            pass
 
 
 def _prepare_env_save(payload: dict[str, Any]) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
@@ -1358,7 +1336,6 @@ async def api_settings_env_save(
     payload: dict[str, Any] = Body(...),
     api_key: str = Depends(verify_api_key),
 ):
-    env_path = _resolve_runtime_env_path()
     raw_text, issues, apply_plan = await asyncio.to_thread(_prepare_env_save, payload)
     if issues:
         raise HTTPException(
@@ -1369,35 +1346,27 @@ async def api_settings_env_save(
             },
         )
 
-    env_path.parent.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    backup_root = await asyncio.to_thread(_resolve_env_backup_root)
-    backup_path = backup_root / f".env.backup.{timestamp}"
-    backup_relative = None
-
-    if env_path.exists():
-        try:
-            shutil.copy2(env_path, backup_path)
-            backup_relative = _display_backup_path(backup_path)
-        except OSError as exc:
-            raise HTTPException(
-                status_code=500,
-                detail={
-                    "message": "Could not create a configuration backup before saving.",
-                    "reason": str(exc),
-                },
-            ) from exc
-
     try:
-        await asyncio.to_thread(_write_text_atomic, env_path, raw_text)
+        agent_resp = await asyncio.to_thread(_call_agent_env_update, raw_text)
+    except urllib.error.HTTPError as exc:
+        detail = f"Host agent returned HTTP {exc.code}."
+        try:
+            err_payload = json.loads(exc.read().decode("utf-8"))
+            detail = err_payload.get("error", detail)
+        except Exception:
+            pass
+        raise HTTPException(status_code=503, detail={"message": detail}) from exc
+    except urllib.error.URLError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"message": "Dream host agent is not reachable. Start the host agent, then try again."},
+        ) from exc
     except OSError as exc:
         raise HTTPException(
             status_code=500,
-            detail={
-                "message": "Could not write the updated environment file.",
-                "reason": str(exc),
-            },
+            detail={"message": "Could not contact host agent to write environment file.", "reason": str(exc)},
         ) from exc
+    backup_relative = agent_resp.get("backup_path")
 
     _clear_settings_caches()
     result = await asyncio.to_thread(

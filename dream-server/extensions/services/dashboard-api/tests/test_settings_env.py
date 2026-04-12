@@ -64,6 +64,18 @@ def settings_env_fixture(tmp_path, monkeypatch):
     monkeypatch.setattr("main._resolve_runtime_env_path", lambda: env_path)
     monkeypatch.setattr("main.DATA_DIR", str(data_root))
 
+    def fake_env_update(raw_text):
+        backup_dir = data_root / "config-backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        backup_path = backup_dir / ".env.backup.test"
+        if env_path.exists():
+            backup_path.write_bytes(env_path.read_bytes())
+        payload = raw_text if raw_text.endswith("\n") else raw_text + "\n"
+        env_path.write_text(payload, encoding="utf-8")
+        return {"backup_path": "data/config-backups/.env.backup.test"}
+
+    monkeypatch.setattr("main._call_agent_env_update", fake_env_update)
+
     def fake_resolve_template(name: str):
         if name == ".env.example":
             return example_path
