@@ -5,7 +5,9 @@ import json
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import pytest
 import yaml
+from fastapi import HTTPException
 from models import ServiceStatus
 
 
@@ -1185,6 +1187,45 @@ class TestComposeScanEdgeCases:
         )
         assert resp.status_code == 400
         assert "dangerous security_opt" in resp.json()["detail"]
+
+
+# --- skip_name_collision flag isolation ---
+
+
+class TestScanComposeSkipNameCollision:
+    """Direct unit tests for the skip_name_collision parameter added for
+    built-in activation (fork issue #338)."""
+
+    def test_rejects_core_name_by_default(self, tmp_path):
+        from routers.extensions import _scan_compose_content
+        compose = tmp_path / "compose.yaml"
+        compose.write_text("services:\n  open-webui:\n    image: test\n")
+        with pytest.raises(HTTPException) as exc:
+            _scan_compose_content(compose, skip_name_collision=False)
+        assert exc.value.status_code == 400
+        assert "conflicts with core service" in exc.value.detail
+
+    def test_allows_core_name_when_skipped(self, tmp_path):
+        from routers.extensions import _scan_compose_content
+        compose = tmp_path / "compose.yaml"
+        compose.write_text("services:\n  open-webui:\n    image: test\n")
+        _scan_compose_content(compose, skip_name_collision=True)
+
+    def test_privileged_still_blocked_when_skipped(self, tmp_path):
+        from routers.extensions import _scan_compose_content
+        compose = tmp_path / "compose.yaml"
+        compose.write_text("services:\n  svc:\n    image: test\n    privileged: true\n")
+        with pytest.raises(HTTPException) as exc:
+            _scan_compose_content(compose, skip_name_collision=True)
+        assert "privileged" in exc.value.detail
+
+    def test_docker_socket_still_blocked_when_skipped(self, tmp_path):
+        from routers.extensions import _scan_compose_content
+        compose = tmp_path / "compose.yaml"
+        compose.write_text("services:\n  svc:\n    image: test\n    volumes:\n      - /var/run/docker.sock:/var/run/docker.sock\n")
+        with pytest.raises(HTTPException) as exc:
+            _scan_compose_content(compose, skip_name_collision=True)
+        assert "Docker socket" in exc.value.detail
 
 
 # --- Size quota enforcement ---

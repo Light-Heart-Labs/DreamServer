@@ -179,7 +179,12 @@ def _assert_not_core(service_id: str) -> None:
         )
 
 
-def _scan_compose_content(compose_path: Path, *, trusted: bool = False) -> None:
+def _scan_compose_content(
+    compose_path: Path,
+    *,
+    trusted: bool = False,
+    skip_name_collision: bool = False,
+) -> None:
     """Reject compose files containing dangerous directives."""
     try:
         data = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
@@ -196,7 +201,7 @@ def _scan_compose_content(compose_path: Path, *, trusted: bool = False) -> None:
         return
 
     for svc_name in services:
-        if svc_name in CORE_SERVICE_IDS:
+        if not skip_name_collision and svc_name in CORE_SERVICE_IDS:
             raise HTTPException(
                 status_code=400,
                 detail=f"Extension rejected: service name '{svc_name}' conflicts with core service",
@@ -977,15 +982,27 @@ def _get_missing_deps_transitive(
 def _activate_service(service_id: str) -> dict:
     """Core enable logic — NO lock acquisition. Called inside _extensions_lock.
 
+    Checks both USER_EXTENSIONS_DIR (user-installed) and EXTENSIONS_DIR
+    (built-in) so templates can enable built-in extensions like n8n, tts, etc.
+
     Returns a result dict for the service. Cycle detection is handled
     upstream by _get_missing_deps_transitive.
     """
-    ext_dir = (USER_EXTENSIONS_DIR / service_id).resolve()
-    if not ext_dir.is_relative_to(USER_EXTENSIONS_DIR.resolve()):
+    user_dir = (USER_EXTENSIONS_DIR / service_id).resolve()
+    builtin_dir = (EXTENSIONS_DIR / service_id).resolve()
+
+    in_user = user_dir.is_relative_to(USER_EXTENSIONS_DIR.resolve())
+    in_builtin = builtin_dir.is_relative_to(EXTENSIONS_DIR.resolve())
+    if not in_user and not in_builtin:
         raise HTTPException(
             status_code=404, detail=f"Extension not found: {service_id}",
         )
-    if not ext_dir.is_dir():
+
+    if in_user and user_dir.is_dir():
+        ext_dir = user_dir
+    elif in_builtin and builtin_dir.is_dir():
+        ext_dir = builtin_dir
+    else:
         raise HTTPException(
             status_code=404, detail=f"Extension not installed: {service_id}",
         )
@@ -1002,8 +1019,14 @@ def _activate_service(service_id: str) -> dict:
             status_code=404, detail=f"Extension has no compose file: {service_id}",
         )
 
-    # Re-scan compose content (TOCTOU prevention)
-    _scan_compose_content(disabled_compose)
+    # Re-scan compose content (TOCTOU prevention). Built-in extensions
+    # legitimately declare their own service name in their compose file, so
+    # skip the CORE_SERVICE_IDS name-collision check for them. User extensions
+    # still get the full anti-shadowing scan. The `trusted` flag is separate
+    # and controls whether `build:` directives are allowed (library installs
+    # need it, built-in activations do not).
+    is_builtin = ext_dir.is_relative_to(EXTENSIONS_DIR.resolve())
+    _scan_compose_content(disabled_compose, skip_name_collision=is_builtin)
 
     # Reject symlinks
     st = os.lstat(disabled_compose)
