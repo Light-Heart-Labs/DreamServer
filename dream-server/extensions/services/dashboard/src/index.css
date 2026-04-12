@@ -6,16 +6,16 @@
 
 /* Dream — default dark theme with indigo accents */
 :root, :root[data-theme="dream"] {
-  --theme-bg: #0f0f13;
-  --theme-card: #18181b;
-  --theme-border: #27272a;
-  --theme-text: #e4e4e7;
-  --theme-text-secondary: #a1a1aa;
-  --theme-text-muted: #71717a;
-  --theme-accent: #9d00ff;
-  --theme-accent-hover: #8900df;
-  --theme-accent-light: #d7a4ff;
-  --theme-surface-hover: #27272a;
+  --theme-bg: 15 15 19;
+  --theme-card: 24 24 27;
+  --theme-border: 39 39 42;
+  --theme-text: 228 228 231;
+  --theme-text-secondary: 161 161 170;
+  --theme-text-muted: 113 113 122;
+  --theme-accent: 157 0 255;
+  --theme-accent-hover: 137 0 223;
+  --theme-accent-light: 215 164 255;
+  --theme-surface-hover: 39 39 42;
   --theme-scrollbar-track: #18181b;
   --theme-scrollbar-thumb: #3f3f46;
   --theme-scrollbar-hover: #52525b;
@@ -23,7 +23,7 @@
   --theme-loading-logo: #d7a4ff;
   --theme-gradient-from: rgba(157,0,255,0.42);
   --theme-gradient-to: rgba(215,164,255,0.26);
-  --theme-sidebar: #18181b;
+  --theme-sidebar: 24 24 27;
   --dashboard-shell-base: #050507;
   --dashboard-shell-grid: rgba(255, 255, 255, 0.028);
   --dashboard-shell-depth: rgba(255, 255, 255, 0.014);
@@ -32,8 +32,8 @@
   --theme-card-shadow: none;
   --theme-card-radius: 12px;
   --liquid-border-size: 1px;
-  --liquid-card-fill: linear-gradient(var(--theme-card), var(--theme-card));
-  --liquid-soft-fill: linear-gradient(var(--theme-card), var(--theme-card));
+  --liquid-card-fill: linear-gradient(rgb(var(--theme-card)), rgb(var(--theme-card)));
+  --liquid-soft-fill: linear-gradient(rgb(var(--theme-card)), rgb(var(--theme-card)));
   --liquid-pressed-shadow:
     inset 0 1px 0 rgba(255,255,255,0.12),
     inset 0 -18px 28px rgba(0,0,0,0.18);
@@ -67,16 +67,16 @@
 
 /* Lemonade — warm parchment theme matching lemonade-server.ai branding */
 :root[data-theme="lemonade"] {
-  --theme-bg: #F0E8CF;
-  --theme-card: #FDFBF3;
-  --theme-border: #E4DABB;
-  --theme-text: #262626;
-  --theme-text-secondary: #6B665C;
-  --theme-text-muted: #8A8478;
-  --theme-accent: #F5C518;
-  --theme-accent-hover: #E2B20F;
-  --theme-accent-light: #F2DE88;
-  --theme-surface-hover: #F3E9CF;
+  --theme-bg: 240 232 207;
+  --theme-card: 253 251 243;
+  --theme-border: 228 218 187;
+  --theme-text: 38 38 38;
+  --theme-text-secondary: 107 102 92;
+  --theme-text-muted: 138 132 120;
+  --theme-accent: 245 197 24;
+  --theme-accent-hover: 226 178 15;
+  --theme-accent-light: 242 222 136;
+  --theme-surface-hover: 243 233 207;
   --theme-scrollbar-track: #F6EFD9;
   --theme-scrollbar-thumb: #E1D4B0;
   --theme-scrollbar-hover: #D0C4A0;
@@ -84,7 +84,7 @@
   --theme-loading-logo: #E2B20F;
   --theme-gradient-from: rgba(245,197,24,0.15);
   --theme-gradient-to: rgba(226,178,15,0.15);
-  --theme-sidebar: #EFE4C6;
+  --theme-sidebar: 239 228 198;
   --dashboard-shell-base: #f4ecd5;
   --dashboard-shell-grid: rgba(88, 72, 32, 0.05);
   --dashboard-shell-depth: rgba(88, 72, 32, 0.03);
@@ -94,8 +94,8 @@
   --theme-card-radius: 16px;
   --theme-dark-contrast: #1E2240;
   --liquid-border-size: 1px;
-  --liquid-card-fill: linear-gradient(var(--theme-card), var(--theme-card));
-  --liquid-soft-fill: linear-gradient(var(--theme-card), var(--theme-card));
+  --liquid-card-fill: linear-gradient(rgb(var(--theme-card)), rgb(var(--theme-card)));
+  --liquid-soft-fill: linear-gradient(rgb(var(--theme-card)), rgb(var(--theme-card)));
   --liquid-pressed-shadow:
     inset 0 1px 0 rgba(255,255,255,0.12),
     inset 0 -18px 28px rgba(0,0,0,0.08);
@@ -125,16 +125,16 @@
 
 /* Light — clean modern futuristic light theme */
 :root[data-theme="light"] {
-  --theme-bg: #F4F4F5;
-  --theme-card: #FFFFFF;
-  --theme-border: #E4E4E7;
-  --theme-text: #18181B;
-  --theme-text-secondary: #52525B;
-  --theme-text-muted: #A1A1AA;
-  --theme-accent: #2563EB;
-  --theme-accent-hover: #1D4ED8;
-  --theme-accent-light: #60A5FA;
-  --theme-surface-hover: #F0F0F3;
+  --theme-bg: 244 244 245;
+  --theme-card: 255 255 255;
+  --theme-border: 228 228 231;
+  --theme-text: 24 24 27;
+  --theme-text-secondary: 82 82 91;
+  --theme-text-muted: 161 161 170;
+  --theme-accent: 37 99 235;
+  --theme-accent-hover: 29 78 216;
+  --theme-accent-light: 96 165 250;
+  --theme-surface-hover: 240 240 243;
   --theme-scrollbar-track: #F4F4F5;
   --theme-scrollbar-thumb: #D4D4D8;
   --theme-scrollbar-hover: #A1A1AA;
@@ -142,7 +142,7 @@
   --theme-loading-logo: #2563EB;
   --theme-gradient-from: rgba(37,99,235,0.15);
   --theme-gradient-to: rgba(99,102,241,0.15);
-  --theme-sidebar: #EAEAEC;
+  --theme-sidebar: 234 234 236;
   --dashboard-shell-base: #f7f8fb;
   --dashboard-shell-grid: rgba(24, 24, 27, 0.05);
   --dashboard-shell-depth: rgba(24, 24, 27, 0.03);
@@ -151,8 +151,8 @@
   --theme-card-shadow: 0 4px 16px rgba(0,0,0,0.06);
   --theme-card-radius: 14px;
   --liquid-border-size: 1px;
-  --liquid-card-fill: linear-gradient(var(--theme-card), var(--theme-card));
-  --liquid-soft-fill: linear-gradient(var(--theme-card), var(--theme-card));
+  --liquid-card-fill: linear-gradient(rgb(var(--theme-card)), rgb(var(--theme-card)));
+  --liquid-soft-fill: linear-gradient(rgb(var(--theme-card)), rgb(var(--theme-card)));
   --liquid-pressed-shadow:
     inset 0 1px 0 rgba(255,255,255,0.16),
     inset 0 -18px 28px rgba(0,0,0,0.05);
@@ -182,16 +182,16 @@
 
 /* Arctic — cool light theme with ice blue accents */
 :root[data-theme="arctic"] {
-  --theme-bg: #F0F7FF;
-  --theme-card: #FFFFFF;
-  --theme-border: #D0E3F7;
-  --theme-text: #1A2332;
-  --theme-text-secondary: #4A6178;
-  --theme-text-muted: #8AA0B8;
-  --theme-accent: #0EA5E9;
-  --theme-accent-hover: #0284C7;
-  --theme-accent-light: #38BDF8;
-  --theme-surface-hover: #E6F0FC;
+  --theme-bg: 240 247 255;
+  --theme-card: 255 255 255;
+  --theme-border: 208 227 247;
+  --theme-text: 26 35 50;
+  --theme-text-secondary: 74 97 120;
+  --theme-text-muted: 138 160 184;
+  --theme-accent: 14 165 233;
+  --theme-accent-hover: 2 132 199;
+  --theme-accent-light: 56 189 248;
+  --theme-surface-hover: 230 240 252;
   --theme-scrollbar-track: #F0F7FF;
   --theme-scrollbar-thumb: #D0E3F7;
   --theme-scrollbar-hover: #A8C8E8;
@@ -199,7 +199,7 @@
   --theme-loading-logo: #0EA5E9;
   --theme-gradient-from: rgba(14,165,233,0.15);
   --theme-gradient-to: rgba(56,189,248,0.15);
-  --theme-sidebar: #E4EEF8;
+  --theme-sidebar: 228 238 248;
   --dashboard-shell-base: #f4f8fd;
   --dashboard-shell-grid: rgba(26, 35, 50, 0.05);
   --dashboard-shell-depth: rgba(26, 35, 50, 0.03);
@@ -208,8 +208,8 @@
   --theme-card-shadow: 0 4px 16px rgba(0,0,0,0.05);
   --theme-card-radius: 14px;
   --liquid-border-size: 1px;
-  --liquid-card-fill: linear-gradient(var(--theme-card), var(--theme-card));
-  --liquid-soft-fill: linear-gradient(var(--theme-card), var(--theme-card));
+  --liquid-card-fill: linear-gradient(rgb(var(--theme-card)), rgb(var(--theme-card)));
+  --liquid-soft-fill: linear-gradient(rgb(var(--theme-card)), rgb(var(--theme-card)));
   --liquid-pressed-shadow:
     inset 0 1px 0 rgba(255,255,255,0.16),
     inset 0 -18px 28px rgba(0,0,0,0.05);
@@ -248,7 +248,7 @@
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  background: var(--dashboard-shell-base, var(--theme-bg));
+  background: var(--dashboard-shell-base, rgb(var(--theme-bg)));
 }
 
 .dashboard-market-shell::before,
@@ -381,7 +381,7 @@ a, button, input, select, textarea,
 .liquid-metal-button {
   position: relative;
   isolation: isolate;
-  border: 1px solid color-mix(in srgb, var(--theme-border) 82%, white 18%) !important;
+  border: 1px solid color-mix(in srgb, rgb(var(--theme-border)) 82%, white 18%) !important;
   overflow: hidden;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.06),
@@ -389,7 +389,7 @@ a, button, input, select, textarea,
 }
 
 .liquid-metal-frame {
-  background: var(--liquid-card-fill, linear-gradient(var(--theme-card), var(--theme-card)));
+  background: var(--liquid-card-fill, linear-gradient(rgb(var(--theme-card)), rgb(var(--theme-card))));
 }
 
 .liquid-metal-frame::before,
@@ -468,7 +468,7 @@ a, button, input, select, textarea,
 }
 
 .liquid-metal-frame--soft {
-  background: var(--liquid-soft-fill, linear-gradient(var(--theme-card), var(--theme-card)));
+  background: var(--liquid-soft-fill, linear-gradient(rgb(var(--theme-card)), rgb(var(--theme-card))));
 }
 
 .liquid-metal-frame--soft::after {

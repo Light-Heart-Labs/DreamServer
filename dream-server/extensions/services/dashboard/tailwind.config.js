@@ -13,19 +13,23 @@ export default {
           card: '#18181b',
           border: '#27272a'
         },
-        // Theme-aware colors driven by CSS custom properties
+        // Theme-aware colors driven by CSS custom properties.
+        // Values use rgb() with <alpha-value> so Tailwind's opacity-modifier
+        // syntax (e.g. bg-theme-card/95) can inject the alpha channel.
+        // The matching CSS vars in index.css store space-separated R G B
+        // triplets (e.g. --theme-card: 24 24 27) instead of hex.
         theme: {
-          bg: 'var(--theme-bg)',
-          card: 'var(--theme-card)',
-          border: 'var(--theme-border)',
-          text: 'var(--theme-text)',
-          'text-secondary': 'var(--theme-text-secondary)',
-          'text-muted': 'var(--theme-text-muted)',
-          accent: 'var(--theme-accent)',
-          'accent-hover': 'var(--theme-accent-hover)',
-          'accent-light': 'var(--theme-accent-light)',
-          'surface-hover': 'var(--theme-surface-hover)',
-          sidebar: 'var(--theme-sidebar)',
+          bg: 'rgb(var(--theme-bg) / <alpha-value>)',
+          card: 'rgb(var(--theme-card) / <alpha-value>)',
+          border: 'rgb(var(--theme-border) / <alpha-value>)',
+          text: 'rgb(var(--theme-text) / <alpha-value>)',
+          'text-secondary': 'rgb(var(--theme-text-secondary) / <alpha-value>)',
+          'text-muted': 'rgb(var(--theme-text-muted) / <alpha-value>)',
+          accent: 'rgb(var(--theme-accent) / <alpha-value>)',
+          'accent-hover': 'rgb(var(--theme-accent-hover) / <alpha-value>)',
+          'accent-light': 'rgb(var(--theme-accent-light) / <alpha-value>)',
+          'surface-hover': 'rgb(var(--theme-surface-hover) / <alpha-value>)',
+          sidebar: 'rgb(var(--theme-sidebar) / <alpha-value>)',
         }
       },
       animation: {
