@@ -1,6 +1,13 @@
-# SillyTavern whitelist configuration for Docker environments.
+# SillyTavern security configuration for Docker environments.
 # Host-side security is handled by compose port binding (127.0.0.1 only).
 # Application-level whitelist is disabled to avoid blocking Docker bridge
 # traffic — SillyTavern doesn't support CIDR notation, so individual
 # gateway IPs would need to be enumerated for each Docker network.
+# Basic auth is enabled because SillyTavern v1.16+ requires at least one
+# security measure (whitelist, basic auth, or user accounts) when listening
+# on non-localhost.
 whitelistMode: false
+basicAuthMode: true
+basicAuthUser:
+  username: "admin"
+  password: "dreamserver"
