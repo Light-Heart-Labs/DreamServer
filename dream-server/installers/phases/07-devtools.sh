@@ -123,8 +123,11 @@ else
             _opencode_key="no-key"
         fi
 
-        if [[ ! -f "$OPENCODE_CONFIG_DIR/opencode.json" ]]; then
-            cat > "$OPENCODE_CONFIG_DIR/opencode.json" <<OPENCODE_EOF
+        # Writes a fresh opencode.json from the template. Used for first-install
+        # and as deterministic recovery when the jq rewrite path finds an
+        # existing malformed file it cannot parse (issue #332).
+        _opencode_write_fresh() {
+            cat > "$1" <<OPENCODE_EOF
 {
   "\$schema": "https://opencode.ai/config.json",
   "model": "llama-server/${LLM_MODEL}",
@@ -150,12 +153,42 @@ else
   }
 }
 OPENCODE_EOF
+        }
+
+        if [[ ! -f "$OPENCODE_CONFIG_DIR/opencode.json" ]]; then
+            _opencode_write_fresh "$OPENCODE_CONFIG_DIR/opencode.json"
             ai_ok "OpenCode configured for local llama-server (model: ${LLM_MODEL})"
         else
             # Reinstall: update API key and URL in existing config (key may have changed)
-            _sed_i "s|\"apiKey\":.*|\"apiKey\": \"${_opencode_key}\"|" "$OPENCODE_CONFIG_DIR/opencode.json"
-            _sed_i "s|\"baseURL\":.*|\"baseURL\": \"${_opencode_url}\",|" "$OPENCODE_CONFIG_DIR/opencode.json"
-            ai_ok "OpenCode config updated (API key and URL refreshed)"
+            _opencode_updated=false
+            if command -v jq >/dev/null 2>&1; then
+                _opencode_tmp="$OPENCODE_CONFIG_DIR/opencode.json.tmp.$$"
+                if jq --arg url "$_opencode_url" --arg key "$_opencode_key" \
+                    '.provider["llama-server"].options.baseURL = $url
+                     | .provider["llama-server"].options.apiKey = $key' \
+                    "$OPENCODE_CONFIG_DIR/opencode.json" > "$_opencode_tmp" 2>/dev/null; then
+                    mv "$_opencode_tmp" "$OPENCODE_CONFIG_DIR/opencode.json"
+                    ai_ok "OpenCode config updated (API key and URL refreshed)"
+                    _opencode_updated=true
+                else
+                    rm -f "$_opencode_tmp"
+                    ai_warn "OpenCode config jq rewrite failed (existing file unparseable) — regenerating from template"
+                fi
+            else
+                # Fallback without jq: narrow sed that only matches the quoted value,
+                # preserving any trailing comma on the line
+                _sed_i "s|\"apiKey\": *\"[^\"]*\"|\"apiKey\": \"${_opencode_key}\"|" "$OPENCODE_CONFIG_DIR/opencode.json"
+                _sed_i "s|\"baseURL\": *\"[^\"]*\"|\"baseURL\": \"${_opencode_url}\"|" "$OPENCODE_CONFIG_DIR/opencode.json"
+                ai_ok "OpenCode config updated (API key and URL refreshed)"
+                _opencode_updated=true
+            fi
+            # Recovery path (issue #332): if the update branch above failed to
+            # produce a valid file (jq parse error on pre-existing corruption),
+            # regenerate deterministically from the template.
+            if [[ "$_opencode_updated" != "true" ]]; then
+                _opencode_write_fresh "$OPENCODE_CONFIG_DIR/opencode.json"
+                ai_ok "OpenCode config regenerated from template (recovered from corruption)"
+            fi
         fi
         # OpenCode reads config.json, not opencode.json — always sync
         cp "$OPENCODE_CONFIG_DIR/opencode.json" "$OPENCODE_CONFIG_DIR/config.json"
@@ -217,6 +250,17 @@ if [[ -f "$INSTALL_DIR/bin/dream-host-agent.py" ]]; then
             systemctl --user enable --now dream-host-agent.service >> "$LOG_FILE" 2>&1 && \
                 ai_ok "Dream host agent installed (systemd --user, port 7710)" || \
                 ai_warn "Dream host agent service failed to start — run: dream agent start"
+            # Force-restart so the running process matches the binary the installer
+            # just rewrote. enable --now is a no-op when the unit was already active,
+            # which would leave an old daemon holding a deleted inode and serving
+            # stale code after a reinstall. See issue #334. Use is-enabled (not
+            # is-active) so a temporarily-down daemon during a fresh install still
+            # triggers the restart rather than skipping it.
+            if systemctl --user is-enabled dream-host-agent.service >/dev/null 2>&1; then
+                systemctl --user restart dream-host-agent.service >> "$LOG_FILE" 2>&1 && \
+                    ai_ok "Dream host agent restarted (loaded new binary)" || \
+                    ai_warn "Dream host agent restart failed (non-fatal) — run: systemctl --user restart dream-host-agent.service"
+            fi
             loginctl enable-linger "$(whoami)" 2>/dev/null || \
                 sudo -n loginctl enable-linger "$(whoami)" 2>/dev/null || true
         else
