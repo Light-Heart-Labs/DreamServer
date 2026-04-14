@@ -291,7 +291,8 @@ docker compose logs -f
 ```bash
 docker compose logs -f llama-server
 docker compose logs -f dashboard-api
-docker compose logs -f voice-agent
+docker compose logs -f whisper
+docker compose logs -f tts
 ```
 
 **To file:**

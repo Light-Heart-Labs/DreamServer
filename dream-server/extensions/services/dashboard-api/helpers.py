@@ -253,36 +253,6 @@ async def check_service_health(service_id: str, config: dict) -> ServiceStatus:
     )
 
 
-async def _check_host_service_health(service_id: str, config: dict) -> ServiceStatus:
-    """Check health of a host-level service via HTTP."""
-    port = config.get("external_port", config["port"])
-    host = os.environ.get("HOST_GATEWAY", "host.docker.internal")
-    health_port = config.get('health_port', port)
-    url = f"http://{host}:{health_port}{config['health']}"
-    status = "down"
-    response_time = None
-    try:
-        session = await _get_aio_session()
-        start = asyncio.get_event_loop().time()
-        # Host header for reverse-proxy routing (see check_service_health)
-        headers = {"Host": "localhost"}
-        async with session.get(url, headers=headers) as resp:
-            response_time = (asyncio.get_event_loop().time() - start) * 1000
-            status = "healthy" if resp.status < 400 else "unhealthy"
-    except asyncio.TimeoutError:
-        status = "down"
-    except aiohttp.ClientConnectorError:
-        status = "down"
-    except (aiohttp.ClientError, OSError) as e:
-        logger.debug(f"Host health check failed for {service_id} at {url}: {e}")
-        status = "down"
-    return ServiceStatus(
-        id=service_id, name=config["name"], port=config["port"],
-        external_port=config.get("external_port", config["port"]),
-        status=status, response_time_ms=round(response_time, 1) if response_time else None,
-    )
-
-
 async def get_all_services() -> list[ServiceStatus]:
     """Get all service health statuses.
 
