@@ -515,7 +515,7 @@ const FeatureCard = memo(function FeatureCard({ icon: Icon, title, description, 
           <CircleHelp size={13} />
         </div>
 
-        <div className="pointer-events-none absolute bottom-[calc(100%+0.45rem)] right-0 z-20 w-52 rounded-lg border border-white/10 bg-[#0d0b12]/95 px-3 py-2 text-[11px] leading-4 text-theme-text-muted opacity-0 shadow-2xl transition-all duration-150 group-hover/info:translate-y-0 group-hover/info:opacity-100 translate-y-1">
+        <div className="pointer-events-none absolute bottom-[calc(100%+0.45rem)] right-0 z-20 w-52 rounded-lg border border-white/10 bg-theme-card/95 px-3 py-2 text-[11px] leading-4 text-theme-text-muted opacity-0 shadow-2xl transition-all duration-150 group-hover/info:translate-y-0 group-hover/info:opacity-100 translate-y-1">
           {description}
           {status === 'disabled' && hint && (
             <p className="mt-2 font-mono text-[10px] text-theme-text-secondary">{hint}</p>

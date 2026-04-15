@@ -20,6 +20,7 @@ service:
   env_vars:
     - key: OLLAMA_MODEL
       required: false
+      default: "llama3"
       description: Default model to load on startup
 
 features:

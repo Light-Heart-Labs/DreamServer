@@ -231,6 +231,89 @@ function Test-DockerDesktop {
     return $result
 }
 
+function Get-HostLogicalCpuCount {
+    <#
+    .SYNOPSIS
+        Return the host logical CPU count with a safe fallback.
+    #>
+    try {
+        $count = [int][Environment]::ProcessorCount
+        if ($count -gt 0) { return $count }
+    } catch { }
+    return 1
+}
+
+function Get-DockerAvailableCpuCount {
+    <#
+    .SYNOPSIS
+        Return the number of CPUs exposed to the Docker daemon.
+    .DESCRIPTION
+        Uses `docker info` first because Docker Desktop can expose fewer CPUs
+        than the host actually has. Falls back to the host CPU count if Docker
+        is unavailable or not yet running.
+    #>
+    try {
+        $cpuRaw = docker info --format "{{.NCPU}}" 2>$null
+        if ($LASTEXITCODE -eq 0 -and $cpuRaw -match "(\d+)") {
+            $count = [int]$Matches[1]
+            if ($count -gt 0) { return $count }
+        }
+    } catch { }
+    return Get-HostLogicalCpuCount
+}
+
+function Get-LlamaCpuBudget {
+    <#
+    .SYNOPSIS
+        Calculate an auto-capped CPU limit/reservation for llama-server.
+    .PARAMETER GpuBackend
+        Backend name used to choose default targets before capping to Docker.
+    .OUTPUTS
+        @{ Available; Limit; Reservation }
+    #>
+    param(
+        [string]$GpuBackend = "cpu"
+    )
+
+    $available = Get-DockerAvailableCpuCount
+    $desiredLimit = 8
+    $desiredReservation = 1
+
+    switch ($GpuBackend) {
+        "amd" {
+            $desiredLimit = 16
+            $desiredReservation = 4
+        }
+        "nvidia" {
+            $desiredLimit = 16
+            $desiredReservation = 2
+        }
+        "intel" {
+            $desiredLimit = 16
+            $desiredReservation = 2
+        }
+        "sycl" {
+            $desiredLimit = 16
+            $desiredReservation = 2
+        }
+        "apple" {
+            $desiredLimit = 8
+            $desiredReservation = 2
+        }
+    }
+
+    if ($available -lt 1) { $available = 1 }
+    $limit = [Math]::Min($desiredLimit, $available)
+    if ($limit -lt 1) { $limit = 1 }
+    $reservation = [Math]::Min($desiredReservation, $limit)
+
+    return @{
+        Available   = $available
+        Limit       = ("{0}.0" -f $limit)
+        Reservation = ("{0}.0" -f $reservation)
+    }
+}
+
 function Test-ModelIntegrity {
     <#
     .SYNOPSIS

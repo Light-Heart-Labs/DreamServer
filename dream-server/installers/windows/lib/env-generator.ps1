@@ -97,6 +97,30 @@ function New-DreamEnv {
         return $Default
     }
 
+    function Select-AutoCpuValue {
+        param(
+            [string]$Key,
+            [string]$Detected
+        )
+
+        $existing = ""
+        if ($existingEnv.ContainsKey($Key)) {
+            $existing = $existingEnv[$Key]
+        }
+
+        $existingNumber = 0.0
+        $detectedNumber = 0.0
+        $style = [System.Globalization.NumberStyles]::Float
+        $culture = [System.Globalization.CultureInfo]::InvariantCulture
+        $existingValid = [double]::TryParse($existing, $style, $culture, [ref]$existingNumber)
+        $detectedValid = [double]::TryParse($Detected, $style, $culture, [ref]$detectedNumber)
+
+        if ($existingValid -and $detectedValid -and $existingNumber -gt 0 -and $existingNumber -le $detectedNumber) {
+            return $existing
+        }
+        return $Detected
+    }
+
     # Generate secrets (reuse existing on re-install)
     $webuiSecret     = Get-EnvOrNew "WEBUI_SECRET"       (New-SecureHex -Bytes 32)
     $n8nPass         = Get-EnvOrNew "N8N_PASS"           (New-SecureBase64 -Bytes 16)
@@ -109,6 +133,18 @@ function New-DreamEnv {
     $difySecretKey    = Get-EnvOrNew "DIFY_SECRET_KEY"           (New-SecureHex -Bytes 32)
     $qdrantApiKey     = Get-EnvOrNew "QDRANT_API_KEY"            (New-SecureHex -Bytes 32)
     $opencodePassword = Get-EnvOrNew "OPENCODE_SERVER_PASSWORD"  (New-SecureBase64 -Bytes 16)
+    $cpuBudget = Get-LlamaCpuBudget -GpuBackend $(if ($GpuBackend -eq "none") { "cpu" } else { $GpuBackend })
+    $llamaCpuLimit = Select-AutoCpuValue -Key "LLAMA_CPU_LIMIT" -Detected $cpuBudget.Limit
+    $llamaCpuReservation = Select-AutoCpuValue -Key "LLAMA_CPU_RESERVATION" -Detected $cpuBudget.Reservation
+    $limitNumber = 0.0
+    $reservationNumber = 0.0
+    $style = [System.Globalization.NumberStyles]::Float
+    $culture = [System.Globalization.CultureInfo]::InvariantCulture
+    if ([double]::TryParse($llamaCpuLimit, $style, $culture, [ref]$limitNumber) -and [double]::TryParse($llamaCpuReservation, $style, $culture, [ref]$reservationNumber)) {
+        if ($reservationNumber -gt $limitNumber) {
+            $llamaCpuReservation = $llamaCpuLimit
+        }
+    }
 
     # Langfuse observability secrets
     $langfusePort              = Get-EnvOrNew "LANGFUSE_PORT"              "3006"
@@ -218,6 +254,8 @@ MAX_CONTEXT=$($TierConfig.MaxContext)
 CTX_SIZE=$($TierConfig.MaxContext)
 GPU_BACKEND=$GpuBackend
 $(if ($LlamaServerImage) { "LLAMA_SERVER_IMAGE=$LlamaServerImage" } else { "#LLAMA_SERVER_IMAGE=ghcr.io/ggml-org/llama.cpp:server-cuda" })
+LLAMA_CPU_LIMIT=$llamaCpuLimit
+LLAMA_CPU_RESERVATION=$llamaCpuReservation
 
 #=== Ports ===
 OLLAMA_PORT=11434

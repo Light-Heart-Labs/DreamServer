@@ -131,6 +131,73 @@ read_dream_env() {
     done < "$env_file"
 }
 
+read_env_value() {
+    local env_file="$1"
+    local key="$2"
+    [[ -f "$env_file" ]] || { echo ""; return 0; }
+    grep -E "^${key}=" "$env_file" 2>/dev/null | head -n 1 | cut -d'=' -f2- | tr -d '\r' || true
+}
+
+upsert_env_value() {
+    local env_file="$1"
+    local key="$2"
+    local value="$3"
+    if grep -qE "^${key}=" "$env_file" 2>/dev/null; then
+        sed -i '' "s|^${key}=.*|${key}=${value}|" "$env_file"
+    else
+        printf '%s=%s\n' "$key" "$value" >> "$env_file"
+    fi
+}
+
+select_auto_cpu_value() {
+    local existing="$1"
+    local detected="$2"
+    if [[ "$existing" =~ ^[0-9]+([.][0-9]+)?$ ]] && awk "BEGIN { exit !($existing > 0 && $existing <= $detected) }"; then
+        echo "$existing"
+    else
+        echo "$detected"
+    fi
+}
+
+ensure_llama_cpu_budget() {
+    local env_file="${INSTALL_DIR}/.env"
+    [[ -f "$env_file" ]] || return 0
+
+    local backend
+    backend="$(read_env_value "$env_file" "GPU_BACKEND")"
+    backend=$(echo "${backend:-apple}" | tr '[:upper:]' '[:lower:]')
+    [[ "$backend" == "none" ]] && backend="cpu"
+
+    local limit_raw reservation_raw available
+    read -r limit_raw reservation_raw available <<< "$(calculate_llama_cpu_budget "$backend")"
+
+    local detected_limit="${limit_raw}.0"
+    local detected_reservation="${reservation_raw}.0"
+    local current_limit current_reservation final_limit final_reservation
+    current_limit="$(read_env_value "$env_file" "LLAMA_CPU_LIMIT")"
+    current_reservation="$(read_env_value "$env_file" "LLAMA_CPU_RESERVATION")"
+    final_limit="$(select_auto_cpu_value "$current_limit" "$detected_limit")"
+    final_reservation="$(select_auto_cpu_value "$current_reservation" "$detected_reservation")"
+
+    if awk "BEGIN { exit !($final_reservation > $final_limit) }"; then
+        final_reservation="$final_limit"
+    fi
+
+    local changed=false
+    if [[ "$current_limit" != "$final_limit" ]]; then
+        upsert_env_value "$env_file" "LLAMA_CPU_LIMIT" "$final_limit"
+        changed=true
+    fi
+    if [[ "$current_reservation" != "$final_reservation" ]]; then
+        upsert_env_value "$env_file" "LLAMA_CPU_RESERVATION" "$final_reservation"
+        changed=true
+    fi
+
+    if [[ "$changed" == "true" ]]; then
+        ai "Auto-adjusted llama-server CPU budget: limit=${final_limit}, reservation=${final_reservation} (Docker CPUs: ${available})"
+    fi
+}
+
 # ── Native llama-server management ──
 
 get_native_llama_status() {
@@ -304,6 +371,7 @@ cmd_start() {
     local service="${1:-}"
     test_install
     cd "$INSTALL_DIR"
+    ensure_llama_cpu_budget
 
     # Start native llama-server first
     if [[ -z "$service" ]] && [[ -x "$LLAMA_SERVER_BIN" ]]; then
@@ -357,6 +425,7 @@ cmd_restart() {
     local service="${1:-}"
     test_install
     cd "$INSTALL_DIR"
+    ensure_llama_cpu_budget
 
     local flags
     flags=$(get_compose_flags)
@@ -471,6 +540,7 @@ cmd_chat() {
 cmd_update() {
     test_install
     cd "$INSTALL_DIR"
+    ensure_llama_cpu_budget
 
     local flags
     flags=$(get_compose_flags)

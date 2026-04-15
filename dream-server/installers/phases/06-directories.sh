@@ -39,7 +39,7 @@ else
     # Create directories
     dream_progress 38 "directories" "Creating directory structure"
     mkdir -p "$INSTALL_DIR"/{config,data,models}
-    mkdir -p "$INSTALL_DIR"/data/{open-webui,whisper,tts,n8n,qdrant,models,privacy-shield}
+    mkdir -p "$INSTALL_DIR"/data/{open-webui,whisper,tts,n8n,qdrant,models,privacy-shield,dreamforge,ape}
     mkdir -p "$INSTALL_DIR"/data/langfuse/{postgres,clickhouse,redis,minio}
     mkdir -p "$INSTALL_DIR"/config/{n8n,litellm,openclaw,searxng}
 
@@ -222,6 +222,28 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
     LANGFUSE_INIT_USER_PASSWORD=$(_env_get LANGFUSE_INIT_USER_PASSWORD "$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
     MODEL_PROFILE_VALUE=$(_env_get MODEL_PROFILE "${MODEL_PROFILE_REQUESTED:-${MODEL_PROFILE:-qwen}}")
 
+    _select_auto_cpu_value() {
+        local key="$1" detected="$2"
+        local existing
+        existing=$(_env_get "$key" "")
+        if [[ "$existing" =~ ^[0-9]+([.][0-9]+)?$ ]] && awk "BEGIN { exit !($existing > 0 && $existing <= $detected) }"; then
+            echo "$existing"
+        else
+            echo "$detected"
+        fi
+    }
+
+    _cpu_backend="${GPU_BACKEND:-cpu}"
+    [[ "$_cpu_backend" == "none" ]] && _cpu_backend="cpu"
+    read -r _llama_cpu_limit_raw _llama_cpu_reservation_raw _docker_available_cpus <<< "$(calculate_llama_cpu_budget "$_cpu_backend")"
+    _llama_cpu_limit_detected="${_llama_cpu_limit_raw}.0"
+    _llama_cpu_reservation_detected="${_llama_cpu_reservation_raw}.0"
+    LLAMA_CPU_LIMIT=$(_select_auto_cpu_value LLAMA_CPU_LIMIT "${_llama_cpu_limit_detected}")
+    LLAMA_CPU_RESERVATION=$(_select_auto_cpu_value LLAMA_CPU_RESERVATION "${_llama_cpu_reservation_detected}")
+    if awk "BEGIN { exit !($LLAMA_CPU_RESERVATION > $LLAMA_CPU_LIMIT) }"; then
+        LLAMA_CPU_RESERVATION="$LLAMA_CPU_LIMIT"
+    fi
+
     # Preserve user-supplied cloud API keys
     ANTHROPIC_API_KEY=$(_env_get ANTHROPIC_API_KEY "${ANTHROPIC_API_KEY:-}")
     OPENAI_API_KEY=$(_env_get OPENAI_API_KEY "${OPENAI_API_KEY:-}")
@@ -264,6 +286,8 @@ CTX_SIZE=${MAX_CONTEXT}
 GPU_BACKEND=${GPU_BACKEND}
 N_GPU_LAYERS=${N_GPU_LAYERS:-99}
 $(if [[ -n "${LLAMA_SERVER_IMAGE:-}" ]]; then echo "LLAMA_SERVER_IMAGE=${LLAMA_SERVER_IMAGE}"; fi)
+LLAMA_CPU_LIMIT=${LLAMA_CPU_LIMIT}
+LLAMA_CPU_RESERVATION=${LLAMA_CPU_RESERVATION}
 
 $(if [[ "$GPU_BACKEND" == "amd" ]]; then cat << AMD_ENV
 #=== GPU Group IDs (for container device access) ===
@@ -272,7 +296,10 @@ RENDER_GID=$(getent group render 2>/dev/null | cut -d: -f3 || echo 992)
 
 #=== AMD ROCm Settings ===
 HSA_OVERRIDE_GFX_VERSION=11.5.1
-ROCBLAS_USE_HIPBLASLT=0
+HSA_XNACK=1
+ROCBLAS_USE_HIPBLASLT=1
+AMDGPU_TARGET=gfx1151
+LLAMA_CPP_REF=b8763
 AMD_ENV
 fi)
 $(if [[ "$GPU_BACKEND" == "sycl" ]]; then cat << INTEL_ENV
@@ -365,18 +392,34 @@ ENV_EOF
     ai_ok "Created $INSTALL_DIR"
     ai_ok "Generated secure secrets in .env (permissions: 600)"
 
-    # Generate LiteLLM config for Lemonade — wildcard-only.
-    # Lemonade auto-discovers models from --extra-models-dir and resolves
-    # model names internally. No hardcoded model aliases needed — the wildcard
-    # passes any model name through to Lemonade's OpenAI-compatible API.
-    # This avoids stale model references after bootstrap-upgrade swaps models.
+    # Generate LiteLLM config for Lemonade.
+    # Lemonade exposes models as "extra.<GGUF_FILENAME>" — the wildcard
+    # passthrough (openai/*) does NOT work because it forwards the friendly
+    # model name verbatim and lemonade returns 404.  Instead, map all
+    # requests to the concrete model ID that lemonade actually serves.
+    # bootstrap-upgrade.sh regenerates this config when the model swaps.
     if [[ "$GPU_BACKEND" == "amd" ]]; then
         mkdir -p "$INSTALL_DIR/config/litellm"
+        # Source bootstrap-model.sh for BOOTSTRAP_GGUF_FILE and bootstrap_needed().
+        # Pure library (zero side effects), all deps available by phase 06.
+        # Phase 11 re-sources it harmlessly (idempotent).
+        [[ -f "$SCRIPT_DIR/installers/lib/bootstrap-model.sh" ]] && . "$SCRIPT_DIR/installers/lib/bootstrap-model.sh"
+        if type bootstrap_needed &>/dev/null && bootstrap_needed; then
+            _active_gguf="$BOOTSTRAP_GGUF_FILE"
+        else
+            _active_gguf="$GGUF_FILE"
+        fi
         cat > "$INSTALL_DIR/config/litellm/lemonade.yaml" << LITELLM_EOF
 model_list:
+  - model_name: default
+    litellm_params:
+      model: openai/extra.${_active_gguf}
+      api_base: http://llama-server:8080/api/v1
+      api_key: sk-lemonade
+
   - model_name: "*"
     litellm_params:
-      model: openai/*
+      model: openai/extra.${_active_gguf}
       api_base: http://llama-server:8080/api/v1
       api_key: sk-lemonade
 
@@ -386,7 +429,7 @@ litellm_settings:
   request_timeout: 120
   stream_timeout: 60
 LITELLM_EOF
-        ai_ok "Generated LiteLLM config for Lemonade (wildcard routing)"
+        ai_ok "Generated LiteLLM config for Lemonade (model: extra.${_active_gguf})"
     fi
 
     # Validate generated .env against schema (fails fast on missing/unknown keys).

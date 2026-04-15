@@ -88,13 +88,84 @@ load_backend_contract() {
     return 1
 }
 
+get_host_logical_cpus() {
+    local cores
+    cores=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo 2>/dev/null || echo "1")
+    if [[ "$cores" =~ ^[0-9]+$ ]] && [[ "$cores" -gt 0 ]]; then
+        echo "$cores"
+    else
+        echo "1"
+    fi
+}
+
+get_docker_available_cpus() {
+    local cores=""
+    if command -v docker &>/dev/null; then
+        cores=$(docker info --format '{{.NCPU}}' 2>/dev/null || true)
+        cores="${cores//[!0-9]/}"
+    fi
+
+    if [[ "$cores" =~ ^[0-9]+$ ]] && [[ "$cores" -gt 0 ]]; then
+        echo "$cores"
+        return 0
+    fi
+
+    get_host_logical_cpus
+}
+
+calculate_llama_cpu_budget() {
+    local backend="${1:-cpu}"
+    local available="${2:-$(get_docker_available_cpus)}"
+    local desired_limit=8
+    local desired_reservation=1
+
+    case "$backend" in
+        amd)
+            desired_limit=16
+            desired_reservation=4
+            ;;
+        nvidia|intel|sycl)
+            desired_limit=16
+            desired_reservation=2
+            ;;
+        apple)
+            desired_limit=8
+            desired_reservation=2
+            ;;
+    esac
+
+    if ! [[ "$available" =~ ^[0-9]+$ ]] || [[ "$available" -lt 1 ]]; then
+        available=1
+    fi
+
+    local limit="$desired_limit"
+    local reservation="$desired_reservation"
+    [[ "$available" -lt "$limit" ]] && limit="$available"
+    [[ "$reservation" -gt "$limit" ]] && reservation="$limit"
+
+    echo "$limit $reservation $available"
+}
+
 detect_gpu() {
     GPU_BACKEND="cpu"  # default to CPU-only fallback
     GPU_MEMORY_TYPE="none"
     GPU_DEVICE_ID=""
 
-    # Try NVIDIA first
-    if command -v nvidia-smi &> /dev/null; then
+    # Try NVIDIA first — validate hardware via sysfs vendor ID (0x10de)
+    # before trusting nvidia-smi, which may be installed without NVIDIA hardware
+    # (e.g. nvidia-container-toolkit on AMD-only systems).
+    # DREAM_DRM_SYS can be overridden in tests to point at a mock sysfs tree.
+    local _drm_sys="${DREAM_DRM_SYS:-/sys/class/drm}"
+    local _nvidia_hw=false
+    for _v in "$_drm_sys"/card*/device/vendor; do
+        [[ "$(cat "$_v" 2>/dev/null)" == "0x10de" ]] && _nvidia_hw=true && break
+    done
+    # WSL2: /sys/class/drm/ only contains a 'version' file — no card* entries exist.
+    # Fall back to nvidia-smi as the sole hardware witness on WSL2.
+    if ! $_nvidia_hw && grep -qiE "microsoft|wsl" /proc/sys/kernel/osrelease 2>/dev/null; then
+        command -v nvidia-smi &>/dev/null && _nvidia_hw=true
+    fi
+    if $_nvidia_hw && command -v nvidia-smi &> /dev/null; then
         local raw
         if raw=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null) && [[ -n "$raw" ]]; then
             GPU_BACKEND="nvidia"
@@ -147,7 +218,7 @@ detect_gpu() {
 
     # Try Intel Arc via lspci + sysfs
     if lspci 2>/dev/null | grep -qi 'VGA.*Intel.*Arc'; then
-        for card_dir in /sys/class/drm/card*/device; do
+        for card_dir in "$_drm_sys"/card*/device; do
             [[ -d "$card_dir" ]] || continue
             local vendor device
             vendor=$(cat "$card_dir/vendor" 2>/dev/null) || continue
@@ -176,7 +247,7 @@ detect_gpu() {
     fi
 
     # Try AMD APU (Strix Halo / unified memory) via sysfs
-    for card_dir in /sys/class/drm/card*/device; do
+    for card_dir in "$_drm_sys"/card*/device; do
         [[ -d "$card_dir" ]] || continue
         local vendor
         vendor=$(cat "$card_dir/vendor" 2>/dev/null) || continue

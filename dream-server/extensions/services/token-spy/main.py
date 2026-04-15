@@ -22,6 +22,8 @@ import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, Security
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from filters import apply_filters
+from providers import ProviderRegistry
 
 # Database backend selection: sqlite (default) or postgres
 DB_BACKEND = os.environ.get("DB_BACKEND", "sqlite").lower()
@@ -30,9 +32,6 @@ if DB_BACKEND == "postgres":
     from db_postgres import init_db, log_usage, query_session_status, query_summary, query_usage, query_recent_events
 else:
     from db import init_db, log_usage, query_session_status, query_summary, query_usage, query_recent_events
-
-from filters import apply_filters
-from providers import ProviderRegistry
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
@@ -1023,9 +1022,9 @@ def _get_local_session_status(agent: str) -> dict:
     assistant_turns = 0
     history_chars = 0
     tool_results = 0
-    for l in lines:
+    for line in lines:
         try:
-            d = json.loads(l)
+            d = json.loads(line)
             if d.get("type") == "message":
                 msg = d.get("message", {})
                 if isinstance(msg, str):

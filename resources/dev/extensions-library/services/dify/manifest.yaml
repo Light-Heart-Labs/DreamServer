@@ -25,18 +25,22 @@ service:
     - key: DIFY_EXTERNAL_URL
       required: false
       secret: false
-      description: "External URL for Dify - used in API responses and redirects (default: http://localhost:8002)"
+      default: "http://localhost:8002"
+      description: "External URL for Dify - used in API responses and redirects"
     - key: DIFY_OPENAI_API_BASE
       required: false
       secret: false
-      description: "OpenAI-compatible API endpoint for LLM backend (default: http://llama-server:8080/v1)"
+      default: "http://llama-server:8080/v1"
+      description: "OpenAI-compatible API endpoint for LLM backend"
     - key: DIFY_OPENAI_API_KEY
       required: false
       secret: true
-      description: "API key for OpenAI-compatible endpoint (default: dummy-key)"
+      default: "dummy-key"
+      description: "API key for OpenAI-compatible endpoint"
     - key: DIFY_INIT_PASSWORD
       required: false
       secret: false
+      default: ""
       description: Initial admin password (optional, set in .env)
   description: "LLMOps platform for building AI workflows, RAG pipelines, and autonomous agents."
 

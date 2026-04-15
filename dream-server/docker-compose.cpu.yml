@@ -31,7 +31,7 @@ services:
           cpus: '${LLAMA_CPU_LIMIT:-8.0}'
           memory: ${LLAMA_SERVER_MEMORY_LIMIT:-6G}
         reservations:
-          cpus: '1.0'
+          cpus: '${LLAMA_CPU_RESERVATION:-1.0}'
           memory: 2G
 
   open-webui:

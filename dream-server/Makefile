@@ -29,6 +29,10 @@ test: ## Run unit and contract tests
 	@echo ""
 	@echo "=== AMD/Lemonade contracts ==="
 	@bash tests/contracts/test-amd-lemonade-contracts.sh
+	@echo ""
+	@echo "=== Overlay/plist contracts ==="
+	@bash tests/contracts/test-overlay-map-coherence.sh
+	@bash tests/contracts/test-plist-log-paths.sh
 
 bats: ## Run BATS unit tests for shell libraries
 	@echo "=== BATS unit tests ==="

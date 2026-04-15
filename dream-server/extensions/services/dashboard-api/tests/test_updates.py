@@ -23,19 +23,41 @@ def test_get_version_authenticated(test_client):
     assert "checked_at" in data
 
 
-def test_get_version_with_mock_github(test_client):
-    """GET /api/version with mocked GitHub API → returns update info."""
-    mock_response = MagicMock()
-    mock_response.read.return_value = b'{"tag_name": "v2.0.0", "html_url": "https://github.com/test"}'
-    mock_response.__enter__ = lambda self: self
-    mock_response.__exit__ = lambda self, *args: None
+def test_get_version_with_mock_github(test_client, monkeypatch):
+    """GET /api/version with mocked GitHub API → returns update info.
 
-    with patch("urllib.request.urlopen", return_value=mock_response):
+    The router fetches releases via ``httpx.AsyncClient`` (see
+    ``routers/updates.py::_refresh_release_cache``) and caches the payload
+    in a module-level global. Patch the client at the point of use and
+    reset the cache/refresh-task globals so the mocked path is exercised
+    rather than a leftover payload from a previously-run test.
+    """
+    import routers.updates as updates_mod
+
+    monkeypatch.setattr(updates_mod, "_version_cache", {"expires_at": 0.0, "payload": None})
+    monkeypatch.setattr(updates_mod, "_version_refresh_task", None)
+
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {
+        "tag_name": "v2.0.0",
+        "html_url": "https://github.com/test",
+    }
+
+    async def mock_get(url, **kwargs):
+        return mock_resp
+
+    mock_client = AsyncMock()
+    mock_client.get = mock_get
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("routers.updates.httpx.AsyncClient", return_value=mock_client):
         resp = test_client.get("/api/version", headers=test_client.auth_headers)
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["latest"] == "2.0.0"
-        assert "changelog_url" in data
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["latest"] == "2.0.0"
+    assert data["changelog_url"] == "https://github.com/test"
 
 
 def test_get_releases_manifest_requires_auth(test_client):
@@ -45,13 +67,45 @@ def test_get_releases_manifest_requires_auth(test_client):
 
 
 def test_get_releases_manifest_authenticated(test_client):
-    """GET /api/releases/manifest with auth → 200, returns release list."""
-    resp = test_client.get("/api/releases/manifest", headers=test_client.auth_headers)
+    """GET /api/releases/manifest with auth → 200, returns release list.
+
+    The router calls ``api.github.com/.../releases`` through
+    ``httpx.AsyncClient`` (see ``routers/updates.py::get_release_manifest``).
+    Intercept the client with an ``AsyncMock`` that returns a minimal
+    releases payload so the test exercises the authenticated happy path
+    deterministically, without hitting the real GitHub API (which may
+    rate-limit and return a non-list error object).
+    """
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = [
+        {
+            "tag_name": "v1.0.0",
+            "published_at": "2025-01-01T00:00:00Z",
+            "name": "Release 1.0.0",
+            "body": "Initial release",
+            "html_url": "https://github.com/test/releases/v1.0.0",
+            "prerelease": False,
+        },
+    ]
+
+    async def mock_get(url, **kwargs):
+        return mock_resp
+
+    mock_client = AsyncMock()
+    mock_client.get = mock_get
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("routers.updates.httpx.AsyncClient", return_value=mock_client):
+        resp = test_client.get("/api/releases/manifest", headers=test_client.auth_headers)
+
     assert resp.status_code == 200
     data = resp.json()
     assert "releases" in data
     assert "checked_at" in data
     assert isinstance(data["releases"], list)
+    assert len(data["releases"]) == 1
+    assert data["releases"][0]["version"] == "1.0.0"
 
 
 def test_trigger_update_requires_auth(test_client):

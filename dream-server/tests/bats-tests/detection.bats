@@ -147,6 +147,11 @@ MOCK
     chmod +x "$BATS_TEST_TMPDIR/bin/nvidia-smi"
     export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
 
+    # Mock sysfs vendor ID so detect_gpu trusts nvidia-smi without real hardware
+    mkdir -p "$BATS_TEST_TMPDIR/sys/class/drm/card0/device"
+    echo "0x10de" > "$BATS_TEST_TMPDIR/sys/class/drm/card0/device/vendor"
+    export DREAM_DRM_SYS="$BATS_TEST_TMPDIR/sys/class/drm"
+
     detect_gpu
     assert_equal "$GPU_NAME" "NVIDIA GeForce RTX 4090"
     assert_equal "$GPU_BACKEND" "nvidia"
@@ -170,6 +175,11 @@ fi
 MOCK
     chmod +x "$BATS_TEST_TMPDIR/bin/nvidia-smi"
     export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
+
+    # Mock sysfs vendor ID so detect_gpu trusts nvidia-smi without real hardware
+    mkdir -p "$BATS_TEST_TMPDIR/sys/class/drm/card0/device"
+    echo "0x10de" > "$BATS_TEST_TMPDIR/sys/class/drm/card0/device/vendor"
+    export DREAM_DRM_SYS="$BATS_TEST_TMPDIR/sys/class/drm"
 
     detect_gpu
     assert_equal "$GPU_COUNT" "2"

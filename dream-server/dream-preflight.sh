@@ -40,7 +40,13 @@ detect_backend() {
     fi
 
     # 2. Probe NVIDIA first (matches installer's detect_gpu order).
-    if command -v nvidia-smi &> /dev/null; then
+    #    Validate hardware via sysfs vendor ID before trusting nvidia-smi,
+    #    which may be installed without NVIDIA hardware.
+    local _nvidia_hw=false
+    for _v in /sys/class/drm/card*/device/vendor; do
+        [[ "$(cat "$_v" 2>/dev/null)" == "0x10de" ]] && _nvidia_hw=true && break
+    done
+    if $_nvidia_hw && command -v nvidia-smi &> /dev/null; then
         if nvidia-smi --query-gpu=name --format=csv,noheader &> /dev/null; then
             echo "nvidia"
             return

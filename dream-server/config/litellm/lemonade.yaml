@@ -1,14 +1,14 @@
 model_list:
-  # Wildcard — pass any model name through to Lemonade's OpenAI-compatible API.
-  # Lemonade auto-discovers models from --extra-models-dir and serves them
-  # at /api/v1. Uses the same wildcard approach as local.yaml (NVIDIA/CPU).
+  # Lemonade exposes models as "extra.<GGUF_FILENAME>" — the wildcard
+  # passthrough (openai/*) does NOT work because it forwards the friendly
+  # model name verbatim and lemonade returns 404.
   #
-  # The previous config tried to map os.environ/LLM_MODEL to a specific
-  # Lemonade model ID, but the env vars were never passed to the container
-  # and the model name changed after bootstrap upgrade.
+  # This file is a template. The installer (06-directories.sh) generates
+  # the actual config with the correct model ID at install time, and
+  # bootstrap-upgrade.sh regenerates it when the model swaps.
   - model_name: "*"
     litellm_params:
-      model: openai/*
+      model: openai/extra.GGUF_FILENAME_HERE
       api_base: http://llama-server:8080/api/v1
       api_key: sk-lemonade
 

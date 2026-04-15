@@ -5,11 +5,14 @@
 
 services:
   llama-server:
-    # Lemonade Docker image with ROCm support + libatomic1 fix
+    # Custom llama.cpp ROCm build + Lemonade server
     # Service name stays "llama-server" for compose dependency compatibility
     build:
       context: ./extensions/services/llama-server
       dockerfile: Dockerfile.amd
+      args:
+        AMDGPU_TARGET: ${AMDGPU_TARGET:-gfx1151}
+        LLAMA_CPP_REF: ${LLAMA_CPP_REF:-b8763}
     image: dream-lemonade-server:latest
     entrypoint: ["/opt/lemonade/lemonade-server"]
     command:
@@ -22,7 +25,7 @@ services:
       - --llamacpp
       - rocm
       - --llamacpp-args
-      - "--metrics --host 0.0.0.0"
+      - "--metrics --host 0.0.0.0 -fa on -b 2048 -ub 256"
       - --extra-models-dir
       - /models
     expose:
@@ -39,9 +42,11 @@ services:
       - "${VIDEO_GID:-44}"
       - "${RENDER_GID:-992}"
     environment:
-      - HSA_OVERRIDE_GFX_VERSION=11.5.1
-      - ROCBLAS_USE_HIPBLASLT=0
+      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-11.5.1}
+      - HSA_XNACK=${HSA_XNACK:-1}
+      - ROCBLAS_USE_HIPBLASLT=${ROCBLAS_USE_HIPBLASLT:-1}
       - LEMONADE_LLAMACPP_BACKEND=rocm
+      - LEMONADE_LLAMACPP_ROCM_BIN=/opt/llama-custom/llama-server
       - LEMONADE_CTX_SIZE=${CTX_SIZE:-131072}
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://127.0.0.1:8080/api/v1/health"]
@@ -52,10 +57,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '16.0'
+          cpus: '${LLAMA_CPU_LIMIT:-16.0}'
           memory: 110G
         reservations:
-          cpus: '4.0'
+          cpus: '${LLAMA_CPU_RESERVATION:-4.0}'
           memory: 8G
 
   # Services route through LiteLLM (DREAM_MODE=lemonade sets LLM_API_URL=http://litellm:4000).

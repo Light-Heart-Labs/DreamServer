@@ -135,11 +135,21 @@ async def get_llama_metrics(model_hint: Optional[str] = None) -> dict:
 
 
 async def get_loaded_model() -> Optional[str]:
-    """Query llama-server /v1/models for actually loaded model name."""
+    """Query llama-server for actually loaded model name."""
     try:
         host = SERVICES["llama-server"]["host"]
         port = SERVICES["llama-server"]["port"]
         client = await _get_httpx_client()
+
+        # Lemonade lists ALL available models at /v1/models without a status
+        # field, so the first entry is arbitrary.  The health endpoint is the
+        # authoritative source for which model is actually loaded.
+        if LLM_BACKEND == "lemonade":
+            resp = await client.get(f"http://{host}:{port}{_LLM_API_PREFIX}/health")
+            loaded = resp.json().get("model_loaded")
+            return loaded if loaded else None
+
+        # llama.cpp: /v1/models returns the loaded model with status info.
         resp = await client.get(f"http://{host}:{port}{_LLM_API_PREFIX}/models")
         models = resp.json().get("data", [])
         for m in models:
@@ -148,7 +158,7 @@ async def get_loaded_model() -> Optional[str]:
                 return m.get("id")
         if models:
             return models[0].get("id")
-    except (httpx.HTTPError, httpx.TimeoutException) as e:
+    except (httpx.HTTPError, httpx.TimeoutException, ValueError) as e:
         logger.debug("get_loaded_model failed: %s", e)
     return None
 
@@ -217,7 +227,10 @@ async def check_service_health(service_id: str, config: dict) -> ServiceStatus:
     try:
         session = await _get_aio_session()
         start = asyncio.get_event_loop().time()
-        async with session.get(url) as resp:
+        # Send Host header so reverse-proxy services (e.g. Caddy in Baserow)
+        # route the request correctly instead of returning 404.
+        headers = {"Host": "localhost"}
+        async with session.get(url, headers=headers) as resp:
             response_time = (asyncio.get_event_loop().time() - start) * 1000
             status = "healthy" if resp.status < 400 else "unhealthy"
     except asyncio.TimeoutError:
@@ -251,7 +264,9 @@ async def _check_host_service_health(service_id: str, config: dict) -> ServiceSt
     try:
         session = await _get_aio_session()
         start = asyncio.get_event_loop().time()
-        async with session.get(url) as resp:
+        # Host header for reverse-proxy routing (see check_service_health)
+        headers = {"Host": "localhost"}
+        async with session.get(url, headers=headers) as resp:
             response_time = (asyncio.get_event_loop().time() - start) * 1000
             status = "healthy" if resp.status < 400 else "unhealthy"
     except asyncio.TimeoutError:
@@ -397,10 +412,27 @@ def get_bootstrap_status() -> BootstrapStatus:
             data = json.load(f)
 
         status = data.get("status", "")
-        if status == "complete":
+        if status in ("complete", "failed", "cancelled", "error"):
             return BootstrapStatus(active=False)
         if status == "" and not data.get("bytesDownloaded") and not data.get("percent"):
             return BootstrapStatus(active=False)
+
+        # Reconcile with the filesystem: if the target model file is already
+        # present on disk, the download is effectively done regardless of what
+        # the status record says (covers stale "downloading" entries left by a
+        # crash or a parallel download path). Skip during "verifying" because
+        # the file has been renamed into place but SHA256 hasn't finished yet —
+        # returning inactive here would hide a subsequent verification failure.
+        model_name = data.get("model")
+        if model_name and status != "verifying":
+            models_dir = Path(DATA_DIR) / "models"
+            model_path = (models_dir / model_name).resolve()
+            if model_path.is_relative_to(models_dir.resolve()):
+                try:
+                    if model_path.exists() and model_path.stat().st_size > 0:
+                        return BootstrapStatus(active=False)
+                except OSError as e:
+                    logger.debug("bootstrap reconciliation stat failed: %s", e)
 
         eta_str = data.get("eta", "")
         eta_seconds = None

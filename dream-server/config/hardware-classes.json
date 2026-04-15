@@ -118,7 +118,7 @@
       "recommended": {
         "backend": "apple",
         "tier": "T3",
-        "compose_overlays": ["docker-compose.base.yml", "docker-compose.apple.yml"]
+        "compose_overlays": ["docker-compose.base.yml", "installers/macos/docker-compose.macos.yml"]
       }
     },
     {
@@ -133,7 +133,7 @@
       "recommended": {
         "backend": "apple",
         "tier": "T2",
-        "compose_overlays": ["docker-compose.base.yml", "docker-compose.apple.yml"]
+        "compose_overlays": ["docker-compose.base.yml", "installers/macos/docker-compose.macos.yml"]
       }
     },
     {

@@ -273,7 +273,7 @@ services:
         max-file: "3"
 
   langfuse-minio-init:
-    image: minio/mc:RELEASE.2025-09-07T16-13-09Z
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
     container_name: dream-langfuse-minio-init
     restart: "no"
     security_opt:

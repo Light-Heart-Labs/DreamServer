@@ -168,6 +168,8 @@ async def get_release_manifest():
                 headers=_GITHUB_HEADERS,
             )
         releases = resp.json()
+        if not isinstance(releases, list):
+            raise httpx.HTTPError(f"unexpected releases response: {type(releases).__name__}")
         return {
             "releases": [
                 {"version": r.get("tag_name", "").lstrip("v"), "date": r.get("published_at", ""), "title": r.get("name", ""), "changelog": r.get("body", "")[:500] + "..." if len(r.get("body", "")) > 500 else r.get("body", ""), "url": r.get("html_url", ""), "prerelease": r.get("prerelease", False)}
@@ -283,13 +285,11 @@ async def trigger_update(action: UpdateAction, background_tasks: BackgroundTasks
     if action.action not in _VALID_ACTIONS:
         raise HTTPException(status_code=400, detail=f"Unknown action: {action.action}")
 
-    script_path = Path(INSTALL_DIR).parent / "scripts" / "dream-update.sh"
+    script_path = Path(INSTALL_DIR) / "dream-update.sh"
     if not script_path.exists():
-        install_script = Path(INSTALL_DIR) / "install.sh"
-        if install_script.exists():
-            script_path = Path(INSTALL_DIR).parent / "scripts" / "dream-update.sh"
-        else:
-            script_path = Path(INSTALL_DIR) / "scripts" / "dream-update.sh"
+        script_path = Path(INSTALL_DIR).parent / "scripts" / "dream-update.sh"
+    if not script_path.exists():
+        script_path = Path(INSTALL_DIR) / "scripts" / "dream-update.sh"
 
     if not script_path.exists():
         logger.error("dream-update.sh not found at %s", script_path)

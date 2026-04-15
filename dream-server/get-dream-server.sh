@@ -37,13 +37,9 @@ echo -e "${NC}"
 echo -e "${BOLD}  One-line installer — Local AI for Everyone${NC}"
 echo ""
 
-# ── Detect platform ──────────────────────────────────────
-detect_platform() {
-    if [[ -n "${TERMUX_VERSION:-}" ]] || [[ "${PREFIX:-}" == *"/com.termux/"* ]] || [[ "${PREFIX:-}" == *"/com.termux/files/usr" ]]; then
-        echo "android-termux"
-    elif [[ "${TERM_PROGRAM:-}" == "a-Shell" ]] || [[ "${TERM_PROGRAM:-}" == "a-Shell mini" ]] || [[ -n "${ASHELL:-}" ]]; then
-        echo "ios-ashell"
-    elif [[ -f /proc/version ]] && grep -qi microsoft /proc/version 2>/dev/null; then
+# ── Detect OS ──────────────────────────────────────
+detect_os() {
+    if [[ -f /proc/version ]] && grep -qi microsoft /proc/version 2>/dev/null; then
         echo "wsl"
     elif [[ "$OSTYPE" == "darwin"* ]]; then
         echo "macos"
@@ -54,16 +50,10 @@ detect_platform() {
     fi
 }
 
-PLATFORM=$(detect_platform)
-log "Detected platform: $PLATFORM"
+OS=$(detect_os)
+log "Detected OS: $OS"
 
-case "$PLATFORM" in
-    android-termux)
-        success "Android / Termux detected — mobile shell preview"
-        ;;
-    ios-ashell)
-        error "iOS a-Shell detected, but local shell inference is not supported yet in Dream Server. Use Android / Termux for the current mobile preview."
-        ;;
+case "$OS" in
     linux|wsl)
         success "Linux/WSL detected — full support"
         ;;
@@ -78,36 +68,38 @@ esac
 # ── Check prerequisites ──────────────────────────────
 log "Checking prerequisites..."
 
-# Docker check (early fail fast)
-if [[ "$PLATFORM" != "android-termux" ]]; then
-    if command -v docker &> /dev/null; then
-        success "Docker found: $(docker --version | head -1)"
-        if docker info &> /dev/null; then
-            success "Docker daemon running"
-        else
-            warn "Docker installed but daemon not running"
-            echo "  Start with: sudo systemctl start docker"
-            echo "  Or on macOS: open Docker Desktop"
-        fi
-    else
-        warn "Docker not found — will attempt auto-install"
-        echo "  Note: This requires sudo access and may take several minutes"
-    fi
+# Docker check (informational — the installer auto-installs Docker if missing)
+if command -v docker &> /dev/null; then
+    success "Docker found: $(docker --version | head -1)"
+else
+    warn "Docker not found — the installer will attempt to install it"
 fi
 
-# GPU check (early warning)
-if [[ "$PLATFORM" != "android-termux" ]]; then
-    if command -v nvidia-smi &> /dev/null; then
-        GPU_INFO=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -1)
-        if [[ -n "$GPU_INFO" ]]; then
-            success "NVIDIA GPU detected: $GPU_INFO"
-        else
-            warn "nvidia-smi found but no GPU detected"
-        fi
-    else
-        warn "No nvidia-smi — GPU features will be limited"
-        echo "  For full functionality, install NVIDIA drivers"
-    fi
+# GPU check (early info — real detection happens in the installer)
+_gpu_found=false
+for _v in /sys/class/drm/card*/device/vendor; do
+    case "$(cat "$_v" 2>/dev/null)" in
+        0x10de) # NVIDIA
+            if command -v nvidia-smi &> /dev/null; then
+                _info=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -1)
+                [[ -n "$_info" ]] && success "NVIDIA GPU detected: $_info" && _gpu_found=true
+            else
+                success "NVIDIA GPU detected (driver not yet installed — installer will handle it)"
+                _gpu_found=true
+            fi ;;
+        0x1002) # AMD
+            success "AMD GPU detected"
+            _gpu_found=true ;;
+        0x8086) # Intel — only flag if it looks like Arc (discrete)
+            if lspci 2>/dev/null | grep -qi 'VGA.*Intel.*Arc'; then
+                success "Intel Arc GPU detected"
+                _gpu_found=true
+            fi ;;
+    esac
+    $_gpu_found && break
+done
+if ! $_gpu_found; then
+    warn "No GPU detected — CPU-only mode will be used (slow but functional)"
 fi
 
 # git
@@ -115,9 +107,7 @@ if command -v git &> /dev/null; then
     success "git found: $(git --version | head -1)"
 else
     log "Installing git..."
-    if [[ "$PLATFORM" == "android-termux" ]]; then
-        pkg install -y git
-    elif [[ "$PLATFORM" == "macos" ]]; then
+    if [[ "$OS" == "macos" ]]; then
         xcode-select --install 2>/dev/null || true
         command -v git &> /dev/null || error "Please install git: https://git-scm.com"
     else
@@ -141,9 +131,7 @@ if command -v curl &> /dev/null; then
     success "curl found"
 else
     log "Installing curl..."
-    if [[ "$PLATFORM" == "android-termux" ]]; then
-        pkg install -y curl
-    elif command -v apt-get &> /dev/null; then
+    if command -v apt-get &> /dev/null; then
         sudo apt-get install -y -qq curl
     elif command -v dnf &> /dev/null; then
         sudo dnf install -y -q curl
@@ -153,45 +141,19 @@ else
     success "curl installed"
 fi
 
-# docker
-if [[ "$PLATFORM" != "android-termux" ]]; then
-    if command -v docker &> /dev/null; then
-        success "docker found: $(docker --version | head -1)"
-    else
-        error "Docker is required but not installed.\n\nInstall Docker:\n  Ubuntu/WSL: https://docs.docker.com/engine/install/ubuntu/\n  Other:      https://docs.docker.com/get-docker/\n\nAfter installing, re-run this script."
-    fi
-
-    # docker compose (plugin or standalone)
+# docker (the installer auto-installs Docker if missing — don't block here)
+if command -v docker &> /dev/null; then
+    success "docker found: $(docker --version | head -1)"
     if docker compose version &> /dev/null || docker-compose --version &> /dev/null; then
         success "docker compose found"
     else
-        error "Docker Compose is required but not found.\n\nInstall Docker Compose:\n  https://docs.docker.com/compose/install/\n\nAfter installing, re-run this script."
+        warn "Docker Compose not found — the installer will attempt to set it up"
     fi
+else
+    warn "Docker not found — the installer will attempt to install it"
 fi
 
-# NVIDIA GPU check (for Linux/WSL only)
-if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "wsl" ]]; then
-    log "Checking NVIDIA GPU..."
-    if command -v nvidia-smi &> /dev/null; then
-        GPU_INFO=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -1)
-        if [[ -n "$GPU_INFO" ]]; then
-            success "NVIDIA GPU detected: $GPU_INFO"
-            # Extract VRAM in MB and check minimum
-            VRAM_MB=$(echo "$GPU_INFO" | sed -n 's/.*[^0-9]\([0-9][0-9]*\) MiB.*/\1/p')
-            VRAM_MB=${VRAM_MB:-0}
-            if [[ "$VRAM_MB" -lt 8192 ]]; then
-                warn "GPU has less than 8GB VRAM. Some models may not fit."
-                echo "  Consider using a smaller model (7B) or cloud fallback."
-            fi
-        else
-            warn "nvidia-smi found but no GPU detected. GPU containers may fail."
-        fi
-    else
-        warn "nvidia-smi not found. GPU support may not be available."
-        echo "  For GPU support, install NVIDIA drivers: https://www.nvidia.com/drivers"
-        echo "  CPU-only mode will be slow but functional for small models."
-    fi
-fi
+# GPU pre-check already done above — real detection happens in the installer
 
 # ── Check for existing installation ──────────────────
 if [[ -d "$INSTALL_DIR" ]]; then
@@ -275,7 +237,6 @@ success "Cloned to $INSTALL_DIR"
 # ── Make scripts executable ──────────────────────────
 chmod +x "$INSTALL_DIR/install.sh" 2>/dev/null || true
 chmod +x "$INSTALL_DIR/dream-cli" 2>/dev/null || true
-chmod +x "$INSTALL_DIR/dream-mobile.sh" 2>/dev/null || true
 chmod +x "$INSTALL_DIR/scripts/"*.sh 2>/dev/null || true
 # Note: tests/ directory excluded from installation
 

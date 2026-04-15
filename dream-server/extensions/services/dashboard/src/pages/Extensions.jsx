@@ -10,6 +10,9 @@ import { TemplatePicker } from '../components/TemplatePicker'
 // Services defined in docker-compose.base.yml — always running, not togglable via templates
 const BASE_COMPOSE_SERVICES = new Set(['llama-server', 'open-webui', 'dashboard', 'dashboard-api'])
 
+// API/backend services with no user-facing web UI — show badge instead of port link.
+const HEADLESS_EXTENSIONS = new Set(['embeddings', 'tts', 'whisper', 'privacy-shield'])
+
 // Compute template status from catalog extensions data.
 // Returns one of: 'available', 'in_progress', 'applied', 'has_errors'
 // Precedence: has_errors > in_progress > applied > available
@@ -598,7 +601,7 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
   const isUserExt = ext.source === 'user'
   const isError = status === 'error'
   const isStopped = status === 'stopped'
-  const isToggleable = isUserExt && (status === 'enabled' || status === 'disabled')
+  const isToggleable = isUserExt && (status === 'enabled' || status === 'disabled' || status === 'error' || status === 'stopped')
   const showRemove = isUserExt && (status === 'disabled' || isError)
   const showInstall = status === 'not_installed' && ext.installable
 
@@ -630,7 +633,7 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
             <div>
               <h3 className="text-sm font-semibold text-theme-text leading-tight">{ext.name}</h3>
               {ext.features?.[0]?.category && (
-                <span className="text-[9px] text-theme-text-muted/55 uppercase tracking-[0.18em]">{ext.features[0].category}</span>
+                <span className="text-[9px] text-theme-text-secondary/70 uppercase tracking-[0.18em]">{ext.features[0].category}</span>
               )}
             </div>
           </div>
@@ -649,8 +652,10 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
               <button
                 disabled={actionDisabled}
                 title={disabledTitle}
-                onClick={() => onAction(ext, status === 'enabled' ? 'disable' : 'enable')}
+                onClick={() => onAction(ext, status === 'disabled' ? 'enable' : 'disable')}
                 className={`relative inline-flex h-[18px] w-[32px] shrink-0 rounded-full transition-colors disabled:opacity-50 ${
+                  status === 'error' ? 'bg-red-500' :
+                  status === 'stopped' ? 'bg-amber-500' :
                   status === 'enabled' ? 'bg-green-500' : 'bg-theme-border'
                 }`}
               >
@@ -658,14 +663,14 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
                   <Loader2 size={8} className="animate-spin absolute top-[3px] left-[10px] text-white" />
                 ) : (
                   <span className={`pointer-events-none inline-block h-[14px] w-[14px] rounded-full bg-white shadow-sm transform transition-transform mt-[2px] ${
-                    status === 'enabled' ? 'translate-x-[16px]' : 'translate-x-[2px]'
+                    status === 'disabled' ? 'translate-x-[2px]' : 'translate-x-[16px]'
                   }`} />
                 )}
               </button>
             )}
           </div>
         </div>
-        <p className="text-[11px] text-theme-text-muted/70 line-clamp-2 leading-relaxed">{ext.description || 'No description available.'}</p>
+        <p className="text-[11px] text-theme-text-secondary/85 line-clamp-2 leading-relaxed">{ext.description || 'No description available.'}</p>
       </div>
 
       {/* Progress indicator — shows during active install/setup, survives page refresh */}
@@ -750,33 +755,43 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
         <div className="flex items-center gap-2">
           <DependencyBadges dependsOn={ext.depends_on} dependencyStatus={ext.dependency_status} />
           {status === 'enabled' && (ext.external_port_default || ext.port) && (ext.external_port_default || ext.port) !== 0 ? (
-            <a
-              href={`http://${window.location.hostname}:${ext.external_port_default || ext.port}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={e => e.stopPropagation()}
-              className="flex items-center gap-1 px-2 py-1.5 text-[10px] font-mono text-theme-text-muted/75 hover:text-theme-text-secondary hover:bg-theme-surface-hover/40 rounded-lg transition-colors"
-              title={`Open on port ${ext.external_port_default || ext.port}`}
-            >
-              <ExternalLink size={11} />
-              :{ext.external_port_default || ext.port}
-            </a>
+            HEADLESS_EXTENSIONS.has(ext.id) ? (
+              <span className="px-2 py-1 text-[9px] font-mono uppercase tracking-[0.12em] text-theme-text-muted/45">
+                API service
+              </span>
+            ) : (
+              <a
+                href={`http://${window.location.hostname}:${ext.external_port_default || ext.port}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={e => e.stopPropagation()}
+                className="flex items-center gap-1 px-2 py-1.5 text-[10px] font-mono text-theme-text-secondary hover:text-theme-text hover:bg-theme-surface-hover/40 rounded-lg transition-colors"
+                title={`Open on port ${ext.external_port_default || ext.port}`}
+              >
+                <ExternalLink size={11} />
+                :{ext.external_port_default || ext.port}
+              </a>
+            )
           ) : null}
           {(isUserExt || isCore) && status !== 'not_installed' && (
             <button
               onClick={onConsole}
               disabled={agentOffline}
-              className={`flex items-center gap-1 px-2 py-1.5 text-[10px] rounded-lg transition-colors ${
-                agentOffline ? 'text-theme-text-muted/40 cursor-not-allowed' : 'text-theme-text-muted/65 hover:text-theme-text-secondary hover:bg-theme-surface-hover/40'
+              className={`flex items-center gap-1.5 px-2 py-1.5 text-[10px] rounded-lg transition-colors ${
+                agentOffline ? 'text-theme-text-muted/40 cursor-not-allowed' :
+                isError ? 'text-red-400 hover:text-red-300 hover:bg-red-500/10' :
+                (status === 'installing' || isStopped) ? 'text-amber-400/80 hover:text-amber-300 hover:bg-amber-500/10' :
+                'text-theme-text-secondary hover:text-theme-text hover:bg-theme-surface-hover/40'
               }`}
               title={agentOffline ? 'Agent offline' : 'View logs'}
             >
-              <Terminal size={11} />
+              <Terminal size={14} />
+              <span>Logs</span>
             </button>
           )}
           <button
             onClick={onDetails}
-            className="flex items-center gap-1 px-2 py-1.5 text-[10px] text-theme-text-muted/65 hover:text-theme-text-secondary hover:bg-theme-surface-hover/40 rounded-lg transition-colors"
+            className="flex items-center gap-1 px-2 py-1.5 text-[10px] text-theme-text-secondary hover:text-theme-text hover:bg-theme-surface-hover/40 rounded-lg transition-colors"
           >
             <Info size={11} />
           </button>

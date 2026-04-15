@@ -111,6 +111,33 @@ def load_core_service_ids(config_path: Path) -> set:
         return set(_FALLBACK_CORE_IDS)
 
 
+def _detect_docker_bridge_gateway() -> str:
+    """Detect the Docker bridge gateway IP for secure binding on Linux.
+
+    Returns the gateway IP (e.g. '172.17.0.1') or empty string on failure.
+    Containers reach this IP via the host-gateway extra_hosts mapping,
+    while LAN devices cannot (it's on a virtual bridge interface).
+    """
+    import ipaddress as _ipaddress
+    try:
+        result = subprocess.run(
+            ["docker", "network", "inspect", "bridge",
+             "--format", "{{(index .IPAM.Config 0).Gateway}}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0:
+            addr = result.stdout.strip()
+            if addr:
+                _ipaddress.ip_address(addr)  # validate — Docker can return "<no value>"
+                logger.info("Detected Docker bridge gateway: %s", addr)
+                return addr
+    except ValueError:
+        logger.debug("Docker bridge returned non-IP value, ignoring")
+    except (subprocess.SubprocessError, OSError) as exc:
+        logger.debug("Docker bridge detection failed: %s", exc)
+    return ""
+
+
 def invalidate_compose_cache() -> None:
     """Drop the saved .compose-flags cache so the next resolve re-runs the script."""
     (INSTALL_DIR / ".compose-flags").unlink(missing_ok=True)
@@ -1267,11 +1294,13 @@ class AgentHandler(BaseHTTPRequestHandler):
 
         env_path = INSTALL_DIR / ".env"
         models_ini = INSTALL_DIR / "config" / "llama-server" / "models.ini"
+        lemonade_yaml = INSTALL_DIR / "config" / "litellm" / "lemonade.yaml"
 
         try:
             # Save rollback snapshot
             env_backup = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
             ini_backup = models_ini.read_text(encoding="utf-8") if models_ini.exists() else ""
+            lemonade_backup = lemonade_yaml.read_text(encoding="utf-8") if lemonade_yaml.exists() else None
 
             # Update .env
             if env_path.exists():
@@ -1310,6 +1339,32 @@ class AgentHandler(BaseHTTPRequestHandler):
                 encoding="utf-8",
             )
 
+            # Regenerate LiteLLM lemonade config so it routes to the new model.
+            # Only written on AMD installs where lemonade.yaml exists.
+            if lemonade_yaml.exists():
+                lemonade_yaml.write_text(
+                    f"model_list:\n"
+                    f"  - model_name: default\n"
+                    f"    litellm_params:\n"
+                    f"      model: openai/extra.{gguf_file}\n"
+                    f"      api_base: http://llama-server:8080/api/v1\n"
+                    f"      api_key: sk-lemonade\n"
+                    f"\n"
+                    f"  - model_name: \"*\"\n"
+                    f"    litellm_params:\n"
+                    f"      model: openai/extra.{gguf_file}\n"
+                    f"      api_base: http://llama-server:8080/api/v1\n"
+                    f"      api_key: sk-lemonade\n"
+                    f"\n"
+                    f"litellm_settings:\n"
+                    f"  drop_params: true\n"
+                    f"  set_verbose: false\n"
+                    f"  request_timeout: 120\n"
+                    f"  stream_timeout: 60\n",
+                    encoding="utf-8",
+                )
+                logger.info("Regenerated lemonade.yaml for model: extra.%s", gguf_file)
+
             # Restart llama-server with the new model.
             # Two strategies depending on where the agent runs:
             # - Host-native (Linux/macOS): docker compose stop+up, same as
@@ -1345,6 +1400,7 @@ class AgentHandler(BaseHTTPRequestHandler):
             health_url = f"http://{llama_host}:{llama_port}{health_path}"
             logger.info("Waiting for llama-server health at %s", health_url)
             healthy = False
+            warmup_sent = False
             time.sleep(5)  # Give container time to start
             for attempt in range(60):
                 try:
@@ -1353,18 +1409,46 @@ class AgentHandler(BaseHTTPRequestHandler):
                         capture_output=True, text=True, timeout=10,
                     )
                     body = result.stdout.strip()
-                    if '"ok"' in body:
-                        healthy = True
+                    if gpu_backend == "amd":
+                        # Lemonade returns {"status":"ok","model_loaded":null}
+                        # before a model is loaded — must verify model_loaded
+                        # is non-null.  Mirrors bootstrap-upgrade.sh:330.
+                        if _check_lemonade_health(body):
+                            healthy = True
+                        elif body:
+                            # Send warm-up request every 3rd attempt (~15s)
+                            # to trigger on-demand model loading.
+                            if not warmup_sent or attempt % 3 == 0:
+                                warmup_sent = _send_lemonade_warmup(
+                                    llama_host, llama_port, gguf_file, attempt,
+                                )
+                            if attempt % 6 == 0:
+                                logger.info(
+                                    "Lemonade healthy but no model loaded (attempt %d)",
+                                    attempt + 1,
+                                )
+                    else:
+                        # llama.cpp: 200 with "ok" means model is loaded
+                        if '"ok"' in body:
+                            healthy = True
+                        elif attempt % 6 == 0:
+                            logger.info("Health check attempt %d: %s", attempt + 1, body[:100])
+                    if healthy:
                         logger.info("llama-server healthy after %d attempts", attempt + 1)
                         break
-                    if attempt % 6 == 0:
-                        logger.info("Health check attempt %d: %s", attempt + 1, body[:100])
                 except subprocess.TimeoutExpired:
                     if attempt % 6 == 0:
                         logger.info("Health check attempt %d: timeout", attempt + 1)
                 time.sleep(5)
 
             if healthy:
+                # Regenerate lemonade.yaml if active.  Lemonade requires the
+                # exact model ID (extra.<GGUF_FILE>) — a wildcard doesn't work.
+                # Mirrors bootstrap-upgrade.sh lines 364-384.
+                dream_mode = env.get("DREAM_MODE", "local")
+                if dream_mode == "lemonade":
+                    _write_lemonade_config(INSTALL_DIR, gguf_file)
+
                 # Restart dependent services so they pick up the new model
                 for svc in ["dream-litellm", "dream-dreamforge"]:
                     subprocess.run(["docker", "restart", svc],
@@ -1375,6 +1459,8 @@ class AgentHandler(BaseHTTPRequestHandler):
                 logger.warning("Model activation failed — rolling back")
                 env_path.write_text(env_backup, encoding="utf-8")
                 models_ini.write_text(ini_backup, encoding="utf-8")
+                if lemonade_backup is not None:
+                    lemonade_yaml.write_text(lemonade_backup, encoding="utf-8")
                 rollback_env = load_env(env_path)
                 if _in_container:
                     _recreate_llama_server(rollback_env)
@@ -1441,6 +1527,75 @@ class AgentHandler(BaseHTTPRequestHandler):
             json_response(self, 500, {"error": f"Failed to delete: {exc}"})
 
 
+def _check_lemonade_health(body: str) -> bool:
+    """Check if Lemonade health response indicates a model is loaded.
+
+    Lemonade returns {"status": "ok", "model_loaded": null} when healthy
+    but no model is loaded yet.  Returns True only when model_loaded is
+    non-null.  Mirrors bootstrap-upgrade.sh line 330.
+    """
+    try:
+        data = json.loads(body)
+        return data.get("model_loaded") is not None
+    except (json.JSONDecodeError, TypeError):
+        return False
+
+
+def _send_lemonade_warmup(host: str, port: str, gguf_file: str, attempt: int) -> bool:
+    """Send a warm-up chat completion to trigger Lemonade on-demand model load.
+
+    Lemonade discovers models via --extra-models-dir but only loads them when
+    a request arrives for that model ID.  Returns True if the request was
+    accepted (model is loading).  Mirrors bootstrap-upgrade.sh lines 343-347.
+    """
+    model_id = f"extra.{gguf_file}"
+    url = f"http://{host}:{port}/api/v1/chat/completions"
+    payload = json.dumps({
+        "model": model_id,
+        "messages": [{"role": "user", "content": "hello"}],
+        "max_tokens": 1,
+    })
+    logger.info("Sending warm-up request for %s (attempt %d/60)", model_id, attempt + 1)
+    try:
+        result = subprocess.run(
+            ["curl", "-sf", "--max-time", "30", "-X", "POST", url,
+             "-H", "Content-Type: application/json", "-d", payload],
+            capture_output=True, text=True, timeout=35,
+        )
+        if result.returncode == 0:
+            logger.info("Warm-up request accepted — model is loading")
+            return True
+    except subprocess.TimeoutExpired:
+        pass
+    return False
+
+
+def _write_lemonade_config(install_dir: Path, gguf_file: str):
+    """Regenerate lemonade.yaml with the correct model ID for LiteLLM.
+
+    Lemonade exposes models as ``extra.<GGUF_FILE>`` — the LiteLLM config
+    must reference the exact ID, not a wildcard passthrough.
+    Mirrors bootstrap-upgrade.sh lines 369-382.
+    """
+    config_path = install_dir / "config" / "litellm" / "lemonade.yaml"
+    content = (
+        "model_list:\n"
+        "  - model_name: \"*\"\n"
+        "    litellm_params:\n"
+        f"      model: openai/extra.{gguf_file}\n"
+        "      api_base: http://llama-server:8080/api/v1\n"
+        "      api_key: sk-lemonade\n"
+        "\n"
+        "litellm_settings:\n"
+        "  drop_params: true\n"
+        "  set_verbose: false\n"
+        "  request_timeout: 120\n"
+        "  stream_timeout: 60\n"
+    )
+    config_path.write_text(content, encoding="utf-8")
+    logger.info("Wrote lemonade.yaml for model: extra.%s", gguf_file)
+
+
 def _compose_restart_llama_server(env: dict):
     """Restart llama-server via docker compose (host-native path).
 
@@ -1470,10 +1625,11 @@ def _compose_restart_llama_server(env: dict):
             subprocess.run(["docker", "compose"] + compose_flags + ["up", "-d", "llama-server"],
                            cwd=str(INSTALL_DIR), capture_output=True, timeout=300)
         else:
-            subprocess.run(["docker", "stop", "dream-llama-server"],
-                           capture_output=True, timeout=120)
-            subprocess.run(["docker", "start", "dream-llama-server"],
-                           capture_output=True, timeout=300)
+            # No compose flags — cannot use compose.  Fall back to
+            # inspect-and-recreate, which picks up GGUF_FILE from .env.
+            # docker start alone re-uses the old container command.
+            logger.warning("No .compose-flags file — using container recreation fallback")
+            _recreate_llama_server(env)
 
     logger.info("llama-server restarted via compose (backend: %s)", gpu_backend)
 
@@ -1701,17 +1857,24 @@ def main():
 
     # Determine bind address: env var override, or platform-aware default.
     # macOS/Windows: 127.0.0.1 (Docker Desktop routes host.docker.internal to loopback)
-    # Linux: 0.0.0.0 (host.docker.internal resolves to Docker bridge gateway, not loopback)
+    # Linux: Docker bridge gateway IP (containers reach via host-gateway,
+    #   LAN devices cannot — the bridge is a virtual interface).
+    #   Falls back to 0.0.0.0 if detection fails.
     bind_addr = env.get("DREAM_AGENT_BIND", "")
+    bind_from_env = bool(bind_addr)
     if not bind_addr:
-        bind_addr = "127.0.0.1" if platform.system() in ("Darwin", "Windows") else "0.0.0.0"
+        if platform.system() in ("Darwin", "Windows"):
+            bind_addr = "127.0.0.1"
+        else:
+            bind_addr = _detect_docker_bridge_gateway() or "0.0.0.0"
 
     server = ThreadedHTTPServer((bind_addr, port), AgentHandler)
     signal.signal(signal.SIGTERM, lambda *_: server.shutdown())
     logger.info("Dream Host Agent v%s listening on %s:%d", VERSION, bind_addr, port)
-    if bind_addr == "0.0.0.0":
+    if bind_addr == "0.0.0.0" and not bind_from_env:
         logger.warning(
-            "Agent is listening on all interfaces. Set DREAM_AGENT_BIND=127.0.0.1 in .env to restrict."
+            "Agent is listening on all interfaces (bridge detection failed). "
+            "Set DREAM_AGENT_BIND=<bridge-ip> in .env to restrict."
         )
     logger.info("Install dir: %s | GPU: %s | Tier: %s", INSTALL_DIR, GPU_BACKEND, TIER)
     try:

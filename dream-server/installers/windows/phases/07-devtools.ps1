@@ -31,6 +31,8 @@ if ($dryRun) {
     if (-not $cloudMode) {
         Write-AI "[DRY RUN] Would check for Node.js and install Claude Code + Codex CLI via npm"
     }
+    Write-AI "[DRY RUN] Would start Dream Host Agent on port $($script:DREAM_AGENT_PORT)"
+    Write-AI "[DRY RUN] Would register $($script:DREAM_AGENT_TASK_NAME) scheduled task for login persistence"
     return
 }
 
@@ -225,6 +227,79 @@ if ($_npmCmd) {
     } else {
         Write-AISuccess "Codex CLI already installed"
     }
+}
+
+# ── Dream Host Agent (extension lifecycle management) ────────────────────────
+$_agentScript = Join-Path (Join-Path $installDir "bin") "dream-host-agent.py"
+if (Test-Path $_agentScript) {
+    $_python3 = Get-Command python3 -ErrorAction SilentlyContinue
+    if (-not $_python3) { $_python3 = Get-Command python -ErrorAction SilentlyContinue }
+
+    if ($_python3) {
+        # Kill existing agent on reinstall (matches Linux force-restart pattern)
+        if (Test-Path $script:DREAM_AGENT_PID_FILE) {
+            $_oldPid = $null
+            try {
+                $_oldPid = [int](Get-Content $script:DREAM_AGENT_PID_FILE -Raw).Trim()
+                Stop-Process -Id $_oldPid -Force -ErrorAction SilentlyContinue
+            } catch { }
+            Remove-Item $script:DREAM_AGENT_PID_FILE -Force -ErrorAction SilentlyContinue
+        }
+
+        # Ensure data directory exists for PID and log files
+        $pidDir = Split-Path $script:DREAM_AGENT_PID_FILE
+        New-Item -ItemType Directory -Path $pidDir -Force -ErrorAction SilentlyContinue | Out-Null
+
+        # Start agent via cmd.exe wrapper for stderr→log redirect.
+        # Prepend Docker to PATH so the agent can find docker.exe
+        # (Docker Desktop may not be in the system PATH yet after fresh install).
+        $_dockerBin = "C:\Program Files\Docker\Docker\resources\bin"
+        $_agentArgs = "set `"PATH=$_dockerBin;%PATH%`" && `"$($_python3.Source)`" `"$_agentScript`" --port $($script:DREAM_AGENT_PORT) --pid-file `"$($script:DREAM_AGENT_PID_FILE)`" --install-dir `"$installDir`" 2>> `"$($script:DREAM_AGENT_LOG_FILE)`""
+        Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $_agentArgs `
+            -WindowStyle Hidden -WorkingDirectory $installDir
+
+        # Brief health check
+        Start-Sleep -Seconds 3
+        try {
+            $resp = Invoke-WebRequest -Uri $script:DREAM_AGENT_HEALTH_URL `
+                -TimeoutSec 3 -UseBasicParsing -ErrorAction SilentlyContinue
+            if ($resp.StatusCode -eq 200) {
+                Write-AISuccess "Dream host agent started (port $($script:DREAM_AGENT_PORT))"
+            } else {
+                Write-AIWarn "Dream host agent started but health check returned $($resp.StatusCode)"
+            }
+        } catch {
+            Write-AIWarn "Dream host agent started but not yet responding -- check: .\dream.ps1 agent status"
+        }
+
+        # Register Windows Scheduled Task for login persistence
+        Unregister-ScheduledTask -TaskName $script:DREAM_AGENT_TASK_NAME `
+            -Confirm:$false -ErrorAction SilentlyContinue
+
+        $taskAction = New-ScheduledTaskAction -Execute "cmd.exe" `
+            -Argument "/c set `"PATH=$_dockerBin;%PATH%`" && `"$($_python3.Source)`" `"$_agentScript`" --port $($script:DREAM_AGENT_PORT) --pid-file `"$($script:DREAM_AGENT_PID_FILE)`" --install-dir `"$installDir`" 2>> `"$($script:DREAM_AGENT_LOG_FILE)`"" `
+            -WorkingDirectory $installDir
+        $taskTrigger  = New-ScheduledTaskTrigger -AtLogOn
+        $taskSettings = New-ScheduledTaskSettingsSet `
+            -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+            -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero)
+
+        Register-ScheduledTask -TaskName $script:DREAM_AGENT_TASK_NAME `
+            -Action $taskAction -Trigger $taskTrigger -Settings $taskSettings `
+            -Description "DreamServer Host Agent -- manages extensions and bridges dashboard to host" `
+            -ErrorAction SilentlyContinue | Out-Null
+
+        if ($?) {
+            Write-AISuccess "Host agent registered to start at login (Task: $($script:DREAM_AGENT_TASK_NAME))"
+        } else {
+            Write-AIWarn "Could not register login task -- start manually: .\dream.ps1 agent start"
+        }
+    } else {
+        Write-AIWarn "Python not found -- Dream host agent not started"
+        Write-AI "  Install Python 3 and re-run the installer, or start manually: .\dream.ps1 agent start"
+    }
+} else {
+    Write-AI "Dream host agent script not found -- skipping"
 }
 
 Write-AISuccess "Developer tools setup complete"

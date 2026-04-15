@@ -27,7 +27,8 @@ services:
           memory: 512M
     networks:
       - dream-network
-    command: ["sh", "-c", "echo 'Run: docker compose run --rm aider <files>'"]
+    entrypoint: ["echo"]
+    command: ["Aider is a CLI tool. Run: docker compose run --rm aider <files>"]
 
 # Named volumes removed — using bind mounts only
 

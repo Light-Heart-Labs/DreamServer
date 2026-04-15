@@ -20,11 +20,13 @@ service:
     - key: OPENAI_API_KEY
       required: false
       secret: true
-      description: OpenAI API key
+      default: ""
+      description: OpenAI API key (leave empty to use local LLM)
     - key: ANTHROPIC_API_KEY
       required: false
       secret: true
-      description: Anthropic API key
+      default: ""
+      description: Anthropic API key (leave empty to use local LLM)
 
 features:
   - id: ai-pair-programming

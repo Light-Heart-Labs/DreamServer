@@ -59,6 +59,13 @@ $script:OPENCODE_EXE = Join-Path (Join-Path $env:USERPROFILE ".opencode") "bin\o
 $script:OPENCODE_CONFIG_DIR = Join-Path (Join-Path $env:USERPROFILE ".config") "opencode"
 $script:OPENCODE_PORT = 3003
 
+# Dream Host Agent (host-level extension lifecycle manager)
+$script:DREAM_AGENT_PORT       = 7710
+$script:DREAM_AGENT_PID_FILE   = Join-Path (Join-Path $script:DS_INSTALL_DIR "data") "dream-host-agent.pid"
+$script:DREAM_AGENT_LOG_FILE   = Join-Path (Join-Path $script:DS_INSTALL_DIR "data") "dream-host-agent.log"
+$script:DREAM_AGENT_HEALTH_URL = "http://127.0.0.1:7710/health"
+$script:DREAM_AGENT_TASK_NAME  = "DreamServerHostAgent"
+
 # Timing
 $script:INSTALL_START = Get-Date
 

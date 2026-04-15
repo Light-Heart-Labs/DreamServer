@@ -183,6 +183,12 @@ else:
     memory_source = "vram"
 
 overlays = OVERLAY_MAP.get(backend, ["docker-compose.base.yml"])
+# Darwin hosts running the apple backend use the canonical macOS overlay
+# (installers/macos/docker-compose.macos.yml). The OVERLAY_MAP entry for
+# "apple" still lists docker-compose.apple.yml so Linux hosts selecting
+# --gpu-backend apple (Lemonade) continue to get the top-level overlay.
+if backend == "apple" and platform_id == "macos":
+    overlays = ["docker-compose.base.yml", "installers/macos/docker-compose.macos.yml"]
 gpu_label = selected["specs"].get("label", "") if selected and "specs" in selected else ""
 
 # --- Output ---

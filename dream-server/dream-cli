@@ -62,6 +62,118 @@ _env_set() {
     fi
 }
 
+_env_get_raw() {
+    local key="$1" file="$INSTALL_DIR/.env"
+    [[ -f "$file" ]] || { echo ""; return 0; }
+    grep -m1 "^${key}=" "$file" 2>/dev/null | cut -d= -f2- | tr -d '\r' || true
+}
+
+_get_host_logical_cpus() {
+    local cores
+    cores=$(nproc 2>/dev/null || grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo "1")
+    if [[ "$cores" =~ ^[0-9]+$ ]] && [[ "$cores" -gt 0 ]]; then
+        echo "$cores"
+    else
+        echo "1"
+    fi
+}
+
+_get_docker_available_cpus() {
+    local cores=""
+    if command -v docker &>/dev/null; then
+        cores=$(docker info --format '{{.NCPU}}' 2>/dev/null || true)
+        cores="${cores//[!0-9]/}"
+    fi
+
+    if [[ "$cores" =~ ^[0-9]+$ ]] && [[ "$cores" -gt 0 ]]; then
+        echo "$cores"
+        return 0
+    fi
+
+    _get_host_logical_cpus
+}
+
+_calculate_llama_cpu_budget() {
+    local backend="${1:-cpu}"
+    local available="${2:-$(_get_docker_available_cpus)}"
+    local desired_limit=8
+    local desired_reservation=1
+
+    case "$backend" in
+        amd)
+            desired_limit=16
+            desired_reservation=4
+            ;;
+        nvidia|intel|sycl)
+            desired_limit=16
+            desired_reservation=2
+            ;;
+        apple)
+            desired_limit=8
+            desired_reservation=2
+            ;;
+    esac
+
+    if ! [[ "$available" =~ ^[0-9]+$ ]] || [[ "$available" -lt 1 ]]; then
+        available=1
+    fi
+
+    local limit="$desired_limit"
+    local reservation="$desired_reservation"
+    [[ "$available" -lt "$limit" ]] && limit="$available"
+    [[ "$reservation" -gt "$limit" ]] && reservation="$limit"
+
+    echo "$limit $reservation $available"
+}
+
+_select_auto_cpu_value() {
+    local existing="$1" detected="$2"
+    if [[ "$existing" =~ ^[0-9]+([.][0-9]+)?$ ]] && awk "BEGIN { exit !($existing > 0 && $existing <= $detected) }"; then
+        echo "$existing"
+    else
+        echo "$detected"
+    fi
+}
+
+ensure_llama_cpu_budget() {
+    local env_file="$INSTALL_DIR/.env"
+    [[ -f "$env_file" ]] || return 0
+
+    local backend
+    backend="$(_env_get_raw "GPU_BACKEND")"
+    backend=$(echo "${backend:-cpu}" | tr '[:upper:]' '[:lower:]')
+    [[ "$backend" == "none" ]] && backend="cpu"
+
+    local limit_raw reservation_raw available
+    read -r limit_raw reservation_raw available <<< "$(_calculate_llama_cpu_budget "$backend")"
+
+    local detected_limit="${limit_raw}.0"
+    local detected_reservation="${reservation_raw}.0"
+    local current_limit current_reservation final_limit final_reservation
+    current_limit="$(_env_get_raw "LLAMA_CPU_LIMIT")"
+    current_reservation="$(_env_get_raw "LLAMA_CPU_RESERVATION")"
+    final_limit="$(_select_auto_cpu_value "$current_limit" "$detected_limit")"
+    final_reservation="$(_select_auto_cpu_value "$current_reservation" "$detected_reservation")"
+
+    if awk "BEGIN { exit !($final_reservation > $final_limit) }"; then
+        final_reservation="$final_limit"
+    fi
+
+    local changed=false
+    if [[ "$current_limit" != "$final_limit" ]]; then
+        _env_set "LLAMA_CPU_LIMIT" "$final_limit"
+        changed=true
+    fi
+    if [[ "$current_reservation" != "$final_reservation" ]]; then
+        _env_set "LLAMA_CPU_RESERVATION" "$final_reservation"
+        changed=true
+    fi
+
+    if [[ "$changed" == "true" ]]; then
+        log "Auto-adjusted llama-server CPU budget: limit=${final_limit}, reservation=${final_reservation} (Docker CPUs: ${available})"
+    fi
+}
+
 check_install() {
     if [[ ! -d "$INSTALL_DIR" ]]; then
         error "Dream Server not found at $INSTALL_DIR. Set DREAM_HOME or run installer first."
@@ -638,6 +750,7 @@ cmd_restart() {
     check_install
     cd "$INSTALL_DIR"
     load_env
+    ensure_llama_cpu_budget
 
     local service="${1:-}"
     local flags_str
@@ -684,6 +797,7 @@ cmd_start() {
     check_install
     cd "$INSTALL_DIR"
     load_env
+    ensure_llama_cpu_budget
     sr_load
 
     local service="${1:-}"
@@ -870,6 +984,8 @@ cmd_update() {
         cmd_dry_run
         return 0
     fi
+
+    ensure_llama_cpu_budget
 
     local flags_str
     flags_str=$(get_compose_flags)
@@ -2203,7 +2319,10 @@ cmd_agent() {
 
     case "$action" in
         status)
-            if curl -sf --max-time 2 "http://127.0.0.1:${port}/health" > /dev/null 2>&1; then
+            local bind_addr
+            bind_addr="$(grep '^DREAM_AGENT_BIND=' "${INSTALL_DIR}/.env" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]' || true)"
+            bind_addr="${bind_addr:-127.0.0.1}"
+            if curl -sf --max-time 2 "http://${bind_addr}:${port}/health" > /dev/null 2>&1; then
                 success "Dream host agent: running (port ${port}, ${daemon_type})"
             else
                 warn "Dream host agent: not responding (port ${port})"

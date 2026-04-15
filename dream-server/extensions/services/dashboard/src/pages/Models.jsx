@@ -1,21 +1,39 @@
+import { useState, useEffect } from 'react'
 import { Box, Download, Trash2, Check, AlertCircle, Loader2, Play, RefreshCw, HardDrive } from 'lucide-react'
 import { useModels } from '../hooks/useModels'
 import { useDownloadProgress } from '../hooks/useDownloadProgress'
 
 export default function Models() {
   const downloadProgress = useDownloadProgress()
-  const { 
-    models, 
-    gpu, 
-    currentModel, 
-    loading, 
-    error, 
+  const {
+    models,
+    gpu,
+    currentModel,
+    loading,
+    error,
     actionLoading,
     downloadModel,
     loadModel,
     deleteModel,
     refresh
   } = useModels()
+
+  // Optimistic state: tracks which model had Download clicked before
+  // the progress poller picks up real data (up to 10s gap otherwise).
+  const [downloadStarting, setDownloadStarting] = useState(null)
+
+  useEffect(() => {
+    if (downloadProgress.isDownloading || error) {
+      setDownloadStarting(null)
+    }
+  }, [downloadProgress.isDownloading, error])
+
+  const handleDownload = async (modelId) => {
+    setDownloadStarting(modelId)
+    await downloadModel(modelId)
+    // Kick the progress poller immediately instead of waiting up to 10s
+    downloadProgress.refresh()
+  }
 
   if (loading) {
     return (
@@ -103,8 +121,10 @@ export default function Models() {
             key={model.id}
             model={model}
             isLoading={actionLoading === model.id}
-            downloadBusy={downloadProgress.isDownloading}
-            onDownload={() => downloadModel(model.id)}
+            loadBusy={!!actionLoading}
+            downloadBusy={downloadProgress.isDownloading || !!downloadStarting}
+            downloadStarting={downloadStarting === model.id}
+            onDownload={() => handleDownload(model.id)}
             onLoad={() => loadModel(model.id)}
             onDelete={() => deleteModel(model.id)}
           />
@@ -120,7 +140,7 @@ export default function Models() {
   )
 }
 
-function ModelCard({ model, isLoading, downloadBusy, onDownload, onLoad, onDelete }) {
+function ModelCard({ model, isLoading, loadBusy, downloadBusy, downloadStarting, onDownload, onLoad, onDelete }) {
   const isLoaded = model.status === 'loaded'
   const isDownloaded = model.status === 'downloaded'
   const isAvailable = model.status === 'available'
@@ -211,15 +231,15 @@ function ModelCard({ model, isLoading, downloadBusy, onDownload, onLoad, onDelet
             </span>
           ) : isDownloaded ? (
             <>
-              <button 
+              <button
                 onClick={onLoad}
-                disabled={!model.fitsVram}
+                disabled={!model.fitsVram || loadBusy}
                 className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors ${
-                  model.fitsVram
+                  model.fitsVram && !loadBusy
                     ? 'bg-theme-accent hover:bg-theme-accent-hover text-white'
                     : 'bg-theme-border text-theme-text-muted cursor-not-allowed'
                 }`}
-                title={model.fitsVram ? 'Load this model' : 'Not enough VRAM'}
+                title={loadBusy ? 'Another model is loading' : model.fitsVram ? 'Load this model' : 'Not enough VRAM'}
               >
                 <Play size={16} />
                 Load
@@ -232,6 +252,14 @@ function ModelCard({ model, isLoading, downloadBusy, onDownload, onLoad, onDelet
                 <Trash2 size={16} />
               </button>
             </>
+          ) : downloadStarting ? (
+            <button
+              disabled
+              className="px-4 py-2 bg-theme-accent/20 text-theme-accent rounded-lg text-sm font-medium flex items-center gap-2 cursor-not-allowed"
+            >
+              <Loader2 size={16} className="animate-spin" />
+              Starting...
+            </button>
           ) : downloadBusy ? (
             <button
               disabled

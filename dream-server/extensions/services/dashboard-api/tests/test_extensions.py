@@ -1975,3 +1975,83 @@ class TestInstallProgress:
         assert resp.status_code == 200
         data = resp.json()
         assert data["progress_endpoint"] == "/api/extensions/my-ext/progress"
+
+
+# --- Config sync ---
+
+
+class TestSyncExtensionConfig:
+
+    def test_copies_config_subdir_to_install_dir(self, monkeypatch, tmp_path):
+        """Config subdir is synced to INSTALL_DIR/config/ after install."""
+        from routers.extensions import _sync_extension_config
+
+        user_dir = tmp_path / "user"
+        ext_dir = user_dir / "my-ext" / "config" / "my-ext"
+        ext_dir.mkdir(parents=True)
+        (ext_dir / "nginx.conf").write_text("server {}")
+        (ext_dir / "entrypoint.sh").write_text("#!/bin/sh\necho hi")
+
+        install_dir = tmp_path / "install"
+        install_dir.mkdir()
+
+        monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", user_dir)
+        monkeypatch.setattr("routers.extensions.INSTALL_DIR", str(install_dir))
+
+        _sync_extension_config("my-ext")
+
+        target = install_dir / "config" / "my-ext"
+        assert (target / "nginx.conf").exists()
+        assert (target / "nginx.conf").read_text() == "server {}"
+        # .sh files should be executable
+        import stat
+        mode = (target / "entrypoint.sh").stat().st_mode
+        assert mode & stat.S_IXUSR
+
+    def test_noop_when_no_config_dir(self, monkeypatch, tmp_path):
+        """No crash when extension has no config/ subdirectory."""
+        from routers.extensions import _sync_extension_config
+
+        user_dir = tmp_path / "user"
+        (user_dir / "my-ext").mkdir(parents=True)
+
+        monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", user_dir)
+        monkeypatch.setattr("routers.extensions.INSTALL_DIR", str(tmp_path))
+
+        _sync_extension_config("my-ext")  # should not raise
+
+
+# --- Error progress ---
+
+
+class TestWriteErrorProgress:
+
+    def test_sets_error_status_on_existing_progress(self, monkeypatch, tmp_path):
+        """Error progress overwrites status but preserves started_at."""
+        from routers.extensions import _write_initial_progress, _write_error_progress
+
+        monkeypatch.setattr("routers.extensions.DATA_DIR", str(tmp_path))
+
+        _write_initial_progress("my-ext")
+        progress_file = tmp_path / "extension-progress" / "my-ext.json"
+        initial = json.loads(progress_file.read_text())
+        assert initial["status"] == "pulling"
+
+        _write_error_progress("my-ext", "Host agent failed")
+        updated = json.loads(progress_file.read_text())
+        assert updated["status"] == "error"
+        assert updated["error"] == "Host agent failed"
+        assert updated["started_at"] == initial["started_at"]
+
+    def test_creates_error_file_when_no_prior_progress(self, monkeypatch, tmp_path):
+        """Error progress can be written even without prior progress file."""
+        from routers.extensions import _write_error_progress
+
+        monkeypatch.setattr("routers.extensions.DATA_DIR", str(tmp_path))
+
+        _write_error_progress("my-ext", "Agent unreachable")
+        progress_file = tmp_path / "extension-progress" / "my-ext.json"
+        data = json.loads(progress_file.read_text())
+        assert data["status"] == "error"
+        assert data["error"] == "Agent unreachable"
+        assert "phase_label" in data

@@ -140,6 +140,108 @@ function Read-DreamEnv {
     return $result
 }
 
+function Set-DreamEnvValue {
+    <#
+    .SYNOPSIS
+        Upsert a KEY=VALUE pair in .env without adding a UTF-8 BOM.
+    #>
+    param(
+        [string]$Key,
+        [string]$Value
+    )
+
+    $envFile = Join-Path $InstallDir ".env"
+    if (-not (Test-Path $envFile)) { return }
+
+    $lines = New-Object 'System.Collections.Generic.List[string]'
+    Get-Content $envFile | ForEach-Object { [void]$lines.Add($_) }
+
+    $escapedKey = [regex]::Escape($Key)
+    $updated = $false
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match "^${escapedKey}=") {
+            $lines[$i] = "${Key}=${Value}"
+            $updated = $true
+            break
+        }
+    }
+
+    if (-not $updated) {
+        [void]$lines.Add("${Key}=${Value}")
+    }
+
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllLines($envFile, $lines.ToArray(), $utf8NoBom)
+}
+
+function Select-AutoCpuValue {
+    <#
+    .SYNOPSIS
+        Keep a manual CPU override only when it is valid and more conservative.
+    #>
+    param(
+        [string]$Existing,
+        [string]$Detected
+    )
+
+    $existingNumber = 0.0
+    $detectedNumber = 0.0
+    $style = [System.Globalization.NumberStyles]::Float
+    $culture = [System.Globalization.CultureInfo]::InvariantCulture
+    $existingValid = [double]::TryParse($Existing, $style, $culture, [ref]$existingNumber)
+    $detectedValid = [double]::TryParse($Detected, $style, $culture, [ref]$detectedNumber)
+
+    if ($existingValid -and $detectedValid -and $existingNumber -gt 0 -and $existingNumber -le $detectedNumber) {
+        return $Existing
+    }
+    return $Detected
+}
+
+function Ensure-LlamaCpuBudget {
+    <#
+    .SYNOPSIS
+        Backfill/cap llama-server CPU settings for existing installs.
+    #>
+    $envFile = Join-Path $InstallDir ".env"
+    if (-not (Test-Path $envFile)) { return }
+
+    $envVars = Read-DreamEnv
+    $gpuBackend = $envVars["GPU_BACKEND"]
+    if ([string]::IsNullOrWhiteSpace($gpuBackend) -or $gpuBackend -eq "none") {
+        $gpuBackend = "cpu"
+    }
+    $gpuBackend = $gpuBackend.ToLowerInvariant()
+
+    $budget = Get-LlamaCpuBudget -GpuBackend $gpuBackend
+    $llamaCpuLimit = Select-AutoCpuValue -Existing $envVars["LLAMA_CPU_LIMIT"] -Detected $budget.Limit
+    $llamaCpuReservation = Select-AutoCpuValue -Existing $envVars["LLAMA_CPU_RESERVATION"] -Detected $budget.Reservation
+
+    $limitNumber = 0.0
+    $reservationNumber = 0.0
+    $style = [System.Globalization.NumberStyles]::Float
+    $culture = [System.Globalization.CultureInfo]::InvariantCulture
+    if ([double]::TryParse($llamaCpuLimit, $style, $culture, [ref]$limitNumber) -and
+        [double]::TryParse($llamaCpuReservation, $style, $culture, [ref]$reservationNumber) -and
+        $reservationNumber -gt $limitNumber) {
+        $llamaCpuReservation = $llamaCpuLimit
+    }
+
+    $changed = $false
+    if ($envVars["LLAMA_CPU_LIMIT"] -ne $llamaCpuLimit) {
+        Set-DreamEnvValue -Key "LLAMA_CPU_LIMIT" -Value $llamaCpuLimit
+        $changed = $true
+    }
+    if ($envVars["LLAMA_CPU_RESERVATION"] -ne $llamaCpuReservation) {
+        Set-DreamEnvValue -Key "LLAMA_CPU_RESERVATION" -Value $llamaCpuReservation
+        $changed = $true
+    }
+
+    if ($changed) {
+        Write-AI ("Auto-adjusted llama-server CPU budget: limit={0}, reservation={1} (Docker CPUs: {2})" -f `
+            $llamaCpuLimit, $llamaCpuReservation, $budget.Available)
+    }
+}
+
 # ── AMD native inference server management (Lemonade or llama-server) ──
 
 function Get-NativeInferenceBackend {
@@ -340,6 +442,19 @@ function Invoke-Status {
             }
         }
 
+        # Host agent status
+        try {
+            $resp = Invoke-WebRequest -Uri $script:DREAM_AGENT_HEALTH_URL `
+                -TimeoutSec 3 -UseBasicParsing -ErrorAction SilentlyContinue
+            if ($resp.StatusCode -eq 200) {
+                Write-AISuccess "Host Agent: running (port $($script:DREAM_AGENT_PORT))"
+            } else {
+                Write-AIWarn "Host Agent: responded with $($resp.StatusCode)"
+            }
+        } catch {
+            Write-AIWarn "Host Agent: not responding (port $($script:DREAM_AGENT_PORT))"
+        }
+
         # Docker services
         Write-Host ""
         & docker compose @flags ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}" 2>$null
@@ -405,9 +520,16 @@ function Invoke-Start {
     Test-Install
     Push-Location $InstallDir
     try {
+        Ensure-LlamaCpuBudget
+
         # Start native inference server first (AMD path: Lemonade or llama-server)
         if (-not $Service -and ((Get-NativeInferenceBackend) -ne "none")) {
             Start-NativeInferenceServer
+        }
+
+        # Start host agent (if not already running)
+        if (-not $Service) {
+            Invoke-Agent -Action "start"
         }
 
         $flags = Get-ComposeFlags
@@ -470,6 +592,9 @@ function Invoke-Stop {
                 Stop-NativeInferenceServer
             }
 
+            # Stop host agent
+            Invoke-Agent -Action "stop"
+
             Write-AISuccess "All services stopped"
         }
     } finally {
@@ -482,6 +607,8 @@ function Invoke-Restart {
     Test-Install
     Push-Location $InstallDir
     try {
+        Ensure-LlamaCpuBudget
+
         $flags = Get-ComposeFlags
         if ($Service) {
             Write-AI "Restarting $Service..."
@@ -595,6 +722,8 @@ function Invoke-Update {
     Test-Install
     Push-Location $InstallDir
     try {
+        Ensure-LlamaCpuBudget
+
         $flags = Get-ComposeFlags
         Write-AI "Pulling latest images..."
         $pullExit = Invoke-DreamDockerCompose -InstallDir $InstallDir -ComposeFlags $flags -ComposeArgs @("pull")
@@ -631,6 +760,118 @@ function Invoke-Report {
     }
 }
 
+function Invoke-Agent {
+    param([string]$Action = "status")
+
+    $agentScript = Join-Path (Join-Path $InstallDir "bin") "dream-host-agent.py"
+    $pidFile     = $script:DREAM_AGENT_PID_FILE
+    $logFile     = $script:DREAM_AGENT_LOG_FILE
+    $port        = $script:DREAM_AGENT_PORT
+    $healthUrl   = $script:DREAM_AGENT_HEALTH_URL
+
+    switch ($Action.ToLower()) {
+        "status" {
+            try {
+                $resp = Invoke-WebRequest -Uri $healthUrl -TimeoutSec 3 `
+                    -UseBasicParsing -ErrorAction SilentlyContinue
+                if ($resp.StatusCode -eq 200) {
+                    Write-AISuccess "Host agent: running (port $port)"
+                } else {
+                    Write-AIWarn "Host agent: responded with status $($resp.StatusCode)"
+                }
+            } catch {
+                Write-AIWarn "Host agent: not responding (port $port)"
+            }
+        }
+        "start" {
+            # Check if already running
+            try {
+                $resp = Invoke-WebRequest -Uri $healthUrl -TimeoutSec 2 `
+                    -UseBasicParsing -ErrorAction SilentlyContinue
+                if ($resp.StatusCode -eq 200) {
+                    Write-AISuccess "Host agent already running (port $port)"
+                    return
+                }
+            } catch { }
+
+            # Find Python
+            $_python3 = Get-Command python3 -ErrorAction SilentlyContinue
+            if (-not $_python3) { $_python3 = Get-Command python -ErrorAction SilentlyContinue }
+            if (-not $_python3) {
+                Write-AIError "Python not found in PATH -- install Python 3 and try again"
+                return
+            }
+            if (-not (Test-Path $agentScript)) {
+                Write-AIError "Agent script not found: $agentScript"
+                return
+            }
+
+            # Clean stale PID
+            if (Test-Path $pidFile) {
+                try {
+                    $_oldPid = [int](Get-Content $pidFile -Raw).Trim()
+                    Stop-Process -Id $_oldPid -Force -ErrorAction SilentlyContinue
+                } catch { }
+                Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+            }
+
+            $pidDir = Split-Path $pidFile
+            New-Item -ItemType Directory -Path $pidDir -Force -ErrorAction SilentlyContinue | Out-Null
+
+            # Prepend Docker to PATH so the agent can find docker.exe
+            # (Docker Desktop may not be in the system PATH yet after fresh install)
+            $_dockerBin = "C:\Program Files\Docker\Docker\resources\bin"
+            $_agentArgs = "set `"PATH=$_dockerBin;%PATH%`" && `"$($_python3.Source)`" `"$agentScript`" --port $port --pid-file `"$pidFile`" --install-dir `"$InstallDir`" 2>> `"$logFile`""
+            Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $_agentArgs `
+                -WindowStyle Hidden -WorkingDirectory $InstallDir
+
+            Start-Sleep -Seconds 3
+            try {
+                $resp = Invoke-WebRequest -Uri $healthUrl -TimeoutSec 3 `
+                    -UseBasicParsing -ErrorAction SilentlyContinue
+                if ($resp.StatusCode -eq 200) {
+                    Write-AISuccess "Host agent started (port $port)"
+                } else {
+                    Write-AIWarn "Host agent started but health check returned $($resp.StatusCode)"
+                }
+            } catch {
+                Write-AIWarn "Host agent started but not yet responding -- check: .\dream.ps1 agent status"
+            }
+        }
+        "stop" {
+            if (Test-Path $pidFile) {
+                try {
+                    $_pid = [int](Get-Content $pidFile -Raw).Trim()
+                    Stop-Process -Id $_pid -Force -ErrorAction SilentlyContinue
+                    Write-AISuccess "Host agent stopped (PID $_pid)"
+                } catch {
+                    Write-AIWarn "Could not stop agent PID: $_"
+                }
+                Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+            } else {
+                Write-AI "Host agent not running (no PID file)"
+            }
+        }
+        "restart" {
+            Invoke-Agent -Action "stop"
+            Start-Sleep -Seconds 1
+            Invoke-Agent -Action "start"
+        }
+        "logs" {
+            if (Test-Path $logFile) {
+                Get-Content $logFile -Tail 100 -Wait
+            } else {
+                Write-AIWarn "No log file at $logFile"
+            }
+        }
+        default {
+            Write-Host ""
+            Write-Host "  Usage: .\dream.ps1 agent [status|start|stop|restart|logs]" -ForegroundColor DarkGray
+            Write-Host ""
+        }
+    }
+}
+
 function Show-Help {
     Write-Host ""
     Write-Host "  Dream Server CLI (Windows)" -ForegroundColor Green
@@ -658,6 +899,8 @@ function Show-Help {
     Write-Host "Quick chat via API" -ForegroundColor DarkGray
     Write-Host "    update              " -ForegroundColor Cyan -NoNewline
     Write-Host "Pull latest images and restart" -ForegroundColor DarkGray
+    Write-Host "    agent [action]      " -ForegroundColor Cyan -NoNewline
+    Write-Host "Host agent: status|start|stop|restart|logs" -ForegroundColor DarkGray
     Write-Host "    report              " -ForegroundColor Cyan -NoNewline
     Write-Host "Generate Windows diagnostics bundle" -ForegroundColor DarkGray
     Write-Host "    version             " -ForegroundColor Cyan -NoNewline
@@ -699,6 +942,11 @@ switch ($Command.ToLower()) {
     "chat"    { Invoke-Chat -Message ($Arguments -join " ") }
     "update"  { Invoke-Update }
     "report"  { Invoke-Report }
+    "agent"   {
+        $action = ($Arguments | Select-Object -First 1)
+        if (-not $action) { $action = "status" }
+        Invoke-Agent -Action $action
+    }
     "version" { Write-Host "Dream Server v$($script:DS_VERSION) (Windows)" -ForegroundColor Green }
     "help"    { Show-Help }
     default   {

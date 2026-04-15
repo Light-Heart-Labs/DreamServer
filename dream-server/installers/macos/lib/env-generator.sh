@@ -53,6 +53,17 @@ read_searxng_secret() {
         | tr -d '\r' || true
 }
 
+upsert_env_value() {
+    local env_path="$1"
+    local key="$2"
+    local value="$3"
+    if grep -qE "^${key}=" "$env_path" 2>/dev/null; then
+        sed -i '' "s|^${key}=.*|${key}=${value}|" "$env_path"
+    else
+        printf '%s=%s\n' "$key" "$value" >> "$env_path"
+    fi
+}
+
 # Detect system timezone (macOS-specific)
 detect_timezone() {
     local tz=""
@@ -71,6 +82,11 @@ generate_dream_env() {
 
     local env_path="${install_dir}/.env"
     local searx_settings_path="${install_dir}/config/searxng/settings.yml"
+    local cpu_limit_raw cpu_reservation_raw docker_available_cpus
+    local detected_cpu_limit detected_cpu_reservation
+    read -r cpu_limit_raw cpu_reservation_raw docker_available_cpus <<< "$(calculate_llama_cpu_budget "apple")"
+    detected_cpu_limit="${cpu_limit_raw}.0"
+    detected_cpu_reservation="${cpu_reservation_raw}.0"
 
     # Idempotency: preserve existing .env (and secrets) unless --force was provided.
     if [[ -f "$env_path" ]] && [[ "$force_overwrite" != "true" ]]; then
@@ -85,6 +101,21 @@ generate_dream_env() {
         if [[ -z "$ENV_SEARXNG_SECRET" ]]; then
             ENV_SEARXNG_SECRET="$(new_secure_hex 32)"
         fi
+
+        local existing_limit existing_reservation
+        existing_limit="$(read_env_value "$env_path" "LLAMA_CPU_LIMIT")"
+        existing_reservation="$(read_env_value "$env_path" "LLAMA_CPU_RESERVATION")"
+        if [[ "$existing_limit" =~ ^[0-9]+([.][0-9]+)?$ ]] && awk "BEGIN { exit !($existing_limit > 0 && $existing_limit <= $detected_cpu_limit) }"; then
+            detected_cpu_limit="$existing_limit"
+        fi
+        if [[ "$existing_reservation" =~ ^[0-9]+([.][0-9]+)?$ ]] && awk "BEGIN { exit !($existing_reservation > 0 && $existing_reservation <= $detected_cpu_reservation) }"; then
+            detected_cpu_reservation="$existing_reservation"
+        fi
+        if awk "BEGIN { exit !($detected_cpu_reservation > $detected_cpu_limit) }"; then
+            detected_cpu_reservation="$detected_cpu_limit"
+        fi
+        upsert_env_value "$env_path" "LLAMA_CPU_LIMIT" "$detected_cpu_limit"
+        upsert_env_value "$env_path" "LLAMA_CPU_RESERVATION" "$detected_cpu_reservation"
         return 0
     fi
 
@@ -169,6 +200,8 @@ CTX_SIZE=${MAX_CONTEXT}
 GPU_BACKEND=apple
 HOST_RAM_GB=${SYSTEM_RAM_GB}
 $(if [[ -n "${LLAMA_SERVER_IMAGE:-}" ]]; then echo "LLAMA_SERVER_IMAGE=${LLAMA_SERVER_IMAGE}"; fi)
+LLAMA_CPU_LIMIT=${detected_cpu_limit}
+LLAMA_CPU_RESERVATION=${detected_cpu_reservation}
 
 #=== Ports ===
 OLLAMA_PORT=8080

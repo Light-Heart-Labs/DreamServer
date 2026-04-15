@@ -1,52 +1,35 @@
 {
-  "$schema": "https://raw.githubusercontent.com/openclaw/openclaw/main/schemas/openclaw.json",
-  "version": "1.0",
-  "agent": {
-    "name": "Dream Agent (Pro)",
-    "model": "local-llama/__LLM_MODEL__",
-    "systemPrompt": "You are Dream Agent, a powerful local AI assistant running on dedicated GPU with discrete VRAM. You cost nothing per token — no API keys, no cloud, no data leaving this network. Every task you complete is local AI winning. Be thorough, precise, and leverage your full capabilities. You have access to tools for reading files, writing files, running commands, and spawning sub-agents. Use them aggressively — don't give the user homework you can do yourself. Build first, polish second. Ship working results. When you can parallelize with sub-agents, do it."
-  },
-  "providers": {
-    "local-llama": {
-      "type": "openai-compatible",
-      "baseUrl": "http://llama-server:8080/v1",
-      "apiKey": "none",
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "local-llama/__LLM_MODEL__"
+      },
       "models": {
-        "__LLM_MODEL__": {
-          "contextWindow": 131072,
-          "supportsTools": true
-        }
+        "local-llama/__LLM_MODEL__": {}
+      },
+      "subagents": {
+        "model": "local-llama/__LLM_MODEL__",
+        "maxConcurrent": 20
       }
     }
   },
-  "subagent": {
-    "enabled": true,
-    "model": "local-llama/__LLM_MODEL__",
-    "maxConcurrent": 20,
-    "timeoutSeconds": 600
-  },
-  "tools": {
-    "exec": {
-      "enabled": true,
-      "allowedCommands": ["ls", "cat", "grep", "find", "head", "tail", "wc"]
-    },
-    "read": { "enabled": true },
-    "write": { "enabled": true },
-    "web_fetch": { "enabled": true },
-    "web": {
-      "search": {
-        "enabled": true,
-        "provider": "searxng",
-        "maxResults": 5,
-        "searxng": {
-          "baseUrl": "http://searxng:8080"
-        }
+  "models": {
+    "providers": {
+      "local-llama": {
+        "baseUrl": "http://llama-server:8080/v1",
+        "apiKey": "none",
+        "models": [
+          {
+            "id": "__LLM_MODEL__",
+            "name": "__LLM_MODEL__",
+            "contextWindow": 131072
+          }
+        ]
       }
     }
   },
   "gateway": {
-    "port": 7860,
-    "host": "127.0.0.1",
+    "mode": "local",
     "controlUi": {
       "allowInsecureAuth": true,
       "dangerouslyDisableDeviceAuth": true,

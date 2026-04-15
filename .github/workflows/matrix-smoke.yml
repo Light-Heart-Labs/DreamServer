@@ -15,7 +15,7 @@ jobs:
         working-directory: dream-server
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: AMD Path Smoke
         run: bash tests/smoke/linux-amd.sh
@@ -71,7 +71,7 @@ jobs:
           fi
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Verify /etc/os-release
         working-directory: /
@@ -138,7 +138,7 @@ jobs:
         working-directory: dream-server
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: macOS Dispatch Smoke
         run: bash tests/smoke/macos-dispatch.sh

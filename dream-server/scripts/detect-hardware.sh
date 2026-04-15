@@ -132,6 +132,15 @@ detect_platform() {
 
 # Detect NVIDIA GPU
 detect_nvidia() {
+    # Validate NVIDIA hardware present in sysfs before trusting nvidia-smi,
+    # which may be installed without NVIDIA hardware (e.g. nvidia-container-toolkit
+    # on AMD-only systems).
+    local _has_nvidia=false
+    for _v in /sys/class/drm/card*/device/vendor; do
+        [[ "$(cat "$_v" 2>/dev/null)" == "0x10de" ]] && _has_nvidia=true && break
+    done
+    $_has_nvidia || return 1
+
     # Works on bare metal Linux; on WSL2 it may be present via Docker Desktop GPU integration.
     if command -v nvidia-smi &>/dev/null; then
         nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits 2>/dev/null | first_line

@@ -16,7 +16,18 @@ const path = require('path');
 const token = process.env.OPENCLAW_GATEWAY_TOKEN || '';
 const EXTERNAL_PORT = process.env.OPENCLAW_EXTERNAL_PORT || '7860';
 const LLM_MODEL = process.env.LLM_MODEL || '';
+const GGUF_FILE = process.env.GGUF_FILE || '';
 const OPENCLAW_LLM_URL = process.env.OPENCLAW_LLM_URL || '';
+
+// On AMD/Lemonade, compose.amd.yaml sets OLLAMA_URL to
+// "http://llama-server:8080/api" (Lemonade's Ollama-compat endpoint).
+// Models there are exposed as "extra.<GGUF_FILE>".  When going through
+// LiteLLM, LLM_MODEL is fine because the wildcard route rewrites it.
+// Detect Lemonade by the trailing "/api" path (NVIDIA's llama.cpp URL
+// never has it — its default is "http://llama-server:8080" or via LiteLLM).
+const OLLAMA_URL = process.env.OLLAMA_URL || '';
+const _isLemonade = /\/api\/?$/.test(OLLAMA_URL);
+const EFFECTIVE_MODEL = (_isLemonade && GGUF_FILE) ? `extra.${GGUF_FILE}` : LLM_MODEL;
 const CONFIG_PATH = path.join(process.env.HOME || '/home/node', '.openclaw', 'openclaw.json');
 const HTML_PATH = '/app/dist/control-ui/index.html';
 const JS_PATH = '/app/dist/control-ui/auto-token.js';
@@ -58,7 +69,7 @@ try {
   }
 
   // Fix model references to match what llama-server actually serves
-  if (LLM_MODEL) {
+  if (EFFECTIVE_MODEL) {
     // Find the provider name (first key under models.providers)
     const providerName = config.models?.providers
       ? Object.keys(config.models.providers)[0]
@@ -82,12 +93,13 @@ try {
         }
       }
 
-      // Update model list — replace the first model's id
+      // Update model list — replace the first model's id and name
       if (Array.isArray(provider.models) && provider.models.length > 0) {
         const oldId = provider.models[0].id;
-        if (oldId !== LLM_MODEL) {
-          provider.models[0].id = LLM_MODEL;
-          console.log(`[inject-token] updated provider model: ${oldId} -> ${LLM_MODEL}`);
+        if (oldId !== EFFECTIVE_MODEL) {
+          provider.models[0].id = EFFECTIVE_MODEL;
+          provider.models[0].name = EFFECTIVE_MODEL;
+          console.log(`[inject-token] updated provider model: ${oldId} -> ${EFFECTIVE_MODEL}`);
         }
       }
     }
@@ -97,7 +109,7 @@ try {
       const d = config.agents.defaults;
       const fullOld = d.model?.primary || '';
       if (fullOld && providerName) {
-        const fullNew = `${providerName}/${LLM_MODEL}`;
+        const fullNew = `${providerName}/${EFFECTIVE_MODEL}`;
         if (fullOld !== fullNew) {
           d.model = { primary: fullNew };
           // Rebuild models map
@@ -199,6 +211,9 @@ try {
     // into ~/.openclaw/openclaw.json but that write may fail (EACCES on
     // Docker volume), so we must also set them here in the merged config.
     if (!primary.gateway) primary.gateway = {};
+    // gateway.mode is required by OpenClaw v2026.3.8+; without it the
+    // gateway refuses to start.
+    if (!primary.gateway.mode) primary.gateway.mode = 'local';
     if (!primary.gateway.controlUi) primary.gateway.controlUi = {};
     primary.gateway.controlUi.allowInsecureAuth = true;
     primary.gateway.controlUi.dangerouslyDisableDeviceAuth = true;
@@ -210,10 +225,10 @@ try {
     }
     primary.gateway.controlUi.allowedOrigins = origins;
 
-    // Fix provider baseUrl to match the actual LLM endpoint (OLLAMA_URL env)
+    // Fix provider baseUrl and model IDs to match the actual LLM endpoint
     const ollamaUrl = process.env.OLLAMA_URL || '';
     if (ollamaUrl) {
-      const provs = primary.providers || {};
+      const provs = primary.models?.providers || primary.providers || {};
       for (const [name, prov] of Object.entries(provs)) {
         if (prov.baseUrl) {
           const oldUrl = prov.baseUrl;
@@ -221,6 +236,32 @@ try {
           if (oldUrl !== prov.baseUrl) {
             console.log(`[inject-token] merged config: provider ${name} baseUrl: ${oldUrl} -> ${prov.baseUrl}`);
           }
+        }
+        // Patch model IDs to match what the backend actually serves
+        if (EFFECTIVE_MODEL && Array.isArray(prov.models) && prov.models.length > 0) {
+          const oldId = prov.models[0].id;
+          if (oldId !== EFFECTIVE_MODEL) {
+            prov.models[0].id = EFFECTIVE_MODEL;
+            prov.models[0].name = EFFECTIVE_MODEL;
+            console.log(`[inject-token] merged config: provider ${name} model: ${oldId} -> ${EFFECTIVE_MODEL}`);
+          }
+        }
+      }
+    }
+
+    // Patch agent model references in merged config
+    if (EFFECTIVE_MODEL && primary.agents?.defaults) {
+      const provs = primary.models?.providers || {};
+      const providerName = Object.keys(provs)[0];
+      if (providerName) {
+        const d = primary.agents.defaults;
+        const fullNew = `${providerName}/${EFFECTIVE_MODEL}`;
+        const fullOld = d.model?.primary || '';
+        if (fullOld && fullOld !== fullNew) {
+          d.model = { primary: fullNew };
+          d.models = { [fullNew]: {} };
+          if (d.subagents) d.subagents.model = fullNew;
+          console.log(`[inject-token] merged config: agent model: ${fullOld} -> ${fullNew}`);
         }
       }
     }

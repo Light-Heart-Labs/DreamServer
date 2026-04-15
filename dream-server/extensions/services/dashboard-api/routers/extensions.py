@@ -24,7 +24,8 @@ from pydantic import BaseModel
 from config import (
     AGENT_URL, CORE_SERVICE_IDS, DATA_DIR,
     DREAM_AGENT_KEY, EXTENSION_CATALOG, EXTENSIONS_DIR,
-    EXTENSIONS_LIBRARY_DIR, GPU_BACKEND, SERVICES, USER_EXTENSIONS_DIR,
+    EXTENSIONS_LIBRARY_DIR, GPU_BACKEND, INSTALL_DIR, SERVICES,
+    USER_EXTENSIONS_DIR,
 )
 from security import verify_api_key
 
@@ -101,6 +102,55 @@ def _write_initial_progress(service_id: str) -> None:
     }
     progress_file = progress_dir / f"{service_id}.json"
     progress_file.write_text(json.dumps(progress), encoding="utf-8")
+
+
+def _write_error_progress(service_id: str, error_msg: str) -> None:
+    """Update progress file to error state so the UI stops spinning."""
+    progress_file = Path(DATA_DIR) / "extension-progress" / f"{service_id}.json"
+    now = datetime.now(timezone.utc).isoformat()
+    data = {"service_id": service_id, "status": "pulling", "error": None,
+            "phase_label": "", "started_at": now, "updated_at": now}
+    try:
+        if progress_file.exists():
+            data = json.loads(progress_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("Failed to read progress file for %s: %s", service_id, exc)
+    data["status"] = "error"
+    data["error"] = error_msg
+    data["updated_at"] = now
+    progress_file.parent.mkdir(parents=True, exist_ok=True)
+    progress_file.write_text(json.dumps(data), encoding="utf-8")
+
+
+def _sync_extension_config(service_id: str) -> None:
+    """Copy config/<id>/ from an installed extension to INSTALL_DIR/config/.
+
+    Some extensions ship a config/ subdirectory whose files are
+    bind-mounted by compose.yaml relative to the compose project root
+    (INSTALL_DIR), not relative to the extension directory.  Without
+    this sync, Docker auto-creates the mount source as an empty
+    directory, and the container fails at startup.
+    """
+    ext_config = USER_EXTENSIONS_DIR / service_id / "config"
+    if not ext_config.is_dir():
+        return
+    install_config = Path(INSTALL_DIR) / "config"
+    for child in ext_config.iterdir():
+        target = (install_config / child.name).resolve()
+        if not target.is_relative_to(install_config.resolve()):
+            logger.warning("Skipping config entry outside install dir: %s", child.name)
+            continue
+        if child.is_dir():
+            shutil.copytree(str(child), str(target), dirs_exist_ok=True)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(child), str(target))
+    # Ensure scripts are executable (e.g. entrypoint.sh)
+    for root, _dirs, files in os.walk(str(install_config / service_id)):
+        for fname in files:
+            fpath = Path(root) / fname
+            if fname.endswith(".sh"):
+                fpath.chmod(fpath.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
 def _compute_extension_status(ext: dict, services_by_id: dict) -> str:
@@ -885,6 +935,12 @@ def install_extension(service_id: str, api_key: str = Depends(verify_api_key)):
         _install_from_library(service_id)
         _call_agent_invalidate_compose_cache()
 
+    # Sync config/ subdirectory to INSTALL_DIR/config/ for bind mounts.
+    # Some extensions (continue, sillytavern) ship a config/<id>/ directory
+    # that the compose.yaml bind-mounts relative to the compose project root
+    # (INSTALL_DIR), not relative to the extension directory.
+    _sync_extension_config(service_id)
+
     # Write initial progress file so status shows "installing" immediately
     # (before host agent starts processing — closes the race window)
     _write_initial_progress(service_id)
@@ -894,6 +950,9 @@ def install_extension(service_id: str, api_key: str = Depends(verify_api_key)):
     # contract — _resolve_hook("post_install") falls back to manifest's
     # setup_hook field, so we don't double-run it here.
     agent_ok = _call_agent_install(service_id)
+
+    if not agent_ok:
+        _write_error_progress(service_id, "Host agent failed to start extension")
 
     logger.info("Installed extension: %s", service_id)
     return {
