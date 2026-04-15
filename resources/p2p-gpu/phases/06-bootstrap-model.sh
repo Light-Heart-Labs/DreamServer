@@ -7,8 +7,10 @@
 #
 # Expects: DS_DIR, GPU_BACKEND, log(), warn(), env_get(), env_set(),
 #          fix_known_uid_requirements(), apply_data_acl(),
-#          check_disk_for_download()
-# Provides: Verified GGUF_FILE in .env pointing to a real model
+#          check_disk_for_download(), resolve_model_url(),
+#          _store_pid(), create_model_swap_watcher()
+# Provides: Verified GGUF_FILE in .env pointing to a real model;
+#           background download of tier model + swap watcher (if bootstrapped)
 #
 # Fixes covered: #19 (bootstrap model missing), #20 (llama-server hang)
 #
@@ -27,11 +29,13 @@ mkdir -p "$models_dir"
 gguf_file=""
 model_path=""
 model_ready=false
+tier_gguf=""  # Remember the intended tier model for background download
 
 gguf_file=$(env_get "$env_file" "GGUF_FILE")
 
 # Check if configured model exists and is valid
 if [[ -n "$gguf_file" ]]; then
+  tier_gguf="$gguf_file"  # Save intended tier model before any fallback
   model_path="${models_dir}/${gguf_file}"
   if [[ -f "$model_path" ]]; then
     file_size=$(stat -c%s "$model_path" || echo 0)
@@ -93,6 +97,52 @@ if [[ "$model_ready" != "true" ]]; then
       err "Failed to download bootstrap model — llama-server will not start"
       warn "Continuing anyway — other services may still work"
     fi
+  fi
+fi
+
+# ── Queue background download of the intended tier model ────────────────────
+# If we bootstrapped with a tiny model, download the real tier model in the
+# background. Once complete, the swap watcher hot-swaps GGUF_FILE and restarts
+# llama-server — zero downtime for the user.
+current_gguf=$(env_get "$env_file" "GGUF_FILE")
+if [[ -n "$tier_gguf" && "$tier_gguf" != "$current_gguf" ]]; then
+  if check_disk_for_download "$models_dir" 5; then
+    tier_url=$(resolve_model_url "$DS_DIR" "$tier_gguf") || tier_url=""
+    if [[ -n "$tier_url" ]]; then
+      log "Queuing background download of tier model: ${tier_gguf}"
+      mkdir -p "${DS_DIR}/logs"
+
+      if command -v aria2c &>/dev/null; then
+        nohup aria2c \
+          -x 8 -s 8 -k 10M \
+          --continue=true \
+          --max-tries=0 \
+          --retry-wait=5 \
+          --timeout=60 \
+          --connect-timeout=30 \
+          --file-allocation=none \
+          --auto-file-renaming=false \
+          --console-log-level=warn \
+          --summary-interval=30 \
+          --check-integrity=true \
+          -d "$models_dir" \
+          -o "$tier_gguf" \
+          "$tier_url" \
+          >> "${DS_DIR}/logs/aria2c-download.log" 2>&1 &
+      else
+        nohup curl -L --fail -o "${models_dir}/${tier_gguf}" "$tier_url" \
+          >> "${DS_DIR}/logs/aria2c-download.log" 2>&1 &
+      fi
+
+      local dl_pid=$!
+      _store_pid "aria2c-model" "$dl_pid"
+      log "Background download started (PID: ${dl_pid})"
+      create_model_swap_watcher "$DS_DIR" "$tier_gguf"
+    else
+      warn "Could not resolve download URL for ${tier_gguf} — staying on bootstrap model"
+    fi
+  else
+    warn "Insufficient disk for tier model — staying on bootstrap model"
   fi
 fi
 

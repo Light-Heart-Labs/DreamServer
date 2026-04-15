@@ -154,6 +154,16 @@ _fix_uid_exceptions() {
     apply_shared_dir_perms "${data_dir}/whisper" "HF cache written by multiple UIDs"
   fi
 
+  # dashboard-api: uid 1000 (dreamer) — needs rw on data/ and .env
+  local ds_dir
+  ds_dir=$(dirname "$data_dir")
+  if [[ -d "${data_dir}/dashboard-api" ]]; then
+    chown -R 1000:1000 "${data_dir}/dashboard-api" || warn "dashboard-api chown failed (non-fatal)"
+  fi
+  if command -v setfacl &>/dev/null && [[ -f "${ds_dir}/.env" ]]; then
+    setfacl -m u:1000:rw "${ds_dir}/.env" || warn ".env ACL for dashboard-api failed (non-fatal)"
+  fi
+
   # models (shared): llama-server (root), comfyui, aria2c (root) all write here
   if [[ -d "${data_dir}/models" ]]; then
     apply_shared_dir_perms "${data_dir}/models" "multi-service write: llama-server, comfyui, aria2c"

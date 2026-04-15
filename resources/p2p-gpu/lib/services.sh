@@ -81,26 +81,42 @@ except OSError as e:
 
 # Discover service ports from .env / manifests.
 # Output: SERVICE_KEY|PORT_NUMBER|LABEL
+# Reads explicit _PORT= lines from .env, then fills in manifest defaults
+# for any services whose port_env isn't already set.
 discover_service_ports() {
   local ds_dir="$1"
   local env_file="${ds_dir}/.env"
   local env_example="${ds_dir}/.env.example"
 
-  declare -A PORT_LABELS
-  while IFS='|' read -r _id port_env _port_def svc_name _rest; do
+  declare -A PORT_LABELS PORT_DEFAULTS SEEN_KEYS
+  while IFS='|' read -r _id port_env port_def svc_name _rest; do
     [[ -z "$port_env" ]] && continue
     PORT_LABELS["$port_env"]="$svc_name"
+    [[ -n "$port_def" ]] && PORT_DEFAULTS["$port_env"]="$port_def"
   done < <(discover_all_services "$ds_dir")
 
   local source_file="$env_file"
   [[ ! -f "$source_file" ]] && source_file="$env_example"
   [[ ! -f "$source_file" ]] && return 0
 
+  # Emit ports explicitly set in .env
   grep -E '^[A-Z_]+_PORT=' "$source_file" | while IFS='=' read -r key value; do
     value=$(echo "$value" | tr -d '"' | tr -d "'")
     [[ -z "$value" ]] && continue
     local label="${PORT_LABELS[$key]:-$key}"
     echo "${key}|${value}|${label}"
+  done
+
+  # Track which keys were already emitted
+  while IFS='=' read -r key _; do
+    SEEN_KEYS["$key"]=1
+  done < <(grep -E '^[A-Z_]+_PORT=' "$source_file")
+
+  # Fill in manifest defaults for services not in .env
+  for key in "${!PORT_DEFAULTS[@]}"; do
+    [[ -n "${SEEN_KEYS[$key]:-}" ]] && continue
+    local label="${PORT_LABELS[$key]:-$key}"
+    echo "${key}|${PORT_DEFAULTS[$key]}|${label}"
   done
 }
 
