@@ -17,8 +17,10 @@
 > | **Linux** (NVIDIA + AMD) | **Supported** — install and run today |
 > | **macOS** (Apple Silicon) | **Supported** — install and run today |
 > | **Windows** (NVIDIA + AMD) | **Supported** — install and run today |
+> | **Android** (Termux) | **Preview** — shell-only local chat bootstrap |
+> | **iOS** (a-Shell) | **Preview** — lite beta local shell chat |
 >
-> All three platforms are fully supported with one-command installers. See [`docs/SUPPORT-MATRIX.md`](docs/SUPPORT-MATRIX.md) for detailed tier status.
+> Linux, Windows, and macOS are the fully supported desktop paths. Android / Termux and iOS / a-Shell are preview paths. See [`docs/SUPPORT-MATRIX.md`](docs/SUPPORT-MATRIX.md) for detailed status.
 
 See [`docs/SUPPORT-MATRIX.md`](docs/SUPPORT-MATRIX.md) for current support tiers and platform status.
 Launch-claim guardrails: [`docs/PLATFORM-TRUTH-TABLE.md`](docs/PLATFORM-TRUTH-TABLE.md)
@@ -86,6 +88,61 @@ llama-server runs natively with Metal GPU acceleration; all other services run i
 ```
 
 See [`docs/WINDOWS-QUICKSTART.md`](docs/WINDOWS-QUICKSTART.md) for details.
+
+### Android (Termux preview)
+
+Install **Termux** on Android first.
+
+- Recommended: install from [F-Droid](https://f-droid.org/packages/com.termux/).
+- If you already have an old Google Play build, replace it before continuing.
+
+```bash
+termux-change-repo
+apt update && apt full-upgrade -y
+pkg install -y git
+termux-setup-storage
+git clone https://github.com/Light-Heart-Labs/DreamServer.git
+cd DreamServer
+./install.sh
+./dream-mobile.sh status
+./dream-mobile.sh local
+./dream-mobile.sh chat
+```
+
+On Termux, `./install.sh` switches into a **beta mobile preview** built for Android: it installs build dependencies, compiles the local `llama.cpp` chat runtime, downloads `Qwen3-0.6B`, and leaves you with both `./dream-mobile.sh chat` and `./dream-mobile.sh local`. If shared Android storage has been granted through `termux-setup-storage`, the preview can also export generated files into Downloads.
+
+Android preview scope:
+
+- shell chat
+- localhost mobile UI
+- mobile GGUF model switching
+- export into Downloads when Android shared storage is enabled
+
+Android preview limits:
+
+- still beta
+- not full desktop feature parity
+- no Docker stack, workflows, voice, or desktop dashboard parity yet
+
+See [`docs/MOBILE-SHELL-QUICKSTART.md`](docs/MOBILE-SHELL-QUICKSTART.md) for the current scope and limitations.
+
+### iOS (a-Shell preview)
+
+Before running the commands below, install [a-Shell on the App Store](https://apps.apple.com/us/app/a-shell/id1473805438) on your iPhone.
+
+```bash
+lg2 clone https://github.com/Light-Heart-Labs/DreamServer.git
+cd DreamServer
+sh ./install.sh
+sh ./dream-mobile.sh status
+sh ./dream-mobile.sh chat
+```
+
+On iOS, the preview is now a **lite beta** focused on local shell chat only. `sh ./install.sh` detects `a-Shell`, downloads `Qwen3-0.6B-Q4_0.gguf`, points the preview at the bundled `llama-cli.wasm` runtime, and leaves you with a small iPhone shell surface: `install`, `status`, and `chat`.
+
+This iPhone path does **not** try to mirror the full desktop Dream Server stack yet. It is for local shell chat on-device, not for dashboard, Docker services, workflows, or agent parity with Windows, macOS, and Linux.
+
+See [`docs/IOS-ASHELL-SHORTCUTS.md`](docs/IOS-ASHELL-SHORTCUTS.md) for the current iPhone flow.
 
 ---
 

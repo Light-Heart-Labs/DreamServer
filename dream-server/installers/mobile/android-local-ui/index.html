@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dream Server Mobile</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="mobile-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-head">
+        <button class="menu-button menu-button--inside" id="closeSidebarButton" type="button" aria-label="Close navigation">
+          <span></span><span></span><span></span>
+        </button>
+        <div class="brand-lockup">
+          <pre class="brand-mark" aria-hidden="true">Dream
+Server</pre>
+          <p class="brand-kicker" id="brandKicker">LOCAL AI // TERMUX</p>
+          <p class="brand-subtitle" id="brandSubtitle">Mobile Lite Beta</p>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav" aria-label="Dream Server Mobile">
+        <button class="nav-item is-active" data-view-target="dashboardView" type="button">
+          <span class="nav-icon">◫</span>
+          <span class="nav-copy">
+            <strong id="navDashboardLabel">Dashboard</strong>
+            <small id="navDashboardMeta">Overview + telemetry</small>
+          </span>
+        </button>
+        <button class="nav-item" data-view-target="chatView" type="button">
+          <span class="nav-icon">◎</span>
+          <span class="nav-copy">
+            <strong id="navChatLabel">Chat</strong>
+            <small id="navChatMeta">Local model session</small>
+          </span>
+        </button>
+        <button class="nav-item" data-view-target="modelsView" type="button">
+          <span class="nav-icon">◌</span>
+          <span class="nav-copy">
+            <strong id="navModelsLabel">Models</strong>
+            <small id="navModelsMeta">Switch local GGUF</small>
+          </span>
+        </button>
+      </nav>
+
+      <section class="sidebar-status">
+        <div class="status-row">
+          <span class="status-label" id="sidebarSessionLabel">Session</span>
+          <span class="status-value" id="sidebarSession">Warming…</span>
+        </div>
+        <div class="status-row">
+          <span class="status-label" id="sidebarDeviceLabel">Device</span>
+          <span class="status-value" id="sidebarDevice">Android</span>
+        </div>
+        <div class="status-row">
+          <span class="status-label" id="sidebarExportLabel">Exports</span>
+          <span class="status-value" id="sidebarExport">Checking…</span>
+        </div>
+      </section>
+
+      <section class="sidebar-footer">
+        <div class="footer-meter">
+          <div class="footer-meter-head">
+            <span id="sidebarMemoryLabel">Memory</span>
+            <strong id="sidebarMemoryValue">-</strong>
+          </div>
+          <div class="footer-bar">
+            <div class="footer-bar-fill" id="sidebarMemoryFill"></div>
+          </div>
+        </div>
+        <div class="footer-meta">
+          <span id="sidebarModelName">Qwen mobile</span>
+          <span id="sidebarRuntimeLabel">Android Lite</span>
+        </div>
+      </section>
+    </aside>
+
+    <button class="sidebar-scrim" id="sidebarScrim" type="button" aria-label="Close navigation"></button>
+
+    <div class="main-shell">
+      <header class="topbar">
+        <div class="topbar-start">
+          <button class="menu-button" id="openSidebarButton" type="button" aria-label="Open navigation">
+            <span></span><span></span><span></span>
+          </button>
+          <div>
+            <p class="topbar-eyebrow" id="topbarEyebrow">Dream Server Mobile</p>
+            <h1 class="topbar-title" id="topbarTitle">Dashboard</h1>
+          </div>
+        </div>
+        <div class="topbar-pills">
+          <span class="pill" id="runtimePill">Localhost live</span>
+          <span class="pill pill--accent" id="sessionBadge">Warming…</span>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="view is-active" id="dashboardView">
+          <section class="hero-panel">
+            <div class="hero-copy">
+              <p class="hero-kicker" id="heroKicker">ANDROID LOCAL COCKPIT</p>
+              <h2 class="hero-title" id="heroTitle">Dream Server Mobile Lite</h2>
+              <p class="hero-lede" id="heroLede">
+                Local Qwen chat on Termux, device telemetry, localhost control surface, and exports you can move straight into Android Downloads.
+              </p>
+            </div>
+            <div class="hero-meta">
+              <div class="hero-chip" id="deviceChip">Android</div>
+              <div class="hero-chip" id="localUrlChip">localhost</div>
+              <button class="hero-primary" id="goToChatButton" type="button">Open Chat</button>
+            </div>
+          </section>
+
+          <section class="feature-grid">
+            <article class="feature-card feature-card--ready">
+              <div class="feature-head">
+                <span class="feature-icon">◎</span>
+                <span class="feature-status" id="featureChatStatus">READY</span>
+              </div>
+              <h3 id="featureChatTitle">AI Chat</h3>
+              <p id="featureChatCopy">Persistent local conversation powered by the Android Termux runtime.</p>
+            </article>
+            <article class="feature-card feature-card--ready">
+              <div class="feature-head">
+                <span class="feature-icon">◫</span>
+                <span class="feature-status">LIVE</span>
+              </div>
+              <h3 id="featureDashboardTitle">Local Dashboard</h3>
+              <p id="featureDashboardCopy">A localhost-first mobile control room tuned to match the Dream Server dashboard language.</p>
+            </article>
+            <article class="feature-card feature-card--ready" id="featureExportCard">
+              <div class="feature-head">
+                <span class="feature-icon">↗</span>
+                <span class="feature-status" id="featureExportStatus">READY</span>
+              </div>
+              <h3 id="featureExportTitle">Downloads Export</h3>
+              <p id="featureExportCopy">Generated files can land in shared Android storage when Termux storage is linked.</p>
+            </article>
+            <article class="feature-card feature-card--limited">
+              <div class="feature-head">
+                <span class="feature-icon">β</span>
+                <span class="feature-status" id="featureBetaStatus">LITE BETA</span>
+              </div>
+              <h3 id="featureBetaTitle">Mobile Scope</h3>
+              <p id="featureBetaCopy">Desktop-grade chat feel, but without the full Dream Server Docker stack, voice, or workflow mesh.</p>
+            </article>
+          </section>
+
+          <section class="dashboard-grid">
+            <article class="panel signal-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="panel-kicker" id="telemetryKicker">Signal Graph</p>
+                  <h3 id="telemetryTitle">Inference telemetry</h3>
+                </div>
+                <div class="panel-chips">
+                  <span class="inline-chip" id="chartTempChip">CPU temp --</span>
+                  <span class="inline-chip" id="chartContextChip">Context --</span>
+                </div>
+              </div>
+
+              <div class="signal-body">
+                <div class="chart-card">
+                  <div class="chart-head">
+                    <div>
+                      <p class="chart-label" id="chartLatencyLabel">Reply latency</p>
+                      <strong class="chart-value" id="latencyValue">--</strong>
+                    </div>
+                    <div>
+                      <p class="chart-label" id="chartCpuLabel">CPU load</p>
+                      <strong class="chart-value" id="cpuUsageValue">--</strong>
+                    </div>
+                  </div>
+                  <svg class="chart-svg" id="latencyChart" viewBox="0 0 420 170" preserveAspectRatio="none" aria-hidden="true">
+                    <defs>
+                      <linearGradient id="latencyStroke" x1="0%" x2="100%" y1="0%" y2="0%">
+                        <stop offset="0%" stop-color="#8a2cff"></stop>
+                        <stop offset="100%" stop-color="#ffffff"></stop>
+                      </linearGradient>
+                    </defs>
+                    <path class="chart-grid" d="M20 22H400M20 58H400M20 94H400M20 130H400"></path>
+                    <path class="chart-area" id="latencyArea" d=""></path>
+                    <path class="chart-line" id="latencyPath" d=""></path>
+                    <circle class="chart-dot" id="latencyDot" cx="20" cy="130" r="6"></circle>
+                  </svg>
+                </div>
+
+                <div class="chart-card">
+                  <div class="chart-head">
+                    <div>
+                      <p class="chart-label" id="chartMemoryLabel">Memory pressure</p>
+                      <strong class="chart-value" id="memoryValue">--</strong>
+                    </div>
+                    <div>
+                      <p class="chart-label" id="chartBatteryLabel">Battery</p>
+                      <strong class="chart-value" id="batteryValue">--</strong>
+                    </div>
+                  </div>
+                  <svg class="chart-svg" id="memoryChart" viewBox="0 0 420 170" preserveAspectRatio="none" aria-hidden="true">
+                    <defs>
+                      <linearGradient id="memoryStroke" x1="0%" x2="100%" y1="0%" y2="0%">
+                        <stop offset="0%" stop-color="#ffffff"></stop>
+                        <stop offset="100%" stop-color="#8a2cff"></stop>
+                      </linearGradient>
+                    </defs>
+                    <path class="chart-grid" d="M20 22H400M20 58H400M20 94H400M20 130H400"></path>
+                    <path class="chart-area chart-area--secondary" id="memoryArea" d=""></path>
+                    <path class="chart-line chart-line--secondary" id="memoryPath" d=""></path>
+                    <circle class="chart-dot chart-dot--secondary" id="memoryDot" cx="20" cy="130" r="6"></circle>
+                  </svg>
+                </div>
+              </div>
+            </article>
+
+            <article class="panel stat-panel">
+              <div class="metric-grid">
+                <div class="metric-card">
+                  <p class="metric-label" id="cpuCardLabel">CPU</p>
+                  <h3 id="cpuCardValue">--</h3>
+                  <p class="metric-meta" id="cpuCardMeta">Waiting for Android telemetry…</p>
+                </div>
+                <div class="metric-card">
+                  <p class="metric-label" id="gpuCardLabel">GPU</p>
+                  <h3 id="gpuCardValue">--</h3>
+                  <p class="metric-meta" id="gpuCardMeta">Kernel counters hidden</p>
+                </div>
+                <div class="metric-card">
+                  <p class="metric-label" id="batteryCardLabel">Battery</p>
+                  <h3 id="batteryCardValue">--</h3>
+                  <p class="metric-meta" id="batteryCardMeta">Waiting for battery info…</p>
+                </div>
+                <div class="metric-card">
+                  <p class="metric-label" id="memoryCardLabel">RAM</p>
+                  <h3 id="memoryCardValue">--</h3>
+                  <p class="metric-meta" id="memoryCardMeta">Memory usage snapshot</p>
+                </div>
+                <div class="metric-card">
+                  <p class="metric-label" id="uptimeCardLabel">Uptime</p>
+                  <h3 id="uptimeCardValue">--</h3>
+                  <p class="metric-meta" id="uptimeCardMeta">Local process not ready yet</p>
+                </div>
+                <div class="metric-card">
+                  <p class="metric-label" id="modelCardLabel">Model</p>
+                  <h3 id="modelCardValue">--</h3>
+                  <p class="metric-meta" id="modelCardMeta">Loading local model path…</p>
+                </div>
+              </div>
+            </article>
+
+            <article class="panel services-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="panel-kicker" id="servicesKicker">Services</p>
+                  <h3 id="servicesTitle">Mobile surface</h3>
+                </div>
+              </div>
+              <div class="service-columns">
+                <div class="service-column">
+                  <div class="service-column-head">
+                    <span class="service-dot service-dot--online"></span>
+                    <span id="servicesOnlineTitle">Online</span>
+                  </div>
+                  <div class="service-list" id="servicesOnline"></div>
+                </div>
+                <div class="service-column">
+                  <div class="service-column-head">
+                    <span class="service-dot service-dot--limited"></span>
+                    <span id="servicesLimitedTitle">Limited</span>
+                  </div>
+                  <div class="service-list" id="servicesLimited"></div>
+                </div>
+                <div class="service-column">
+                  <div class="service-column-head">
+                    <span class="service-dot service-dot--inactive"></span>
+                    <span id="servicesInactiveTitle">Desktop only</span>
+                  </div>
+                  <div class="service-list" id="servicesInactive"></div>
+                </div>
+              </div>
+            </article>
+
+            <article class="panel preview-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="panel-kicker" id="previewKicker">Chat Preview</p>
+                  <h3 id="previewTitle">Last local response</h3>
+                </div>
+                <button class="inline-action" id="previewChatButton" type="button">Go to chat</button>
+              </div>
+              <div class="preview-copy" id="responsePreview">
+                The Android model session is warming up. When a reply lands, a preview will live here.
+              </div>
+            </article>
+          </section>
+        </section>
+
+        <section class="view" id="chatView">
+          <div class="chat-layout">
+            <section class="panel chat-panel">
+              <div class="chat-head">
+                <div>
+                  <p class="panel-kicker" id="chatPanelKicker">Chat</p>
+                  <h2 id="chatPanelTitle">Talk to Dream locally</h2>
+                </div>
+                <div class="chat-head-actions">
+                  <div class="chat-meta-strip">
+                    <span class="chat-meta-pill" id="chatMetaContext">Context --</span>
+                    <span class="chat-meta-pill" id="chatMetaTurns">Turns --</span>
+                    <span class="chat-meta-pill" id="chatMetaLatency">Last --</span>
+                  </div>
+                  <button class="ghost-action ghost-action--inline" id="resetButton" type="button">Reset session</button>
+                </div>
+              </div>
+
+              <div class="chat-subhead">
+                <p class="chat-status" id="statusText">Ready.</p>
+              </div>
+
+              <div class="messages" id="messages">
+                <div class="message assistant">
+                  <div class="message-role" id="assistantLabel">Dream</div>
+                  <div class="message-body" id="welcomeMessage">
+                    Local Android session online. Ask something and I will stream the answer as it is generated.
+                  </div>
+                </div>
+              </div>
+
+              <form class="composer" id="chatForm">
+                <label class="composer-label" for="messageInput" id="composerLabel">Message</label>
+                <textarea id="messageInput" rows="3" placeholder="Ask about code, request a note, or test a quick local task..."></textarea>
+                <div class="attachment-strip">
+                  <input id="attachmentInput" type="file" accept="image/*,application/pdf" multiple class="hidden-file-input">
+                  <button class="attach-button" id="attachButton" type="button">Attach image or PDF</button>
+                  <div class="attachment-list" id="attachmentList"></div>
+                </div>
+                <div class="composer-actions">
+                  <p class="composer-hint" id="latencyHint">Waiting for the first reply…</p>
+                  <div class="composer-buttons">
+                    <button class="ghost-action ghost-action--inline" id="stopButton" type="button">Stop</button>
+                    <button class="composer-send" id="sendButton" type="submit">Send</button>
+                  </div>
+                </div>
+              </form>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="modelsView">
+          <section class="hero-panel hero-panel--models">
+            <div class="hero-copy">
+              <p class="hero-kicker" id="modelsHeroKicker">MODELS</p>
+              <h2 class="hero-title" id="modelsHeroTitle">Local model library</h2>
+              <p class="hero-lede" id="modelsHeroLede">
+                See the current GGUF, try a stronger Android preset, and switch the local session without rebuilding llama.cpp.
+              </p>
+            </div>
+            <div class="hero-meta">
+              <div class="hero-chip" id="modelsActiveChip">Current model</div>
+            </div>
+          </section>
+
+          <section class="models-grid" id="modelsGrid"></section>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

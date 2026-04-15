@@ -37,9 +37,13 @@ echo -e "${NC}"
 echo -e "${BOLD}  One-line installer — Local AI for Everyone${NC}"
 echo ""
 
-# ── Detect OS ──────────────────────────────────────
-detect_os() {
-    if [[ -f /proc/version ]] && grep -qi microsoft /proc/version 2>/dev/null; then
+# ── Detect platform ──────────────────────────────────────
+detect_platform() {
+    if [[ -n "${TERMUX_VERSION:-}" ]] || [[ "${PREFIX:-}" == *"/com.termux/"* ]] || [[ "${PREFIX:-}" == *"/com.termux/files/usr" ]]; then
+        echo "android-termux"
+    elif [[ "${TERM_PROGRAM:-}" == "a-Shell" ]] || [[ "${TERM_PROGRAM:-}" == "a-Shell mini" ]] || [[ -n "${ASHELL:-}" ]]; then
+        echo "ios-ashell"
+    elif [[ -f /proc/version ]] && grep -qi microsoft /proc/version 2>/dev/null; then
         echo "wsl"
     elif [[ "$OSTYPE" == "darwin"* ]]; then
         echo "macos"
@@ -50,10 +54,16 @@ detect_os() {
     fi
 }
 
-OS=$(detect_os)
-log "Detected OS: $OS"
+PLATFORM=$(detect_platform)
+log "Detected platform: $PLATFORM"
 
-case "$OS" in
+case "$PLATFORM" in
+    android-termux)
+        success "Android / Termux detected — mobile shell preview"
+        ;;
+    ios-ashell)
+        error "iOS a-Shell detected, but local shell inference is not supported yet in Dream Server. Use Android / Termux for the current mobile preview."
+        ;;
     linux|wsl)
         success "Linux/WSL detected — full support"
         ;;
@@ -69,31 +79,35 @@ esac
 log "Checking prerequisites..."
 
 # Docker check (early fail fast)
-if command -v docker &> /dev/null; then
-    success "Docker found: $(docker --version | head -1)"
-    if docker info &> /dev/null; then
-        success "Docker daemon running"
+if [[ "$PLATFORM" != "android-termux" ]]; then
+    if command -v docker &> /dev/null; then
+        success "Docker found: $(docker --version | head -1)"
+        if docker info &> /dev/null; then
+            success "Docker daemon running"
+        else
+            warn "Docker installed but daemon not running"
+            echo "  Start with: sudo systemctl start docker"
+            echo "  Or on macOS: open Docker Desktop"
+        fi
     else
-        warn "Docker installed but daemon not running"
-        echo "  Start with: sudo systemctl start docker"
-        echo "  Or on macOS: open Docker Desktop"
+        warn "Docker not found — will attempt auto-install"
+        echo "  Note: This requires sudo access and may take several minutes"
     fi
-else
-    warn "Docker not found — will attempt auto-install"
-    echo "  Note: This requires sudo access and may take several minutes"
 fi
 
 # GPU check (early warning)
-if command -v nvidia-smi &> /dev/null; then
-    GPU_INFO=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -1)
-    if [[ -n "$GPU_INFO" ]]; then
-        success "NVIDIA GPU detected: $GPU_INFO"
+if [[ "$PLATFORM" != "android-termux" ]]; then
+    if command -v nvidia-smi &> /dev/null; then
+        GPU_INFO=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -1)
+        if [[ -n "$GPU_INFO" ]]; then
+            success "NVIDIA GPU detected: $GPU_INFO"
+        else
+            warn "nvidia-smi found but no GPU detected"
+        fi
     else
-        warn "nvidia-smi found but no GPU detected"
+        warn "No nvidia-smi — GPU features will be limited"
+        echo "  For full functionality, install NVIDIA drivers"
     fi
-else
-    warn "No nvidia-smi — GPU features will be limited"
-    echo "  For full functionality, install NVIDIA drivers"
 fi
 
 # git
@@ -101,7 +115,9 @@ if command -v git &> /dev/null; then
     success "git found: $(git --version | head -1)"
 else
     log "Installing git..."
-    if [[ "$OS" == "macos" ]]; then
+    if [[ "$PLATFORM" == "android-termux" ]]; then
+        pkg install -y git
+    elif [[ "$PLATFORM" == "macos" ]]; then
         xcode-select --install 2>/dev/null || true
         command -v git &> /dev/null || error "Please install git: https://git-scm.com"
     else
@@ -125,7 +141,9 @@ if command -v curl &> /dev/null; then
     success "curl found"
 else
     log "Installing curl..."
-    if command -v apt-get &> /dev/null; then
+    if [[ "$PLATFORM" == "android-termux" ]]; then
+        pkg install -y curl
+    elif command -v apt-get &> /dev/null; then
         sudo apt-get install -y -qq curl
     elif command -v dnf &> /dev/null; then
         sudo dnf install -y -q curl
@@ -136,21 +154,23 @@ else
 fi
 
 # docker
-if command -v docker &> /dev/null; then
-    success "docker found: $(docker --version | head -1)"
-else
-    error "Docker is required but not installed.\n\nInstall Docker:\n  Ubuntu/WSL: https://docs.docker.com/engine/install/ubuntu/\n  Other:      https://docs.docker.com/get-docker/\n\nAfter installing, re-run this script."
-fi
+if [[ "$PLATFORM" != "android-termux" ]]; then
+    if command -v docker &> /dev/null; then
+        success "docker found: $(docker --version | head -1)"
+    else
+        error "Docker is required but not installed.\n\nInstall Docker:\n  Ubuntu/WSL: https://docs.docker.com/engine/install/ubuntu/\n  Other:      https://docs.docker.com/get-docker/\n\nAfter installing, re-run this script."
+    fi
 
-# docker compose (plugin or standalone)
-if docker compose version &> /dev/null || docker-compose --version &> /dev/null; then
-    success "docker compose found"
-else
-    error "Docker Compose is required but not found.\n\nInstall Docker Compose:\n  https://docs.docker.com/compose/install/\n\nAfter installing, re-run this script."
+    # docker compose (plugin or standalone)
+    if docker compose version &> /dev/null || docker-compose --version &> /dev/null; then
+        success "docker compose found"
+    else
+        error "Docker Compose is required but not found.\n\nInstall Docker Compose:\n  https://docs.docker.com/compose/install/\n\nAfter installing, re-run this script."
+    fi
 fi
 
 # NVIDIA GPU check (for Linux/WSL only)
-if [[ "$OS" == "linux" || "$OS" == "wsl" ]]; then
+if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "wsl" ]]; then
     log "Checking NVIDIA GPU..."
     if command -v nvidia-smi &> /dev/null; then
         GPU_INFO=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -1)
@@ -255,6 +275,7 @@ success "Cloned to $INSTALL_DIR"
 # ── Make scripts executable ──────────────────────────
 chmod +x "$INSTALL_DIR/install.sh" 2>/dev/null || true
 chmod +x "$INSTALL_DIR/dream-cli" 2>/dev/null || true
+chmod +x "$INSTALL_DIR/dream-mobile.sh" 2>/dev/null || true
 chmod +x "$INSTALL_DIR/scripts/"*.sh 2>/dev/null || true
 # Note: tests/ directory excluded from installation
 
