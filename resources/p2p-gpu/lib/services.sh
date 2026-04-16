@@ -204,7 +204,8 @@ start_services() {
     log "Using DreamServer's resolve-compose-stack.sh"
     local resolved_flags
     resolved_flags=$(su - "$DREAM_USER" -c \
-      "cd ${ds_dir} && ./scripts/resolve-compose-stack.sh" 2>&1 || echo "")
+      "cd ${ds_dir} && ./scripts/resolve-compose-stack.sh \
+        --gpu-backend ${gpu_backend} --gpu-count ${GPU_COUNT:-1}" 2>&1 || echo "")
     if [[ -n "$resolved_flags" ]]; then
       compose_flags="$resolved_flags"
     fi

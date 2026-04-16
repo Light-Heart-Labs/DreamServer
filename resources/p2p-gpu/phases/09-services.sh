@@ -20,6 +20,11 @@ set -euo pipefail
 
 step "Phase 9/12: Starting services"
 
+# Multi-GPU: run topology detection and GPU-to-service assignment before startup
+if [[ "${GPU_COUNT:-0}" -ge "${MULTIGPU_MIN_GPUS:-2}" ]]; then
+  run_gpu_assignment "$DS_DIR" "${DS_DIR}/.env"
+fi
+
 start_services "$DS_DIR"
 
 # ── Health-check loop with llama-server diagnostics ─────────────────────────

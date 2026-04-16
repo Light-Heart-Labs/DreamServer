@@ -36,6 +36,7 @@ readonly REPO_BRANCH="main"
 readonly MIN_DISK_GB=40
 readonly MIN_VRAM_MB=8000
 readonly INSTALLER_TIMEOUT=600
+readonly MULTIGPU_MIN_GPUS=2
 
 # ── Colors ──────────────────────────────────────────────────────────────────
 readonly RED='\033[0;31m'

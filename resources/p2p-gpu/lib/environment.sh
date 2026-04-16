@@ -33,7 +33,9 @@ env_set() {
     install -m 0600 /dev/null "$file"
   fi
   if grep -q "^${key}=" "$file"; then
-    sed -i "s|^${key}=.*|${key}=${value}|" "$file"
+    # Escape sed delimiter in value to prevent breakage
+    local escaped_value="${value//|/\\|}"
+    sed -i "s|^${key}=.*|${key}=${escaped_value}|" "$file"
   else
     echo "${key}=${value}" >> "$file"
   fi
@@ -115,12 +117,17 @@ detect_gpu() {
   GPU_NAME="none"
   GPU_VRAM="0"
   GPU_COUNT=0
+  GPU_TOTAL_VRAM=0
 
   if command -v nvidia-smi &>/dev/null && nvidia-smi --query-gpu=name --format=csv,noheader &>/dev/null 2>&1; then
     GPU_BACKEND="nvidia"
     GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 | xargs)
     GPU_VRAM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | xargs)
     GPU_COUNT=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | wc -l)
+    GPU_TOTAL_VRAM=0
+    while read -r v; do GPU_TOTAL_VRAM=$(( GPU_TOTAL_VRAM + v )); done \
+      < <(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null)
+    [[ $GPU_TOTAL_VRAM -eq 0 ]] && GPU_TOTAL_VRAM=$GPU_VRAM
 
   elif command -v rocm-smi &>/dev/null || [[ -e /dev/kfd ]]; then
     GPU_BACKEND="amd"
@@ -131,6 +138,11 @@ detect_gpu() {
       GPU_VRAM=$(( GPU_VRAM / 1048576 ))
     fi
     GPU_COUNT=$(rocm-smi --showid 2>/dev/null | grep -c 'GPU\[' || echo 1)
+    if [[ $GPU_COUNT -ge 2 ]]; then
+      GPU_TOTAL_VRAM=$(( GPU_VRAM * GPU_COUNT ))  # rocm-smi per-device sum
+    else
+      GPU_TOTAL_VRAM=$GPU_VRAM
+    fi
   fi
 }
 

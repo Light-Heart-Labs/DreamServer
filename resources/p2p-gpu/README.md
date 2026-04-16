@@ -106,6 +106,7 @@ Aligned with DreamServer's [CLAUDE.md](../../CLAUDE.md):
 | `bash setup.sh --info` | Show connection URLs and SSH tunnel commands |
 | `bash setup.sh --fix` | Apply latest fixes without full reinstall |
 | `bash setup.sh --teardown` | Stop all services (saves billing) |
+| `bash setup.sh --dry-run` | Preview what would happen without making changes |
 
 ## Provider Support
 
@@ -122,6 +123,7 @@ provider-specific fixes.
 - `.env` files created with `0600` mode (secrets protected)
 - Background process PIDs tracked in `/var/run/dreamserver-p2p-gpu/`
 - Cloudflare tokens passed via environment variables (not CLI args)
+- Binary downloads (cloudflared) verified via SHA256 checksums
 - POSIX ACLs preferred over world-writable permissions
 - Multi-UID directories documented with reasons for broader access
 

@@ -36,6 +36,15 @@ case "$GPU_BACKEND" in
   cpu)    warn "No GPU detected — running in CPU-only mode (slower but functional)" ;;
 esac
 
+# Multi-GPU enumeration
+if [[ "${GPU_COUNT:-0}" -ge "${MULTIGPU_MIN_GPUS:-2}" ]]; then
+  enumerate_gpus
+  log "Multi-GPU: ${GPU_COUNT} GPUs, total VRAM: ${GPU_TOTAL_VRAM} MiB"
+  for i in "${!GPU_UUIDS[@]}"; do
+    log "  GPU[${i}]: ${GPU_NAMES[$i]} (${GPU_VRAMS[$i]} MiB) ${GPU_UUIDS[$i]}"
+  done
+fi
+
 CPU_COUNT=$(nproc)
 DISK_AVAIL_GB=$(df -BG --output=avail / 2>&1 | tail -1 | tr -dc '0-9')
 log "GPU backend: ${GPU_BACKEND} | CPUs: ${CPU_COUNT} | Disk: ${DISK_AVAIL_GB} GB"

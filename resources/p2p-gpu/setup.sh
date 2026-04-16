@@ -2,7 +2,7 @@
 # ============================================================================
 # DreamServer — P2P GPU Deploy Orchestrator
 # ============================================================================
-# Deploy DreamServer on peer-to-peer GPU marketplaces (Vast.ai, RunPod, etc.)
+# Deploy DreamServer on peer-to-peer GPU marketplaces (Vast.ai)
 #
 # Target:  Remote GPU instance (NVIDIA, AMD, or CPU-only)
 # OS:      Ubuntu 22.04 / 24.04
@@ -32,6 +32,7 @@ IFS=$'\n\t'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_NAME="$(basename "$0")"
+DRY_RUN=false
 
 # ── Source libraries ────────────────────────────────────────────────────────
 source "${SCRIPT_DIR}/lib/constants.sh"
@@ -41,6 +42,7 @@ source "${SCRIPT_DIR}/lib/permissions.sh"
 source "${SCRIPT_DIR}/lib/services.sh"
 source "${SCRIPT_DIR}/lib/networking.sh"
 source "${SCRIPT_DIR}/lib/models.sh"
+source "${SCRIPT_DIR}/lib/gpu-topology.sh"
 source "${SCRIPT_DIR}/lib/compatibility.sh"
 
 # ── Source subcommands ──────────────────────────────────────────────────────
@@ -58,6 +60,7 @@ _route_subcommand() {
     --resume|resume)      cmd_resume;   exit 0 ;;
     --fix|fix)            cmd_fix;      exit 0 ;;
     --info|info)          cmd_info;     exit 0 ;;
+    --dry-run)            DRY_RUN=true ;;
     --version)            echo "dreamserver-vastai-setup v${VASTAI_VERSION}"; exit 0 ;;
     --help|-h)            _print_help; exit 0 ;;
     --*)                  err "Unknown option: ${1}"; echo "Run 'bash ${SCRIPT_NAME} --help'"; exit 1 ;;
@@ -77,6 +80,7 @@ _print_help() {
   echo "  --info        Show connection URLs and SSH tunnel commands"
   echo "  --fix         Apply latest fixes without full re-install"
   echo "  --teardown    Stop all services (saves billing)"
+  echo "  --dry-run     Preview what would happen without making changes"
   echo "  --help        Show this help"
   echo ""
   echo -e "${BOLD}Common scenarios:${NC}"
@@ -132,6 +136,36 @@ main() {
   echo "=== Setup started at $(_ts) ===" >> "$LOGFILE" || :
 
   _check_existing_install
+
+  # ── Dry-run mode: preview without executing ────────────────────────
+  if [[ "$DRY_RUN" == "true" ]]; then
+    echo ""
+    echo -e "${BOLD}Dry-run mode — no changes will be made.${NC}"
+    echo ""
+    echo "This setup would:"
+    echo "  1.  Detect GPU and validate system requirements"
+    echo "  2.  Install dependencies (sudo, git, curl, jq, aria2, etc.)"
+    echo "  3.  Create 'dream' user with Docker access"
+    echo "  4.  Clone DreamServer from ${REPO_URL:-Light-Heart-Labs/DreamServer}"
+    echo "  5.  Run DreamServer installer (non-interactive, 600s timeout)"
+    echo "  6.  Apply post-install fixes (permissions, env defaults)"
+    echo "  7.  Download/verify GGUF model for llama-server"
+    echo "  8.  Apply Vast.ai-specific quirks (/dev/shm, no-systemd)"
+    echo "  9.  Start Docker Compose services + health check"
+    echo "  10. Bootstrap voice stack (Whisper + Kokoro TTS)"
+    echo "  11. Set up reverse proxy (Caddy) + access tunnels"
+    echo "  12. Print connection info and SSH tunnel commands"
+    echo ""
+    echo -e "${BOLD}System:${NC}"
+    detect_gpu
+    echo "  GPU:    ${GPU_NAME} (${GPU_BACKEND}, ${GPU_VRAM} MB VRAM)"
+    echo "  CPU:    $(nproc) cores"
+    echo "  Disk:   $(df -BG --output=avail . 2>/dev/null | tail -1 | tr -dc '0-9')GB available"
+    echo "  Docker: $(docker --version 2>/dev/null || echo 'not installed')"
+    echo ""
+    echo "Run without --dry-run to proceed."
+    exit 0
+  fi
 
   # Shared state variables (set by phases, used across phases)
   GPU_BACKEND="" GPU_NAME="" GPU_VRAM="" GPU_COUNT=0

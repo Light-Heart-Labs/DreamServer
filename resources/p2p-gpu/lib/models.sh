@@ -23,6 +23,112 @@
 
 set -euo pipefail
 
+# ── GPU-aware tier model resolution ───────────────────────────────────────────
+# Maps GPU VRAM (MB) to the optimal tier model. Mirrors the upstream tier-map
+# logic from dream-server/installers/lib/tier-map.sh but is self-contained so
+# p2p-gpu stays isolated from the core codebase.
+#
+# If the upstream tier-map.sh exists (after DreamServer is cloned), we source it
+# directly for accuracy. Otherwise, fall back to a built-in VRAM lookup table.
+#
+# Sets: TIER_GGUF_FILE, TIER_GGUF_URL, TIER_MODEL_SIZE_MB
+# Args: $1 = ds_dir, $2 = gpu_backend, $3 = gpu_vram_mb, $4 = gpu_count
+resolve_tier_for_gpu() {
+  local ds_dir="$1" gpu_backend="$2" vram_mb="${3:-0}" gpu_count="${4:-1}"
+  local tier_map="${ds_dir}/installers/lib/tier-map.sh"
+
+  TIER_GGUF_FILE=""
+  TIER_GGUF_URL=""
+  TIER_MODEL_SIZE_MB=0
+
+  # Strategy 1: Use upstream tier-map.sh if available (most accurate)
+  if [[ -f "$tier_map" ]]; then
+    local tier=""
+    if [[ "$gpu_backend" == "nvidia" ]]; then
+      if [[ $vram_mb -ge 90000 ]]; then tier="NV_ULTRA"
+      elif [[ $vram_mb -ge 40000 ]]; then tier=4
+      elif [[ $vram_mb -ge 20000 ]]; then tier=3
+      elif [[ $vram_mb -ge 12000 ]]; then tier=2
+      elif [[ $vram_mb -lt 4000 ]]; then tier=0
+      else tier=1; fi
+    elif [[ "$gpu_backend" == "amd" ]]; then
+      if [[ $vram_mb -ge 20000 ]]; then tier=3
+      elif [[ $vram_mb -ge 12000 ]]; then tier=2
+      else tier=1; fi
+    else
+      tier=0  # CPU-only
+    fi
+
+    # Multi-GPU boost — use total VRAM across all GPUs
+    if [[ $gpu_count -ge 2 ]]; then
+      local total_vram="${GPU_TOTAL_VRAM:-$(( vram_mb * gpu_count ))}"
+      if [[ $total_vram -ge 90000 ]]; then tier="NV_ULTRA"
+      elif [[ $total_vram -ge 40000 ]]; then tier=4
+      elif [[ $total_vram -ge 20000 ]]; then tier=3; fi
+    fi
+
+    # Source upstream tier-map in a subshell to avoid polluting our namespace
+    local result
+    result=$(
+      TIER="$tier"
+      MODEL_PROFILE="${MODEL_PROFILE:-qwen}"
+      error() { echo "ERROR: $*" >&2; return 1; }
+      source "$tier_map" 2>/dev/null
+      resolve_tier_config 2>/dev/null
+      echo "${GGUF_FILE}|${GGUF_URL:-}|${LLM_MODEL_SIZE_MB:-0}"
+    ) || result=""
+
+    if [[ -n "$result" ]]; then
+      TIER_GGUF_FILE="${result%%|*}"
+      local rest="${result#*|}"
+      TIER_GGUF_URL="${rest%%|*}"
+      TIER_MODEL_SIZE_MB="${rest##*|}"
+      if [[ -n "$TIER_GGUF_FILE" ]]; then
+        log "Tier resolved via upstream tier-map: ${TIER_GGUF_FILE} (tier ${tier}, ${vram_mb}MB VRAM)"
+        return 0
+      fi
+    fi
+  fi
+
+  # Strategy 2: Built-in VRAM lookup (fallback when tier-map.sh unavailable)
+  # Uses qwen profile defaults matching upstream's set_qwen_tier_config()
+  if [[ "$gpu_backend" == "nvidia" || "$gpu_backend" == "amd" ]]; then
+    local effective_vram=$vram_mb
+    # For multi-GPU, use total VRAM
+    if [[ $gpu_count -ge 2 ]]; then
+      effective_vram="${GPU_TOTAL_VRAM:-$(( vram_mb * gpu_count ))}"
+    fi
+
+    if [[ $effective_vram -ge 90000 ]]; then
+      # NV_ULTRA: B200 (180GB), multi-A100/H100, etc.
+      TIER_GGUF_FILE="qwen3-coder-next-Q4_K_M.gguf"
+      TIER_GGUF_URL="https://huggingface.co/unsloth/Qwen3-Coder-Next-GGUF/resolve/main/Qwen3-Coder-Next-Q4_K_M.gguf"
+      TIER_MODEL_SIZE_MB=48500
+    elif [[ $effective_vram -ge 24000 ]]; then
+      # Tier 3-4: RTX 3090/4090 (24GB), A6000 (48GB), A100 (40/80GB), H100 (80GB)
+      TIER_GGUF_FILE="Qwen3-30B-A3B-Q4_K_M.gguf"
+      TIER_GGUF_URL="https://huggingface.co/unsloth/Qwen3-30B-A3B-GGUF/resolve/main/Qwen3-30B-A3B-Q4_K_M.gguf"
+      TIER_MODEL_SIZE_MB=18600
+    elif [[ $effective_vram -ge 4000 ]]; then
+      # Tier 1-2: RTX 3060 (12GB), RTX 3070 (8GB), RTX 3080 (10GB)
+      TIER_GGUF_FILE="Qwen3.5-9B-Q4_K_M.gguf"
+      TIER_GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf"
+      TIER_MODEL_SIZE_MB=5760
+    else
+      # Tier 0: <4GB VRAM or CPU-only
+      TIER_GGUF_FILE="Qwen3.5-2B-Q4_K_M.gguf"
+      TIER_GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf"
+      TIER_MODEL_SIZE_MB=1500
+    fi
+  else
+    TIER_GGUF_FILE="Qwen3.5-2B-Q4_K_M.gguf"
+    TIER_GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf"
+    TIER_MODEL_SIZE_MB=1500
+  fi
+
+  log "Tier resolved via built-in lookup: ${TIER_GGUF_FILE} (${vram_mb}MB VRAM)"
+}
+
 # ── [FIX: disk-check] Verify sufficient disk before starting a download ─────
 # Returns 0 if enough space, 1 if insufficient.
 # Args: $1 = directory to check, $2 = minimum GB required (default: 5)
@@ -208,22 +314,62 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 MODEL_DIR="${SCRIPT_DIR}/data/models"
 ENV_FILE="${SCRIPT_DIR}/.env"
+PIDFILE="${SCRIPT_DIR}/run/pids/aria2c-model.pid"
 warn() { echo -e "\033[1;33m[!]\033[0m $*" >&2; }
+
+compose_cmd() {
+  if docker compose version &>/dev/null 2>&1; then
+    echo "docker compose"
+  elif command -v docker-compose &>/dev/null; then
+    echo "docker-compose"
+  else
+    echo "docker restart"
+  fi
+}
+
+is_download_running() {
+  [[ ! -f "$PIDFILE" ]] && return 1
+  local pid
+  pid=$(cat "$PIDFILE" 2>/dev/null || echo "")
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+}
 
 swap_model() {
   local new_model="$1"
   local old_model
   old_model=$(grep '^GGUF_FILE=' "$ENV_FILE" | cut -d= -f2 | tr -d '"' || echo "")
   [[ "$new_model" == "$old_model" ]] && return 0
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] Swapping: ${old_model} -> ${new_model}"
+
+  # Validate new model file before swapping
+  local model_path="${MODEL_DIR}/${new_model}"
+  if [[ ! -f "$model_path" ]]; then
+    warn "Model file not found: ${model_path} — skipping swap"
+    return 1
+  fi
+  local file_size
+  file_size=$(stat -c%s "$model_path" 2>/dev/null || echo 0)
+  if [[ "$file_size" -lt 100000000 ]]; then
+    warn "Model file too small (${file_size} bytes) — skipping swap"
+    return 1
+  fi
+
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] Swapping: ${old_model} -> ${new_model} ($(( file_size / 1048576 )) MB)"
   # [FIX: tmpfile-race] Use sed -i to avoid world-readable temp file with secrets
   sed -i "s|^GGUF_FILE=.*|GGUF_FILE=${new_model}|" "$ENV_FILE"
-  docker restart dream-llama-server || warn "llama-server restart failed (non-fatal)"
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] Swapped to ${new_model}"
+
+  # Use compose recreate (re-reads .env) instead of docker restart (ignores .env changes)
+  local cmd
+  cmd=$(compose_cmd)
+  if [[ "$cmd" != "docker restart" ]]; then
+    cd "$SCRIPT_DIR" && $cmd up -d llama-server || warn "compose recreate failed (non-fatal)"
+  else
+    docker restart dream-llama-server || warn "llama-server restart failed (non-fatal)"
+  fi
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] Swapped to ${new_model} — llama-server reloading"
 }
 
 while true; do
-  if ! pgrep -f "aria2c.*gguf" > /dev/null 2>&1; then
+  if ! is_download_running; then
     local_model=$(ls -S "${MODEL_DIR}"/*.gguf 2>&1 | head -1 | xargs -r basename || echo "")
     if [[ -n "${local_model:-}" ]]; then
       swap_model "$local_model"

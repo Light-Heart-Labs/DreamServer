@@ -3,12 +3,15 @@
 # DreamServer — P2P GPU Phase 06: Bootstrap Model
 # ============================================================================
 # Part of: resources/p2p-gpu/phases/
-# Purpose: Ensure a usable GGUF model file exists so llama-server can start
+# Purpose: Ensure a usable GGUF model file exists so llama-server can start.
+#          If the GPU can handle a bigger model, download it in the background
+#          and hot-swap once ready (zero downtime).
 #
-# Expects: DS_DIR, GPU_BACKEND, log(), warn(), env_get(), env_set(),
+# Expects: DS_DIR, GPU_BACKEND, GPU_VRAM, GPU_COUNT,
+#          log(), warn(), err(), env_get(), env_set(),
 #          fix_known_uid_requirements(), apply_data_acl(),
 #          check_disk_for_download(), resolve_model_url(),
-#          _store_pid(), create_model_swap_watcher()
+#          resolve_tier_for_gpu(), _store_pid(), create_model_swap_watcher()
 # Provides: Verified GGUF_FILE in .env pointing to a real model;
 #           background download of tier model + swap watcher (if bootstrapped)
 #
@@ -26,34 +29,55 @@ data_dir="${DS_DIR}/data"
 models_dir="${data_dir}/models"
 mkdir -p "$models_dir"
 
-gguf_file=""
-model_path=""
 model_ready=false
-tier_gguf=""  # Remember the intended tier model for background download
 
-gguf_file=$(env_get "$env_file" "GGUF_FILE")
+# ── Step 1: Resolve the GPU-optimal tier model ────────────────────────────────
+# This is the model the GPU *should* run. We determine it from VRAM, not from
+# whatever the installer may or may not have written to .env.
+resolve_tier_for_gpu "$DS_DIR" "$GPU_BACKEND" "${GPU_VRAM:-0}" "${GPU_COUNT:-1}"
+tier_gguf="${TIER_GGUF_FILE}"
+tier_url="${TIER_GGUF_URL}"
+tier_size_mb="${TIER_MODEL_SIZE_MB}"
 
-# Check if configured model exists and is valid
-if [[ -n "$gguf_file" ]]; then
-  tier_gguf="$gguf_file"  # Save intended tier model before any fallback
-  model_path="${models_dir}/${gguf_file}"
-  if [[ -f "$model_path" ]]; then
-    file_size=$(stat -c%s "$model_path" || echo 0)
+if [[ -n "$tier_gguf" ]]; then
+  log "GPU-optimal model for ${GPU_BACKEND} (${GPU_VRAM:-0}MB VRAM): ${tier_gguf} (~${tier_size_mb}MB)"
+else
+  warn "Could not determine tier model — will use bootstrap model only"
+fi
+
+# ── Step 2: Check if we already have a usable model ──────────────────────────
+
+# Check if the tier model itself is already downloaded
+if [[ -n "$tier_gguf" && -f "${models_dir}/${tier_gguf}" ]]; then
+  file_size=$(stat -c%s "${models_dir}/${tier_gguf}" || echo 0)
+  if [[ $file_size -gt 100000000 ]]; then
+    env_set "$env_file" "GGUF_FILE" "$tier_gguf"
+    model_ready=true
+    log "Tier model already present: ${tier_gguf} ($(( file_size / 1048576 )) MB)"
+  else
+    warn "Tier model exists but too small (${file_size} bytes) — likely corrupt"
+    rm -f "${models_dir}/${tier_gguf}"
+  fi
+fi
+
+# Check configured GGUF_FILE from .env
+if [[ "$model_ready" != "true" ]]; then
+  gguf_file=$(env_get "$env_file" "GGUF_FILE")
+  if [[ -n "$gguf_file" && -f "${models_dir}/${gguf_file}" ]]; then
+    file_size=$(stat -c%s "${models_dir}/${gguf_file}" || echo 0)
     if [[ $file_size -gt 100000000 ]]; then
       model_ready=true
       log "Model verified: ${gguf_file} ($(( file_size / 1048576 )) MB)"
     else
       warn "Model file exists but too small (${file_size} bytes) — likely corrupt"
-      rm -f "$model_path"
+      rm -f "${models_dir}/${gguf_file}"
     fi
-  else
-    warn "GGUF_FILE=${gguf_file} but file not found at ${model_path}"
   fi
 fi
 
 # Check for ANY .gguf file as fallback
 if [[ "$model_ready" != "true" ]]; then
-  any_model=$(find "$models_dir" -name "*.gguf" -size +100M 2>&1 | head -1 || echo "")
+  any_model=$(find "$models_dir" -name "*.gguf" -size +100M 2>/dev/null | head -1 || echo "")
   if [[ -n "$any_model" ]]; then
     found_name=$(basename "$any_model")
     env_set "$env_file" "GGUF_FILE" "$found_name"
@@ -62,7 +86,7 @@ if [[ "$model_ready" != "true" ]]; then
   fi
 fi
 
-# Last resort: download small bootstrap model
+# ── Step 3: Download bootstrap model if nothing usable exists ─────────────────
 if [[ "$model_ready" != "true" ]]; then
   # [FIX: disk-check] Verify disk space before downloading
   if ! check_disk_for_download "$models_dir" 2; then
@@ -83,10 +107,10 @@ if [[ "$model_ready" != "true" ]]; then
 
     # [FIX: bootstrap-size] Validate downloaded file size (>50MB for smallest GGUF)
     if [[ -f "${models_dir}/${bootstrap_name}" ]]; then
-      local dl_size
       dl_size=$(stat -c%s "${models_dir}/${bootstrap_name}" || echo 0)
       if [[ "$dl_size" -gt 50000000 ]]; then
         env_set "$env_file" "GGUF_FILE" "$bootstrap_name"
+        model_ready=true
         log "Bootstrap model downloaded: ${bootstrap_name} ($(( dl_size / 1048576 )) MB)"
       else
         err "Downloaded model too small (${dl_size} bytes) — likely incomplete or corrupt"
@@ -100,16 +124,27 @@ if [[ "$model_ready" != "true" ]]; then
   fi
 fi
 
-# ── Queue background download of the intended tier model ────────────────────
-# If we bootstrapped with a tiny model, download the real tier model in the
-# background. Once complete, the swap watcher hot-swaps GGUF_FILE and restarts
-# llama-server — zero downtime for the user.
+# ── Step 4: Queue background download of tier model if needed ─────────────────
+# If we're running a smaller model than what the GPU can handle, download the
+# tier model in the background. The swap watcher will hot-swap GGUF_FILE and
+# recreate llama-server via `docker compose up -d` once the download completes.
 current_gguf=$(env_get "$env_file" "GGUF_FILE")
-if [[ -n "$tier_gguf" && "$tier_gguf" != "$current_gguf" ]]; then
-  if check_disk_for_download "$models_dir" 5; then
-    tier_url=$(resolve_model_url "$DS_DIR" "$tier_gguf") || tier_url=""
+if [[ -n "$tier_gguf" && "$tier_gguf" != "${current_gguf:-}" ]]; then
+  # Determine disk space needed (model size in MB → GB, rounded up + 2GB buffer)
+  needed_gb=$(( (tier_size_mb / 1024) + 2 ))
+  [[ $needed_gb -lt 5 ]] && needed_gb=5
+
+  if check_disk_for_download "$models_dir" "$needed_gb"; then
+    # Resolve URL: prefer TIER_GGUF_URL from tier resolution, fallback to resolve_model_url
+    if [[ -z "$tier_url" ]]; then
+      tier_url=$(resolve_model_url "$DS_DIR" "$tier_gguf") || tier_url=""
+    fi
+
     if [[ -n "$tier_url" ]]; then
-      log "Queuing background download of tier model: ${tier_gguf}"
+      log "Queuing background download: ${tier_gguf} (~${tier_size_mb}MB)"
+      log "  URL: ${tier_url}"
+      log "  Current model: ${current_gguf:-none}"
+      log "  Once complete, llama-server will auto-swap to the bigger model"
       mkdir -p "${DS_DIR}/logs"
 
       if command -v aria2c &>/dev/null; then
@@ -134,16 +169,18 @@ if [[ -n "$tier_gguf" && "$tier_gguf" != "$current_gguf" ]]; then
           >> "${DS_DIR}/logs/aria2c-download.log" 2>&1 &
       fi
 
-      local dl_pid=$!
+      dl_pid=$!
       _store_pid "aria2c-model" "$dl_pid"
       log "Background download started (PID: ${dl_pid})"
       create_model_swap_watcher "$DS_DIR" "$tier_gguf"
     else
-      warn "Could not resolve download URL for ${tier_gguf} — staying on bootstrap model"
+      warn "Could not resolve download URL for ${tier_gguf} — staying on ${current_gguf:-bootstrap model}"
     fi
   else
-    warn "Insufficient disk for tier model — staying on bootstrap model"
+    warn "Insufficient disk for tier model (~${tier_size_mb}MB) — staying on ${current_gguf:-bootstrap model}"
   fi
+elif [[ -n "$tier_gguf" && "$tier_gguf" == "${current_gguf:-}" ]]; then
+  log "Already running the GPU-optimal model: ${tier_gguf}"
 fi
 
 fix_known_uid_requirements "$data_dir" "$GPU_BACKEND"

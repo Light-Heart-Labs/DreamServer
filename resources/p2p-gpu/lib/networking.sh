@@ -236,8 +236,27 @@ setup_cloudflare_tunnel() {
 
   log "Cloudflare Tunnel token detected — setting up tunnel"
   if ! command -v cloudflared &>/dev/null; then
+    local cf_tmp="/tmp/cloudflared-$$"
+    local cf_checksum_url="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.sha256"
     curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
-      -o /usr/local/bin/cloudflared || { warn "cloudflared download failed (non-fatal)"; return 0; }
+      -o "$cf_tmp" || { warn "cloudflared download failed (non-fatal)"; rm -f "$cf_tmp"; return 0; }
+    # Verify checksum when available
+    local expected_sha
+    expected_sha=$(curl -sL --max-time 10 "$cf_checksum_url" 2>/dev/null | awk '{print $1}' || echo "")
+    if [[ -n "$expected_sha" ]]; then
+      local actual_sha
+      actual_sha=$(sha256sum "$cf_tmp" | awk '{print $1}')
+      if [[ "$actual_sha" != "$expected_sha" ]]; then
+        err "cloudflared checksum mismatch (expected: ${expected_sha:0:12}…, got: ${actual_sha:0:12}…)"
+        rm -f "$cf_tmp"
+        warn "Skipping Cloudflare tunnel — binary integrity check failed"
+        return 0
+      fi
+      log "cloudflared checksum verified"
+    else
+      warn "cloudflared checksum not available — skipping integrity check"
+    fi
+    mv "$cf_tmp" /usr/local/bin/cloudflared
     chmod +x /usr/local/bin/cloudflared
   fi
 
