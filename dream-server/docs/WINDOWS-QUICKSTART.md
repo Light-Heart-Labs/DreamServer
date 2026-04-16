@@ -1,104 +1,76 @@
 # Dream Server Windows Quickstart
 
-> **Status: Coming Soon — Preflight Checks Only (target: end of March 2026)**
->
-> The Windows installer currently runs **system diagnostics and preflight checks only** — it verifies WSL2, Docker Desktop, and GPU readiness but **does not yet produce a running AI stack.** Full Windows runtime support is in active development.
->
-> **For a working setup today, use Linux.** See the [Support Matrix](SUPPORT-MATRIX.md) for current platform status.
+## Getting Started
 
----
+Dream Server is fully supported on Windows 10 2004+ and Windows 11 (NVIDIA and AMD). The installer detects your GPU, selects the right model, downloads it, starts all Docker services, and creates a Desktop shortcut.
 
-## What Works Today
+**Prerequisites:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) with WSL2 backend enabled. NVIDIA GPU recommended (CPU-only works with smaller models). 4GB+ RAM minimum, 16GB+ recommended.
 
-The Windows installer (`install.ps1`) checks your system readiness and generates a preflight report:
+Open **PowerShell as Administrator** and run:
 
 ```powershell
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.1.0/install.ps1" -OutFile install.ps1; .\install.ps1
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+git clone https://github.com/Light-Heart-Labs/DreamServer.git
+cd DreamServer
+.\install.ps1
 ```
 
-**Prerequisites:** Windows 10 2004+ or Windows 11. NVIDIA GPU recommended but not required (CPU-only works with smaller models). 4GB+ RAM minimum, 16GB+ recommended.
+The installer will:
+- Detect your GPU (NVIDIA or AMD) and pick the right model tier
+- Download the AI model for your hardware (~1.5GB bootstrap, full model in background)
+- Start all Docker services
+- Run health checks and create a Desktop shortcut
 
-This will verify:
-- WSL2 is installed and set to version 2
-- Docker Desktop is running with WSL2 backend
-- Docker CLI is available inside your WSL distro
-- NVIDIA GPU is visible from both Windows and WSL
-
-The preflight report is saved to `%TEMP%\dream-server-windows-preflight.json`.
+**First-run time:** 10-30 minutes depending on download speed. Bootstrap mode starts chatting in under 2 minutes while the full model downloads in background.
 
 ---
 
-## What's Coming
+## Quick Commands
 
-When full Windows support ships (target: end of March 2026), the installer will:
-
-1. **Check your system** — WSL2, Docker Desktop, NVIDIA GPU
-2. **Auto-fix issues** — enable WSL2, prompt for Docker install
-3. **Detect GPU** — pick right model tier automatically
-4. **Download model** — 7B to 72B based on your VRAM (~10-40GB)
-5. **Start services** — llama-server, Open WebUI, search, database
-
-**Estimated time (when available):** 10-30 minutes depending on download speed.
-
----
-
-## Planned: Quick Commands (not yet functional)
-
-The following commands describe the intended Windows experience once full support ships:
+Manage Dream Server using `dream.ps1` from your install directory:
 
 ```powershell
-# Start after install
-cd $env:LOCALAPPDATA\DreamServer
-docker compose up -d
+cd $env:USERPROFILE\dream-server
 
-# Stop
-docker compose down
-
-# View logs
-docker compose logs -f
-
-# Check status
-docker compose ps
-
-# Update
-docker compose pull && docker compose up -d
+.\dream.ps1 status              # Health checks + GPU status
+.\dream.ps1 start               # Start all services
+.\dream.ps1 stop                # Stop all services
+.\dream.ps1 restart             # Restart all services
+.\dream.ps1 logs llama-server   # Tail logs (any service name)
+.\dream.ps1 update              # Pull latest images and restart
+.\dream.ps1 report              # Generate diagnostics bundle
 ```
 
 ---
 
-## Planned: Open the UI
+## Open the UI
 
-Visit **http://localhost:3000** (once full runtime support is available).
+Visit **http://localhost:3000** — the chat interface is ready after the installer completes.
 
 First user becomes admin. Start chatting immediately.
 
 ---
 
-## Planned: Bootstrap Mode (Faster Start)
+## Bootstrap Mode (Faster Start)
 
-Start with a tiny 1.5B model, upgrade later:
-
-```powershell
-.\install.ps1 -Bootstrap
-```
-
-Chat in 2 minutes while full model downloads in background.
+The installer automatically uses bootstrap mode when applicable — a small model (~1.5 GB) downloads first so you can start chatting within 2 minutes, while the full model downloads in the background. No extra flags needed.
 
 ---
 
-## Planned: Installer Flags
-
-These flags describe the intended installer interface once full support ships:
+## Installer Flags
 
 | Flag | What It Does |
 |------|--------------|
-| `-Bootstrap` | Quick start with small model |
 | `-Tier 2` | Force specific tier (1-4) |
 | `-Voice` | Enable Whisper + TTS |
 | `-Workflows` | Enable n8n automation |
 | `-Rag` | Enable Qdrant vector DB |
+| `-OpenClaw` | Enable OpenClaw agent framework |
+| `-Comfyui` | Enable ComfyUI image generation |
+| `-Langfuse` | Enable Langfuse LLM observability |
 | `-All` | Everything enabled |
-| `-Diagnose` | Check system only |
+| `-Cloud` | Use cloud LLM provider instead of local |
+| `-DryRun` | Simulate install without making changes |
 
 ---
 
@@ -178,4 +150,4 @@ docker compose up -d
 
 ---
 
-*Last updated: 2026-03-04*
+*Last updated: 2026-04-16*
