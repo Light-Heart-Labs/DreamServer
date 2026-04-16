@@ -10,7 +10,8 @@
 #          discover_all_services(), discover_service_ports()
 # Provides: expose_ports_for_vastai(), setup_reverse_proxy(),
 #           generate_health_page(), setup_cloudflare_tunnel(),
-#           generate_ssh_tunnel_script(), print_access_info()
+#           generate_ssh_tunnel_script(), generate_powershell_tunnel_script(),
+#           print_access_info()
 #
 # Modder notes:
 #   Caddy failure is non-fatal — falls back to SSH tunnel mode.
@@ -45,7 +46,8 @@ setup_reverse_proxy() {
 
   _install_caddy || return 1
   _generate_caddyfile "$ds_dir" "$proxy_port" "$env_file"
-  _start_caddy "$ds_dir" "$proxy_port" "$env_file"
+  _start_caddy "$ds_dir" "$proxy_port" "$env_file" || return 1
+  _wait_for_proxy_backend "$proxy_port"
 }
 
 _install_caddy() {
@@ -173,6 +175,23 @@ _start_caddy() {
   fi
 }
 
+_wait_for_proxy_backend() {
+  local proxy_port="$1"
+  local elapsed=0 code="000"
+
+  while [[ "$elapsed" -lt 30 ]]; do
+    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "http://127.0.0.1:${proxy_port}/" || echo "000")
+    if [[ "$code" =~ ^[23] ]]; then
+      return 0
+    fi
+    sleep 3
+    elapsed=$((elapsed + 3))
+  done
+
+  warn "Caddy is running on ${proxy_port}, but dashboard backend is not reachable yet (HTTP ${code})"
+  return 1
+}
+
 # Generate health dashboard HTML page
 generate_health_page() {
   local output_file="$1"
@@ -280,17 +299,35 @@ generate_ssh_tunnel_script() {
   host_ip="${PUBLIC_IPADDR:-$(curl -sf --max-time 5 ifconfig.me || echo '<your-vast-ip>')}"
   ssh_port="${VAST_TCP_PORT_22:-22}"
 
+  local env_file="${ds_dir}/.env"
+  local entry_port
+  entry_port="$(env_get "$env_file" "DASHBOARD_PORT")"
+  entry_port="${entry_port:-3001}"
+  local local_proxy_port="58080"
+
   local script_path="${ds_dir}/connect-tunnel.sh"
   {
     echo '#!/usr/bin/env bash'
     echo '# DreamServer — auto-reconnecting SSH tunnel (run on YOUR LOCAL machine)'
     echo "HOST=\"${host_ip}\""
     echo "SSH_PORT=\"${ssh_port}\""
-    echo 'FORWARDS="'
-    discover_service_ports "$ds_dir" | while IFS='|' read -r _key port _label; do
-      echo "  -L ${port}:127.0.0.1:${port} \\"
+    echo "ENTRY_PORT=\"${entry_port}\""
+    echo '_uname="$(uname -s 2>/dev/null | tr "[:upper:]" "[:lower:]")"'
+    echo 'case "${_uname}" in'
+    echo "  mingw*|msys*|cygwin*) _default_local_proxy=${local_proxy_port} ;;"
+    echo "  *) _default_local_proxy=${local_proxy_port} ;;"
+    echo 'esac'
+    echo 'LOCAL_PROXY_PORT="${LOCAL_PROXY_PORT:-${_default_local_proxy}}"'
+    echo 'if [[ "${FULL_TUNNEL:-0}" == "1" ]]; then'
+    echo '  FORWARDS="-L ${LOCAL_PROXY_PORT}:127.0.0.1:${ENTRY_PORT}'
+    discover_service_ports "$ds_dir" | while IFS='|' read -r key port _label; do
+      [[ "$key" == "REVERSE_PROXY_PORT" ]] && continue
+      echo "    -L ${port}:127.0.0.1:${port}"
     done
-    echo '"'
+    echo '  "'
+    echo 'else'
+    echo '  FORWARDS="-L ${LOCAL_PROXY_PORT}:127.0.0.1:${ENTRY_PORT}"'
+    echo 'fi'
     echo 'DELAY=5'
     echo 'while true; do'
     echo '  ssh -N -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \'
@@ -305,24 +342,80 @@ generate_ssh_tunnel_script() {
   log "Generated auto-reconnecting tunnel script: ${script_path}"
 }
 
+generate_powershell_tunnel_script() {
+  local ds_dir="$1"
+  local host_ip ssh_port
+  host_ip="${PUBLIC_IPADDR:-$(curl -sf --max-time 5 ifconfig.me || echo '<your-vast-ip>')}"
+  ssh_port="${VAST_TCP_PORT_22:-22}"
+
+  local env_file="${ds_dir}/.env"
+  local entry_port
+  entry_port="$(env_get "$env_file" "DASHBOARD_PORT")"
+  entry_port="${entry_port:-3001}"
+  local local_proxy_port="58080"
+
+  local script_path="${ds_dir}/connect-tunnel.ps1"
+  {
+    cat << POWERSHELL_HEAD
+param(
+  [int]\$LocalProxyPort = ${local_proxy_port},
+  [int]\$ReconnectDelay = 5,
+  [string]\$Host = "${host_ip}",
+  [int]\$SshPort = ${ssh_port}
+)
+
+\$EntryPort = ${entry_port}
+while (\$true) {
+  \$Forwards = @(
+    "-L"; "\${LocalProxyPort}:127.0.0.1:\$EntryPort";
+POWERSHELL_HEAD
+    discover_service_ports "$ds_dir" | while IFS='|' read -r key port _label; do
+      [[ "$key" == "REVERSE_PROXY_PORT" ]] && continue
+      printf '    "-L"; "%s:127.0.0.1:%s";\n' "$port" "$port"
+    done
+    cat << 'POWERSHELL_TAIL'
+  )
+  ssh -N -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -p $SshPort @Forwards "root@$Host"
+  Write-Host "[!] Connection lost. Reconnecting in ${ReconnectDelay}s..."
+  Start-Sleep -Seconds $ReconnectDelay
+  if ($ReconnectDelay -lt 60) {
+    $ReconnectDelay = [Math]::Min($ReconnectDelay * 2, 60)
+  }
+}
+POWERSHELL_TAIL
+  } > "$script_path"
+  log "Generated PowerShell tunnel script: ${script_path}"
+}
+
 # ── Print access info (split into sub-functions) ───────────────────────────
 print_access_info() {
   local ds_dir="$1"
   local env_file="${ds_dir}/.env"
   local host_ip ssh_port
+  local dash_api_status dashboard_status webui_status
   host_ip="${PUBLIC_IPADDR:-$(curl -sf --max-time 5 ifconfig.me || echo '<your-vast-ip>')}"
   ssh_port="${VAST_TCP_PORT_22:-22}"
+  dash_api_status=$(docker inspect --format '{{.State.Status}}' dream-dashboard-api 2>/dev/null || echo "missing")
+  dashboard_status=$(docker inspect --format '{{.State.Status}}' dream-dashboard 2>/dev/null || echo "missing")
+  webui_status=$(docker inspect --format '{{.State.Status}}' dream-webui 2>/dev/null \
+    || docker inspect --format '{{.State.Status}}' dream-open-webui 2>/dev/null \
+    || echo "missing")
 
   echo ""
-  echo -e "${CYAN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo -e "${CYAN}${BOLD}  DreamServer is ready on Vast.ai!${NC}"
-  echo -e "${CYAN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  if [[ "$dash_api_status" == "running" && ( "$dashboard_status" == "running" || "$webui_status" == "running" ) ]]; then
+    echo -e "${CYAN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}${BOLD}  DreamServer is ready on Vast.ai!${NC}"
+    echo -e "${CYAN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  else
+    echo -e "${YELLOW}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${YELLOW}${BOLD}  DreamServer access info (core services still starting)${NC}"
+    echo -e "${YELLOW}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  fi
   echo ""
   echo -e "${BOLD}Working directory:${NC} ${ds_dir}"
   echo -e "${BOLD}Setup log:${NC}         ${LOGFILE}"
   echo ""
 
-  _print_proxy_section "$ds_dir" "$env_file" "$host_ip"
   _print_ssh_section "$ds_dir" "$env_file" "$host_ip" "$ssh_port"
   _print_service_list "$ds_dir"
   _print_model_upload_help "$ds_dir" "$host_ip" "$ssh_port"
@@ -331,15 +424,50 @@ print_access_info() {
 
 _print_proxy_section() {
   local ds_dir="$1" env_file="$2" host_ip="$3"
-  local proxy_port
+  local proxy_port root_code proxy_ready="false"
   proxy_port="$(env_get "$env_file" "REVERSE_PROXY_PORT")"
   if [[ -n "$proxy_port" ]] && pgrep -x caddy > /dev/null 2>&1; then
-    echo -e "${GREEN}${BOLD}▸ Reverse Proxy Active (single-port access!)${NC}"
+    root_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "http://127.0.0.1:${proxy_port}/" || echo "000")
+    [[ "$root_code" =~ ^[23] ]] && proxy_ready="true"
+
+    # On Vast.ai, the container's internal port is remapped to a random
+    # external port exposed in VAST_TCP_PORT_<internal>. If that var exists,
+    # the public URL must use the mapped port — not the internal one.
+    local ext_port_var="VAST_TCP_PORT_${proxy_port}"
+    local ext_port="${!ext_port_var:-}"
+    if [[ "$proxy_ready" == "true" ]]; then
+      echo -e "${GREEN}${BOLD}▸ Reverse Proxy Active (single-port access!)${NC}"
+    else
+      echo -e "${YELLOW}${BOLD}▸ Reverse proxy process is running (backends still starting)${NC}"
+    fi
     echo ""
-    echo -e "  Dashboard:    ${BOLD}http://${host_ip}:${proxy_port}/${NC}"
-    echo "    Open WebUI:     http://${host_ip}:${proxy_port}/chat/"
-    echo "    n8n Workflows:  http://${host_ip}:${proxy_port}/n8n/"
-    echo "    Health Status:  http://${host_ip}:${proxy_port}/health"
+    if [[ -n "$ext_port" ]]; then
+      echo -e "  ${BOLD}Public (Vast.ai mapped):${NC}"
+      echo -e "    Dashboard:    ${BOLD}http://${host_ip}:${ext_port}/${NC}"
+      echo "    Open WebUI:     http://${host_ip}:${ext_port}/chat/"
+      echo "    n8n Workflows:  http://${host_ip}:${ext_port}/n8n/"
+      echo "    Health Status:  http://${host_ip}:${ext_port}/health"
+      echo ""
+      echo -e "  ${DIM}(Internal port ${proxy_port} is remapped by Vast.ai to ${ext_port}.)${NC}"
+    else
+      echo -e "  Dashboard:    ${BOLD}http://${host_ip}:${proxy_port}/${NC}"
+      echo "    Open WebUI:     http://${host_ip}:${proxy_port}/chat/"
+      echo "    n8n Workflows:  http://${host_ip}:${proxy_port}/n8n/"
+      echo "    Health Status:  http://${host_ip}:${proxy_port}/health"
+      echo ""
+      echo -e "  ${YELLOW}Note:${NC} no VAST_TCP_PORT_${proxy_port} env var was found."
+      echo -e "  If the URL above is unreachable, the Vast.ai instance didn't expose"
+      echo -e "  port ${proxy_port}. Either:"
+      echo -e "    • Edit the instance → add ${proxy_port} to 'On-start script' port list, or"
+      echo -e "    • Use the SSH tunnel below (always works)."
+    fi
+
+    if [[ "$proxy_ready" != "true" ]]; then
+      echo ""
+      echo -e "  ${YELLOW}Warning:${NC} proxy is listening, but dashboard/open-webui backends are not healthy yet."
+      echo -e "  Run: ${BOLD}bash ${SCRIPT_NAME} --fix${NC}"
+    fi
+
     echo ""
   fi
 }
@@ -350,27 +478,50 @@ _print_ssh_section() {
   echo ""
 
   local tunnel_flags=""
-  while IFS='|' read -r _key port _label; do
+  local entry_port windows_local_proxy_port
+  entry_port="$(env_get "$env_file" "DASHBOARD_PORT")"
+  entry_port="${entry_port:-3001}"
+  windows_local_proxy_port="58080"
+
+  while IFS='|' read -r key port _label; do
+    [[ "$key" == "REVERSE_PROXY_PORT" ]] && continue
     tunnel_flags="${tunnel_flags} -L ${port}:127.0.0.1:${port}"
   done < <(discover_service_ports "$ds_dir")
 
-  echo -e "  ${BOLD}Linux / macOS:${NC}"
-  echo -e "${DIM}ssh -p ${ssh_port} -i ~/.ssh/id_ed25519${tunnel_flags} root@${host_ip}${NC}"
-  echo ""
-  echo -e "  ${BOLD}Windows PowerShell (one line):${NC}"
-  echo -e "${DIM}ssh -p ${ssh_port} -i \$env:USERPROFILE\\.ssh\\id_ed25519${tunnel_flags} root@${host_ip}${NC}"
+  echo -e "  ${BOLD}Windows PowerShell (all ports, recommended):${NC}"
+  echo -e "${DIM}ssh -N -o ExitOnForwardFailure=yes -p ${ssh_port} -i \$env:USERPROFILE\\.ssh\\id_ed25519 -L ${windows_local_proxy_port}:127.0.0.1:${entry_port}${tunnel_flags} root@${host_ip}${NC}"
+  echo -e "${DIM}Open dashboard: http://127.0.0.1:3001/${NC}"
+  echo -e "${DIM}Easy alias:    http://127.0.0.1:${windows_local_proxy_port}/${NC}"
   echo ""
 
-  if [[ -f "${ds_dir}/connect-tunnel.sh" ]]; then
-    echo -e "  ${BOLD}Auto-reconnect:${NC} scp -P ${ssh_port} root@${host_ip}:${ds_dir}/connect-tunnel.sh . && bash connect-tunnel.sh"
-    echo ""
-  fi
+  echo -e "  ${BOLD}Linux / macOS (all ports):${NC}"
+  echo -e "${DIM}ssh -N -p ${ssh_port} -i ~/.ssh/id_ed25519 -L ${windows_local_proxy_port}:127.0.0.1:${entry_port}${tunnel_flags} root@${host_ip}${NC}"
+  echo -e "${DIM}Open dashboard: http://127.0.0.1:3001/${NC}"
+  echo ""
+
+  echo -e "  ${BOLD}Auto-reconnect scripts:${NC}"
+  echo -e "  ${DIM}Windows: scp -P ${ssh_port} root@${host_ip}:${ds_dir}/connect-tunnel.ps1 .${NC}"
+  echo -e "  ${DIM}         powershell -ExecutionPolicy Bypass -File .\\connect-tunnel.ps1${NC}"
+  echo -e "  ${DIM}Linux/macOS/WSL: scp -P ${ssh_port} root@${host_ip}:${ds_dir}/connect-tunnel.sh .${NC}"
+  echo -e "  ${DIM}                 FULL_TUNNEL=1 bash connect-tunnel.sh${NC}"
+  echo ""
+  echo -e "  ${DIM}If Windows reports \"bind [127.0.0.1]:PORT: Permission denied\",${NC}"
+  echo -e "  ${DIM}that local port is reserved by Hyper-V/WinNAT. Use a different local port:${NC}"
+  echo -e "  ${DIM}  -L 58080:127.0.0.1:${entry_port}   (or any free high port)${NC}"
+  echo -e "  ${DIM}Optional admin fix:${NC}"
+  echo -e "  ${DIM}  net stop winnat; net start winnat   (run PowerShell as admin)${NC}"
+  echo -e "  ${DIM}Check excluded ranges: netsh int ipv4 show excludedportrange protocol=tcp${NC}"
+  echo -e "  ${DIM}If you see \"channel N: open failed: connect failed: Connection refused\",${NC}"
+  echo -e "  ${DIM}the SSH tunnel is up, but that specific remote service is not listening yet.${NC}"
+  echo ""
+
 }
 
 _print_service_list() {
   local ds_dir="$1"
   echo -e "${BOLD}Services:${NC}"
-  discover_service_ports "$ds_dir" | while IFS='|' read -r _key port label; do
+  discover_service_ports "$ds_dir" | while IFS='|' read -r key port label; do
+    [[ "$key" == "REVERSE_PROXY_PORT" ]] && continue
     printf "  %-22s http://localhost:%s\n" "${label}:" "${port}"
   done
   echo ""

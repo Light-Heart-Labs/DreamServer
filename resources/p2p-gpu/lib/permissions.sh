@@ -45,8 +45,10 @@ apply_data_acl() {
   find "$dir" -type f -exec chmod 0664 {} + || warn "chmod files failed on ${dir} (non-fatal)"
 
   if command -v setfacl &>/dev/null; then
-    setfacl -R -d -m "u::rwx,g::rwx,o::rx" "$dir" || warn "setfacl default failed on ${dir} (non-fatal)"
-    setfacl -R -m "g::rwx" "$dir" || warn "setfacl current failed on ${dir} (non-fatal)"
+    # dashboard-api runs as uid 1000 (dreamer) and needs write access to /data
+    # for .extensions-lock and token_counter.json.
+    setfacl -R -d -m "u::rwx,u:1000:rwx,g::rwx,o::rx" "$dir" || warn "setfacl default failed on ${dir} (non-fatal)"
+    setfacl -R -m "u:1000:rwx,g::rwx" "$dir" || warn "setfacl current failed on ${dir} (non-fatal)"
     log "Applied POSIX ACLs on ${dir}"
   else
     # Last-resort fallback: only when ACL tools genuinely unavailable
@@ -237,8 +239,8 @@ echo "[*] Fixing permissions on \${DATA_DIR}..."
 if command -v setfacl &>/dev/null; then
   find "\$DATA_DIR" -type d -exec chmod 2775 {} + || warn "chmod dirs failed (non-fatal)"
   find "\$DATA_DIR" -type f -exec chmod 0664 {} + || warn "chmod files failed (non-fatal)"
-  setfacl -R -d -m "u::rwx,g::rwx,o::rx" "\$DATA_DIR" || warn "setfacl default failed (non-fatal)"
-  setfacl -R -m "g::rwx" "\$DATA_DIR" || warn "setfacl current failed (non-fatal)"
+  setfacl -R -d -m "u::rwx,u:1000:rwx,g::rwx,o::rx" "\$DATA_DIR" || warn "setfacl default failed (non-fatal)"
+  setfacl -R -m "u:1000:rwx,g::rwx" "\$DATA_DIR" || warn "setfacl current failed (non-fatal)"
 else
   chmod -R a+rwX "\$DATA_DIR" || warn "chmod fallback failed (non-fatal)"
 fi

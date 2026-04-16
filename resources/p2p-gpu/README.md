@@ -14,6 +14,26 @@ bash setup.sh --status     # Health check
 bash setup.sh --teardown   # Stop all services (save $$$)
 ```
 
+## Quick Recovery (If Phase 9 Fails)
+
+If setup reached "Starting services" but URLs are unreachable:
+
+```bash
+bash setup.sh --fix
+bash setup.sh --status
+bash setup.sh --info
+```
+
+This re-applies CPU caps, permissions, network fixes, restarts compose, and
+prints fresh access commands.
+
+On Windows, use the all-port tunnel from `--info` (it uses a safe local alias
+`58080 -> dashboard` plus direct localhost forwards for service ports).
+
+`--fix` regenerates reconnect scripts:
+- `connect-tunnel.sh` (Linux/macOS/WSL)
+- `connect-tunnel.ps1` (Windows PowerShell)
+
 ## What It Does
 
 The setup script handles 28 known issues with P2P GPU environments:
@@ -128,5 +148,3 @@ provider-specific fixes.
 - Multi-UID directories documented with reasons for broader access
 
 ## Related
-
-

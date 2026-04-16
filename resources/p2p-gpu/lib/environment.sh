@@ -8,7 +8,9 @@
 #
 # Expects: DREAM_USER, DREAM_HOME, LOGFILE, log(), warn(), err()
 # Provides: env_set(), env_get(), port_in_use(), find_dream_dir(),
-#           cap_cpu_in_yaml(), fix_ownership(), wait_for_http(),
+#           ensure_dream_cli_command(),
+#           cap_cpu_in_yaml(), cap_cpu_in_files(), get_compose_cpu_ceiling(),
+#           compute_safe_cpu_cap(), fix_ownership(), wait_for_http(),
 #           detect_gpu(), apply_post_install_fixes()
 #
 # Modder notes:
@@ -44,7 +46,9 @@ env_set() {
 # Read a key from .env
 env_get() {
   local file="$1" key="$2"
-  grep "^${key}=" "$file" 2>&1 | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" || echo ""
+  [[ ! -f "$file" ]] && return 0
+  grep "^${key}=" "$file" 2>/dev/null | head -1 | cut -d= -f2- \
+    | sed 's/[[:space:]]#.*$//' | tr -d '"' | tr -d "'" || echo ""
 }
 
 # Check if a TCP port is in use
@@ -73,14 +77,127 @@ find_dream_dir() {
   return 1
 }
 
-# Cap CPU values in YAML files to actual CPU count
+# Install a stable `dream` command wrapper for root/non-root shells.
+ensure_dream_cli_command() {
+  local ds_dir="$1"
+  local cli_path="${ds_dir}/dream-cli"
+  local wrapper="/usr/local/bin/dream"
+
+  if [[ ! -x "$cli_path" ]]; then
+    warn "dream-cli not executable at ${cli_path} (skipping global dream command)"
+    return 0
+  fi
+
+  cat > "$wrapper" << EOF
+#!/usr/bin/env bash
+set -euo pipefail
+export DREAM_HOME="\${DREAM_HOME:-${ds_dir}}"
+cd "${ds_dir}"
+exec "${cli_path}" "\$@"
+EOF
+  chmod +x "$wrapper" || warn "chmod failed on ${wrapper} (non-fatal)"
+  log "Installed global dream command: ${wrapper}"
+}
+
+# Cap CPU values in one YAML file to max_cpu.
+# Handles any numeric form (N, N.M) with optional quotes. Values <= max_cpu
+# are left alone; values > max_cpu are lowered to max_cpu.
+_cap_cpu_in_yaml_file() {
+  local file="$1" max_cpu="$2"
+  [[ ! -f "$file" ]] && return 0
+  python3 - "$file" "$max_cpu" <<'PY'
+import re, sys
+path, cap = sys.argv[1], float(sys.argv[2])
+try:
+  with open(path, "r", encoding="utf-8") as fh:
+    src = fh.read()
+except OSError:
+  sys.exit(0)
+
+def parse_numeric(value):
+  raw = value.strip().strip("'\"")
+  if re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", raw):
+    return float(raw)
+  m = re.fullmatch(r"\$\{[^:}]+:-([0-9]+(?:\.[0-9]+)?)\}", raw)
+  if m:
+    return float(m.group(1))
+  return None
+
+def repl(m):
+  indent, rhs, comment = m.group(1), m.group(2).strip(), m.group(3) or ""
+  q = "'"
+  if rhs[:1] in ("'", '"'):
+    q = rhs[0]
+
+  numeric = parse_numeric(rhs)
+  needs_cap = ("${" in rhs) or (numeric is None) or (numeric > cap)
+  if needs_cap:
+    return f"{indent}cpus: {q}{cap:g}{q}{comment}"
+  return m.group(0)
+
+pat = re.compile(r"^(\s*)cpus:\s*([^#\n]+?)(\s+#.*)?$", re.M)
+new = pat.sub(repl, src)
+if new != src:
+  with open(path, "w", encoding="utf-8") as fh:
+    fh.write(new)
+PY
+}
+
+# Cap CPU values in all YAML files under a directory tree.
 cap_cpu_in_yaml() {
   local dir="$1" max_cpu="$2"
-  find "$dir" \( -name "*.yml" -o -name "*.yaml" \) -type f | while read -r f; do
-    if grep -qE "cpus:\s*['\"]?[0-9]+\.0['\"]?" "$f"; then
-      sed -i -E "s/cpus:\s*['\"]?([0-9]+)\.0['\"]?/cpus: '${max_cpu}.0'/g" "$f"
-    fi
+  while IFS= read -r -d '' f; do
+    _cap_cpu_in_yaml_file "$f" "$max_cpu"
+  done < <(find "$dir" \( -name "*.yml" -o -name "*.yaml" \) -type f -print0)
+  return 0
+}
+
+# Cap CPU values in a specific list of YAML files.
+cap_cpu_in_files() {
+  local max_cpu="$1"
+  shift
+  local f
+  for f in "$@"; do
+    _cap_cpu_in_yaml_file "$f" "$max_cpu"
   done
+  return 0
+}
+
+# Return the CPU ceiling Docker can actually schedule, accounting for
+# container-level CPU quotas that can differ from nproc.
+get_compose_cpu_ceiling() {
+  local host_nproc docker_ncpu ceiling
+
+  host_nproc=$(nproc 2>/dev/null || echo 1)
+  if [[ ! "$host_nproc" =~ ^[0-9]+$ ]] || [[ "$host_nproc" -lt 1 ]]; then
+    host_nproc=1
+  fi
+
+  ceiling="$host_nproc"
+  docker_ncpu=$(docker info --format '{{.NCPU}}' 2>/dev/null || echo "")
+  if [[ "$docker_ncpu" =~ ^[0-9]+$ ]] && [[ "$docker_ncpu" -gt 0 ]] && [[ "$docker_ncpu" -lt "$ceiling" ]]; then
+    ceiling="$docker_ncpu"
+  fi
+
+  echo "$ceiling"
+}
+
+# Compute a safe cpus: cap value with one-core headroom.
+# Optional arg 1: hard ceiling discovered from daemon error output.
+compute_safe_cpu_cap() {
+  local forced_ceiling="${1:-}"
+  local ceiling
+
+  ceiling=$(get_compose_cpu_ceiling)
+  if [[ "$forced_ceiling" =~ ^[0-9]+$ ]] && [[ "$forced_ceiling" -gt 0 ]] && [[ "$forced_ceiling" -lt "$ceiling" ]]; then
+    ceiling="$forced_ceiling"
+  fi
+
+  if [[ "$ceiling" -gt 1 ]]; then
+    echo $((ceiling - 1))
+  else
+    echo 1
+  fi
 }
 
 # Fix ownership recursively, only if needed
@@ -127,7 +244,7 @@ detect_gpu() {
     GPU_TOTAL_VRAM=0
     while read -r v; do GPU_TOTAL_VRAM=$(( GPU_TOTAL_VRAM + v )); done \
       < <(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null)
-    [[ $GPU_TOTAL_VRAM -eq 0 ]] && GPU_TOTAL_VRAM=$GPU_VRAM
+    if [[ $GPU_TOTAL_VRAM -eq 0 ]]; then GPU_TOTAL_VRAM=$GPU_VRAM; fi
 
   elif command -v rocm-smi &>/dev/null || [[ -e /dev/kfd ]]; then
     GPU_BACKEND="amd"
@@ -165,8 +282,9 @@ apply_post_install_fixes() {
   local gpu_backend="${2:-auto}"
   local data_dir="${ds_dir}/data"
   local env_file="${ds_dir}/.env"
-  local cpu_count
-  cpu_count=$(nproc)
+  local cpu_count docker_cpu compose_ceiling max_cpu
+  cpu_count=$(nproc 2>/dev/null || echo 1)
+  docker_cpu=$(docker info --format '{{.NCPU}}' 2>/dev/null || echo "unknown")
 
   [[ "$gpu_backend" == "auto" ]] && gpu_backend=$(detect_gpu_backend)
 
@@ -175,16 +293,30 @@ apply_post_install_fixes() {
     usermod -aG docker "$DREAM_USER" || warn "docker group add failed (non-fatal)"
   fi
 
-  # CPU limit fix — cap to (actual - 1) if < 16
-  if [[ $cpu_count -lt 16 ]]; then
-    local max_cpu=$(( cpu_count > 1 ? cpu_count - 1 : 1 ))
-    cap_cpu_in_yaml "$ds_dir" "$max_cpu"
-    log "CPU limits capped to ${max_cpu} (instance has ${cpu_count} cores)"
+  # CPU limit fix — cap any cpus: value that exceeds (nproc - 1).
+  # Always run: cheap no-op on files whose values already fit.
+  compose_ceiling=$(get_compose_cpu_ceiling)
+  max_cpu=$(compute_safe_cpu_cap)
+  cap_cpu_in_yaml "$ds_dir" "$max_cpu"
+  log "CPU limits capped to ${max_cpu} (nproc=${cpu_count}, docker=${docker_cpu}, ceiling=${compose_ceiling})"
+
+  # Keep env-substituted CPU limits safe for overlays that use
+  # ${LLAMA_CPU_LIMIT:-...} syntax.
+  if [[ -f "$env_file" ]]; then
+    local llama_limit="${max_cpu}.0"
+    local llama_reservation="2.0"
+    if [[ "$max_cpu" -lt 2 ]]; then
+      llama_reservation="1.0"
+    fi
+    env_set "$env_file" "LLAMA_CPU_LIMIT" "$llama_limit"
+    env_set "$env_file" "LLAMA_CPU_RESERVATION" "$llama_reservation"
+    log "LLAMA CPU env caps set to limit=${llama_limit}, reservation=${llama_reservation}"
   fi
 
   _apply_permission_fixes "$ds_dir" "$data_dir" "$gpu_backend"
   _apply_compatibility_fixes "$ds_dir"
   _apply_env_defaults "$ds_dir" "$env_file" "$data_dir"
+  ensure_dream_cli_command "$ds_dir"
 
   log "Post-install fixes applied (including ACL-based permission system)"
 }

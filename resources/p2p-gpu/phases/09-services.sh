@@ -35,12 +35,18 @@ _run_health_check() {
 
   echo -n "  Waiting for services "
   while [[ $elapsed -lt $max_wait ]]; do
-    local healthy running
+    local healthy running dash_api_status dashboard_status webui_status
     healthy=$(docker ps --filter "health=healthy" --format '{{.Names}}' | wc -l)
     running=$(docker ps --format '{{.Names}}' | wc -l)
+    dash_api_status=$(docker inspect --format '{{.State.Status}}' dream-dashboard-api 2>/dev/null || echo "missing")
+    dashboard_status=$(docker inspect --format '{{.State.Status}}' dream-dashboard 2>/dev/null || echo "missing")
+    webui_status=$(docker inspect --format '{{.State.Status}}' dream-webui 2>/dev/null \
+      || docker inspect --format '{{.State.Status}}' dream-open-webui 2>/dev/null \
+      || echo "missing")
     echo -n "."
 
-    if [[ $healthy -ge 3 ]]; then
+    if [[ $healthy -ge 3 && "$dash_api_status" == "running" \
+      && ( "$dashboard_status" == "running" || "$webui_status" == "running" ) ]]; then
       echo ""
       log "Core services healthy (${healthy}/${running} containers)"
       return 0
@@ -123,17 +129,23 @@ _report_service_status() {
   echo -e "${BOLD}Service Status:${NC}"
   echo ""
 
-  local -a core_services=(llama-server open-webui dashboard dashboard-api)
+  local -a core_services=(
+    "llama-server|dream-llama-server"
+    "open-webui|dream-webui"
+    "dashboard|dream-dashboard"
+    "dashboard-api|dream-dashboard-api"
+  )
   local -a heavy_services=()
   local -a normal_services=()
 
   while IFS='|' read -r sid _pe _pd _name _cat _proxy startup _cname; do
     [[ -z "$sid" ]] && continue
     case "$sid" in open-webui|dashboard|dashboard-api) continue ;; esac
+    local container_name="${_cname:-dream-${sid}}"
     if [[ "$startup" == "heavy" ]]; then
-      heavy_services+=("$sid")
+      heavy_services+=("${sid}|${container_name}")
     else
-      normal_services+=("$sid")
+      normal_services+=("${sid}|${container_name}")
     fi
   done < <(discover_all_services "$DS_DIR")
 
@@ -146,11 +158,18 @@ _report_service_status() {
 }
 
 _report_containers() {
-  for svc in "$@"; do
-    local container="dream-${svc}"
+  for entry in "$@"; do
+    local svc container
+    IFS='|' read -r svc container <<< "$entry"
+    [[ -z "$container" ]] && container="dream-${svc}"
+
     local status health
-    status=$(docker inspect --format '{{.State.Status}}' "$container" 2>&1 || echo "not found")
-    health=$(docker inspect --format '{{.State.Health.Status}}' "$container" 2>&1 || echo "none")
+    if ! status=$(docker inspect --format '{{.State.Status}}' "$container" 2>/dev/null); then
+      status="not found"
+    fi
+    if ! health=$(docker inspect --format '{{.State.Health.Status}}' "$container" 2>/dev/null); then
+      health="none"
+    fi
 
     if [[ "$health" == "healthy" ]]; then
       echo -e "  ${GREEN}✓${NC} ${svc}: healthy"
@@ -167,14 +186,21 @@ _report_containers() {
 }
 
 _report_heavy() {
-  for svc in "$@"; do
-    local container="dream-${svc}"
+  for entry in "$@"; do
+    local svc container
+    IFS='|' read -r svc container <<< "$entry"
+    [[ -z "$container" ]] && container="dream-${svc}"
+
     local status
-    status=$(docker inspect --format '{{.State.Status}}' "$container" 2>&1 || echo "not found")
+    if ! status=$(docker inspect --format '{{.State.Status}}' "$container" 2>/dev/null); then
+      status="not found"
+    fi
     [[ "$status" == "not found" || "$status" == "exited" ]] && continue
 
     local health
-    health=$(docker inspect --format '{{.State.Health.Status}}' "$container" 2>&1 || echo "none")
+    if ! health=$(docker inspect --format '{{.State.Health.Status}}' "$container" 2>/dev/null); then
+      health="none"
+    fi
     if [[ "$health" == "healthy" ]]; then
       echo -e "  ${GREEN}✓${NC} ${svc}: ready"
     elif [[ "$status" == "running" ]]; then
@@ -186,14 +212,21 @@ _report_heavy() {
 }
 
 _report_normal() {
-  for svc in "$@"; do
-    local container="dream-${svc}"
+  for entry in "$@"; do
+    local svc container
+    IFS='|' read -r svc container <<< "$entry"
+    [[ -z "$container" ]] && container="dream-${svc}"
+
     local status
-    status=$(docker inspect --format '{{.State.Status}}' "$container" 2>&1 || echo "not found")
+    if ! status=$(docker inspect --format '{{.State.Status}}' "$container" 2>/dev/null); then
+      status="not found"
+    fi
     [[ "$status" == "not found" || "$status" == "exited" ]] && continue
 
     local health
-    health=$(docker inspect --format '{{.State.Health.Status}}' "$container" 2>&1 || echo "none")
+    if ! health=$(docker inspect --format '{{.State.Health.Status}}' "$container" 2>/dev/null); then
+      health="none"
+    fi
     if [[ "$health" == "healthy" ]]; then
       echo -e "  ${GREEN}✓${NC} ${svc}: healthy"
     elif [[ "$status" == "running" ]]; then

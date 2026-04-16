@@ -6,7 +6,9 @@
 # Purpose: Quick restart — re-apply fixes and start services
 #
 # Expects: log(), warn(), err(), find_dream_dir(), detect_gpu_backend(),
-#          apply_post_install_fixes(), start_services(), print_access_info()
+#          apply_post_install_fixes(), start_services(),
+#          generate_ssh_tunnel_script(), generate_powershell_tunnel_script(),
+#          print_access_info()
 # Provides: Running DreamServer with latest fixes applied
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -25,5 +27,7 @@ cmd_resume() {
 
   apply_post_install_fixes "$ds_dir" "$gpu_backend"
   start_services "$ds_dir"
+  generate_ssh_tunnel_script "$ds_dir"
+  generate_powershell_tunnel_script "$ds_dir"
   print_access_info "$ds_dir"
 }

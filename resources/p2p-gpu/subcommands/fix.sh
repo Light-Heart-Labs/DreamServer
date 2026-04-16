@@ -4,11 +4,12 @@
 # ============================================================================
 # Part of: p2p-gpu/subcommands/
 # Purpose: Apply fixes without full reinstall (port rebind, network fix,
-#          CPU cap, permissions, proxy restart)
+#          CPU cap, permissions, service restart)
 #
 # Expects: log(), warn(), err(), find_dream_dir(), detect_gpu_backend(),
-#          env_get(), expose_ports_for_vastai(), apply_post_install_fixes(),
-#          start_services(), setup_reverse_proxy(), print_access_info(),
+#          expose_ports_for_vastai(), apply_post_install_fixes(),
+#          start_services(), generate_ssh_tunnel_script(),
+#          generate_powershell_tunnel_script(), print_access_info(),
 #          get_compose_cmd()
 # Provides: All runtime fixes applied and services restarted
 #
@@ -17,13 +18,12 @@
 
 set -euo pipefail
 
-cmd_fix() {
+  cmd_fix() {
   step "Applying fixes (no reinstall)"
   local ds_dir
   ds_dir=$(find_dream_dir) || { err "DreamServer directory not found. Run full install first."; exit 1; }
 
   cd "$ds_dir"
-  local env_file="${ds_dir}/.env"
   local gpu_backend
   gpu_backend=$(detect_gpu_backend)
 
@@ -53,11 +53,8 @@ cmd_fix() {
   log "Fixes applied. Restarting services..."
   start_services "$ds_dir"
 
-  local proxy_port
-  proxy_port=$(env_get "$env_file" "REVERSE_PROXY_PORT")
-  if [[ -n "$proxy_port" ]]; then
-    setup_reverse_proxy "$ds_dir" "$proxy_port" || warn "Reverse proxy unavailable (non-fatal)"
-  fi
+  generate_ssh_tunnel_script "$ds_dir"
+  generate_powershell_tunnel_script "$ds_dir"
 
   print_access_info "$ds_dir"
   log "Fix complete!"

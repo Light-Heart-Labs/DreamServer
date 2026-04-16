@@ -101,7 +101,7 @@ discover_service_ports() {
 
   # Emit ports explicitly set in .env
   grep -E '^[A-Z_]+_PORT=' "$source_file" | while IFS='=' read -r key value; do
-    value=$(echo "$value" | tr -d '"' | tr -d "'")
+    value=$(echo "$value" | sed 's/[[:space:]]#.*$//' | tr -d '"' | tr -d "'" | xargs)
     [[ -z "$value" ]] && continue
     local label="${PORT_LABELS[$key]:-$key}"
     echo "${key}|${value}|${label}"
@@ -178,10 +178,159 @@ _cleanup_stale_network() {
   docker network rm dream-network || warn "network rm failed (non-fatal)"
 }
 
+_set_safe_llama_cpu_caps() {
+  local env_file="$1" max_cpu="$2"
+  [[ ! -f "$env_file" ]] && return 0
+
+  local llama_limit="${max_cpu}.0"
+  local llama_reservation="2.0"
+  if [[ "$max_cpu" -lt 2 ]]; then
+    llama_reservation="1.0"
+  fi
+
+  env_set "$env_file" "LLAMA_CPU_LIMIT" "$llama_limit"
+  env_set "$env_file" "LLAMA_CPU_RESERVATION" "$llama_reservation"
+}
+
+_extract_cpu_ceiling_from_compose_error() {
+  local compose_err="$1"
+  local ceiling=""
+
+  ceiling=$(tr -d '\r' < "$compose_err" | grep -Eo 'range of CPUs is from [0-9.]+ to [0-9.]+' 2>/dev/null \
+    | head -1 | awk '{print $NF}' | cut -d'.' -f1 || true)
+
+  if [[ -z "$ceiling" ]]; then
+    ceiling=$(tr -d '\r' < "$compose_err" | grep -Eo 'only [0-9]+ CPUs available' 2>/dev/null \
+      | head -1 | awk '{print $2}' || true)
+  fi
+
+  if [[ "$ceiling" =~ ^[0-9]+$ ]] && [[ "$ceiling" -gt 0 ]]; then
+    echo "$ceiling"
+  fi
+}
+
+_compose_output_has_cpu_error() {
+  local compose_err="$1"
+  tr -d '\r' < "$compose_err" | grep -Eqi "range of CPUs is from|only [0-9]+ CPUs available|invalid.*cpu|NanoCPUs"
+}
+
+_resolve_compose_files_from_flags() {
+  local ds_dir="$1" compose_flags="$2"
+  local prev="" token
+
+  for token in $compose_flags; do
+    if [[ "$prev" == "-f" ]]; then
+      if [[ "$token" == /* ]]; then
+        echo "$token"
+      else
+        echo "${ds_dir}/${token}"
+      fi
+      prev=""
+      continue
+    fi
+    [[ "$token" == "-f" ]] && prev="-f"
+  done
+}
+
+_compose_ansi_flag() {
+  local compose_cmd="$1"
+  case "$compose_cmd" in
+    "docker compose") echo "--ansi never" ;;
+    "docker-compose") echo "--no-ansi" ;;
+    *) echo "" ;;
+  esac
+}
+
+_apply_host_cpu_caps() {
+  local ds_dir="$1" env_file="$2" daemon_ceiling="${3:-}" compose_flags="${4:-}"
+  local nproc_count docker_ncpu compose_ceiling max_cpu
+  local -a compose_files=()
+
+  nproc_count=$(nproc 2>/dev/null || echo 1)
+  docker_ncpu=$(docker info --format '{{.NCPU}}' 2>/dev/null || echo "unknown")
+  compose_ceiling=$(get_compose_cpu_ceiling)
+  max_cpu=$(compute_safe_cpu_cap "$daemon_ceiling")
+
+  cap_cpu_in_yaml "$ds_dir" "$max_cpu"
+  if [[ -n "$compose_flags" ]]; then
+    mapfile -t compose_files < <(_resolve_compose_files_from_flags "$ds_dir" "$compose_flags")
+    if [[ "${#compose_files[@]}" -gt 0 ]]; then
+      cap_cpu_in_files "$max_cpu" "${compose_files[@]}"
+    fi
+  fi
+  _set_safe_llama_cpu_caps "$env_file" "$max_cpu"
+  log "Ensured compose CPU limits <= ${max_cpu} cores (nproc=${nproc_count}, docker=${docker_ncpu}, ceiling=${compose_ceiling}${daemon_ceiling:+, daemon=${daemon_ceiling}})"
+}
+
+_compose_up() {
+  local ds_dir="$1" compose_cmd="$2" compose_flags="$3" compose_err="$4"
+  shift 4
+  local ansi_flag cmd
+  ansi_flag=$(_compose_ansi_flag "$compose_cmd")
+  cmd="${compose_cmd}"
+  [[ -n "$ansi_flag" ]] && cmd="${cmd} ${ansi_flag}"
+  cmd="${cmd} ${compose_flags} up -d"
+  if [[ "$#" -gt 0 ]]; then
+    cmd="${cmd} $*"
+  fi
+
+  su - "$DREAM_USER" -c "cd ${ds_dir} && ${cmd}" 2>&1 \
+    | tee -a "$LOGFILE" | tee "$compose_err"
+}
+
+_compose_up_with_cpu_heal() {
+  local ds_dir="$1" compose_cmd="$2" compose_flags="$3" env_file="$4" scope="$5"
+  shift 5
+  local compose_err daemon_ceiling
+  compose_err=$(mktemp)
+
+  if _compose_up "$ds_dir" "$compose_cmd" "$compose_flags" "$compose_err" "$@"; then
+    rm -f "$compose_err"
+    return 0
+  fi
+
+  if _compose_output_has_cpu_error "$compose_err"; then
+    daemon_ceiling=$(_extract_cpu_ceiling_from_compose_error "$compose_err")
+    if [[ -n "$daemon_ceiling" ]]; then
+      warn "CPU limit exceeds daemon ceiling (${daemon_ceiling}) during ${scope} — recapping and retrying"
+    else
+      warn "CPU limit exceeds host/daemon cores during ${scope} — recapping and retrying"
+    fi
+    _apply_host_cpu_caps "$ds_dir" "$env_file" "$daemon_ceiling" "$compose_flags"
+    if _compose_up "$ds_dir" "$compose_cmd" "$compose_flags" "$compose_err" "$@"; then
+      rm -f "$compose_err"
+      return 0
+    fi
+  fi
+
+  rm -f "$compose_err"
+  return 1
+}
+
+_heal_dashboard_api_proxy() {
+  local env_file="$1"
+  local dashboard_port dashboard_api_port dash_status api_status
+  dashboard_port=$(env_get "$env_file" "DASHBOARD_PORT")
+  dashboard_port="${dashboard_port:-3001}"
+  dashboard_api_port=$(env_get "$env_file" "DASHBOARD_API_PORT")
+  dashboard_api_port="${dashboard_api_port:-3002}"
+
+  dash_status=$(docker inspect --format '{{.State.Status}}' dream-dashboard 2>/dev/null || echo "missing")
+  api_status=$(docker inspect --format '{{.State.Status}}' dream-dashboard-api 2>/dev/null || echo "missing")
+  [[ "$dash_status" != "running" || "$api_status" != "running" ]] && return 0
+
+  if curl -sf --max-time 3 "http://127.0.0.1:${dashboard_api_port}/health" >/dev/null 2>&1 \
+    && ! curl -sf --max-time 4 "http://127.0.0.1:${dashboard_port}/api/status" >/dev/null 2>&1; then
+    warn "Dashboard returned API 502 while dashboard-api is healthy — restarting dashboard to refresh upstream"
+    docker restart dream-dashboard >/dev/null 2>&1 || warn "dashboard restart failed (non-fatal)"
+  fi
+}
+
 # Start DreamServer services via compose
 start_services() {
   local ds_dir="$1"
   local gpu_backend="${2:-auto}"
+  local env_file="${ds_dir}/.env"
   local compose_cmd
   compose_cmd=$(get_compose_cmd)
 
@@ -212,18 +361,37 @@ start_services() {
   fi
 
   _cleanup_stale_network
+  _apply_host_cpu_caps "$ds_dir" "$env_file" "" "$compose_flags"
   expose_ports_for_vastai "$ds_dir"
 
-  su - "$DREAM_USER" -c "cd ${ds_dir} && ${compose_cmd} ${compose_flags} up -d" 2>&1 || {
+  if ! _compose_up_with_cpu_heal "$ds_dir" "$compose_cmd" "$compose_flags" "$env_file" "full compose"; then
     warn "Full compose failed — trying core services only"
-    su - "$DREAM_USER" -c \
-      "cd ${ds_dir} && ${compose_cmd} ${compose_flags} up -d llama-server dashboard-api open-webui dashboard" 2>&1 \
-      || warn "core compose up also failed (non-fatal)"
-  }
+    if ! _compose_up_with_cpu_heal "$ds_dir" "$compose_cmd" "$compose_flags" "$env_file" \
+      "core services" llama-server dashboard-api open-webui dashboard; then
+      warn "Core compose with llama failed — bringing up control plane only"
+      _compose_up_with_cpu_heal "$ds_dir" "$compose_cmd" "$compose_flags" "$env_file" \
+        "control-plane services" dashboard-api dashboard open-webui \
+        || warn "control-plane compose up also failed (non-fatal)"
+    fi
+  fi
+
+  # If compose exited early, some containers may be left in Created state.
+  # Try to start them so users can still reach the control plane.
+  local created
+  created=$(docker ps -a --filter "status=created" --format '{{.Names}}' | grep '^dream-' || true)
+  if [[ -n "$created" ]]; then
+    warn "Some containers are still in Created state — attempting docker start"
+    while IFS= read -r cname; do
+      [[ -z "$cname" ]] && continue
+      docker start "$cname" >/dev/null 2>&1 || warn "start ${cname} failed (non-fatal)"
+    done <<< "$created"
+  fi
 
   # Nudge dashboard if stuck in Created state
   if docker ps -a --format '{{.Names}} {{.Status}}' 2>&1 | grep -q 'dream-dashboard Created'; then
     docker start dream-dashboard || warn "dashboard kick failed (non-fatal)"
     log "Kicked dashboard out of Created state"
   fi
+
+  _heal_dashboard_api_proxy "$env_file"
 }
