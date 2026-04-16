@@ -27,7 +27,7 @@ dream restart
 
 ## How It Works
 
-One env var (`LLM_API_URL`) controls where all services send LLM requests. Three modes set this automatically:
+One env var (`LLM_API_URL`) controls where all services send LLM requests. Three modes are user-selectable via `dream mode`; a fourth (`lemonade`) is auto-configured by the installer on AMD hardware — see [Lemonade Mode](#lemonade-mode-amd--auto-configured) below.
 
 | Mode | `LLM_API_URL` | `DREAM_MODE` | LiteLLM config |
 |------|---------------|--------------|-----------------|
@@ -88,13 +88,28 @@ Local llama-server as primary, cloud APIs as fallback via LiteLLM.
 dream mode hybrid
 ```
 
+### Lemonade Mode (AMD — auto-configured)
+
+**Not user-switchable.** This mode is automatically set by the installer on AMD hardware. `dream mode` does not accept `lemonade` as an argument — only the installer sets it.
+
+All LLM traffic routes through the LiteLLM proxy, which delegates to the Lemonade SDK (`lemonade-server`). The dashboard API uses a distinct `/api/v1` URL prefix in this mode (instead of `/v1`).
+
+| Aspect | Details |
+|--------|---------|
+| **LLM** | Lemonade SDK via LiteLLM proxy |
+| **Cost** | $0 (local inference) |
+| **Requires** | AMD GPU (auto-detected at install time) |
+| **Set by** | Installer (Phase 06), not `dream mode` |
+
+For AMD Strix Halo performance tuning (GRUB, kernel module, sysctl settings), see [`config/system-tuning/README.md`](../config/system-tuning/README.md).
+
 ---
 
 ## .env Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DREAM_MODE` | `local` | Active mode: `local`, `cloud`, or `hybrid` |
+| `DREAM_MODE` | `local` | Active mode: `local`, `cloud`, or `hybrid`; `lemonade` is auto-set on AMD (not user-switchable) |
 | `LLM_API_URL` | `http://llama-server:8080` | Where services send LLM requests |
 | `ANTHROPIC_API_KEY` | *(empty)* | Anthropic API key (cloud/hybrid) |
 | `OPENAI_API_KEY` | *(empty)* | OpenAI API key (cloud/hybrid) |
@@ -177,14 +192,14 @@ User -> Open WebUI -> LiteLLM -> llama-server (local) -> Response
 
 ## Mode Comparison
 
-| Feature | Local | Cloud | Hybrid |
-|---------|-------|-------|--------|
-| Internet required | No | Yes | Yes (for fallback) |
-| API keys required | No | Yes | Recommended |
-| GPU required | Yes | No | Yes |
-| Response quality | Good | Best | Best of both |
-| Cost | $0 | $$$ | $0 or $$$ |
-| Privacy | 100% local | Data to cloud | Local unless fallback |
+| Feature | Local | Cloud | Hybrid | Lemonade (AMD) |
+|---------|-------|-------|--------|----------------|
+| Internet required | No | Yes | Yes (for fallback) | No |
+| API keys required | No | Yes | Recommended | No |
+| GPU required | Yes | No | Yes | Yes (AMD) |
+| Response quality | Good | Best | Best of both | Good |
+| Cost | $0 | $$$ | $0 or $$$ | $0 |
+| Privacy | 100% local | Data to cloud | Local unless fallback | 100% local |
 
 ---
 

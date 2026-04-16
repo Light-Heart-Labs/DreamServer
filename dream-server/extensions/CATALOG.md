@@ -25,6 +25,7 @@ For adding or authoring extensions, see [EXTENSIONS.md](../docs/EXTENSIONS.md) a
 | embeddings      | TEI (Embeddings)        | optional   | 8090        | amd, nvidia    | Text embeddings for RAG. |
 | privacy-shield  | Privacy Shield           | optional   | 8085        | amd, nvidia    | PII detection and protection. |
 | opencode        | OpenCode (IDE)           | optional   | 3003        | amd, nvidia    | In-browser IDE integration. |
+| langfuse        | Langfuse (LLM Observability) | optional | 3006      | amd, nvidia    | LLM tracing, evaluations, and prompt management. |
 
 ## Categories
 
@@ -68,6 +69,7 @@ extensions/services/
   token-spy/manifest.yaml
   privacy-shield/manifest.yaml
   opencode/manifest.yaml
+  langfuse/manifest.yaml
 ```
 
 Each directory typically also has a `compose.yaml` (and optional overlay like `compose.nvidia.yaml`). The resolver `scripts/resolve-compose-stack.sh` builds the full compose command from enabled extensions and the selected GPU backend.

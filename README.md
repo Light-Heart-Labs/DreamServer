@@ -185,7 +185,7 @@ The installer detects your GPU and picks the optimal model automatically. No man
 | Unified RAM | Model | Example Hardware |
 |-------------|-------|-----------------|
 | < 16 GB | Qwen3.5 2B (Q4_K_M) | M1/M2 base (8GB) |
-| 16–24 GB | Qwen3.5 4B (Q4_K_M) | M4 Mac Mini (16GB) |
+| 16–24 GB | Qwen3.5 9B (Q4_K_M) | M4 Mac Mini (16GB) |
 | 32 GB | Qwen3.5 9B (Q4_K_M) | M4 Pro Mac Mini, M3 Max MacBook Pro |
 | 48 GB | Qwen3 30B-A3B (MoE, Q4_K_M) | M4 Pro (48GB), M2 Max (48GB) |
 | 64+ GB | Qwen3 30B-A3B (MoE, Q4_K_M) | M2 Ultra Mac Studio, M4 Max (64GB+) |
