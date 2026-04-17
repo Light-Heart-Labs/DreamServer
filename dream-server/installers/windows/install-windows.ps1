@@ -268,7 +268,7 @@ if ($dryRun) {
                 $lemonadeArgs = @(
                     "serve",
                     "--port", "$($script:LEMONADE_PORT)",
-                    "--host", "0.0.0.0",
+                    "--host", "127.0.0.1",
                     "--no-tray",
                     "--llamacpp", "vulkan",
                     "--extra-models-dir", $modelsDir
@@ -351,7 +351,7 @@ if ($dryRun) {
                 $modelFullPath = Join-Path (Join-Path $installDir "data\models") $tierConfig.GgufFile
                 $llamaArgs = @(
                     "--model", $modelFullPath,
-                    "--host", "0.0.0.0",
+                    "--host", "127.0.0.1",
                     "--port", "8080",
                     "--n-gpu-layers", "999",
                     "--ctx-size", "$($tierConfig.MaxContext)"

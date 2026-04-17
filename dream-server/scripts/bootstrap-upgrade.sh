@@ -524,7 +524,7 @@ elif [[ -f "$INSTALL_DIR/data/.llama-server.pid" ]]; then
             # Relaunch with new model
             log "Starting native llama-server with ${_gguf_file}..."
             "$LLAMA_SERVER_BIN" \
-                --host 0.0.0.0 --port 8080 \
+                --host 127.0.0.1 --port 8080 \
                 --model "$_model_path" \
                 --ctx-size "$_ctx_size" \
                 --n-gpu-layers 999 \
@@ -556,7 +556,7 @@ elif [[ -f "$INSTALL_DIR/data/.llama-server.pid" ]]; then
                 fi
                 if [[ -n "${_old_model_path:-}" && -f "$_old_model_path" ]]; then
                     "$LLAMA_SERVER_BIN" \
-                        --host 0.0.0.0 --port 8080 \
+                        --host 127.0.0.1 --port 8080 \
                         --model "$_old_model_path" \
                         --ctx-size "$_ctx_size" \
                         --n-gpu-layers 999 \

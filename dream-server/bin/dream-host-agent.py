@@ -1945,7 +1945,7 @@ def _launch_native_llama_server(env_path: Path, llama_bin: Path, llama_log: Path
     with open(llama_log, "a") as log_f:
         proc = subprocess.Popen(
             [str(llama_bin),
-             "--host", "0.0.0.0", "--port", "8080",
+             "--host", "127.0.0.1", "--port", "8080",
              "--model", str(model_path),
              "--ctx-size", ctx_size,
              "--n-gpu-layers", "999",
@@ -2226,22 +2226,22 @@ def main():
     # macOS/Windows: 127.0.0.1 (Docker Desktop routes host.docker.internal to loopback)
     # Linux: Docker bridge gateway IP (containers reach via host-gateway,
     #   LAN devices cannot — the bridge is a virtual interface).
-    #   Falls back to 0.0.0.0 if detection fails.
+    #   Falls back to 127.0.0.1 if detection fails.
     bind_addr = env.get("DREAM_AGENT_BIND", "")
     bind_from_env = bool(bind_addr)
     if not bind_addr:
         if platform.system() in ("Darwin", "Windows"):
             bind_addr = "127.0.0.1"
         else:
-            bind_addr = _detect_docker_bridge_gateway() or "0.0.0.0"
+            bind_addr = _detect_docker_bridge_gateway() or "127.0.0.1"
 
     server = ThreadedHTTPServer((bind_addr, port), AgentHandler)
     signal.signal(signal.SIGTERM, lambda *_: server.shutdown())
     logger.info("Dream Host Agent v%s listening on %s:%d", VERSION, bind_addr, port)
-    if bind_addr == "0.0.0.0" and not bind_from_env:
+    if bind_addr == "127.0.0.1" and not bind_from_env and platform.system() not in ("Darwin", "Windows"):
         logger.warning(
-            "Agent is listening on all interfaces (bridge detection failed). "
-            "Set DREAM_AGENT_BIND=<bridge-ip> in .env to restrict."
+            "Docker bridge detection failed, using loopback (127.0.0.1). "
+            "Containers may not reach the agent. Set DREAM_AGENT_BIND=<bridge-ip> in .env."
         )
     logger.info("Install dir: %s | GPU: %s | Tier: %s", INSTALL_DIR, GPU_BACKEND, TIER)
     try:

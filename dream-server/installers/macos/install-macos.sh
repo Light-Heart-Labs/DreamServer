@@ -663,7 +663,7 @@ else
         esac
 
         "$LLAMA_SERVER_BIN" \
-            --host 0.0.0.0 --port 8080 \
+            --host 127.0.0.1 --port 8080 \
             --model "$MODEL_FULL_PATH" \
             --ctx-size "$MAX_CONTEXT" \
             --n-gpu-layers 999 \

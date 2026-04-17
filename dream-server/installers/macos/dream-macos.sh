@@ -215,7 +215,7 @@ start_native_llama() {
     esac
 
     "$LLAMA_SERVER_BIN" \
-        --host 0.0.0.0 --port 8080 \
+        --host 127.0.0.1 --port 8080 \
         --model "$model_path" \
         --ctx-size "$ctx_size" \
         --n-gpu-layers 999 \
