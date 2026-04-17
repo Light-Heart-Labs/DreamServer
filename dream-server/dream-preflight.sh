@@ -80,7 +80,7 @@ WARN=0
 
 log() {
     echo -e "$1"
-    echo -e "$1" | sed 's/\x1b\[[0-9;]*m//g' >> "$LOG_FILE"
+    echo -e "$1" | sed $'s/\033\\[[0-9;]*m//g' >> "$LOG_FILE"
 }
 pass() { log "${GREEN}✓${NC} $1"; PASS=$((PASS+1)); }
 fail() { log "${RED}✗${NC} $1"; FAIL=$((FAIL+1)); }

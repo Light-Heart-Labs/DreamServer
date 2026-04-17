@@ -79,7 +79,8 @@ def _get_gpu_vram() -> Optional[ModelLibraryGpu]:
             vramUsed=round(used_gb, 1),
             vramFree=round(total_gb - used_gb, 1),
         )
-    except Exception:
+    except (ImportError, FileNotFoundError, OSError, KeyError, AttributeError) as exc:
+        logger.warning("GPU VRAM detection failed: %s", exc)
         return None
 
 
