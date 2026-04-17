@@ -69,3 +69,6 @@ dream-server/.cache/
 archive/
 .claude/
 !.claude/commands/
+
+# Local p2p-gpu key artifact
+resources/p2p-gpu/Joy

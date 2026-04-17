@@ -7,8 +7,8 @@
 #          and OpenClaw running on Vast.ai instances
 #
 # Expects: LOGFILE, log(), warn(), env_get(), wait_for_http()
-# Provides: ensure_whisper_ui_compatibility(), map_whisper_model_id(),
-#           ensure_whisper_asr_model(), ensure_tts_model_ready(),
+# Provides: ensure_whisper_ui_compatibility(), ensure_webui_stt_model_alignment(),
+#           map_whisper_model_id(), ensure_whisper_asr_model(), ensure_tts_model_ready(),
 #           fix_comfyui_permissions(), comfyui_preload_models(),
 #           patch_openclaw_inject_token_runtime()
 #
@@ -42,6 +42,26 @@ ensure_whisper_ui_compatibility() {
       warn "Whisper compose env block not found — skipped loopback injection"
     fi
   fi
+}
+
+# Keep Open WebUI STT model aligned with the Whisper model we bootstrap.
+# Fixes mismatch where WebUI requests a model that Whisper does not have.
+ensure_webui_stt_model_alignment() {
+  local ds_dir="$1"
+  local env_file="${ds_dir}/.env"
+  local nvidia_overlay="${ds_dir}/docker-compose.nvidia.yml"
+  [[ ! -f "$nvidia_overlay" ]] && return 0
+
+  local whisper_cfg model_id current
+  whisper_cfg="$(env_get "$env_file" "WHISPER_MODEL")"
+  model_id="$(map_whisper_model_id "$whisper_cfg")"
+  [[ -z "$model_id" ]] && model_id="Systran/faster-whisper-base"
+
+  current=$(grep -E 'AUDIO_STT_MODEL:' "$nvidia_overlay" | head -1 | sed -E 's/.*AUDIO_STT_MODEL:\s*"?(.*)"?/\1/' || echo "")
+  [[ "$current" == "$model_id" ]] && return 0
+
+  sed -i -E "s|AUDIO_STT_MODEL:.*|      AUDIO_STT_MODEL: \"${model_id}\"|" "$nvidia_overlay"
+  log "Aligned Open WebUI STT model to ${model_id}"
 }
 
 # Map friendly WHISPER_MODEL values to Speaches-compatible model IDs

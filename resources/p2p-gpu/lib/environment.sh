@@ -341,6 +341,7 @@ _apply_permission_fixes() {
 _apply_compatibility_fixes() {
   local ds_dir="$1"
   ensure_whisper_ui_compatibility "$ds_dir"
+  ensure_webui_stt_model_alignment "$ds_dir"
   patch_openclaw_inject_token_runtime "$ds_dir"
 }
 

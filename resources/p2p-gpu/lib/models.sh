@@ -304,6 +304,7 @@ optimize_model_download() {
 create_model_swap_watcher() {
   local ds_dir="$1" model_name="$2"
   local watcher_script="${ds_dir}/scripts/model-swap-on-complete.sh"
+  local pidfile_dir="${PIDFILE_DIR:-/var/run/dreamserver-p2p-gpu}"
   mkdir -p "${ds_dir}/scripts"
 
   cat > "$watcher_script" << 'WATCHER_EOF'
@@ -314,7 +315,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 MODEL_DIR="${SCRIPT_DIR}/data/models"
 ENV_FILE="${SCRIPT_DIR}/.env"
-PIDFILE="${SCRIPT_DIR}/run/pids/aria2c-model.pid"
+PIDFILE="__PIDFILE_DIR__/aria2c-model.pid"
+TARGET_MODEL="__TARGET_MODEL__"
 warn() { echo -e "\033[1;33m[!]\033[0m $*" >&2; }
 
 compose_cmd() {
@@ -340,6 +342,14 @@ swap_model() {
   old_model=$(grep '^GGUF_FILE=' "$ENV_FILE" | cut -d= -f2 | tr -d '"' || echo "")
   [[ "$new_model" == "$old_model" ]] && return 0
 
+  # Convert GGUF filename -> Dream model id used by other services.
+  # Example: Qwen3-30B-A3B-Q4_K_M.gguf -> qwen3-30b-a3b
+  local new_llm_model
+  new_llm_model=$(echo "$new_model" \
+    | sed -E 's/\.(gguf|GGUF)$//' \
+    | sed -E 's/-Q[0-9]+([._][A-Za-z0-9]+)*$//' \
+    | tr '[:upper:]' '[:lower:]')
+
   # Validate new model file before swapping
   local model_path="${MODEL_DIR}/${new_model}"
   if [[ ! -f "$model_path" ]]; then
@@ -356,6 +366,11 @@ swap_model() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] Swapping: ${old_model} -> ${new_model} ($(( file_size / 1048576 )) MB)"
   # [FIX: tmpfile-race] Use sed -i to avoid world-readable temp file with secrets
   sed -i "s|^GGUF_FILE=.*|GGUF_FILE=${new_model}|" "$ENV_FILE"
+  if grep -q '^LLM_MODEL=' "$ENV_FILE"; then
+    sed -i "s|^LLM_MODEL=.*|LLM_MODEL=${new_llm_model}|" "$ENV_FILE"
+  else
+    echo "LLM_MODEL=${new_llm_model}" >> "$ENV_FILE"
+  fi
 
   # Use compose recreate (re-reads .env) instead of docker restart (ignores .env changes)
   local cmd
@@ -365,14 +380,24 @@ swap_model() {
   else
     docker restart dream-llama-server || warn "llama-server restart failed (non-fatal)"
   fi
+  # Restart dependent services so they pick up new model env / auto-detection.
+  for cname in dream-dreamforge dream-openclaw dream-dashboard-api; do
+    if docker ps --format '{{.Names}}' | grep -qx "$cname"; then
+      docker restart "$cname" || warn "${cname} restart failed (non-fatal)"
+    fi
+  done
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] Swapped to ${new_model} — llama-server reloading"
 }
 
 while true; do
   if ! is_download_running; then
-    local_model=$(ls -S "${MODEL_DIR}"/*.gguf 2>&1 | head -1 | xargs -r basename || echo "")
-    if [[ -n "${local_model:-}" ]]; then
-      swap_model "$local_model"
+    if [[ -n "${TARGET_MODEL:-}" && -f "${MODEL_DIR}/${TARGET_MODEL}" ]]; then
+      swap_model "$TARGET_MODEL"
+    else
+      local_model=$(ls -S "${MODEL_DIR}"/*.gguf 2>&1 | head -1 | xargs -r basename || echo "")
+      if [[ -n "${local_model:-}" ]]; then
+        swap_model "$local_model"
+      fi
     fi
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Watcher exiting — download complete"
     exit 0
@@ -381,6 +406,8 @@ while true; do
 done
 WATCHER_EOF
 
+  sed -i "s|__PIDFILE_DIR__|${pidfile_dir}|g" "$watcher_script"
+  sed -i "s|__TARGET_MODEL__|${model_name}|g" "$watcher_script"
   chmod +x "$watcher_script"
   nohup "$watcher_script" >> "${ds_dir}/logs/model-swap.log" 2>&1 &
   local watcher_pid=$!
