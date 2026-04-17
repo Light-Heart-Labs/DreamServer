@@ -199,6 +199,7 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
     LITELLM_KEY=$(_env_get LITELLM_KEY "sk-dream-$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
     LIVEKIT_SECRET=$(_env_get LIVEKIT_API_SECRET "$(openssl rand -base64 32 2>/dev/null || head -c 32 /dev/urandom | base64)")
     DASHBOARD_API_KEY=$(_env_get DASHBOARD_API_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
+    DREAM_AGENT_KEY=$(_env_get DREAM_AGENT_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
     DIFY_SECRET_KEY=$(_env_get DIFY_SECRET_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
     QDRANT_API_KEY=$(_env_get QDRANT_API_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
     OPENCODE_SERVER_PASSWORD=$(_env_get OPENCODE_SERVER_PASSWORD "$(openssl rand -base64 16 2>/dev/null || head -c 16 /dev/urandom | base64)")
@@ -342,6 +343,7 @@ LANGFUSE_PORT=${LANGFUSE_PORT}
 #=== Security (auto-generated, keep secret!) ===
 WEBUI_SECRET=${WEBUI_SECRET}
 DASHBOARD_API_KEY=${DASHBOARD_API_KEY}
+DREAM_AGENT_KEY=${DREAM_AGENT_KEY}
 N8N_USER=admin@dreamserver.local
 N8N_PASS=${N8N_PASS}
 LITELLM_KEY=${LITELLM_KEY}

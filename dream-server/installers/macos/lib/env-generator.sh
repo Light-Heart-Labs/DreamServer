@@ -132,6 +132,8 @@ generate_dream_env() {
     livekit_api_key=$(new_secure_hex 16)
     local dashboard_api_key
     dashboard_api_key=$(new_secure_hex 32)
+    local dream_agent_key
+    dream_agent_key=$(new_secure_hex 32)
     local openclaw_token
     openclaw_token=$(new_secure_hex 24)
     local qdrant_api_key
@@ -221,6 +223,7 @@ LANGFUSE_PORT=3006
 #=== Security (auto-generated, keep secret!) ===
 WEBUI_SECRET=${webui_secret}
 DASHBOARD_API_KEY=${dashboard_api_key}
+DREAM_AGENT_KEY=${dream_agent_key}
 N8N_USER=admin@dreamserver.local
 N8N_PASS=${n8n_pass}
 LITELLM_KEY=${litellm_key}
