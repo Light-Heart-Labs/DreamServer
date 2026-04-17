@@ -313,7 +313,7 @@ MODELS_INI_EOF
     _build_services=(dashboard dashboard-api ape token-spy privacy-shield)
     [[ "$ENABLE_COMFYUI" == "true" ]] && _build_services+=(comfyui)
     if [[ "${ENABLE_DREAMFORGE:-}" == "true" ]]; then
-        _dreamforge_image="${DREAMFORGE_IMAGE:-ghcr.io/light-heart-labs/dreamforge:latest}"
+        _dreamforge_image="${DREAMFORGE_IMAGE:-ghcr.io/light-heart-labs/dreamforge:v0.1.0}"
         if ! $DOCKER_CMD image inspect "$_dreamforge_image" &>/dev/null; then
             _build_services+=(dreamforge)
         else

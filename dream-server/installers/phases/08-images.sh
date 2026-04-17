@@ -47,7 +47,7 @@ fi
 [[ "$ENABLE_RAG" == "true" ]] && PULL_LIST+=("qdrant/qdrant:v1.16.3|QDRANT — memory vault")
 [[ "$ENABLE_OPENCLAW" == "true" ]] && PULL_LIST+=("ghcr.io/openclaw/openclaw:2026.3.8|OPENCLAW — agent framework")
 [[ "$ENABLE_RAG" == "true" ]] && PULL_LIST+=("ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.1|TEI — embedding engine")
-[[ "${ENABLE_DREAMFORGE:-}" == "true" ]] && PULL_LIST+=("ghcr.io/light-heart-labs/dreamforge:latest|DREAMFORGE — agent system")
+[[ "${ENABLE_DREAMFORGE:-}" == "true" ]] && PULL_LIST+=("ghcr.io/light-heart-labs/dreamforge:v0.1.0|DREAMFORGE — agent system")
 
 if $DRY_RUN; then
     ai "[DRY RUN] I would download ${#PULL_LIST[@]} modules."

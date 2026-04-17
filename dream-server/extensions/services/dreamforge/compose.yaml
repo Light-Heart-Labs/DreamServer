@@ -1,6 +1,6 @@
 services:
   dreamforge:
-    image: ${DREAMFORGE_IMAGE:-ghcr.io/light-heart-labs/dreamforge:latest}
+    image: ${DREAMFORGE_IMAGE:-ghcr.io/light-heart-labs/dreamforge:v0.1.0}
     build:
       context: ./extensions/services/dreamforge
       dockerfile: Dockerfile.rust
