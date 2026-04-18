@@ -78,3 +78,4 @@ Last updated: 2026-03-17
 ## See also
 
 - [LINUX-PORTABILITY.md](LINUX-PORTABILITY.md) — Linux installer edge cases, `.env` validation, extension manifests.
+- [config/system-tuning/README.md](../config/system-tuning/README.md) — Performance tuning for AMD Strix Halo (GRUB, modprobe, sysctl, CPU governor settings).
