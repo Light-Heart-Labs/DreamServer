@@ -17,5 +17,4 @@ service:
   type: docker
   gpu_backends: [amd, nvidia]
   category: core
-  proxy_mode: root
   depends_on: [dashboard-api]

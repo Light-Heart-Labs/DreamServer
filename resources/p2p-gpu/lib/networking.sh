@@ -25,6 +25,13 @@ set -euo pipefail
 # Rewrite 127.0.0.1 → 0.0.0.0 in compose port bindings for Vast.ai access
 expose_ports_for_vastai() {
   local ds_dir="$1"
+  # Safety: only rebind on detected P2P GPU providers to avoid
+  # accidentally exposing services on non-rented machines.
+  if [[ -z "${VAST_TCP_PORT_22:-}" && -z "${PUBLIC_IPADDR:-}" \
+        && ! -f /etc/vast.ai && "${PROVIDER_NAME:-}" != "vastai" ]]; then
+    warn "Not a detected P2P GPU environment — skipping port rebinding"
+    return 0
+  fi
   log "Rebinding Docker ports from 127.0.0.1 → 0.0.0.0 for Vast.ai external access"
   local count=0
   while IFS= read -r -d '' compose_file; do

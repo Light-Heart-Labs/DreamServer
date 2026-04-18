@@ -105,9 +105,14 @@ except OSError as e:
 }
 
 # Discover all enabled services from extension manifests.
+# Usage: discover_all_services <ds_dir> [hints_file]
 # Output: ID|PORT_ENV|PORT_DEFAULT|NAME|CATEGORY|PROXY_MODE|STARTUP_BEHAVIOR|CONTAINER_NAME
 discover_all_services() {
   local ds_dir="$1"
+  local hints_file="${2:-}"
+  if [[ -z "$hints_file" && -n "${SCRIPT_DIR:-}" ]]; then
+    hints_file="${SCRIPT_DIR}/config/service-hints.yaml"
+  fi
   local ext_dirs=("${ds_dir}/extensions/services" "${ds_dir}/user-extensions")
 
   for ext_root in "${ext_dirs[@]}"; do
@@ -115,7 +120,19 @@ discover_all_services() {
     for manifest in "${ext_root}"/*/manifest.yaml; do
       [[ ! -f "$manifest" ]] && continue
       python3 -c "
-import yaml, sys
+import os, yaml, sys
+_HINTS_CACHE = None
+def _load_hints(path):
+    global _HINTS_CACHE
+    if _HINTS_CACHE is not None:
+        return _HINTS_CACHE
+    try:
+        loaded = yaml.safe_load(open(path)) or {}
+        _HINTS_CACHE = loaded if isinstance(loaded, dict) else {}
+    except (yaml.YAMLError, OSError) as e:
+        print(f'Service hints read failed {path}: {e}', file=sys.stderr)
+        _HINTS_CACHE = {}
+    return _HINTS_CACHE
 try:
     data = yaml.safe_load(open(sys.argv[1]))
     svc = data.get('service') or {}
@@ -124,8 +141,17 @@ try:
     port_def = svc.get('external_port_default', '')
     name     = svc.get('name', sid)
     cat      = svc.get('category', 'optional')
-    proxy    = svc.get('proxy_mode', 'simple')
-    startup  = svc.get('startup_behavior', 'normal')
+    hints_path = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else os.path.join(
+        os.path.dirname(os.path.dirname(sys.argv[1])),
+        'resources', 'p2p-gpu', 'config', 'service-hints.yaml'
+    )
+    hints = {}
+    if sid:
+        hints = _load_hints(hints_path).get(sid, {})
+        if not isinstance(hints, dict):
+            hints = {}
+    proxy    = hints.get('proxy_mode', svc.get('proxy_mode', 'simple'))
+    startup  = hints.get('startup_behavior', svc.get('startup_behavior', 'normal'))
     cname    = svc.get('container_name', '')
     htimeout = svc.get('health_timeout', 0)
     if startup == 'normal' and isinstance(htimeout, (int, float)) and htimeout > 20:
@@ -136,7 +162,7 @@ except yaml.YAMLError as e:
     print(f'YAML parse error in {sys.argv[1]}: {e}', file=sys.stderr)
 except OSError as e:
     print(f'File read error {sys.argv[1]}: {e}', file=sys.stderr)
-" "$manifest" || warn "service discovery failed for ${manifest} (non-fatal)"
+" "$manifest" "$hints_file" || warn "service discovery failed for ${manifest} (non-fatal)"
     done
   done
 }
