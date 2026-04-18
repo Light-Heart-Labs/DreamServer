@@ -662,17 +662,35 @@ foreach ($check in $healthChecks) {
 # Trigger the download explicitly, verify it completed, surface recovery
 # instructions on failure. Mirrors Linux Phase 12 and macOS install-macos.sh.
 if ($enableVoice) {
-    # Read AUDIO_STT_MODEL from .env (written by env-generator.ps1).
+    # Read AUDIO_STT_MODEL and WHISPER_PORT from .env (written by env-generator.ps1).
+    # Use ReadAllText with explicit UTF8NoBom encoding so legacy BOM-prefixed
+    # .env files (written by old Set-Content -Encoding UTF8) don't break the
+    # regex on the first line.
     $sttModel = "Systran/faster-whisper-base"  # safe fallback
+    $whisperPort = "9000"  # safe fallback
     $envPath = Join-Path $installDir ".env"
     if (Test-Path $envPath) {
-        $envLine = Get-Content $envPath -ErrorAction SilentlyContinue | Where-Object { $_ -match "^AUDIO_STT_MODEL=(.+)$" } | Select-Object -First 1
-        if ($envLine -match "^AUDIO_STT_MODEL=(.+)$") {
-            $sttModel = $Matches[1].Trim('"').Trim()
+        try {
+            $envText = [System.IO.File]::ReadAllText($envPath, (New-Object System.Text.UTF8Encoding($false)))
+            # Strip any leading BOM defensively in case the file was written
+            # with a different encoding.
+            if ($envText.Length -gt 0 -and [int]$envText[0] -eq 0xFEFF) {
+                $envText = $envText.Substring(1)
+            }
+            foreach ($line in ($envText -split "`r?`n")) {
+                if ($line -match "^AUDIO_STT_MODEL=(.*)$") {
+                    $val = $Matches[1].Trim('"').Trim()
+                    if ($val) { $sttModel = $val }
+                } elseif ($line -match "^WHISPER_PORT=(.*)$") {
+                    $val = $Matches[1].Trim('"').Trim()
+                    if ($val) { $whisperPort = $val }
+                }
+            }
+        } catch {
+            # Fall through to defaults on any read failure.
         }
     }
     $sttModelEncoded = $sttModel -replace "/", "%2F"
-    $whisperPort = 9000  # Windows doesn't reassign this port
     $whisperUrl = "http://localhost:$whisperPort"
     $sttRecoveryCmd = "Invoke-WebRequest -Method POST -Uri '$whisperUrl/v1/models/$sttModelEncoded' -TimeoutSec 3600"
 

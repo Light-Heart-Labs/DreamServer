@@ -87,6 +87,21 @@ M1_EOF
         fi
     fi
 
+    # Whisper STT model: Phase 12 pre-downloads it by POSTing to the running
+    # Speaches API, but offline-mode users often disconnect BEFORE Phase 12
+    # completes, or they run 'dream stop' before network becomes unavailable.
+    # We can't pre-download from HuggingFace directly in Phase 9 without a
+    # huggingface_hub Python dep, so surface the requirement loudly here and
+    # point users at the 'dream stt download' CLI (added in the same PR).
+    if [[ "$ENABLE_VOICE" == "true" ]]; then
+        ai_warn "Offline mode + voice enabled: Whisper STT model is NOT pre-downloaded by Phase 9"
+        log "  The installer's Phase 12 will still attempt the download while online,"
+        log "  but if you go offline before it completes, STT will 404 on first use."
+        log "  To ensure the model is cached before disconnecting, run after install:"
+        log "    dream stt download"
+        log "  Or use 'scripts/pre-download.sh --with-voice' to pre-cache before install."
+    fi
+
     # Offline docs already copied by rsync/cp block above
     ai_ok "Offline mode configured"
     log "After installation, disconnect from internet for fully air-gapped operation"

@@ -179,7 +179,7 @@ if [[ "$ENABLE_VOICE" == "true" ]]; then
     STT_MODEL_ENCODED="${STT_MODEL//\//%2F}"
     WHISPER_PORT_RESOLVED="${SERVICE_PORTS[whisper]:-9000}"
     WHISPER_URL="http://localhost:${WHISPER_PORT_RESOLVED}"
-    STT_RECOVERY_CMD="curl -X POST ${WHISPER_URL}/v1/models/${STT_MODEL_ENCODED}"
+    STT_RECOVERY_CMD="curl --max-time 3600 -X POST ${WHISPER_URL}/v1/models/${STT_MODEL_ENCODED}"
 
     # Step 1: wait briefly for the models API to be ready. Whisper's /health
     # endpoint can pass before the models endpoint responds, so we probe

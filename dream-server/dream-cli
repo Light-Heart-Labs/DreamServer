@@ -2207,6 +2207,81 @@ cmd_model() {
     esac
 }
 
+cmd_stt() {
+    check_install; cd "$INSTALL_DIR"
+    local subcmd="${1:-status}"
+
+    # Resolve model and port from .env (with fallback for older installs).
+    local model port model_encoded url
+    model=$(_env_get_raw AUDIO_STT_MODEL)
+    [[ -z "$model" ]] && model="Systran/faster-whisper-base"
+    port=$(_env_get_raw WHISPER_PORT)
+    [[ -z "$port" ]] && port="9000"
+    model_encoded="${model//\//%2F}"
+    url="http://localhost:${port}"
+
+    case "$subcmd" in
+        current)
+            echo "STT model: ${model}"
+            echo "Whisper URL: ${url}"
+            return 0
+            ;;
+        status)
+            if ! curl -sf --max-time 3 "${url}/v1/models" >/dev/null 2>&1; then
+                warn "Whisper service not reachable at ${url}"
+                echo "  Is voice enabled and the stack running?"
+                return 1
+            fi
+            local target_encoded="$model_encoded"
+            local target_model="$model"
+            if [[ -n "${2:-}" ]]; then
+                target_model="$2"
+                target_encoded="${target_model//\//%2F}"
+            fi
+            if curl -sf --max-time 5 "${url}/v1/models/${target_encoded}" >/dev/null 2>&1; then
+                success "Cached: ${target_model}"
+            else
+                warn "Not cached: ${target_model}"
+                echo "  Run: dream stt download${2:+ $2}"
+            fi
+            ;;
+        download)
+            local target_model="${2:-$model}"
+            local target_encoded="${target_model//\//%2F}"
+            # Wait briefly for the models API to be ready (max 15s).
+            local ready=false
+            for _i in $(seq 1 15); do
+                if curl -sf --max-time 2 "${url}/v1/models" >/dev/null 2>&1; then
+                    ready=true
+                    break
+                fi
+                sleep 1
+            done
+            if ! $ready; then
+                error "Whisper models API not reachable at ${url}. Is voice enabled and the stack running?"
+            fi
+            # Skip if already cached.
+            if curl -sf --max-time 5 "${url}/v1/models/${target_encoded}" >/dev/null 2>&1; then
+                success "Already cached: ${target_model}"
+                return 0
+            fi
+            echo "Downloading ${target_model}..."
+            if ! curl -s --max-time 3600 -X POST "${url}/v1/models/${target_encoded}"; then
+                error "Download request failed. Check Whisper logs: dream logs whisper"
+            fi
+            # Verify the download actually cached.
+            if curl -sf --max-time 10 "${url}/v1/models/${target_encoded}" >/dev/null 2>&1; then
+                success "Downloaded and cached: ${target_model}"
+            else
+                error "Download returned but model is not cached. Check Whisper logs: dream logs whisper"
+            fi
+            ;;
+        *)
+            error "Usage: dream stt <current|status|download> [MODEL]"
+            ;;
+    esac
+}
+
 cmd_backup() {
     check_install
     cd "$INSTALL_DIR"
@@ -3196,6 +3271,8 @@ ${CYAN}Commands:${NC}
                       Switch between local/cloud/hybrid modes
   model [current|list|swap]
                       View or change the local LLM model tier
+  stt [current|status|download] [MODEL]
+                      View Whisper STT model, check cache, or trigger download
   backup [options]    Create a backup of user data and config
   backup verify <id>   Verify checksum integrity for a backup
   restore [backup_id] Restore from a backup
@@ -3317,6 +3394,7 @@ case "${1:-help}" in
     preset|p)    shift; cmd_preset "$@" ;;
     mode|m)      shift; cmd_mode "$@" ;;
     model)       shift; cmd_model "$@" ;;
+    stt)         shift; cmd_stt "$@" ;;
     backup)      shift; cmd_backup "$@" ;;
     restore)     shift; cmd_restore "$@" ;;
     rollback)    cmd_rollback ;;

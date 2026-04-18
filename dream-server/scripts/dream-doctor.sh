@@ -115,6 +115,31 @@ if command -v curl >/dev/null 2>&1; then
     fi
 fi
 
+# STT model cache check: a common silent-failure mode is the installer's
+# pre-download failing, so Whisper's /health passes (service up) but the
+# model isn't cached. Transcription then returns 404. This check catches
+# that case and surfaces the exact recovery command.
+STT_MODEL_CACHED="unknown"
+STT_MODEL_NAME=""
+STT_RECOVERY_HINT=""
+if [[ "${ENABLE_VOICE:-false}" == "true" ]] && command -v curl >/dev/null 2>&1; then
+    STT_MODEL_NAME="${AUDIO_STT_MODEL:-Systran/faster-whisper-base}"
+    _stt_whisper_port="${SERVICE_PORTS[whisper]:-9000}"
+    _stt_model_encoded="${STT_MODEL_NAME//\//%2F}"
+    _stt_whisper_url="http://127.0.0.1:${_stt_whisper_port}"
+    if curl -sf --max-time 5 "${_stt_whisper_url}/v1/models/${_stt_model_encoded}" >/dev/null 2>&1; then
+        STT_MODEL_CACHED="true"
+    else
+        # Distinguish "service down" from "model missing" for the hint.
+        if curl -sf --max-time 5 "${_stt_whisper_url}/health" >/dev/null 2>&1; then
+            STT_MODEL_CACHED="false"
+            STT_RECOVERY_HINT="curl --max-time 3600 -X POST ${_stt_whisper_url}/v1/models/${_stt_model_encoded}"
+        else
+            STT_MODEL_CACHED="service_down"
+        fi
+    fi
+fi
+
 # Collect extension diagnostics (wrapped in function to allow local variables)
 collect_extension_diagnostics() {
     # Use outer GPU_BACKEND or default to nvidia (don't make local to avoid set -u issues)
@@ -214,13 +239,13 @@ elif command -v python >/dev/null 2>&1; then
     PYTHON_CMD="python"
 fi
 
-"$PYTHON_CMD" - "$CAP_FILE" "$PREFLIGHT_FILE" "$REPORT_FILE" "$DOCKER_CLI" "$DOCKER_DAEMON" "$COMPOSE_CLI" "$DASHBOARD_HTTP" "$WEBUI_HTTP" "$_DASHBOARD_PORT" "$_WEBUI_PORT" "$EXT_DIAGNOSTICS" <<'PY'
+"$PYTHON_CMD" - "$CAP_FILE" "$PREFLIGHT_FILE" "$REPORT_FILE" "$DOCKER_CLI" "$DOCKER_DAEMON" "$COMPOSE_CLI" "$DASHBOARD_HTTP" "$WEBUI_HTTP" "$_DASHBOARD_PORT" "$_WEBUI_PORT" "$EXT_DIAGNOSTICS" "$STT_MODEL_CACHED" "$STT_MODEL_NAME" "$STT_RECOVERY_HINT" <<'PY'
 import json
 import pathlib
 import sys
 from datetime import datetime, timezone
 
-cap_file, preflight_file, report_file, docker_cli, docker_daemon, compose_cli, dashboard_http, webui_http, dashboard_port, webui_port, ext_diagnostics_json = sys.argv[1:]
+cap_file, preflight_file, report_file, docker_cli, docker_daemon, compose_cli, dashboard_http, webui_http, dashboard_port, webui_port, ext_diagnostics_json, stt_cached, stt_model_name, stt_recovery = sys.argv[1:]
 
 cap = json.load(open(cap_file, "r", encoding="utf-8"))
 pre = json.load(open(preflight_file, "r", encoding="utf-8"))
@@ -238,6 +263,8 @@ report = {
         "compose_cli": compose_cli == "true",
         "dashboard_http": dashboard_http == "true",
         "webui_http": webui_http == "true",
+        "stt_model_cached": stt_cached,
+        "stt_model_name": stt_model_name,
     },
     "extensions": ext_diagnostics,
     "summary": {
@@ -268,6 +295,13 @@ if runtime["docker_daemon"] and not runtime["dashboard_http"]:
     fix_hints.append(f"Run installer/start command, then verify dashboard on http://127.0.0.1:{dashboard_port}.")
 if runtime["docker_daemon"] and not runtime["webui_http"]:
     fix_hints.append(f"Verify Open WebUI container and port {webui_port} mapping.")
+
+# STT model cache: service up but model missing is a common silent failure
+if stt_cached == "false" and stt_recovery:
+    fix_hints.append(
+        f"Whisper STT model '{stt_model_name}' not cached — transcription will 404. "
+        f"Run: {stt_recovery}"
+    )
 
 # Extension-specific hints
 for ext in ext_diagnostics:
