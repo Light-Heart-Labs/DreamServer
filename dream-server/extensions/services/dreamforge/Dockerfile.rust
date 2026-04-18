@@ -43,6 +43,6 @@ EXPOSE 3010
 VOLUME ["/workspace", "/data/dreamforge"]
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD curl -f http://localhost:3010/health || exit 1
+    CMD curl -f http://127.0.0.1:3010/health || exit 1
 
 ENTRYPOINT ["dreamforge-server"]
