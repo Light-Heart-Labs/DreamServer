@@ -16,6 +16,7 @@ bash setup.sh --teardown   # Stop all services (save $$$)
 
 ## Setup Guide
 https://drive.google.com/file/d/1SrBooRJwP24OTWXZH-TOlk4q6tK44DUR/view?usp=sharing
+https://docs.google.com/presentation/d/16TusAdo0-o3lOTeUwRaJa16foELvFSH4/edit?usp=sharing&ouid=109193555106212685513&rtpof=true&sd=true
 
 ## Quick Recovery (If Phase 9 Fails)
 
