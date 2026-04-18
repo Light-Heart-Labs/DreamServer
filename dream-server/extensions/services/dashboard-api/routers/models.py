@@ -20,6 +20,20 @@ router = APIRouter(tags=["models"])
 _LIBRARY_PATH = Path(INSTALL_DIR) / "config" / "model-library.json"
 _MODELS_DIR = Path(DATA_DIR) / "models"
 _ENV_PATH = Path(INSTALL_DIR) / ".env"
+_GPU_VRAM_EXCEPTIONS = (
+    ImportError,
+    FileNotFoundError,
+    OSError,
+    KeyError,
+    AttributeError,
+)
+
+try:
+    import pynvml
+except ImportError:
+    pynvml = None
+else:
+    _GPU_VRAM_EXCEPTIONS = _GPU_VRAM_EXCEPTIONS + (pynvml.NVMLError,)
 
 
 def _load_library() -> list[dict]:
@@ -79,7 +93,7 @@ def _get_gpu_vram() -> Optional[ModelLibraryGpu]:
             vramUsed=round(used_gb, 1),
             vramFree=round(total_gb - used_gb, 1),
         )
-    except (ImportError, FileNotFoundError, OSError, KeyError, AttributeError) as exc:
+    except _GPU_VRAM_EXCEPTIONS as exc:
         logger.warning("GPU VRAM detection failed: %s", exc)
         return None
 
