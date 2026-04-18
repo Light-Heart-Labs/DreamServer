@@ -22,9 +22,10 @@
 #   phases/        — sequential install steps (execute on source)
 #   subcommands/   — alternative entry points (--teardown, --status, etc.)
 #
-# Design: aligned with DreamServer CLAUDE.md
+# Design: adapted from DreamServer CLAUDE.md for provider environments
 #   Let It Crash > KISS > Pure Functions > SOLID
-#   set -euo pipefail everywhere; errors kill the process
+#   set -euo pipefail everywhere. Non-fatal paths use || warn (per
+#   CLAUDE.md §4) because on rented hardware, partial stack > dead stack.
 # ============================================================================
 
 set -euo pipefail
@@ -160,8 +161,8 @@ main() {
     detect_gpu
     echo "  GPU:    ${GPU_NAME} (${GPU_BACKEND}, ${GPU_VRAM} MB VRAM)"
     echo "  CPU:    $(nproc) cores"
-    echo "  Disk:   $(df -BG --output=avail . 2>/dev/null | tail -1 | tr -dc '0-9')GB available"
-    echo "  Docker: $(docker --version 2>/dev/null || echo 'not installed')"
+    echo "  Disk:   $(df -BG --output=avail . 2>>"$LOGFILE" | tail -1 | tr -dc '0-9')GB available"
+    echo "  Docker: $(docker --version 2>>"$LOGFILE" || echo 'not installed')"
     echo ""
     echo "Run without --dry-run to proceed."
     exit 0

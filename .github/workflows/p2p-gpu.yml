@@ -1,4 +1,9 @@
 name: P2P GPU Checks
+# Maintainer note: This CI is scoped to resources/p2p-gpu/** paths only and
+# runs zero tests against core DreamServer. It exists because the toolkit is
+# ~4,500 lines of bash executed as root on rented GPU instances — syntax and
+# lint correctness matter more here than in typical resources/ add-ons.
+# The smoke tests use a mock Docker binary; no real containers are started.
 
 on:
   pull_request:

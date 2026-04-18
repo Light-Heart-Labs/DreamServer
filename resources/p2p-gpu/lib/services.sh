@@ -284,12 +284,12 @@ _extract_cpu_ceiling_from_compose_error() {
   local compose_err="$1"
   local ceiling=""
 
-  ceiling=$(tr -d '\r' < "$compose_err" | grep -Eo 'range of CPUs is from [0-9.]+ to [0-9.]+' 2>/dev/null \
-    | head -1 | awk '{print $NF}' | cut -d'.' -f1 || true)
+  ceiling=$(tr -d '\r' < "$compose_err" | grep -Eo 'range of CPUs is from [0-9.]+ to [0-9.]+' 2>>"$LOGFILE" \
+    | head -1 | awk '{print $NF}' | cut -d'.' -f1 || echo "")
 
   if [[ -z "$ceiling" ]]; then
-    ceiling=$(tr -d '\r' < "$compose_err" | grep -Eo 'only [0-9]+ CPUs available' 2>/dev/null \
-      | head -1 | awk '{print $2}' || true)
+    ceiling=$(tr -d '\r' < "$compose_err" | grep -Eo 'only [0-9]+ CPUs available' 2>>"$LOGFILE" \
+      | head -1 | awk '{print $2}' || echo "")
   fi
 
   if [[ "$ceiling" =~ ^[0-9]+$ ]] && [[ "$ceiling" -gt 0 ]]; then
@@ -334,8 +334,8 @@ _apply_host_cpu_caps() {
   local nproc_count docker_ncpu compose_ceiling max_cpu
   local -a compose_files=()
 
-  nproc_count=$(nproc 2>/dev/null || echo 1)
-  docker_ncpu=$(docker info --format '{{.NCPU}}' 2>/dev/null || echo "unknown")
+  nproc_count=$(nproc 2>>"$LOGFILE" || echo 1)
+  docker_ncpu=$(docker info --format '{{.NCPU}}' 2>>"$LOGFILE" || echo "unknown")
   compose_ceiling=$(get_compose_cpu_ceiling)
   max_cpu=$(compute_safe_cpu_cap "$daemon_ceiling")
 
@@ -403,8 +403,8 @@ _heal_dashboard_api_proxy() {
   dashboard_api_port=$(env_get "$env_file" "DASHBOARD_API_PORT")
   dashboard_api_port="${dashboard_api_port:-3002}"
 
-  dash_status=$(docker inspect --format '{{.State.Status}}' dream-dashboard 2>/dev/null || echo "missing")
-  api_status=$(docker inspect --format '{{.State.Status}}' dream-dashboard-api 2>/dev/null || echo "missing")
+  dash_status=$(docker inspect --format '{{.State.Status}}' dream-dashboard 2>/dev/null || echo "missing") # stderr expected: container may not exist
+  api_status=$(docker inspect --format '{{.State.Status}}' dream-dashboard-api 2>/dev/null || echo "missing") # stderr expected: container may not exist
   [[ "$dash_status" != "running" || "$api_status" != "running" ]] && return 0
 
   if curl -sf --max-time 3 "http://127.0.0.1:${dashboard_api_port}/health" >/dev/null 2>&1 \
@@ -466,7 +466,7 @@ start_services() {
   # If compose exited early, some containers may be left in Created state.
   # Try to start them so users can still reach the control plane.
   local created
-  created=$(docker ps -a --filter "status=created" --format '{{.Names}}' | grep '^dream-' || true)
+  created=$(docker ps -a --filter "status=created" --format '{{.Names}}' | grep '^dream-' || echo "")
   if [[ -n "$created" ]]; then
     warn "Some containers are still in Created state — attempting docker start"
     while IFS= read -r cname; do

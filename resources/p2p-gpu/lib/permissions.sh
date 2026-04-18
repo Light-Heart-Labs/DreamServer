@@ -5,8 +5,8 @@
 # Part of: resources/p2p-gpu/lib/
 # Purpose: POSIX ACLs, setgid, UID-specific ownership, data dir scaffolding
 #
-# Expects: DREAM_USER, DREAM_HOME, LOGFILE, log(), warn()
-# Provides: ensure_acl_tools(), apply_data_acl(), apply_shared_dir_perms(),
+# Expects: DREAM_USER, DREAM_HOME, LOGFILE, log(), warn(), err()
+# Provides: ensure_acl_tools(), apply_data_acl(), apply_multi_uid_perms(),
 #           fix_known_uid_requirements(), precreate_extension_data_dirs(),
 #           configure_dream_umask(), create_permission_fix_script()
 #
@@ -20,7 +20,7 @@
 #     - Primary: setgid (2775) + POSIX ACLs → group-based access
 #     - Exception: multi-UID dirs (models/, searxng/) use a+rwX because
 #       multiple unrelated UIDs write and ACLs can't express "any UID"
-#     - Fallback: a+rwX only when setfacl is unavailable
+#     - setfacl is required; fail fast when unavailable
 #
 # SPDX-License-Identifier: Apache-2.0
 # ============================================================================
@@ -51,16 +51,15 @@ apply_data_acl() {
     setfacl -R -m "u:1000:rwx,g::rwx" "$dir" || warn "setfacl current failed on ${dir} (non-fatal)"
     log "Applied POSIX ACLs on ${dir}"
   else
-    # Last-resort fallback: only when ACL tools genuinely unavailable
-    chmod -R a+rwX "$dir" || warn "chmod fallback failed on ${dir} (non-fatal)"
-    warn "setfacl unavailable — used chmod a+rwX fallback on ${dir}"
+    err "setfacl unavailable — install with: apt-get install acl"
+    exit 1
   fi
 }
 
 # [FIX: broad-chmod] Apply world-writable perms ONLY on directories where
 # multiple unrelated container UIDs write and ACLs cannot express the access
 # pattern. Each call is documented with the reason.
-apply_shared_dir_perms() {
+apply_multi_uid_perms() {
   local dir="$1" reason="$2"
   [[ ! -d "$dir" ]] && return 0
   chmod -R a+rwX "$dir" || warn "shared-dir chmod on ${dir} failed (non-fatal)"
@@ -139,21 +138,23 @@ _fix_uid_exceptions() {
 
   # searxng: uid varies by image version (977 or 1000) — multi-UID, needs shared perms
   if [[ -d "${data_dir}/searxng" ]]; then
-    apply_shared_dir_perms "${data_dir}/searxng" "uid varies by image version (977/1000)"
+    apply_multi_uid_perms "${data_dir}/searxng" "uid varies by image version (977/1000)" # ACLs cannot encode cross-version UID drift on existing files.
   fi
 
   # comfyui: AMD vs NVIDIA layout
   fix_comfyui_permissions "$data_dir" "$gpu_backend"
 
-  # open-webui: runs as root, dream user needs read access for backup/export
+  # open-webui: grant both root (container) and uid 1000 (dream/dashboard-api)
   if [[ -d "${data_dir}/open-webui" ]]; then
-    apply_shared_dir_perms "${data_dir}/open-webui" "root container, dream user needs backup access"
+    setfacl -R -d -m "u::rwx,u:0:rwx,u:1000:rwx,g::rwx,o::rx" "${data_dir}/open-webui" || warn "open-webui default ACL fix failed (non-fatal)"
+    setfacl -R -m "u:0:rwx,u:1000:rwx,g::rwx" "${data_dir}/open-webui" || warn "open-webui ACL fix failed (non-fatal)"
   fi
 
-  # whisper: uid 1000 + HuggingFace cache written by different UIDs
+  # whisper: grant known writers uid 1000 + root for cache/bootstrap flows
   if [[ -d "${data_dir}/whisper" ]]; then
     chown -R 1000:1000 "${data_dir}/whisper" || warn "whisper chown failed (non-fatal)"
-    apply_shared_dir_perms "${data_dir}/whisper" "HF cache written by multiple UIDs"
+    setfacl -R -d -m "u::rwx,u:0:rwx,u:1000:rwx,g::rwx,o::rx" "${data_dir}/whisper" || warn "whisper default ACL fix failed (non-fatal)"
+    setfacl -R -m "u:0:rwx,u:1000:rwx,g::rwx" "${data_dir}/whisper" || warn "whisper ACL fix failed (non-fatal)"
   fi
 
   # dashboard-api: uid 1000 (dreamer) — needs rw on data/ and .env
@@ -168,7 +169,7 @@ _fix_uid_exceptions() {
 
   # models (shared): llama-server (root), comfyui, aria2c (root) all write here
   if [[ -d "${data_dir}/models" ]]; then
-    apply_shared_dir_perms "${data_dir}/models" "multi-service write: llama-server, comfyui, aria2c"
+    apply_multi_uid_perms "${data_dir}/models" "multi-service write: llama-server, comfyui, aria2c" # ACLs cannot represent unbounded uploader/runtime UID combinations.
   fi
 }
 
@@ -254,11 +255,17 @@ if command -v setfacl &>/dev/null; then
   setfacl -R -d -m "u::rwx,u:1000:rwx,g::rwx,o::rx" "\$DATA_DIR" || warn "setfacl default failed (non-fatal)"
   setfacl -R -m "u:1000:rwx,g::rwx" "\$DATA_DIR" || warn "setfacl current failed (non-fatal)"
 else
-  chmod -R a+rwX "\$DATA_DIR" || warn "chmod fallback failed (non-fatal)"
+  echo "[x] setfacl unavailable — install with: apt-get install acl" >&2
+  exit 1
 fi
 
 ${uid_fix_lines}
 [[ -d "\${DATA_DIR}/qdrant" ]] && chown -R 1000:1000 "\${DATA_DIR}/qdrant" || warn "qdrant fix failed (non-fatal)"
+[[ -d "\${DATA_DIR}/open-webui" ]] && setfacl -R -d -m "u::rwx,u:0:rwx,u:1000:rwx,g::rwx,o::rx" "\${DATA_DIR}/open-webui" || warn "open-webui default ACL fix failed (non-fatal)"
+[[ -d "\${DATA_DIR}/open-webui" ]] && setfacl -R -m "u:0:rwx,u:1000:rwx,g::rwx" "\${DATA_DIR}/open-webui" || warn "open-webui ACL fix failed (non-fatal)"
+[[ -d "\${DATA_DIR}/whisper" ]] && chown -R 1000:1000 "\${DATA_DIR}/whisper" || warn "whisper chown failed (non-fatal)"
+[[ -d "\${DATA_DIR}/whisper" ]] && setfacl -R -d -m "u::rwx,u:0:rwx,u:1000:rwx,g::rwx,o::rx" "\${DATA_DIR}/whisper" || warn "whisper default ACL fix failed (non-fatal)"
+[[ -d "\${DATA_DIR}/whisper" ]] && setfacl -R -m "u:0:rwx,u:1000:rwx,g::rwx" "\${DATA_DIR}/whisper" || warn "whisper ACL fix failed (non-fatal)"
 # Multi-UID directories: searxng (uid varies), models (llama+comfyui+aria2c write)
 [[ -d "\${DATA_DIR}/searxng" ]] && chmod -R a+rwX "\${DATA_DIR}/searxng" || warn "searxng fix failed (non-fatal)"
 [[ -d "\${DATA_DIR}/models" ]] && chmod -R a+rwX "\${DATA_DIR}/models" || warn "models fix failed (non-fatal)"
@@ -274,7 +281,7 @@ for d in \
   "\${DATA_DIR}/comfyui/ComfyUI/input" \
   "\${DATA_DIR}/comfyui/ComfyUI/custom_nodes"; do
   mkdir -p "\$d" || warn "comfyui mkdir failed on \$d (non-fatal)"
-  [[ -d "\$d" ]] && chmod -R a+rwX "\$d" || warn "comfyui fix failed (non-fatal)"
+  [[ -d "\$d" ]] && chmod 2775 "\$d" || warn "comfyui dir mode fix failed on \$d (non-fatal)"
 done
 
 find "\${SCRIPT_DIR}/scripts" -name "*.sh" -exec chmod +x {} + || warn "scripts chmod failed (non-fatal)"

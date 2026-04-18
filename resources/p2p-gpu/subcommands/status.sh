@@ -25,7 +25,7 @@ cmd_status() {
   case "$gpu_backend" in
     nvidia)
       if nvidia-smi --query-gpu=name,memory.total,memory.used,utilization.gpu \
-        --format=csv,noheader 2>/dev/null | while IFS=',' read -r name mem_total mem_used util; do
+        --format=csv,noheader 2>>"$LOGFILE" | while IFS=',' read -r name mem_total mem_used util; do
         echo -e "  GPU: ${CYAN}${name}${NC} | VRAM: ${mem_used} /${mem_total} | Util: ${util}"
       done; then
         :
@@ -36,8 +36,8 @@ cmd_status() {
     amd)
       if command -v rocm-smi >/dev/null 2>&1; then
         local amd_name amd_vram
-        amd_name=$(rocm-smi --showproductname 2>/dev/null | grep -oP 'Card series:\s*\K.*' | head -1 || echo "AMD GPU")
-        amd_vram=$(rocm-smi --showmeminfo vram 2>/dev/null | grep -oP 'Total Memory \(B\):\s*\K[0-9]+' | head -1 || echo "0")
+        amd_name=$(rocm-smi --showproductname 2>>"$LOGFILE" | grep -oP 'Card series:\s*\K.*' | head -1 || echo "AMD GPU")
+        amd_vram=$(rocm-smi --showmeminfo vram 2>>"$LOGFILE" | grep -oP 'Total Memory \(B\):\s*\K[0-9]+' | head -1 || echo "0")
         if [[ "${amd_vram:-0}" -gt 1000000 ]]; then
           amd_vram=$(( amd_vram / 1048576 ))
         fi

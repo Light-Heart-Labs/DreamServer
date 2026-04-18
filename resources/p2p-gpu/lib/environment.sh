@@ -47,7 +47,7 @@ env_set() {
 env_get() {
   local file="$1" key="$2"
   [[ ! -f "$file" ]] && return 0
-  grep "^${key}=" "$file" 2>/dev/null | head -1 | cut -d= -f2- \
+  grep "^${key}=" "$file" 2>>"$LOGFILE" | head -1 | cut -d= -f2- \
     | sed 's/[[:space:]]#.*$//' | tr -d '"' | tr -d "'" || echo ""
 }
 
@@ -168,13 +168,13 @@ cap_cpu_in_files() {
 get_compose_cpu_ceiling() {
   local host_nproc docker_ncpu ceiling
 
-  host_nproc=$(nproc 2>/dev/null || echo 1)
+  host_nproc=$(nproc 2>>"$LOGFILE" || echo 1)
   if [[ ! "$host_nproc" =~ ^[0-9]+$ ]] || [[ "$host_nproc" -lt 1 ]]; then
     host_nproc=1
   fi
 
   ceiling="$host_nproc"
-  docker_ncpu=$(docker info --format '{{.NCPU}}' 2>/dev/null || echo "")
+  docker_ncpu=$(docker info --format '{{.NCPU}}' 2>>"$LOGFILE" || echo "")
   if [[ "$docker_ncpu" =~ ^[0-9]+$ ]] && [[ "$docker_ncpu" -gt 0 ]] && [[ "$docker_ncpu" -lt "$ceiling" ]]; then
     ceiling="$docker_ncpu"
   fi
@@ -238,23 +238,23 @@ detect_gpu() {
 
   if command -v nvidia-smi &>/dev/null && nvidia-smi --query-gpu=name --format=csv,noheader &>/dev/null 2>&1; then
     GPU_BACKEND="nvidia"
-    GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 | xargs)
-    GPU_VRAM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | xargs)
-    GPU_COUNT=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | wc -l)
+    GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>>"$LOGFILE" | head -1 | xargs)
+    GPU_VRAM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>>"$LOGFILE" | head -1 | xargs)
+    GPU_COUNT=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>>"$LOGFILE" | wc -l)
     GPU_TOTAL_VRAM=0
     while read -r v; do GPU_TOTAL_VRAM=$(( GPU_TOTAL_VRAM + v )); done \
-      < <(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null)
+      < <(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>>"$LOGFILE")
     if [[ $GPU_TOTAL_VRAM -eq 0 ]]; then GPU_TOTAL_VRAM=$GPU_VRAM; fi
 
   elif command -v rocm-smi &>/dev/null || [[ -e /dev/kfd ]]; then
     GPU_BACKEND="amd"
-    GPU_NAME=$(rocm-smi --showproductname 2>/dev/null | grep -oP 'Card series:\s*\K.*' | head -1 || echo "AMD GPU")
-    GPU_VRAM=$(rocm-smi --showmeminfo vram 2>/dev/null | grep -oP 'Total Memory \(B\):\s*\K[0-9]+' | head -1 || echo "0")
+    GPU_NAME=$(rocm-smi --showproductname 2>>"$LOGFILE" | grep -oP 'Card series:\s*\K.*' | head -1 || echo "AMD GPU")
+    GPU_VRAM=$(rocm-smi --showmeminfo vram 2>>"$LOGFILE" | grep -oP 'Total Memory \(B\):\s*\K[0-9]+' | head -1 || echo "0")
     # Convert bytes to MiB
     if [[ "${GPU_VRAM:-0}" -gt 1000000 ]]; then
       GPU_VRAM=$(( GPU_VRAM / 1048576 ))
     fi
-    GPU_COUNT=$(rocm-smi --showid 2>/dev/null | grep -c 'GPU\[' || echo 1)
+    GPU_COUNT=$(rocm-smi --showid 2>>"$LOGFILE" | grep -c 'GPU\[' || echo 1)
     if [[ $GPU_COUNT -ge 2 ]]; then
       GPU_TOTAL_VRAM=$(( GPU_VRAM * GPU_COUNT ))  # rocm-smi per-device sum
     else
@@ -283,8 +283,8 @@ apply_post_install_fixes() {
   local data_dir="${ds_dir}/data"
   local env_file="${ds_dir}/.env"
   local cpu_count docker_cpu compose_ceiling max_cpu
-  cpu_count=$(nproc 2>/dev/null || echo 1)
-  docker_cpu=$(docker info --format '{{.NCPU}}' 2>/dev/null || echo "unknown")
+  cpu_count=$(nproc 2>>"$LOGFILE" || echo 1)
+  docker_cpu=$(docker info --format '{{.NCPU}}' 2>>"$LOGFILE" || echo "unknown")
 
   [[ "$gpu_backend" == "auto" ]] && gpu_backend=$(detect_gpu_backend)
 

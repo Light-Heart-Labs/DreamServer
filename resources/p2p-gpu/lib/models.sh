@@ -73,8 +73,8 @@ resolve_tier_for_gpu() {
       TIER="$tier"
       MODEL_PROFILE="${MODEL_PROFILE:-qwen}"
       error() { echo "ERROR: $*" >&2; return 1; }
-      source "$tier_map" 2>/dev/null
-      resolve_tier_config 2>/dev/null
+      source "$tier_map" 2>>"$LOGFILE"
+      resolve_tier_config 2>>"$LOGFILE"
       echo "${GGUF_FILE}|${GGUF_URL:-}|${LLM_MODEL_SIZE_MB:-0}"
     ) || result=""
 
@@ -136,7 +136,7 @@ check_disk_for_download() {
   local target_dir="$1"
   local min_gb="${2:-5}"
   local avail_gb
-  avail_gb=$(df -BG --output=avail "$target_dir" 2>/dev/null | tail -1 | tr -dc '0-9')
+  avail_gb=$(df -BG --output=avail "$target_dir" 2>>"$LOGFILE" | tail -1 | tr -dc '0-9')
   if [[ "${avail_gb:-0}" -lt "$min_gb" ]]; then
     warn "Insufficient disk space: ${avail_gb}GB available, ${min_gb}GB needed in ${target_dir}"
     return 1
@@ -148,7 +148,7 @@ check_disk_for_download() {
 # Store a background process PID so we can stop it safely later.
 _store_pid() {
   local name="$1" pid="$2"
-  mkdir -p "$PIDFILE_DIR" 2>/dev/null || true
+  mkdir -p "$PIDFILE_DIR" 2>>"$LOGFILE" || warn "could not create pidfile directory ${PIDFILE_DIR} (non-fatal)"
   echo "$pid" > "${PIDFILE_DIR}/${name}.pid"
 }
 
@@ -158,9 +158,9 @@ _kill_stored_pid() {
   local pidfile="${PIDFILE_DIR}/${name}.pid"
   [[ ! -f "$pidfile" ]] && return 0
   local pid
-  pid=$(cat "$pidfile" 2>/dev/null || echo "")
-  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-    kill "$pid" 2>/dev/null || warn "Could not kill ${name} (PID ${pid})"
+  pid=$(cat "$pidfile" 2>>"$LOGFILE" || echo "")
+  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then  # stderr expected: process may already have exited
+    kill "$pid" 2>>"$LOGFILE" || warn "Could not kill ${name} (PID ${pid})"
   fi
   rm -f "$pidfile"
 }
@@ -171,8 +171,8 @@ _is_pid_running() {
   local pidfile="${PIDFILE_DIR}/${name}.pid"
   [[ ! -f "$pidfile" ]] && return 1
   local pid
-  pid=$(cat "$pidfile" 2>/dev/null || echo "")
-  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+  pid=$(cat "$pidfile" 2>>"$LOGFILE" || echo "")
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null # stderr expected: process may already have exited
 }
 
 # Resolve download URL for a model filename
@@ -332,8 +332,8 @@ compose_cmd() {
 is_download_running() {
   [[ ! -f "$PIDFILE" ]] && return 1
   local pid
-  pid=$(cat "$PIDFILE" 2>/dev/null || echo "")
-  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+  pid=$(cat "$PIDFILE" 2>/dev/null || echo "") # stderr expected: pidfile can be unreadable/missing during shutdown race
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null # stderr expected: "No such process" while download exits
 }
 
 swap_model() {
@@ -357,7 +357,7 @@ swap_model() {
     return 1
   fi
   local file_size
-  file_size=$(stat -c%s "$model_path" 2>/dev/null || echo 0)
+  file_size=$(stat -c%s "$model_path" 2>/dev/null || echo 0) # stderr expected: file can disappear during concurrent cleanup
   if [[ "$file_size" -lt 100000000 ]]; then
     warn "Model file too small (${file_size} bytes) — skipping swap"
     return 1

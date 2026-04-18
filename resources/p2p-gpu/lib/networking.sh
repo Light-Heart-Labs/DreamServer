@@ -268,7 +268,7 @@ setup_cloudflare_tunnel() {
       -o "$cf_tmp" || { warn "cloudflared download failed (non-fatal)"; rm -f "$cf_tmp"; return 0; }
     # Verify checksum when available
     local expected_sha
-    expected_sha=$(curl -sL --max-time 10 "$cf_checksum_url" 2>/dev/null | awk '{print $1}' || echo "")
+    expected_sha=$(curl -sL --max-time 10 "$cf_checksum_url" 2>>"$LOGFILE" | awk '{print $1}' || echo "")
     if [[ -n "$expected_sha" ]]; then
       local actual_sha
       actual_sha=$(sha256sum "$cf_tmp" | awk '{print $1}')
@@ -295,7 +295,7 @@ setup_cloudflare_tunnel() {
   TUNNEL_TOKEN="$cf_token" nohup cloudflared tunnel --no-autoupdate run --token-from-env TUNNEL_TOKEN \
     >> "${ds_dir}/logs/cloudflared.log" 2>&1 &
   local cf_pid=$!
-  _store_pid "cloudflared" "$cf_pid" 2>/dev/null || true
+  _store_pid "cloudflared" "$cf_pid" 2>>"$LOGFILE" || warn "could not persist cloudflared pid (non-fatal)"
   log "Cloudflare Tunnel started (PID: ${cf_pid}) — HTTPS access active"
 }
 
@@ -319,7 +319,7 @@ generate_ssh_tunnel_script() {
     echo "HOST=\"${host_ip}\""
     echo "SSH_PORT=\"${ssh_port}\""
     echo "ENTRY_PORT=\"${entry_port}\""
-    echo '_uname="$(uname -s 2>/dev/null | tr "[:upper:]" "[:lower:]")"'
+    echo '_uname="$(uname -s | tr "[:upper:]" "[:lower:]")"'
     echo 'case "${_uname}" in'
     echo "  mingw*|msys*|cygwin*) _default_local_proxy=${local_proxy_port} ;;"
     echo "  *) _default_local_proxy=${local_proxy_port} ;;"
@@ -402,11 +402,13 @@ print_access_info() {
   local dash_api_status dashboard_status webui_status
   host_ip="${PUBLIC_IPADDR:-$(curl -sf --max-time 5 ifconfig.me || echo '<your-vast-ip>')}"
   ssh_port="${VAST_TCP_PORT_22:-22}"
-  dash_api_status=$(docker inspect --format '{{.State.Status}}' dream-dashboard-api 2>/dev/null || echo "missing")
-  dashboard_status=$(docker inspect --format '{{.State.Status}}' dream-dashboard 2>/dev/null || echo "missing")
-  webui_status=$(docker inspect --format '{{.State.Status}}' dream-webui 2>/dev/null \
-    || docker inspect --format '{{.State.Status}}' dream-open-webui 2>/dev/null \
-    || echo "missing")
+  dash_api_status=$(docker inspect --format '{{.State.Status}}' dream-dashboard-api 2>/dev/null || echo "missing") # stderr expected: container may not exist
+  dashboard_status=$(docker inspect --format '{{.State.Status}}' dream-dashboard 2>/dev/null || echo "missing") # stderr expected: container may not exist
+  webui_status=$(
+    docker inspect --format '{{.State.Status}}' dream-webui 2>/dev/null || # stderr expected: container may not exist
+    docker inspect --format '{{.State.Status}}' dream-open-webui 2>/dev/null || # stderr expected: container may not exist
+    echo "missing"
+  )
 
   echo ""
   if [[ "$dash_api_status" == "running" && ( "$dashboard_status" == "running" || "$webui_status" == "running" ) ]]; then

@@ -40,17 +40,17 @@ enumerate_gpus() {
       GPU_NAMES+=("$name")
       GPU_TOTAL_VRAM=$(( GPU_TOTAL_VRAM + ${vram%%.*} ))
     done < <(nvidia-smi --query-gpu=gpu_uuid,memory.total,name \
-      --format=csv,noheader,nounits 2>/dev/null || true)
+      --format=csv,noheader,nounits 2>>"$LOGFILE" || warn "nvidia-smi GPU enumeration failed (non-fatal)")
 
   elif [[ "${GPU_BACKEND:-}" == "amd" ]]; then
     local idx=0
     while IFS= read -r line; do
       [[ -z "$line" ]] && continue
       local gpu_name
-      gpu_name=$(rocm-smi -d "$idx" --showproductname 2>/dev/null \
+      gpu_name=$(rocm-smi -d "$idx" --showproductname 2>>"$LOGFILE" \
         | grep -oP 'Card series:\s*\K.*' || echo "AMD GPU $idx")
       local vram_bytes
-      vram_bytes=$(rocm-smi -d "$idx" --showmeminfo vram 2>/dev/null \
+      vram_bytes=$(rocm-smi -d "$idx" --showmeminfo vram 2>>"$LOGFILE" \
         | grep -oP 'Total Memory \(B\):\s*\K[0-9]+' || echo "0")
       local vram_mb=$(( vram_bytes / 1048576 ))
       [[ $vram_mb -lt 1000 ]] && vram_mb=${GPU_VRAM:-0}  # fallback
@@ -60,7 +60,7 @@ enumerate_gpus() {
       GPU_NAMES+=("$gpu_name")
       GPU_TOTAL_VRAM=$(( GPU_TOTAL_VRAM + vram_mb ))
       idx=$((idx + 1))
-    done < <(rocm-smi --showid 2>/dev/null | grep 'GPU\[' || true)
+    done < <(rocm-smi --showid 2>>"$LOGFILE" | grep 'GPU\[' || echo "")
   fi
 
   # Sanity: if enumeration failed, fall back to count * per-GPU
@@ -85,8 +85,8 @@ generate_topology_json() {
       # Source upstream functions in subshell
       warn() { echo "WARN: $*" >&2; }
       err()  { echo "ERR: $*" >&2; }
-      source "${DS_DIR}/installers/lib/nvidia-topo.sh" 2>/dev/null
-      detect_nvidia_topo 2>/dev/null
+      source "${DS_DIR}/installers/lib/nvidia-topo.sh" 2>>"$LOGFILE"
+      detect_nvidia_topo 2>>"$LOGFILE"
     ) || upstream_topo=""
     if [[ -n "$upstream_topo" && "$upstream_topo" != "{}" ]]; then
       echo "$upstream_topo" > "$output_file"
@@ -133,7 +133,7 @@ TOPO_EOF
 _parse_nvidia_topo_links() {
   # Parse nvidia-smi topo -m matrix into JSON links array
   local matrix
-  matrix=$(nvidia-smi topo -m 2>/dev/null) || { echo "[]"; return; }
+  matrix=$(nvidia-smi topo -m 2>>"$LOGFILE") || { echo "[]"; return; }
 
   # Strip ANSI escape codes
   matrix=$(echo "$matrix" | sed 's/\x1b\[[0-9;]*m//g')
@@ -251,8 +251,8 @@ run_gpu_assignment() {
 
   # Save topology for dashboard-api
   mkdir -p "${ds_dir}/config"
-  cp "$topo_file" "${ds_dir}/config/gpu-topology.json" 2>/dev/null || true
-  chmod 644 "${ds_dir}/config/gpu-topology.json" 2>/dev/null || true
+  cp "$topo_file" "${ds_dir}/config/gpu-topology.json" 2>>"$LOGFILE" || warn "failed to persist gpu-topology.json (non-fatal)"
+  chmod 644 "${ds_dir}/config/gpu-topology.json" 2>>"$LOGFILE" || warn "failed to set mode on gpu-topology.json (non-fatal)"
 
   # Enable P2P transfers when NVLink detected (avoids host RAM round-trip)
   if [[ -f "$topo_file" ]] && jq -e '.links[] | select(.link_type | startswith("NV"))' "$topo_file" &>/dev/null; then

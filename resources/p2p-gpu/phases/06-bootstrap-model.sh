@@ -77,7 +77,7 @@ fi
 
 # Check for ANY .gguf file as fallback
 if [[ "$model_ready" != "true" ]]; then
-  any_model=$(find "$models_dir" -name "*.gguf" -size +100M 2>/dev/null | head -1 || echo "")
+  any_model=$(find "$models_dir" -name "*.gguf" -size +100M 2>>"$LOGFILE" | head -1 || echo "")
   if [[ -n "$any_model" ]]; then
     found_name=$(basename "$any_model")
     env_set "$env_file" "GGUF_FILE" "$found_name"

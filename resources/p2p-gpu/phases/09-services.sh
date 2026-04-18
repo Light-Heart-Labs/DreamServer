@@ -38,11 +38,13 @@ _run_health_check() {
     local healthy running dash_api_status dashboard_status webui_status
     healthy=$(docker ps --filter "health=healthy" --format '{{.Names}}' | wc -l)
     running=$(docker ps --format '{{.Names}}' | wc -l)
-    dash_api_status=$(docker inspect --format '{{.State.Status}}' dream-dashboard-api 2>/dev/null || echo "missing")
-    dashboard_status=$(docker inspect --format '{{.State.Status}}' dream-dashboard 2>/dev/null || echo "missing")
-    webui_status=$(docker inspect --format '{{.State.Status}}' dream-webui 2>/dev/null \
-      || docker inspect --format '{{.State.Status}}' dream-open-webui 2>/dev/null \
-      || echo "missing")
+    dash_api_status=$(docker inspect --format '{{.State.Status}}' dream-dashboard-api 2>/dev/null || echo "missing") # stderr expected: container may not exist
+    dashboard_status=$(docker inspect --format '{{.State.Status}}' dream-dashboard 2>/dev/null || echo "missing") # stderr expected: container may not exist
+    webui_status=$(
+      docker inspect --format '{{.State.Status}}' dream-webui 2>/dev/null || # stderr expected: container may not exist
+      docker inspect --format '{{.State.Status}}' dream-open-webui 2>/dev/null || # stderr expected: container may not exist
+      echo "missing"
+    )
     echo -n "."
 
     if [[ $healthy -ge 3 && "$dash_api_status" == "running" \
@@ -164,10 +166,10 @@ _report_containers() {
     [[ -z "$container" ]] && container="dream-${svc}"
 
     local status health
-    if ! status=$(docker inspect --format '{{.State.Status}}' "$container" 2>/dev/null); then
+    if ! status=$(docker inspect --format '{{.State.Status}}' "$container" 2>/dev/null); then  # stderr expected: container may not exist
       status="not found"
     fi
-    if ! health=$(docker inspect --format '{{.State.Health.Status}}' "$container" 2>/dev/null); then
+    if ! health=$(docker inspect --format '{{.State.Health.Status}}' "$container" 2>/dev/null); then  # stderr expected: container may not expose healthcheck
       health="none"
     fi
 
@@ -192,13 +194,13 @@ _report_heavy() {
     [[ -z "$container" ]] && container="dream-${svc}"
 
     local status
-    if ! status=$(docker inspect --format '{{.State.Status}}' "$container" 2>/dev/null); then
+    if ! status=$(docker inspect --format '{{.State.Status}}' "$container" 2>/dev/null); then  # stderr expected: container may not exist
       status="not found"
     fi
     [[ "$status" == "not found" || "$status" == "exited" ]] && continue
 
     local health
-    if ! health=$(docker inspect --format '{{.State.Health.Status}}' "$container" 2>/dev/null); then
+    if ! health=$(docker inspect --format '{{.State.Health.Status}}' "$container" 2>/dev/null); then  # stderr expected: container may not expose healthcheck
       health="none"
     fi
     if [[ "$health" == "healthy" ]]; then
@@ -218,13 +220,13 @@ _report_normal() {
     [[ -z "$container" ]] && container="dream-${svc}"
 
     local status
-    if ! status=$(docker inspect --format '{{.State.Status}}' "$container" 2>/dev/null); then
+    if ! status=$(docker inspect --format '{{.State.Status}}' "$container" 2>/dev/null); then  # stderr expected: container may not exist
       status="not found"
     fi
     [[ "$status" == "not found" || "$status" == "exited" ]] && continue
 
     local health
-    if ! health=$(docker inspect --format '{{.State.Health.Status}}' "$container" 2>/dev/null); then
+    if ! health=$(docker inspect --format '{{.State.Health.Status}}' "$container" 2>/dev/null); then  # stderr expected: container may not expose healthcheck
       health="none"
     fi
     if [[ "$health" == "healthy" ]]; then
