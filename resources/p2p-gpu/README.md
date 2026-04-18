@@ -14,6 +14,10 @@ bash setup.sh --status     # Health check
 bash setup.sh --teardown   # Stop all services (save $$$)
 ```
 
+## Setup Guide
+https://drive.google.com/file/d/1SrBooRJwP24OTWXZH-TOlk4q6tK44DUR/view?usp=sharing
+https://docs.google.com/presentation/d/16TusAdo0-o3lOTeUwRaJa16foELvFSH4/edit?usp=sharing&ouid=109193555106212685513&rtpof=true&sd=true
+
 ## Quick Recovery (If Phase 9 Fails)
 
 If setup reached "Starting services" but URLs are unreachable:
@@ -74,13 +78,10 @@ The setup script handles 28 known issues with P2P GPU environments:
 ```
 p2p-gpu/
 ├── setup.sh                    # Orchestrator — sources libs, runs phases
-├── config/                     # P2P-specific configuration
-│   └── service-hints.yaml      # Proxy routing + startup behavior overrides
 ├── lib/                        # Pure function libraries (no side effects)
 │   ├── constants.sh            # Paths, versions, colors, thresholds
 │   ├── logging.sh              # log/warn/err/step, cleanup trap, flock
 │   ├── environment.sh          # .env management, GPU detection, HTTP polling
-│   ├── gpu-topology.sh         # Multi-GPU enumeration, NVLink, assignment
 │   ├── permissions.sh          # POSIX ACLs, setgid, UID-specific fixes
 │   ├── services.sh             # Manifest discovery, compose, startup
 │   ├── networking.sh           # Caddy proxy, SSH tunnel, Cloudflare
@@ -112,12 +113,12 @@ p2p-gpu/
 
 Aligned with DreamServer's [CLAUDE.md](../../CLAUDE.md):
 
-- **Let It Crash** — `set -euo pipefail` everywhere; errors kill the process
+- **Let It Crash** — `set -euo pipefail` everywhere; errors crash unless explicitly marked non-fatal with `|| warn` (per CLAUDE.md). On rented GPU instances, a working dashboard with a broken ComfyUI beats a dead stack the user is paying for.
 - **KISS** — readable over clever; one function, one job
 - **Pure Functions** — libs have no side effects; phases are the imperative shell
-- **Manifest-Driven** — services auto-discovered from extension manifests; p2p-specific overrides live in `config/service-hints.yaml` (no upstream manifest modifications)
+- **Manifest-Driven** — services auto-discovered from extension manifests (no hardcoded lists)
 - **PID-file tracking** — background processes tracked safely (no `pkill -f`)
-- **ACL-primary permissions** — setgid + POSIX ACLs; `chmod a+rwX` only as documented fallback
+- **ACL-primary permissions** — setgid + POSIX ACLs required (hard fail if unavailable); `chmod a+rwX` only for documented multi-UID directories where ACLs cannot express the pattern
 
 ## Commands
 
@@ -138,7 +139,7 @@ Aligned with DreamServer's [CLAUDE.md](../../CLAUDE.md):
 - Dashboard model downloads (`/models` page) require the Dream host agent; setup now auto-starts it during service startup.
 
 ```bash
-MODEL="Qwen3-30B-A3B-Q4_K_M.gguf"; DS_DIR="${DS_DIR:-/home/dream/dream-server}"; LLM_MODEL="$(echo "$MODEL" | sed -E 's/\.(gguf|GGUF)$//' | sed -E 's/-Q[0-9]+([._][A-Za-z0-9]+)*$//' | tr '[:upper:]' '[:lower:]')"; cd "$DS_DIR" && sed -i "s|^GGUF_FILE=.*|GGUF_FILE=${MODEL}|" .env && { grep -q '^LLM_MODEL=' .env && sed -i "s|^LLM_MODEL=.*|LLM_MODEL=${LLM_MODEL}|" .env || echo "LLM_MODEL=${LLM_MODEL}" >> .env; } && docker compose $(cat .compose-flags 2>/dev/null) up -d llama-server && for c in dream-dreamforge dream-openclaw dream-dashboard-api dream-webui; do docker ps --format '{{.Names}}' | grep -qx "$c" && docker restart "$c" >/dev/null || true; done
+MODEL="Qwen3-30B-A3B-Q4_K_M.gguf"; DS_DIR="${DS_DIR:-/home/dream/dream-server}"; LLM_MODEL="$(echo "$MODEL" | sed -E 's/\.(gguf|GGUF)$//' | sed -E 's/-Q[0-9]+([._][A-Za-z0-9]+)*$//' | tr '[:upper:]' '[:lower:]')"; cd "$DS_DIR" && sed -i "s|^GGUF_FILE=.*|GGUF_FILE=${MODEL}|" .env && { grep -q '^LLM_MODEL=' .env && sed -i "s|^LLM_MODEL=.*|LLM_MODEL=${LLM_MODEL}|" .env || echo "LLM_MODEL=${LLM_MODEL}" >> .env; } && docker compose $(cat .compose-flags 2>/dev/null) up -d llama-server && for c in dream-dreamforge dream-openclaw dream-dashboard-api dream-webui; do docker ps --format '{{.Names}}' | grep -qx "$c" && docker restart "$c" >/dev/null || echo "[warn] ${c} restart failed (non-fatal)" >&2; done
 ```
 
 ```bash
@@ -163,7 +164,6 @@ provider-specific fixes.
 ## Security
 
 - `.env` files created with `0600` mode (secrets protected)
-- Port rebinding guarded — only activates on detected P2P GPU environments
 - Background process PIDs tracked in `/var/run/dreamserver-p2p-gpu/`
 - Cloudflare tokens passed via environment variables (not CLI args)
 - Binary downloads (cloudflared) verified via SHA256 checksums
