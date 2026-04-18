@@ -1,6 +1,6 @@
 # Dream Server Windows Installation Walkthrough
 
-Step-by-step guide for installing Dream Server on Windows 10/11 with WSL2, Docker Desktop, and NVIDIA GPU support.
+Step-by-step guide for installing Dream Server on Windows 10/11 through Docker Desktop + WSL2.
 
 ---
 
@@ -9,9 +9,9 @@ Step-by-step guide for installing Dream Server on Windows 10/11 with WSL2, Docke
 | Requirement | Minimum | Recommended |
 |-------------|---------|-------------|
 | Windows | 10 version 2004+ (build 19041) | Windows 11 |
-| GPU | NVIDIA with 8GB VRAM | RTX 3060 12GB+ or RTX 4090 |
+| GPU | NVIDIA with 8GB VRAM or AMD Strix Halo | RTX 3060 12GB+, RTX 4090, or Ryzen AI MAX+ 395 |
 | RAM | 16GB | 32GB+ |
-| Disk | 100GB free SSD | 200GB+ NVMe |
+| Disk | 30GB free SSD | 100GB+ NVMe |
 | WSL2 | Enabled | Latest kernel |
 | Docker | Docker Desktop | Latest stable |
 
@@ -37,7 +37,9 @@ wsl --status
 
 ---
 
-## Step 2: Install NVIDIA Drivers
+## Step 2: Install GPU Drivers
+
+### NVIDIA
 
 1. Download latest drivers: https://www.nvidia.com/drivers
 2. Install on Windows (do NOT install in WSL2)
@@ -48,6 +50,14 @@ wsl --status
    ```
 
 **Note:** Windows drivers automatically provide GPU access to WSL2. No separate WSL driver needed.
+
+### AMD Strix Halo
+
+1. Install the latest AMD Windows graphics drivers
+2. Reboot if prompted
+3. Continue with the normal installer flow
+
+**Note:** On the supported AMD Windows path, `llama-server` runs natively on the host and the rest of the stack runs in Docker.
 
 ---
 
@@ -73,7 +83,7 @@ Open **PowerShell** (not as admin) and run:
 
 ```powershell
 # Download installer
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.1.0/install.ps1" -OutFile install.ps1
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.4.0/install.ps1" -OutFile install.ps1
 
 # Run installer
 .\install.ps1
@@ -81,26 +91,30 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Light-Heart-Labs/Dream
 
 The installer will:
 - Detect your GPU and pick the right model tier
-- Check prerequisites (WSL2, Docker, NVIDIA)
-- Create installation directory at `%LOCALAPPDATA%\DreamServer`
+- Check prerequisites (WSL2, Docker, GPU, disk, ports)
+- Create installation directory at `$env:USERPROFILE\dream-server`
 - Download and start all services
+- Install the `dream.ps1` management CLI
 
 **First run takes 10-30 minutes** (downloads ~20GB model).
 
 ### Installer Options
 
 ```powershell
-# Quick start with small model (upgrades later)
-.\install.ps1 -Bootstrap
+# Validate prerequisites and planned actions without installing
+.\install.ps1 -DryRun
 
 # Specific tier with voice
 .\install.ps1 -Tier 2 -Voice
 
+# Cloud-only mode
+.\install.ps1 -Cloud
+
 # Full stack with everything
 .\install.ps1 -All
 
-# Just check system compatibility
-.\install.ps1 -Diagnose
+# Expose services on your LAN
+.\install.ps1 -Lan
 ```
 
 ---
@@ -111,11 +125,11 @@ The installer will:
 
 ```powershell
 # In PowerShell
-cd $env:LOCALAPPDATA\DreamServer
-docker compose ps
+cd $env:USERPROFILE\dream-server
+.\dream.ps1 status
 ```
 
-You should see containers: `llama-server`, `open-webui`, `searxng`, etc.
+You should see core services such as `llama-server`, `open-webui`, and `dashboard` reported as healthy.
 
 ### Test GPU Access
 
@@ -134,19 +148,19 @@ Visit: **http://localhost:3000**
 
 ---
 
-## Step 6: Run Diagnostics
+## Step 6: Validate the Setup Plan
 
 ```powershell
-# Full system check
-.\install.ps1 -Diagnose
+# Dry-run the installer to re-check prerequisites without changing the install
+.\install.ps1 -DryRun
 ```
 
 This verifies:
 - WSL2 version and kernel
 - Docker Desktop WSL2 backend
-- NVIDIA GPU visibility at all layers
-- Container health
-- Model loading status
+- GPU visibility and tier selection
+- Disk and port readiness
+- Planned installer actions
 
 ---
 
@@ -167,11 +181,11 @@ Then restart Docker Desktop.
 **Fix:** Ensure Docker Desktop WSL2 backend is enabled. Restart Docker Desktop after enabling.
 
 ### "Port 3000 already in use"
-**Fix:** Edit `%LOCALAPPDATA%\DreamServer\.env`:
+**Fix:** Edit `$env:USERPROFILE\dream-server\.env`:
 ```
 WEBUI_PORT=3001
 ```
-Then: `docker compose up -d`
+Then run: `.\dream.ps1 restart`
 
 ### Model download stuck
 **Fix:** Check disk space. Cancel with Ctrl+C, then restart installer — it resumes downloads.
@@ -182,10 +196,10 @@ Then: `docker compose up -d`
 
 | Task | Command |
 |------|---------|
-| Stop Dream Server | `docker compose down` |
-| Start Dream Server | `docker compose up -d` |
-| View logs | `docker compose logs -f` |
-| Update | `docker compose pull && docker compose up -d` |
+| Stop Dream Server | `.\dream.ps1 stop` |
+| Start Dream Server | `.\dream.ps1 start` |
+| View logs | `.\dream.ps1 logs llama-server` |
+| Update | `.\dream.ps1 update` |
 | Enable voice | Add `-Voice` flag or edit `.env` |
 | Enable workflows | Add `-Workflows` flag |
 | Full test suite | `.\scripts\test-stack.ps1` |
@@ -204,13 +218,13 @@ Then: `docker compose up -d`
 
 ```powershell
 # Stop and remove containers
-cd $env:LOCALAPPDATA\DreamServer
-docker compose down -v
+cd $env:USERPROFILE\dream-server
+.\dream.ps1 stop
 
 # Remove installation directory
-Remove-Item -Recurse -Force $env:LOCALAPPDATA\DreamServer
+Remove-Item -Recurse -Force $env:USERPROFILE\dream-server
 ```
 
 ---
 
-*Last updated: 2026-02-13*
+*Last updated: 2026-04-15*
