@@ -455,7 +455,7 @@ LITELLM_UPGRADE_EOF
         # Restart DreamForge so it auto-detects the new model from llama-server
         if $DOCKER_CMD ps --filter name=dream-dreamforge --format '{{.Names}}' 2>/dev/null | grep -q dream-dreamforge; then
             log "Restarting DreamForge to pick up model change..."
-            docker restart dream-dreamforge 2>&1 || log "WARNING: DreamForge restart failed (non-fatal)"
+            $DOCKER_CMD restart dream-dreamforge 2>&1 || log "WARNING: DreamForge restart failed (non-fatal)"
         fi
         # Recreate OpenClaw so inject-token.js picks up the new GGUF_FILE/LLM_MODEL
         # from .env. A restart alone won't work — env vars are baked in at container
