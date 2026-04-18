@@ -108,14 +108,18 @@ def list_models(api_key: str = Depends(verify_api_key)):
         gguf_file = model.get("gguf_file", "")
         model_id = model.get("id", "")
 
-        # Determine status — for split models, check the first part file
+        # Determine status — for split models, ALL parts must be present
+        # (mirrors host agent's all_downloaded check in dream-host-agent.py).
         parts = model.get("gguf_parts", [])
-        first_part = parts[0]["file"] if parts else gguf_file
+        if parts:
+            is_downloaded = all(p.get("file") in downloaded for p in parts)
+        else:
+            is_downloaded = bool(gguf_file) and gguf_file in downloaded
 
         if gguf_file and gguf_file == active_gguf:
             status = "loaded"
             current_model = model_id
-        elif first_part and first_part in downloaded:
+        elif is_downloaded:
             status = "downloaded"
         else:
             status = "available"

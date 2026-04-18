@@ -654,3 +654,83 @@ def test_chat_connection_error(test_client, monkeypatch):
 
     assert resp.status_code == 503
 
+
+# ---------------------------------------------------------------------------
+# Models router — split-file download status (issue #316)
+# ---------------------------------------------------------------------------
+
+
+def _models_get(test_client) -> dict:
+    resp = test_client.get("/api/models", headers=test_client.auth_headers)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _patch_models_env(monkeypatch, library, downloaded):
+    """Patch routers.models helpers used by list_models."""
+    import routers.models as models_router
+    monkeypatch.setattr(models_router, "_load_library", lambda: library)
+    monkeypatch.setattr(models_router, "_scan_downloaded_models", lambda: downloaded)
+    monkeypatch.setattr(models_router, "_read_active_model", lambda: None)
+    monkeypatch.setattr(models_router, "_get_gpu_vram", lambda: None)
+
+
+def test_list_models_split_partial_not_downloaded(test_client, monkeypatch):
+    """A split-file model with only the first part on disk → status 'available'."""
+    library = [{
+        "id": "split-test",
+        "name": "Split Test",
+        "gguf_file": "split-test-00001-of-00002.gguf",
+        "gguf_parts": [
+            {"file": "split-test-00001-of-00002.gguf"},
+            {"file": "split-test-00002-of-00002.gguf"},
+        ],
+        "size_mb": 2048,
+        "vram_required_gb": 8,
+    }]
+    downloaded = {"split-test-00001-of-00002.gguf": 1024}
+    _patch_models_env(monkeypatch, library, downloaded)
+
+    data = _models_get(test_client)
+    assert len(data["models"]) == 1
+    assert data["models"][0]["status"] == "available"
+
+
+def test_list_models_split_all_parts_downloaded(test_client, monkeypatch):
+    """A split-file model with every part on disk → status 'downloaded'."""
+    library = [{
+        "id": "split-test",
+        "name": "Split Test",
+        "gguf_file": "split-test-00001-of-00002.gguf",
+        "gguf_parts": [
+            {"file": "split-test-00001-of-00002.gguf"},
+            {"file": "split-test-00002-of-00002.gguf"},
+        ],
+        "size_mb": 2048,
+        "vram_required_gb": 8,
+    }]
+    downloaded = {
+        "split-test-00001-of-00002.gguf": 1024,
+        "split-test-00002-of-00002.gguf": 1024,
+    }
+    _patch_models_env(monkeypatch, library, downloaded)
+
+    data = _models_get(test_client)
+    assert data["models"][0]["status"] == "downloaded"
+
+
+def test_list_models_single_file_downloaded(test_client, monkeypatch):
+    """Sanity check: single-file model with its gguf_file present → 'downloaded'."""
+    library = [{
+        "id": "single-test",
+        "name": "Single Test",
+        "gguf_file": "single-test.gguf",
+        "size_mb": 1024,
+        "vram_required_gb": 4,
+    }]
+    downloaded = {"single-test.gguf": 1024}
+    _patch_models_env(monkeypatch, library, downloaded)
+
+    data = _models_get(test_client)
+    assert data["models"][0]["status"] == "downloaded"
+
