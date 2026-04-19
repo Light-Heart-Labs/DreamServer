@@ -500,10 +500,10 @@ LITELLM_UPGRADE_EOF
         # Recreate OpenClaw so inject-token.js picks up the new GGUF_FILE/LLM_MODEL
         # from .env. A restart alone won't work — env vars are baked in at container
         # creation time, and inject-token.js builds the Lemonade model name from them.
-        if docker ps --filter name=dream-openclaw --format '{{.Names}}' 2>/dev/null | grep -q dream-openclaw; then
+        if $DOCKER_CMD ps --filter name=dream-openclaw --format '{{.Names}}' 2>/dev/null | grep -q dream-openclaw; then
             log "Recreating OpenClaw to pick up model change..."
             if [[ ${#COMPOSE_ARGS[@]} -gt 0 ]]; then
-                docker compose "${COMPOSE_ARGS[@]}" up -d --force-recreate openclaw 2>&1 || \
+                $DOCKER_COMPOSE_CMD "${COMPOSE_ARGS[@]}" up -d --force-recreate openclaw 2>&1 || \
                     log "WARNING: OpenClaw recreate failed (non-fatal)"
             else
                 log "WARNING: No compose args — cannot recreate OpenClaw. Restart manually."
