@@ -252,6 +252,16 @@ dream cluster setup     # on controller — starts listening again
 dream cluster agent start --token <TOKEN> --controller <CONTROLLER_IP>
 ```
 
+### Manually Register a Running Worker
+
+If an rpc-server is already running on a machine (started outside the normal join flow), register it on the controller without re-running `setup`:
+
+```bash
+dream cluster add <WORKER_IP> [--port 50052]
+```
+
+The controller TCP-pings the RPC port to confirm reachability, then probes the worker's agent status endpoint (TCP 50054) to pull its GPU backend and GPU inventory — so the saved cluster config matches what the worker actually reports. If the worker agent isn't running, the worker is stored with `backend=unknown` and the dashboard shows partial info until the agent comes up.
+
 ### Remove a Worker
 ```bash
 # On controller:
@@ -305,6 +315,17 @@ llama.cpp RPC has **no encryption** and **no authentication**. All tensor data (
 - Only run on trusted networks
 - For untrusted networks, use a WireGuard or Tailscale tunnel and use the tunnel IPs
 
+### Token Handling
+
+`dream cluster ...` commands accept `--token <TOKEN>` on the command line and pass it to the Python helpers via the `CLUSTER_TOKEN` env var — so it does **not** appear in `ps` output for the helper process.
+
+If you invoke the helpers directly (`scripts/cluster-setup-listener.py`, `scripts/cluster-join-client.py`), prefer one of the argv-free options; passing `--token` directly still works but prints a deprecation warning because the value is visible to other local users via `ps`:
+
+- `--token-file <path>` — a file (`chmod 0600`) containing just the token
+- `CLUSTER_TOKEN=<token>` env var
+
+Priority when multiple are supplied: `--token-file` > `CLUSTER_TOKEN` env > `--token` argv.
+
 ---
 
 ## Troubleshooting
@@ -332,3 +353,9 @@ llama.cpp RPC has **no encryption** and **no authentication**. All tensor data (
 - Controller token: `grep CLUSTER_TOKEN dream-server/.env`
 - Worker token: `cat dream-server/config/cluster-agent.json`
 - Re-run agent with correct token: `dream cluster agent start --token <CORRECT_TOKEN> --controller <IP>`
+
+**Worker agent shows `error` state:**
+- The agent flips to `error` (visible on the dashboard and via `dream cluster agent status`) when `docker run` for rpc-server fails — it does **not** silently retry. Check `dream cluster agent logs` for the underlying docker error (missing image, port in use, device permission), fix it, then restart: `dream cluster agent stop && dream cluster agent start --token <TOKEN> --controller <IP>`.
+
+**Agent gave up waiting for operator confirmation:**
+- After the worker agent sends its join request, it waits for the operator to accept on the controller terminal. If the controller is silent or wedged, the agent enforces a total handshake timeout (`HANDSHAKE_TOTAL_TIMEOUT`, 300s) and gives up instead of blocking forever. Verify `dream cluster setup` is running on the controller and TCP 50051 is reachable, then restart the agent.
