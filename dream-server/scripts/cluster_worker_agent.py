@@ -39,9 +39,13 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cluster_discovery import discover_controller
 
-HEALTH_CHECK_INTERVAL = 10  # seconds between rpc-server health checks
-DISCOVERY_TIMEOUT = 30      # seconds to wait for beacon per attempt
+HEALTH_CHECK_INTERVAL = 10     # seconds between rpc-server health checks
+DISCOVERY_TIMEOUT = 30         # seconds to wait for beacon per attempt
 DISCOVERY_RETRY_INTERVAL = 15  # seconds between discovery attempts
+HANDSHAKE_MAX_BYTES = 1_048_576  # bound controller response to 1 MiB (H3 mirror)
+HANDSHAKE_RECV_POLL = 2.0      # granularity of handshake recv — lets _handle_term cancel it
+HANDSHAKE_TOTAL_TIMEOUT = 300  # total seconds to wait for operator confirmation
+VALID_GPU_BACKENDS = frozenset({"cpu", "nvidia", "amd"})
 
 _running = True
 
@@ -149,43 +153,73 @@ def detect_gpus(backend):
 
 
 def join_cluster(controller_ip, setup_port, token, gpu_backend, gpus, rpc_port):
-    """TCP handshake with the controller's setup listener. Returns True if accepted."""
+    """TCP handshake with the controller's setup listener. Returns True if accepted.
+
+    Handshake recv is polled in short chunks (HANDSHAKE_RECV_POLL) rather
+    than one big blocking call — so SIGTERM (which flips _running) can
+    cancel the wait without waiting the full HANDSHAKE_TOTAL_TIMEOUT.
+    Controller response is capped at HANDSHAKE_MAX_BYTES to prevent a
+    hostile controller from OOMing the worker.
+    """
+    if gpu_backend not in VALID_GPU_BACKENDS:
+        print(f"[AGENT] Refusing to join: unsupported gpu_backend {gpu_backend!r}")
+        return False
+    if not (isinstance(rpc_port, int) and 1 <= rpc_port <= 65535):
+        print(f"[AGENT] Refusing to join: rpc_port {rpc_port!r} out of range 1-65535")
+        return False
+
     try:
         sock = socket.create_connection((controller_ip, setup_port), timeout=30)
     except (socket.timeout, ConnectionRefusedError, OSError) as e:
         print(f"[AGENT] Cannot connect to controller {controller_ip}:{setup_port}: {e}")
         return False
 
-    msg = json.dumps({
-        "action": "join",
-        "token": token,
-        "gpu_backend": gpu_backend,
-        "gpus": gpus,
-        "rpc_port": rpc_port,
-    }).encode() + b"\n"
-    sock.sendall(msg)
-
-    # Wait for response (operator may take a while to confirm)
-    sock.settimeout(300)
-    buf = b""
     try:
+        msg = json.dumps({
+            "action": "join",
+            "token": token,
+            "gpu_backend": gpu_backend,
+            "gpus": gpus,
+            "rpc_port": rpc_port,
+        }).encode() + b"\n"
+        sock.sendall(msg)
+
+        sock.settimeout(HANDSHAKE_RECV_POLL)
+        buf = b""
+        deadline = time.monotonic() + HANDSHAKE_TOTAL_TIMEOUT
         while b"\n" not in buf:
-            chunk = sock.recv(4096)
+            if not _running:
+                print("[AGENT] Shutdown requested — aborting handshake")
+                return False
+            if time.monotonic() >= deadline:
+                print("[AGENT] Timed out waiting for controller response")
+                return False
+            try:
+                chunk = sock.recv(4096)
+            except socket.timeout:
+                continue  # poll _running again
             if not chunk:
                 break
             buf += chunk
-    except socket.timeout:
-        print("[AGENT] Timed out waiting for controller response")
+            if len(buf) > HANDSHAKE_MAX_BYTES:
+                print(f"[AGENT] Controller response exceeded {HANDSHAKE_MAX_BYTES} bytes — aborting")
+                return False
+    finally:
         sock.close()
-        return False
-
-    sock.close()
 
     if not buf:
         print("[AGENT] No response from controller")
         return False
 
-    resp = json.loads(buf.split(b"\n", 1)[0])
+    try:
+        resp = json.loads(buf.split(b"\n", 1)[0])
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        print(f"[AGENT] Malformed response from controller: {e}")
+        return False
+    if not isinstance(resp, dict):
+        print(f"[AGENT] Unexpected response shape from controller: {type(resp).__name__}")
+        return False
+
     if resp.get("status") == "accepted":
         print("[AGENT] Controller accepted this worker")
         return True
@@ -280,23 +314,77 @@ class StatusHandler(BaseHTTPRequestHandler):
         pass  # suppress default stderr logging
 
 
-def run_status_server(port, state):
-    """Run HTTP status server in a daemon thread."""
+def run_status_server(bind_ip, port, state):
+    """Run HTTP status server until stop_status_server() is called.
+
+    Uses serve_forever + a shutdown thread so an in-flight GET finishes
+    cleanly on SIGTERM (M2). Prior handle_request() poll-loop truncated
+    live requests at shutdown.
+
+    bind_ip:
+      - set to args.interface or CLUSTER_INTERFACE → bind to that IP only,
+        so the diagnostic endpoint isn't broadcast on every network the
+        host is attached to (H9).
+      - empty → bind 0.0.0.0 to keep cross-host dashboards/e2e working.
+    """
     StatusHandler.agent_state = state
-    server = HTTPServer(("0.0.0.0", port), StatusHandler)
-    server.timeout = 1
+    server = HTTPServer((bind_ip or "0.0.0.0", port), StatusHandler)
+    shutdown_thread = threading.Thread(
+        target=_wait_then_shutdown, args=(server,), daemon=True
+    )
+    shutdown_thread.start()
+    try:
+        server.serve_forever(poll_interval=0.5)
+    finally:
+        server.server_close()
+
+
+def _wait_then_shutdown(server):
+    """Block until _running flips, then shutdown the HTTP server."""
     while _running:
-        server.handle_request()
-    server.server_close()
+        time.sleep(0.25)
+    server.shutdown()
+
+
+def _resolve_token(args, state):
+    """Resolve the cluster token from --token-file, CLUSTER_TOKEN env, or state.
+
+    Priority: --token-file > CLUSTER_TOKEN env > state["token"] (from config).
+    --token-file and CLUSTER_TOKEN are preferred because they avoid leaking
+    the token to other users via `ps aux` / `/proc/<pid>/cmdline` and via
+    the JSON state file's default world-readable mode respectively.
+    """
+    if args.token_file:
+        tf = Path(args.token_file)
+        if not tf.is_file():
+            print(f"[AGENT] --token-file {args.token_file!r} not found", file=sys.stderr)
+            return ""
+        token = tf.read_text().strip()
+        if token:
+            return token
+        print(f"[AGENT] --token-file {args.token_file!r} is empty", file=sys.stderr)
+        return ""
+    env_token = os.environ.get("CLUSTER_TOKEN", "").strip()
+    if env_token:
+        return env_token
+    return state.get("token", "") or ""
 
 
 def main():
     parser = argparse.ArgumentParser(description="Dream Cluster Worker Agent")
     parser.add_argument("--config", required=True, help="Path to cluster-agent.json")
     parser.add_argument("--status-port", type=int, default=50054, help="HTTP status port")
+    parser.add_argument(
+        "--status-bind", default="",
+        help="Bind IP for the HTTP status server (default: --interface value, else CLUSTER_INTERFACE, else 0.0.0.0)",
+    )
     parser.add_argument("--pid-file", help="Write PID to file")
-    parser.add_argument("--interface", default="", help="Bind discovery to this network interface IP")
+    parser.add_argument("--interface", default="", help="Bind discovery/status to this network interface IP")
     parser.add_argument("--controller", default="", help="Controller IP (skip UDP discovery)")
+    parser.add_argument(
+        "--token-file",
+        help="Path to a mode-0600 file containing the cluster token (preferred over --token / CLUSTER_TOKEN env / config)",
+    )
     args = parser.parse_args()
 
     if args.pid_file:
@@ -309,21 +397,32 @@ def main():
     state = AgentState(args.config)
     print(f"[AGENT] Starting worker agent (status port {args.status_port})")
 
+    bind_ip = (
+        args.interface
+        or os.environ.get("CLUSTER_INTERFACE", "").strip()
+        or state.get("interface", "")
+        or ""
+    )
+    status_bind = args.status_bind or bind_ip
+
     # Start HTTP status server
     status_thread = threading.Thread(
-        target=run_status_server, args=(args.status_port, state), daemon=True
+        target=run_status_server, args=(status_bind, args.status_port, state), daemon=True
     )
     status_thread.start()
 
-    token = state.get("token", "")
+    token = _resolve_token(args, state)
     if not token:
-        print("[AGENT] No token configured. Set token in config or use 'dream cluster agent start --token TOKEN'")
+        print(
+            "[AGENT] No token configured. Provide one via --token-file, "
+            "CLUSTER_TOKEN env var, or the config file.",
+            file=sys.stderr,
+        )
         state.update(status="error")
         return
 
     gpu_backend = state.get("gpu_backend") or detect_gpu_backend()
     rpc_port = state.get("rpc_port", 50052)
-    bind_ip = args.interface or state.get("interface", "") or ""
 
     # If controller IP given via CLI, store it and skip discovery
     if args.controller:
@@ -356,6 +455,9 @@ def main():
             state.update(status="joining")
             gpus = detect_gpus(gpu_backend)
             setup_port = state.get("setup_port", 50051)
+            # Persist detected GPUs so the /health endpoint can surface them
+            # to operators running `dream cluster add <ip>` (M11).
+            state.update(gpus=gpus)
 
             if join_cluster(controller_ip, setup_port, token, gpu_backend, gpus, rpc_port):
                 state.update(status="joined")

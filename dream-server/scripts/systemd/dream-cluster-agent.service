@@ -8,8 +8,25 @@ ExecStart=__PYTHON3__ __INSTALL_DIR__/scripts/cluster_worker_agent.py --config _
 WorkingDirectory=__INSTALL_DIR__
 Environment=DREAM_HOME=__INSTALL_DIR__
 Environment=HOME=__HOME__
+Environment=CLUSTER_INTERFACE=__INTERFACE__
 Restart=on-failure
 RestartSec=5
+
+# Hardening — minimal privilege surface for a daemon that only needs
+# to read config, write state/logs under INSTALL_DIR, and talk to the
+# docker socket. The agent does NOT load kernel modules, tune sysctls,
+# manipulate cgroups, or use realtime scheduling.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+ReadWritePaths=__INSTALL_DIR__
 
 [Install]
 WantedBy=default.target

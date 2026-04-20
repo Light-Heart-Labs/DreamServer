@@ -2,8 +2,13 @@
 """
 Tests for dream-cluster-supervisor.py
 
-Covers: parse_workers, check_worker, preflight, log_event (atomic writes),
-        wait_for_workers (all three policies), run_server, SIGTERM forwarding.
+Covers: parse_workers (including malformed-input rejection),
+        check_worker, partition_workers, log_event (atomic writes),
+        run_server, SIGTERM forwarding.
+
+Restart-policy branching (manual / on-worker-recovery / always) is now
+inlined in main() and is exercised by the cluster-e2e fault-tolerance
+tests rather than unit-mocked here.
 
 Usage: python3 tests/test-cluster-supervisor.py
        pytest tests/test-cluster-supervisor.py -v
@@ -46,10 +51,28 @@ class TestParseWorkers(unittest.TestCase):
         result = supervisor.parse_workers("")
         self.assertEqual(result, [])
 
-    def test_entry_without_port_skipped(self):
-        """Entries without ':' are silently skipped."""
-        result = supervisor.parse_workers("192.168.1.1:50052,badentry,10.0.0.1:50052")
-        self.assertEqual(result, [("192.168.1.1", 50052), ("10.0.0.1", 50052)])
+    def test_malformed_entry_raises(self):
+        """Malformed entries raise ValueError with the offending token."""
+        cases = [
+            ("nocolon",        "expected host:port"),
+            ("host:abc",       "not an integer"),
+            ("host:",          "not an integer"),
+            (":50052",         "empty host"),
+            ("h:0",            "out of range"),
+            ("h:65536",        "out of range"),
+            ("h:-1",           "out of range"),
+        ]
+        for bad, hint in cases:
+            with self.assertRaises(ValueError) as ctx:
+                supervisor.parse_workers(f"192.168.1.1:50052,{bad}")
+            msg = str(ctx.exception)
+            self.assertIn(bad, msg, f"error message should include {bad!r}: {msg!r}")
+            self.assertIn(hint, msg)
+
+    def test_empty_segments_tolerated(self):
+        """Trailing/duplicate commas produce empty segments that are skipped."""
+        result = supervisor.parse_workers("10.0.0.1:50052,,10.0.0.2:50052,")
+        self.assertEqual(result, [("10.0.0.1", 50052), ("10.0.0.2", 50052)])
 
     def test_custom_port(self):
         result = supervisor.parse_workers("10.0.0.1:9999")
@@ -87,11 +110,11 @@ class TestCheckWorker(unittest.TestCase):
         self.assertFalse(result)
 
 
-class TestPreflight(unittest.TestCase):
+class TestPartitionWorkers(unittest.TestCase):
     def test_no_workers(self):
-        ok, failed = supervisor.preflight([])
-        self.assertTrue(ok)
-        self.assertEqual(failed, [])
+        live, dead = supervisor.partition_workers([])
+        self.assertEqual(live, [])
+        self.assertEqual(dead, [])
 
     def test_all_reachable(self):
         srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -100,9 +123,9 @@ class TestPreflight(unittest.TestCase):
         srv.listen(1)
         port = srv.getsockname()[1]
         try:
-            ok, failed = supervisor.preflight([("127.0.0.1", port)])
-            self.assertTrue(ok)
-            self.assertEqual(failed, [])
+            live, dead = supervisor.partition_workers([("127.0.0.1", port)])
+            self.assertEqual(live, [("127.0.0.1", port)])
+            self.assertEqual(dead, [])
         finally:
             srv.close()
 
@@ -113,12 +136,30 @@ class TestPreflight(unittest.TestCase):
         srv.listen(1)
         port = srv.getsockname()[1]
         try:
-            ok, failed = supervisor.preflight([
+            live, dead = supervisor.partition_workers([
                 ("127.0.0.1", port),
                 ("192.0.2.1", 50052),
             ])
-            self.assertFalse(ok)
-            self.assertEqual(failed, ["192.0.2.1:50052"])
+            self.assertEqual(live, [("127.0.0.1", port)])
+            self.assertEqual(dead, [("192.0.2.1", 50052)])
+        finally:
+            srv.close()
+
+    def test_order_preserved(self):
+        """partition_workers must keep input order within live/dead lists."""
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+        port = srv.getsockname()[1]
+        try:
+            live, dead = supervisor.partition_workers([
+                ("192.0.2.1", 50052),
+                ("127.0.0.1", port),
+                ("192.0.2.2", 50052),
+            ])
+            self.assertEqual(live, [("127.0.0.1", port)])
+            self.assertEqual(dead, [("192.0.2.1", 50052), ("192.0.2.2", 50052)])
         finally:
             srv.close()
 
@@ -174,83 +215,6 @@ class TestLogEvent(unittest.TestCase):
         supervisor.EVENTS_FILE = nested
         supervisor.log_event("nested_test")
         self.assertTrue(os.path.exists(nested))
-
-
-class TestWaitForWorkers(unittest.TestCase):
-    """Test wait_for_workers with mocked preflight to avoid real network calls."""
-
-    def setUp(self):
-        self._orig_preflight = supervisor.preflight
-        self._orig_log_event = supervisor.log_event
-        self._orig_poll_interval = supervisor.POLL_INTERVAL
-        self._orig_max_wait = supervisor.MAX_WORKER_WAIT
-        # Speed up tests
-        supervisor.POLL_INTERVAL = 0.05
-        supervisor.MAX_WORKER_WAIT = 0.3
-        self.logged_events = []
-        supervisor.log_event = lambda t, d="": self.logged_events.append((t, d))
-
-    def tearDown(self):
-        supervisor.preflight = self._orig_preflight
-        supervisor.log_event = self._orig_log_event
-        supervisor.POLL_INTERVAL = self._orig_poll_interval
-        supervisor.MAX_WORKER_WAIT = self._orig_max_wait
-
-    def test_all_reachable_restarts(self):
-        """When all workers are reachable after crash, should restart."""
-        supervisor.preflight = lambda w: (True, [])
-        result = supervisor.wait_for_workers([("1.2.3.4", 50052)], "always")
-        self.assertTrue(result)
-
-    def test_manual_policy_exits(self):
-        """Manual policy should exit when workers are offline."""
-        supervisor.preflight = lambda w: (False, ["1.2.3.4:50052"])
-        result = supervisor.wait_for_workers([("1.2.3.4", 50052)], "manual")
-        self.assertFalse(result)
-        self.assertEqual(self.logged_events[0][0], "manual_intervention_required")
-
-    def test_on_worker_recovery_exits_on_timeout(self):
-        """on-worker-recovery should exit when workers don't recover in time."""
-        supervisor.preflight = lambda w: (False, ["1.2.3.4:50052"])
-        result = supervisor.wait_for_workers([("1.2.3.4", 50052)], "on-worker-recovery")
-        self.assertFalse(result)
-
-    def test_on_worker_recovery_restarts_on_recovery(self):
-        """on-worker-recovery should restart when workers come back."""
-        call_count = [0]
-        def mock_preflight(w):
-            call_count[0] += 1
-            if call_count[0] >= 3:
-                return (True, [])
-            return (False, ["1.2.3.4:50052"])
-        supervisor.preflight = mock_preflight
-        result = supervisor.wait_for_workers([("1.2.3.4", 50052)], "on-worker-recovery")
-        self.assertTrue(result)
-
-    def test_always_policy_restarts_after_timeout(self):
-        """always policy should restart even when workers stay offline."""
-        supervisor.preflight = lambda w: (False, ["1.2.3.4:50052"])
-        result = supervisor.wait_for_workers([("1.2.3.4", 50052)], "always")
-        self.assertTrue(result)
-
-    def test_stale_failed_list_fix(self):
-        """Verify the log uses the latest failed list, not the initial one."""
-        # Simulate: initially both workers fail, then worker1 recovers but worker2 stays down
-        call_count = [0]
-        def mock_preflight(w):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return (False, ["1.1.1.1:50052", "2.2.2.2:50052"])
-            return (False, ["2.2.2.2:50052"])
-        supervisor.preflight = mock_preflight
-        supervisor.wait_for_workers(
-            [("1.1.1.1", 50052), ("2.2.2.2", 50052)], "on-worker-recovery"
-        )
-        # The logged event should only mention the still-offline worker
-        offline_events = [e for e in self.logged_events if e[0] == "workers_offline"]
-        self.assertTrue(len(offline_events) > 0)
-        self.assertIn("2.2.2.2:50052", offline_events[0][1])
-        self.assertNotIn("1.1.1.1:50052", offline_events[0][1])
 
 
 class TestRunServer(unittest.TestCase):

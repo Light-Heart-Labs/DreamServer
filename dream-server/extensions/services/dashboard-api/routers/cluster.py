@@ -84,16 +84,25 @@ async def cluster_status():
 
 
 async def poll_cluster_health() -> None:
-    """Background task: TCP-ping each worker every 10s, update _worker_health."""
+    """Background task: TCP-ping each worker every 10s, update _worker_health.
+
+    Narrow catch: only swallow errors from reading/parsing the on-disk
+    config. Worker TCP probes are already bounded inside `_check_worker`.
+    Anything else (programming errors, CancelledError) propagates so the
+    background task dies loudly rather than silently looping.
+    """
     while True:
         try:
             config = await asyncio.to_thread(_load_cluster_config)
-            if config.get("enabled"):
-                for node in config.get("nodes", []):
-                    ip = node["ip"]
-                    port = node.get("rpc_port", 50052)
-                    online, ping_ms = await asyncio.to_thread(_check_worker, ip, port)
-                    _worker_health[f"{ip}:{port}"] = {"online": online, "ping_ms": ping_ms}
-        except Exception:
-            logger.exception("Cluster health poll failed")
+        except (OSError, json.JSONDecodeError):
+            logger.exception("Cluster health poll: failed to read %s", CLUSTER_CONFIG)
+            await asyncio.sleep(_HEALTH_POLL_INTERVAL)
+            continue
+
+        if config.get("enabled"):
+            for node in config.get("nodes", []):
+                ip = node["ip"]
+                port = node.get("rpc_port", 50052)
+                online, ping_ms = await asyncio.to_thread(_check_worker, ip, port)
+                _worker_health[f"{ip}:{port}"] = {"online": online, "ping_ms": ping_ms}
         await asyncio.sleep(_HEALTH_POLL_INTERVAL)

@@ -1,10 +1,21 @@
 #!/usr/bin/env bash
 # Minimal stub for `docker` CLI — just enough for cluster_worker_agent.py.
 # Container state is persisted in /tmp/docker-stub/.
+#
+# Failure-injection (M14): set DOCKER_STUB_FAIL_ON to force the stub to
+# exit 1 when the first positional arg matches.
+#   DOCKER_STUB_FAIL_ON=run     → `docker run ...`   exits 1
+#   DOCKER_STUB_FAIL_ON=inspect → `docker inspect …` exits 1
+# Use this to exercise cleanup/retry paths in cluster_worker_agent.py.
 set -u
 
 STATE=/tmp/docker-stub
 mkdir -p "$STATE"
+
+if [[ -n "${DOCKER_STUB_FAIL_ON:-}" && "${1:-}" == "${DOCKER_STUB_FAIL_ON}" ]]; then
+  echo "docker-stub: forced failure on '${1}' (DOCKER_STUB_FAIL_ON=${DOCKER_STUB_FAIL_ON})" >&2
+  exit 1
+fi
 
 case "${1:-}" in
   image)

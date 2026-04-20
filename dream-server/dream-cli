@@ -3183,10 +3183,45 @@ _cluster_enable() {
 
     local cfg
     cfg=$(_cluster_config_file)
-    if [[ -f "$cfg" ]] && [[ "$(python3 -c "import json,sys; print(json.load(open('$cfg')).get('enabled',False))" 2>/dev/null)" == "True" ]]; then
+    if [[ -f "$cfg" ]] && [[ "$(python3 - "$cfg" <<'PY' 2>/dev/null
+import json, sys
+print(json.load(open(sys.argv[1])).get("enabled", False))
+PY
+)" == "True" ]]; then
         warn "Cluster mode is already enabled."
         log "Run 'dream cluster status' to see current state."
         return 0
+    fi
+
+    # Plaintext-RPC acknowledgement. llama.cpp's RPC protocol sends model
+    # weights and tensor data unencrypted and unauthenticated — operators
+    # must explicitly acknowledge before we enable it. --yes/-y and the
+    # DREAM_CLUSTER_ASSUME_YES env var let CI / scripted installs skip.
+    local assume_yes=false
+    for arg in "$@"; do
+        case "$arg" in
+            -y|--yes) assume_yes=true ;;
+        esac
+    done
+    [[ "${DREAM_CLUSTER_ASSUME_YES:-}" == "1" ]] && assume_yes=true
+
+    if [[ "$assume_yes" != "true" ]]; then
+        echo ""
+        echo -e "${YELLOW}⚠ Security Warning${NC}"
+        echo "  llama.cpp RPC has NO encryption and NO authentication."
+        echo "  All tensor data (and your model weights on first load)"
+        echo "  flow in plaintext over your LAN. Only enable cluster mode on"
+        echo "  a trusted local network; for anything else use WireGuard/Tailscale."
+        echo ""
+        if [[ -t 0 ]]; then
+            read -p "  Continue enabling cluster mode? [y/N] " -r < /dev/tty
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                log "Cluster enable aborted."
+                return 1
+            fi
+        else
+            error "Non-interactive shell — pass --yes (or set DREAM_CLUSTER_ASSUME_YES=1) to acknowledge the plaintext-RPC warning."
+        fi
     fi
 
     local token
@@ -3246,22 +3281,26 @@ _cluster_enable() {
     fi
     [[ -z "$controller_ip" ]] && controller_ip="<your-ip>"
 
-    # Write cluster state
+    # Write cluster state. Variables pass through sys.argv so a GPU name
+    # (or any other field) containing a quote/newline cannot break out of
+    # the literal and inject Python.
     local state
-    state=$(python3 -c "
+    state=$(python3 - "$token" "$controller_ip" "$gpu_backend" "$gpu_name" "$vram_mb" <<'PY'
 import json, sys
+token, controller_ip, gpu_backend, gpu_name, vram_mb_s = sys.argv[1:6]
 state = {
-    'enabled': True,
-    'token': '$token',
-    'controller': {
-        'ip': '$controller_ip',
-        'gpu_backend': '$gpu_backend',
-        'gpus': [{'name': '$gpu_name', 'vram_mb': $vram_mb}]
+    "enabled": True,
+    "token": token,
+    "controller": {
+        "ip": controller_ip,
+        "gpu_backend": gpu_backend,
+        "gpus": [{"name": gpu_name, "vram_mb": int(vram_mb_s or 0)}],
     },
-    'nodes': []
+    "nodes": [],
 }
 print(json.dumps(state, indent=2))
-")
+PY
+)
     _cluster_save_state "$state"
 
     # Determine controller image tag based on GPU backend
@@ -3342,14 +3381,15 @@ _cluster_disable() {
     local cfg
     cfg=$(_cluster_config_file)
     if [[ -f "$cfg" ]]; then
-        python3 -c "
-import json
-with open('$cfg') as f:
+        python3 - "$cfg" <<'PY'
+import json, sys
+cfg = sys.argv[1]
+with open(cfg) as f:
     state = json.load(f)
-state['enabled'] = False
-with open('$cfg', 'w') as f:
+state["enabled"] = False
+with open(cfg, "w") as f:
     json.dump(state, f, indent=2)
-"
+PY
     fi
 
     _regenerate_compose_flags
@@ -3369,7 +3409,11 @@ _cluster_setup() {
     fi
 
     local token
-    token=$(python3 -c "import json; print(json.load(open('$cfg')).get('token',''))")
+    token=$(python3 - "$cfg" <<'PY'
+import json, sys
+print(json.load(open(sys.argv[1])).get("token", ""))
+PY
+)
     if [[ -z "$token" ]]; then
         error "No cluster token found. Run 'dream cluster enable' to generate one."
     fi
@@ -3377,7 +3421,11 @@ _cluster_setup() {
     local setup_port=50051
 
     local controller_ip="${CLUSTER_INTERFACE:-}"
-    [[ -z "$controller_ip" ]] && controller_ip=$(python3 -c "import json; print(json.load(open('$cfg')).get('controller',{}).get('ip',''))" 2>/dev/null)
+    [[ -z "$controller_ip" ]] && controller_ip=$(python3 - "$cfg" <<'PY' 2>/dev/null
+import json, sys
+print(json.load(open(sys.argv[1])).get("controller", {}).get("ip", ""))
+PY
+)
     [[ -z "$controller_ip" ]] && controller_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
 
     echo ""
@@ -3398,10 +3446,9 @@ _cluster_setup() {
     echo "  Press Ctrl+C when all workers have joined."
     echo ""
 
-    # Run the setup listener
-    python3 "$INSTALL_DIR/scripts/cluster-setup-listener.py" \
+    # Run the setup listener — pass token via env so it doesn't leak via `ps`
+    CLUSTER_TOKEN="$token" python3 "$INSTALL_DIR/scripts/cluster-setup-listener.py" \
         --port "$setup_port" \
-        --token "$token" \
         --config "$cfg"
     local exit_code=$?
 
@@ -3517,11 +3564,11 @@ print(json.dumps(gpus))
     echo ""
     log "Connecting to controller at ${controller_ip}:${setup_port}..."
 
-    # Connect to the setup listener and request to join
-    if ! python3 "$INSTALL_DIR/scripts/cluster-join-client.py" \
+    # Connect to the setup listener and request to join — pass token via env
+    # so the shared secret doesn't leak via `ps` on the worker.
+    if ! CLUSTER_TOKEN="$token" python3 "$INSTALL_DIR/scripts/cluster-join-client.py" \
         --controller-ip "$controller_ip" \
         --port "$setup_port" \
-        --token "$token" \
         --gpu-backend "$gpu_backend" \
         --rpc-port "$rpc_port" \
         --gpu-json "$gpu_json"; then
@@ -3626,6 +3673,39 @@ _cluster_add() {
         done
     fi
 
+    # Probe the worker's agent status endpoint to learn its GPU inventory.
+    # Falls back to "unknown"/[] if the agent isn't reachable (e.g. operator
+    # is adding a pre-existing rpc-server with no dream agent running).
+    local agent_port="${CLUSTER_AGENT_PORT:-50054}"
+    local worker_gpu_backend="unknown"
+    local worker_gpus_json="[]"
+    local agent_response
+    agent_response=$(curl -sf --max-time 5 "http://${worker_ip}:${agent_port}/health" 2>/dev/null || true)
+    if [[ -n "$agent_response" ]]; then
+        local parsed
+        parsed=$(python3 - "$agent_response" <<'PY' || true
+import json, sys
+try:
+    payload = json.loads(sys.argv[1])
+    agent = payload.get("agent", {}) or {}
+    backend = agent.get("gpu_backend") or "unknown"
+    gpus = agent.get("gpus", []) or []
+    print(json.dumps({"backend": backend, "gpus": gpus}))
+except (ValueError, TypeError):
+    pass
+PY
+)
+        if [[ -n "$parsed" ]]; then
+            worker_gpu_backend=$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['backend'])" "$parsed")
+            worker_gpus_json=$(python3 -c "import json,sys; print(json.dumps(json.loads(sys.argv[1])['gpus']))" "$parsed")
+            success "Worker agent reports backend=${worker_gpu_backend}, $(echo "$worker_gpus_json" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))') GPU(s)"
+        else
+            warn "Worker agent at ${worker_ip}:${agent_port} responded but payload was unparseable"
+        fi
+    else
+        warn "Worker agent not reachable at ${worker_ip}:${agent_port} — storing backend=unknown (dashboard will show partial info until the agent is running)"
+    fi
+
     # Update cluster state
     local cfg
     cfg=$(_cluster_config_file)
@@ -3634,31 +3714,35 @@ _cluster_add() {
         return 1
     fi
 
-    python3 -c "
-import json, time
+    python3 - "$cfg" "$worker_ip" "$rpc_port" "$agent_port" "$worker_gpu_backend" "$worker_gpus_json" <<'PY'
+import json, sys, time
 
-with open('$cfg') as f:
+cfg, worker_ip, rpc_port_s, agent_port_s, gpu_backend, gpus_json = sys.argv[1:7]
+rpc_port = int(rpc_port_s)
+agent_port = int(agent_port_s)
+gpus = json.loads(gpus_json)
+
+with open(cfg) as f:
     state = json.load(f)
 
-# Check for duplicate
-for node in state['nodes']:
-    if node['ip'] == '$worker_ip' and node.get('rpc_port', 50052) == $rpc_port:
-        print('Worker ${worker_ip}:${rpc_port} is already in the cluster.')
-        exit(0)
+for node in state["nodes"]:
+    if node["ip"] == worker_ip and node.get("rpc_port", 50052) == rpc_port:
+        print(f"Worker {worker_ip}:{rpc_port} is already in the cluster.")
+        sys.exit(0)
 
-state['nodes'].append({
-    'ip': '$worker_ip',
-    'rpc_port': $rpc_port,
-    'agent_port': 50080,
-    'gpu_backend': 'unknown',
-    'gpus': [],
-    'added_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-    'status': 'online'
+state["nodes"].append({
+    "ip": worker_ip,
+    "rpc_port": rpc_port,
+    "agent_port": agent_port,
+    "gpu_backend": gpu_backend,
+    "gpus": gpus,
+    "added_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    "status": "online",
 })
 
-with open('$cfg', 'w') as f:
+with open(cfg, "w") as f:
     json.dump(state, f, indent=2)
-"
+PY
 
     # Rebuild CLUSTER_WORKERS and CLUSTER_TENSOR_SPLIT from state
     _cluster_rebuild_env
@@ -3682,19 +3766,19 @@ _cluster_remove() {
     cfg=$(_cluster_config_file)
     [[ -f "$cfg" ]] || error "No cluster config found. Run 'dream cluster enable' first."
 
-    python3 -c "
-import json
-with open('$cfg') as f:
+    python3 - "$cfg" "$worker_ip" <<'PY' || { warn "Worker $worker_ip not found in cluster."; return 1; }
+import json, sys
+cfg, worker_ip = sys.argv[1], sys.argv[2]
+with open(cfg) as f:
     state = json.load(f)
-before = len(state['nodes'])
-state['nodes'] = [n for n in state['nodes'] if n['ip'] != '$worker_ip']
-after = len(state['nodes'])
-if before == after:
-    print('Worker $worker_ip not found in cluster.')
-    exit(1)
-with open('$cfg', 'w') as f:
+before = len(state["nodes"])
+state["nodes"] = [n for n in state["nodes"] if n["ip"] != worker_ip]
+if before == len(state["nodes"]):
+    print(f"Worker {worker_ip} not found in cluster.")
+    sys.exit(1)
+with open(cfg, "w") as f:
     json.dump(state, f, indent=2)
-" || { warn "Worker $worker_ip not found in cluster."; return 1; }
+PY
 
     _cluster_rebuild_env
 
@@ -3709,16 +3793,17 @@ _cluster_rebuild_env() {
     [[ -f "$cfg" ]] || return
 
     local result
-    result=$(python3 -c "
-import json
-with open('$cfg') as f:
+    result=$(python3 - "$cfg" <<'PY'
+import json, sys
+with open(sys.argv[1]) as f:
     state = json.load(f)
-workers = ','.join(f\"{n['ip']}:{n.get('rpc_port', 50052)}\" for n in state['nodes'])
+workers = ",".join(f"{n['ip']}:{n.get('rpc_port', 50052)}" for n in state["nodes"])
 # Simple equal-weight tensor split: controller + N workers
-count = len(state['nodes']) + 1
-split = ','.join(['1'] * count) if state['nodes'] else ''
-print(f'{workers}|{split}')
-")
+count = len(state["nodes"]) + 1
+split = ",".join(["1"] * count) if state["nodes"] else ""
+print(f"{workers}|{split}")
+PY
+)
 
     local workers split
     workers="${result%%|*}"
@@ -3984,12 +4069,21 @@ elif os.path.exists('/dev/kfd'): print('amd')
 else: print('cpu')
 ")
                 mkdir -p "$(dirname "$config_file")"
-                python3 -c "
-import json
-cfg = {'token': '$token', 'controller_ip': '$controller', 'setup_port': 50051,
-       'rpc_port': 50052, 'gpu_backend': '$gpu_backend', 'interface': '$interface', 'status': 'idle'}
-with open('$config_file', 'w') as f: json.dump(cfg, f, indent=2)
-"
+                python3 - "$config_file" "$token" "$controller" "$gpu_backend" "$interface" <<'PY'
+import json, sys
+config_file, token, controller, gpu_backend, interface = sys.argv[1:6]
+cfg = {
+    "token": token,
+    "controller_ip": controller,
+    "setup_port": 50051,
+    "rpc_port": 50052,
+    "gpu_backend": gpu_backend,
+    "interface": interface,
+    "status": "idle",
+}
+with open(config_file, "w") as f:
+    json.dump(cfg, f, indent=2)
+PY
                 log "Agent config initialized (backend: ${gpu_backend})"
             fi
 
@@ -4005,16 +4099,27 @@ with open('$config_file', 'w') as f: json.dump(cfg, f, indent=2)
 
             case "$daemon_type" in
                 systemd)
-                    # Install unit if not present
+                    # Install unit if not present. Re-render if the
+                    # interface arg changed so the new value is picked up.
                     local unit_dir="${HOME}/.config/systemd/user"
                     local unit_file="${unit_dir}/dream-cluster-agent.service"
-                    if [[ ! -f "$unit_file" ]]; then
-                        mkdir -p "$unit_dir"
-                        local python3_path
-                        python3_path=$(command -v python3)
+                    local python3_path
+                    python3_path=$(command -v python3)
+                    mkdir -p "$unit_dir"
+                    local _unit_stale=true
+                    if [[ -f "$unit_file" ]]; then
+                        # Unit is stale if the rendered CLUSTER_INTERFACE doesn't
+                        # match the current --interface arg. Empty interface is
+                        # valid (auto-bind) — encoded as empty literal.
+                        if grep -Fq "Environment=CLUSTER_INTERFACE=${interface}" "$unit_file"; then
+                            _unit_stale=false
+                        fi
+                    fi
+                    if [[ "$_unit_stale" == "true" ]]; then
                         sed -e "s|__PYTHON3__|${python3_path}|g" \
                             -e "s|__INSTALL_DIR__|${INSTALL_DIR}|g" \
                             -e "s|__HOME__|${HOME}|g" \
+                            -e "s|__INTERFACE__|${interface}|g" \
                             "$INSTALL_DIR/scripts/systemd/dream-cluster-agent.service" > "$unit_file"
                         systemctl --user daemon-reload
                     fi
@@ -4101,7 +4206,12 @@ with open('$config_file', 'w') as f: json.dump(cfg, f, indent=2)
             else
                 warn "Cluster agent: not responding (port ${status_port})"
                 if [[ -f "$config_file" ]]; then
-                    echo "  Config: $(python3 -c "import json; s=json.load(open('$config_file')); print(f\"status={s.get('status','?')} controller={s.get('controller_ip','?')} backend={s.get('gpu_backend','?')}\")" 2>/dev/null)"
+                    echo "  Config: $(python3 - "$config_file" <<'PY' 2>/dev/null
+import json, sys
+s = json.load(open(sys.argv[1]))
+print(f"status={s.get('status','?')} controller={s.get('controller_ip','?')} backend={s.get('gpu_backend','?')}")
+PY
+)"
                 fi
             fi
             ;;

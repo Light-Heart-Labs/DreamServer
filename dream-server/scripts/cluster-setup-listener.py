@@ -15,6 +15,7 @@ Usage:
 """
 
 import argparse
+import hmac
 import json
 import os
 import signal
@@ -26,17 +27,39 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cluster_discovery import ClusterBeacon, DISCOVERY_PORT
 
+# Hard cap on handshake payload. A LAN attacker (or a bugged worker) can
+# otherwise stream bytes until the process OOMs, because the socket timeout
+# only fires on idle periods between recvs — not on total bytes received.
+MAX_HANDSHAKE_BYTES = 1_048_576  # 1 MiB
+
+# Per-worker token attempts — also rate-limited so a port scan can't brute-force
+# the 32-hex-char token by opening thousands of connections.
+VALID_ACTIONS = frozenset({"join"})
+VALID_GPU_BACKENDS = frozenset({"cpu", "nvidia", "amd"})
+
+
+class HandshakeTooLarge(Exception):
+    """Controller received more handshake bytes than MAX_HANDSHAKE_BYTES."""
+
 
 def parse_args():
     p = argparse.ArgumentParser(description="Cluster setup listener")
     p.add_argument("--port", type=int, default=50051)
-    p.add_argument("--token", required=True)
+    p.add_argument("--token", help="Shared join token (prefer --token-file or CLUSTER_TOKEN env)")
+    p.add_argument("--token-file", help="Path to a file containing the join token (mode 0600)")
     p.add_argument("--config", required=True, help="Path to cluster.json")
+    p.add_argument("--bind", default="",
+                   help="IP to bind on (defaults to CLUSTER_INTERFACE env, "
+                        "else 0.0.0.0 for LAN reachability)")
     return p.parse_args()
 
 
-def recv_json(conn, timeout=30):
-    """Read newline-delimited JSON from a socket."""
+def recv_json(conn, timeout=30, max_bytes=MAX_HANDSHAKE_BYTES):
+    """Read a newline-delimited JSON message, bounded.
+
+    Raises HandshakeTooLarge if the buffer would grow past max_bytes; this
+    closes the memory-DoS vector on the LAN-reachable setup port.
+    """
     conn.settimeout(timeout)
     buf = b""
     while b"\n" not in buf:
@@ -44,6 +67,10 @@ def recv_json(conn, timeout=30):
         if not chunk:
             return None
         buf += chunk
+        if len(buf) > max_bytes:
+            raise HandshakeTooLarge(
+                f"handshake payload exceeded {max_bytes} bytes (got {len(buf)})"
+            )
     return json.loads(buf.split(b"\n", 1)[0])
 
 
@@ -90,6 +117,92 @@ def format_gpu_info(gpus):
     return ", ".join(parts)
 
 
+def _resolve_token(args):
+    """Return the shared token from --token-file, --token, or CLUSTER_TOKEN env.
+
+    Preference order: --token-file > CLUSTER_TOKEN env > --token CLI.
+    --token emits a deprecation warning because it is visible to other local
+    users via `ps`.
+    """
+    if args.token_file:
+        path = os.path.expanduser(args.token_file)
+        try:
+            with open(path) as f:
+                token = f.read().strip()
+        except OSError as e:
+            print(f"Error: cannot read --token-file {path!r}: {e}", file=sys.stderr)
+            sys.exit(2)
+        if not token:
+            print(f"Error: --token-file {path!r} is empty", file=sys.stderr)
+            sys.exit(2)
+        return token
+    env_token = os.environ.get("CLUSTER_TOKEN", "").strip()
+    if env_token:
+        return env_token
+    if args.token:
+        print("warning: --token on the command line is visible via `ps`; "
+              "prefer --token-file or the CLUSTER_TOKEN env var",
+              file=sys.stderr)
+        return args.token
+    print("Error: no token supplied (use --token-file, CLUSTER_TOKEN env, or --token)",
+          file=sys.stderr)
+    sys.exit(2)
+
+
+def _validate_join_payload(msg):
+    """Return (ok, reason, parsed) for a join payload.
+
+    Rejects the connection if gpu_backend is not in {cpu,nvidia,amd} or if
+    rpc_port is missing/non-integer/out of range. Worker-controlled fields
+    are treated as untrusted input — this data is later written to
+    cluster.json and consumed by the supervisor.
+    """
+    if msg.get("action") not in VALID_ACTIONS:
+        return False, "unknown action", None
+    gpu_backend = msg.get("gpu_backend")
+    if gpu_backend not in VALID_GPU_BACKENDS:
+        return False, f"unsupported gpu_backend: {gpu_backend!r}", None
+    rpc_port = msg.get("rpc_port", 50052)
+    if not isinstance(rpc_port, int) or isinstance(rpc_port, bool):
+        return False, "rpc_port must be an integer", None
+    if not (1 <= rpc_port <= 65535):
+        return False, f"rpc_port {rpc_port} out of range 1-65535", None
+    gpus = msg.get("gpus", [])
+    if not isinstance(gpus, list):
+        return False, "gpus must be a list", None
+    # Normalize GPU entries so only known fields land in cluster.json.
+    sanitized_gpus = []
+    for g in gpus:
+        if not isinstance(g, dict):
+            continue
+        name = str(g.get("name", "Unknown"))[:128]
+        try:
+            vram_mb = int(g.get("vram_mb", 0))
+        except (TypeError, ValueError):
+            vram_mb = 0
+        sanitized_gpus.append({"name": name, "vram_mb": max(0, vram_mb)})
+    return True, "ok", {
+        "gpu_backend": gpu_backend,
+        "rpc_port": rpc_port,
+        "gpus": sanitized_gpus,
+    }
+
+
+def _resolve_bind(cli_bind):
+    """Pick the bind address for the setup TCP listener.
+
+    Priority: --bind > CLUSTER_INTERFACE env > 0.0.0.0. 0.0.0.0 is the safe
+    default for the setup listener because workers need to reach it; an
+    operator who cares about interface isolation sets --bind.
+    """
+    if cli_bind:
+        return cli_bind
+    env_iface = os.environ.get("CLUSTER_INTERFACE", "").strip()
+    if env_iface:
+        return env_iface
+    return "0.0.0.0"
+
+
 def main():
     args = parse_args()
 
@@ -97,17 +210,23 @@ def main():
         print(f"Error: cluster config not found at {args.config}", file=sys.stderr)
         sys.exit(1)
 
+    token = _resolve_token(args)
+
+    bind_ip = _resolve_bind(args.bind)
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    srv.bind(("0.0.0.0", args.port))
+    srv.bind((bind_ip, args.port))
     srv.listen(5)
     srv.settimeout(1.0)  # allows keyboard interrupt check
 
     workers_added = 0
 
-    # Start auto-discovery beacon so workers can find us
-    # Use CLUSTER_INTERFACE if set (from dream cluster enable), else auto-detect
-    controller_ip = os.environ.get("CLUSTER_INTERFACE", "")
+    # Start auto-discovery beacon so workers can find us. The beacon's
+    # advertised controller_ip must be a routable address (not 0.0.0.0)
+    # so workers know where to connect back to.
+    controller_ip = os.environ.get("CLUSTER_INTERFACE", "").strip()
+    if not controller_ip and bind_ip not in ("", "0.0.0.0"):
+        controller_ip = bind_ip
     if not controller_ip:
         controller_ip = socket.gethostbyname(socket.gethostname())
         try:
@@ -121,7 +240,7 @@ def main():
     beacon.start()
 
     print(f"\n\033[0;34m--- Cluster Setup ---\033[0m\n")
-    print(f"  Listening on port {args.port}")
+    print(f"  Listening on {bind_ip}:{args.port}")
     print(f"  Broadcasting discovery beacon on {controller_ip} (UDP {DISCOVERY_PORT})")
     print(f"  Waiting for workers to connect...")
     print(f"  Press Ctrl+C when all workers have joined.\n")
@@ -143,7 +262,12 @@ def main():
 
             try:
                 msg = recv_json(conn)
-            except (json.JSONDecodeError, socket.timeout, OSError) as e:
+            except HandshakeTooLarge as e:
+                print(f"  \033[0;31mRejected\033[0m {worker_ip}: {e}")
+                conn.close()
+                continue
+            except (json.JSONDecodeError, UnicodeDecodeError,
+                    socket.timeout, OSError) as e:
                 print(f"  Bad request from {worker_ip}: {e}")
                 conn.close()
                 continue
@@ -152,21 +276,30 @@ def main():
                 print(f"  Empty request from {worker_ip}")
                 conn.close()
                 continue
-
-            if msg.get("action") != "join":
-                send_json(conn, {"status": "rejected", "reason": "unknown action"})
+            if not isinstance(msg, dict):
+                send_json(conn, {"status": "rejected", "reason": "payload must be an object"})
                 conn.close()
                 continue
 
-            if msg.get("token") != args.token:
+            # Token check is first — don't leak validation hints to unauthenticated peers.
+            # hmac.compare_digest runs in constant time to blunt timing side-channels.
+            received_token = msg.get("token")
+            if not isinstance(received_token, str) or not hmac.compare_digest(received_token, token):
                 print(f"  \033[0;31mRejected\033[0m {worker_ip}: invalid token")
                 send_json(conn, {"status": "rejected", "reason": "invalid token"})
                 conn.close()
                 continue
 
-            gpu_backend = msg.get("gpu_backend", "unknown")
-            gpus = msg.get("gpus", [])
-            rpc_port = msg.get("rpc_port", 50052)
+            ok, reason, parsed = _validate_join_payload(msg)
+            if not ok:
+                print(f"  \033[0;31mRejected\033[0m {worker_ip}: {reason}")
+                send_json(conn, {"status": "rejected", "reason": reason})
+                conn.close()
+                continue
+
+            gpu_backend = parsed["gpu_backend"]
+            gpus = parsed["gpus"]
+            rpc_port = parsed["rpc_port"]
             gpu_info = format_gpu_info(gpus)
 
             print(f"\n  \033[0;33mNew worker wants to join:\033[0m")

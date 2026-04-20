@@ -51,6 +51,10 @@ services:
       CLUSTER_RESTART_POLICY: "${CLUSTER_RESTART_POLICY:-always}"
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
     volumes:
       - cluster-events:/tmp/cluster-events
 

@@ -151,6 +151,20 @@ else
         echo ""
 
         _rpc_dir="$SCRIPT_DIR/images/llama-rpc"
+
+        # Stage the supervisor from its canonical location into the build
+        # context so Docker's COPY can see it. Without this step, editing
+        # scripts/dream-cluster-supervisor.py silently does nothing at
+        # image rebuild time (Docker only sees the stale images/llama-rpc
+        # copy) — the drift that was reported in review (M7).
+        _supervisor_src="$SCRIPT_DIR/scripts/dream-cluster-supervisor.py"
+        _supervisor_dst="$_rpc_dir/dream-cluster-supervisor.py"
+        if [[ -f "$_supervisor_src" ]]; then
+            install -m 0644 "$_supervisor_src" "$_supervisor_dst"
+        else
+            ai_warn "Canonical supervisor missing: $_supervisor_src (using build-context copy)"
+        fi
+
         if [[ "$GPU_BACKEND" == "amd" ]]; then
             _ctrl_dockerfile="Dockerfile.rocm"
             _ctrl_tag="dream-llama-rpc:rocm"
@@ -168,21 +182,37 @@ else
             _worker_tag="dream-rpc-server:cpu"
         fi
 
+        # On build failure, dump the last ~30 lines of the build log inline
+        # so operators don't have to go hunting for $LOG_FILE — the most
+        # common cause (network/git-clone) shows up right at the tail.
+        _dump_build_tail() {
+            local _title="$1"
+            ai_warn "$_title"
+            if [[ -f "$LOG_FILE" ]]; then
+                tail -n 30 "$LOG_FILE" | sed 's/^/    /'
+                ai "  Full log: $LOG_FILE"
+            else
+                ai "  (no log file at $LOG_FILE — run with DRY_RUN=false to see output)"
+            fi
+        }
+
         ai "Building controller image ($_ctrl_tag)..."
         if docker build -f "$_rpc_dir/$_ctrl_dockerfile" -t "$_ctrl_tag" "$_rpc_dir" >> "$LOG_FILE" 2>&1; then
             ai_ok "Controller image built: $_ctrl_tag"
         else
-            ai_warn "Controller image build failed — check $LOG_FILE for details"
-            ai "  You can retry later with: docker build -f $_rpc_dir/$_ctrl_dockerfile -t $_ctrl_tag $_rpc_dir"
+            _dump_build_tail "Controller image build failed — last 30 lines of build log:"
+            ai "  Retry manually: docker build -f $_rpc_dir/$_ctrl_dockerfile -t $_ctrl_tag $_rpc_dir"
         fi
 
         ai "Building worker image ($_worker_tag)..."
         if docker build -f "$_rpc_dir/$_worker_dockerfile" -t "$_worker_tag" "$_rpc_dir" >> "$LOG_FILE" 2>&1; then
             ai_ok "Worker image built: $_worker_tag"
         else
-            ai_warn "Worker image build failed — check $LOG_FILE for details"
-            ai "  You can retry later with: docker build -f $_rpc_dir/$_worker_dockerfile -t $_worker_tag $_rpc_dir"
+            _dump_build_tail "Worker image build failed — last 30 lines of build log:"
+            ai "  Retry manually: docker build -f $_rpc_dir/$_worker_dockerfile -t $_worker_tag $_rpc_dir"
         fi
+
+        unset -f _dump_build_tail
 
         unset _rpc_dir _ctrl_dockerfile _ctrl_tag _worker_dockerfile _worker_tag
     fi

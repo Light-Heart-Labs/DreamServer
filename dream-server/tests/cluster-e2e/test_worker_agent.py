@@ -178,6 +178,29 @@ def test_agent_sigterm_shuts_down_cleanly(controller_ip):
         os.unlink(cfg)
 
 
+def test_agent_docker_run_failure_reports_error(controller_ip):
+    """M14: forcing `docker run` to fail must surface status=error via /health.
+
+    The agent joins the controller successfully, then tries to start the
+    rpc-server container; DOCKER_STUB_FAIL_ON=run forces that subprocess
+    to exit 1. We expect the agent to flip its state to "error" (not crash,
+    not silently retry forever) so an operator can see via the dashboard
+    what went wrong.
+    """
+    proc, cfg, status_port, rpc_port = _start_agent(
+        extra_env={"DOCKER_STUB_FAIL_ON": "run"},
+        extra_args=["--controller", controller_ip],
+    )
+    try:
+        body = _wait_health(f"http://127.0.0.1:{status_port}/health",
+                            timeout=30, want_status="error")
+        assert body["rpc_server_running"] is False
+        assert body["agent"]["controller_ip"] == controller_ip
+    finally:
+        _stop(proc)
+        os.unlink(cfg)
+
+
 def test_agent_without_token_exits_error():
     cfg = tempfile.NamedTemporaryFile(delete=False, suffix=".json")
     cfg.close()

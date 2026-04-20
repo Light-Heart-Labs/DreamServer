@@ -67,7 +67,7 @@ function NodeCard({ title, subtitle, gpus, status, ping, backend, isController }
 }
 
 export default function ClusterMonitor() {
-  const { cluster, loading, error } = useClusterStatus()
+  const { cluster, loading, error, refetch } = useClusterStatus()
 
   if (loading) {
     return (
@@ -83,12 +83,20 @@ export default function ClusterMonitor() {
   if (error) {
     return (
       <div className="p-8">
-        <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-sm">
-          <AlertTriangle size={18} className="text-red-400 shrink-0" />
-          <div>
+        <div className="flex items-start gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-sm">
+          <AlertTriangle size={18} className="text-red-400 shrink-0 mt-0.5" />
+          <div className="flex-1">
             <p className="text-white font-medium">Cluster data unavailable</p>
             <p className="text-zinc-400 mt-0.5">{error}</p>
           </div>
+          <button
+            type="button"
+            onClick={refetch}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-xs font-medium text-white transition-colors"
+          >
+            <RefreshCw size={12} />
+            Retry
+          </button>
         </div>
       </div>
     )

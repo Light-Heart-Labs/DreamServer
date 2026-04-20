@@ -42,6 +42,14 @@ services:
     environment:
       CLUSTER_WORKERS: "${CLUSTER_WORKERS}"
       CLUSTER_RESTART_POLICY: "${CLUSTER_RESTART_POLICY:-always}"
+    # Match the AMD overlay — dashboard + orchestration rely on docker
+    # health state to distinguish "booting" from "crashed looping".
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
     volumes:
       - cluster-events:/tmp/cluster-events
 

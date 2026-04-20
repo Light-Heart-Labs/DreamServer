@@ -37,6 +37,19 @@ DISCOVERY_PORT = 50053
 BEACON_INTERVAL = 5.0
 MAGIC = b"DREAM1"
 
+# The /24 broadcast computation assumes a typical home/SMB LAN
+# (255.255.255.0 netmask). For /16, /23, or subnetted-beyond-/24 networks,
+# beacons sent to the computed /24 broadcast may never reach workers on a
+# different subnet. Workarounds:
+#   - Operators can pass the explicit controller IP to `dream cluster join`
+#     and skip discovery entirely.
+#   - Operators on non-/24 LANs should run the controller on the same
+#     subnet as workers, or use a VPN (Tailscale/WireGuard) where all nodes
+#     share a single /24 overlay.
+# We do NOT try to autodetect the real netmask — Python has no stdlib for
+# that without platform-specific ioctls, and getting it wrong is worse
+# than the current behaviour.
+
 
 def get_interface_ips():
     """Return list of (ip, name_hint) for all non-loopback IPv4 addresses."""
@@ -103,11 +116,30 @@ class ClusterBeacon(threading.Thread):
         else:
             broadcast_addr = "<broadcast>"
 
+        # Track transient failures: log first and every Nth after so we
+        # don't flood logs, but operators can still see when discovery is
+        # silently broken (e.g. firewall drops, interface flap).
+        consecutive_failures = 0
         while not self._stop_event.is_set():
             try:
                 sock.sendto(payload, (broadcast_addr, DISCOVERY_PORT))
-            except OSError:
-                pass  # transient network issue, retry next interval
+                if consecutive_failures:
+                    print(
+                        f"[BEACON] Broadcast recovered after {consecutive_failures} failure(s)",
+                        file=sys.stderr,
+                    )
+                consecutive_failures = 0
+            except OSError as e:
+                consecutive_failures += 1
+                # Log on 1st, 10th, 100th, ... so persistent failures
+                # surface without spamming journald every 5 seconds.
+                if consecutive_failures in (1, 10) or consecutive_failures % 100 == 0:
+                    print(
+                        f"[BEACON] Broadcast send failed "
+                        f"({broadcast_addr}:{DISCOVERY_PORT}): {e} "
+                        f"[consecutive_failures={consecutive_failures}]",
+                        file=sys.stderr,
+                    )
             self._stop_event.wait(BEACON_INTERVAL)
 
         sock.close()

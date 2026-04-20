@@ -13,6 +13,7 @@ Exit codes: 0 = accepted, 1 = rejected/error
 
 import argparse
 import json
+import os
 import socket
 import sys
 
@@ -21,21 +22,52 @@ def parse_args():
     p = argparse.ArgumentParser(description="Cluster join client")
     p.add_argument("--controller-ip", required=True)
     p.add_argument("--port", type=int, default=50051)
-    p.add_argument("--token", required=True)
+    p.add_argument("--token",
+                   help="Shared join token (prefer --token-file or CLUSTER_TOKEN env — "
+                        "--token is visible via `ps`)")
+    p.add_argument("--token-file", help="Path to a file containing the join token (mode 0600)")
     p.add_argument("--gpu-backend", default="cpu")
     p.add_argument("--rpc-port", type=int, default=50052)
     p.add_argument("--gpu-json", default="[]", help="JSON array of GPU info")
     return p.parse_args()
 
 
+def _resolve_token(args):
+    """Priority: --token-file > CLUSTER_TOKEN env > --token CLI (deprecated)."""
+    if args.token_file:
+        path = os.path.expanduser(args.token_file)
+        try:
+            with open(path) as f:
+                token = f.read().strip()
+        except OSError as e:
+            print(f"Error: cannot read --token-file {path!r}: {e}", file=sys.stderr)
+            sys.exit(1)
+        if not token:
+            print(f"Error: --token-file {path!r} is empty", file=sys.stderr)
+            sys.exit(1)
+        return token
+    env_token = os.environ.get("CLUSTER_TOKEN", "").strip()
+    if env_token:
+        return env_token
+    if args.token:
+        print("warning: --token on the command line is visible via `ps`; "
+              "prefer --token-file or the CLUSTER_TOKEN env var",
+              file=sys.stderr)
+        return args.token
+    print("Error: no token supplied (use --token-file, CLUSTER_TOKEN env, or --token)",
+          file=sys.stderr)
+    sys.exit(1)
+
+
 def main():
     args = parse_args()
 
+    token = _resolve_token(args)
     gpus = json.loads(args.gpu_json)
 
     msg = {
         "action": "join",
-        "token": args.token,
+        "token": token,
         "gpu_backend": args.gpu_backend,
         "gpus": gpus,
         "rpc_port": args.rpc_port,
@@ -70,7 +102,15 @@ def main():
         print("Controller closed connection without responding.", file=sys.stderr)
         sys.exit(1)
 
-    resp = json.loads(buf.split(b"\n", 1)[0])
+    try:
+        resp = json.loads(buf.split(b"\n", 1)[0])
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        print(f"Malformed response from controller: {e}", file=sys.stderr)
+        sys.exit(1)
+    if not isinstance(resp, dict):
+        print(f"Unexpected response shape from controller: {type(resp).__name__}",
+              file=sys.stderr)
+        sys.exit(1)
     status = resp.get("status", "unknown")
 
     if status == "accepted":
