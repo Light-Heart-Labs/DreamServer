@@ -536,8 +536,25 @@ get_compose_flags() {
         local cached
         cached=$(< "$INSTALL_DIR/.compose-flags")
         if [[ "$cached" == -f\ * ]]; then
-            echo "$cached"
-            return
+            # Validate that every referenced compose file still exists.
+            # Protects against renames across upgrades (e.g. multigpu.yml →
+            # multigpu-nvidia.yml) where the cache would otherwise hand docker
+            # compose a path that no longer resolves.
+            local stale=0 prev="" tok
+            for tok in $cached; do
+                if [[ "$prev" == "-f" ]]; then
+                    if [[ "$tok" = /* ]]; then
+                        [[ -f "$tok" ]] || { stale=1; break; }
+                    else
+                        [[ -f "$INSTALL_DIR/$tok" ]] || { stale=1; break; }
+                    fi
+                fi
+                prev="$tok"
+            done
+            if [[ "$stale" == "0" ]]; then
+                echo "$cached"
+                return
+            fi
         fi
         # Stale or corrupt — remove and fall through to dynamic resolution
         rm -f "$INSTALL_DIR/.compose-flags"

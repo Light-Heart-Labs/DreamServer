@@ -31,7 +31,7 @@ services:
       - --extra-models-dir
       - /models
     environment:
-      LEMONADE_LLAMACPP: "rocm"
+      LEMONADE_LLAMACPP: "${LEMONADE_LLAMACPP:-rocm}"
       ROCR_VISIBLE_DEVICES: "${LLAMA_SERVER_GPU_INDICES:-}"
       # Tensor split ratio (e.g. "0.5,0.5") — passed via env var because it may
       # be empty (auto-split). Inherited by inner llama-server via fork()+execv().
