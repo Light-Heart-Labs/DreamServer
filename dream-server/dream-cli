@@ -1640,6 +1640,7 @@ cmd_disable() {
     # Check built-in extensions first, then dashboard-installed user extensions
     local ext_dir="$INSTALL_DIR/extensions/services/$service_id"
     [[ ! -d "$ext_dir" ]] && ext_dir="$INSTALL_DIR/data/user-extensions/$service_id"
+    [[ -d "$ext_dir" ]] || error "Unknown service: $input"
     local cf="$ext_dir/compose.yaml"
 
     # Check it's not a core service
@@ -2581,6 +2582,7 @@ cmd_agent() {
                 tail -f "$log_file"
             else
                 warn "No log file at $log_file"
+                return 1
             fi
             ;;
         *)
@@ -2977,19 +2979,19 @@ _gpu_reassign() {
 
     if ! command -v nvidia-smi &>/dev/null; then
         warn "GPU reassign is only supported for NVIDIA. Use 'dream gpu status' for AMD."
-        return
+        return 1
     fi
 
     if ! command -v jq &>/dev/null; then
         warn "jq not found — required for GPU reassignment"
-        return
+        return 1
     fi
 
     local topo_lib="$SCRIPT_DIR/installers/lib/nvidia-topo.sh"
     local assign_script="$SCRIPT_DIR/scripts/assign_gpus.py"
 
-    [[ -f "$topo_lib" ]] || { warn "Topology library not found: $topo_lib"; return; }
-    [[ -f "$assign_script" ]] || { warn "Assignment script not found: $assign_script"; return; }
+    [[ -f "$topo_lib" ]] || { warn "Topology library not found: $topo_lib"; return 1; }
+    [[ -f "$assign_script" ]] || { warn "Assignment script not found: $assign_script"; return 1; }
 
     # warn and err are already defined; source is safe
     . "$topo_lib"
