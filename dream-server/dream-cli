@@ -31,13 +31,25 @@ if [[ -f "$INSTALL_DIR/.env" ]]; then
     [[ -n "${_v:-}" ]] && VERSION="$_v"
 fi
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+# Colors — use ANSI-C quoting ($'\033') so the variables hold real ESC bytes
+# at assignment time. Single-quoted strings store the backslash literally,
+# which breaks unquoted heredocs (cmd_help) that never re-interpret escapes.
+# Guard on TTY + NO_COLOR so redirected / piped output stays clean.
+if [[ -t 1 ]] && [[ -z "${NO_COLOR:-}" ]]; then
+    RED=$'\033[0;31m'
+    GREEN=$'\033[0;32m'
+    YELLOW=$'\033[1;33m'
+    BLUE=$'\033[0;34m'
+    CYAN=$'\033[0;36m'
+    NC=$'\033[0m'
+else
+    RED=''
+    GREEN=''
+    YELLOW=''
+    BLUE=''
+    CYAN=''
+    NC=''
+fi
 
 #=============================================================================
 # Helpers
