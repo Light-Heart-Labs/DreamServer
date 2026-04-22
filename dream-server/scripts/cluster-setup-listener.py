@@ -21,7 +21,10 @@ import os
 import signal
 import socket
 import sys
+import threading
 import time
+
+_stop_event = threading.Event()
 
 # Auto-discovery beacon (same directory)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -238,20 +241,32 @@ def main():
     workers_added = 0
 
     # Start auto-discovery beacon so workers can find us. The beacon's
-    # advertised controller_ip must be a routable address (not 0.0.0.0)
-    # so workers know where to connect back to.
+    # advertised controller_ip must be a routable address (not 0.0.0.0,
+    # not loopback) so workers know where to connect back to.
     controller_ip = os.environ.get("CLUSTER_INTERFACE", "").strip()
     if not controller_ip and bind_ip not in ("", "0.0.0.0"):
         controller_ip = bind_ip
     if not controller_ip:
-        controller_ip = socket.gethostbyname(socket.gethostname())
+        # "Connect" a UDP socket to a routable address — the kernel picks
+        # the outbound interface IP without sending any packets, which is
+        # the only stdlib-portable way to resolve the primary interface.
+        # gethostbyname(gethostname()) is deliberately avoided: on Debian/
+        # Ubuntu it returns 127.0.1.1, which would silently break every
+        # worker join. If the UDP trick fails we refuse to guess.
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("255.255.255.255", 1))
             controller_ip = s.getsockname()[0]
+        finally:
             s.close()
-        except OSError:
-            pass
+    if not controller_ip or controller_ip.startswith("127."):
+        print(
+            f"Error: could not determine a routable controller IP "
+            f"(got {controller_ip!r}). "
+            f"Pass --bind <ip> or set CLUSTER_INTERFACE explicitly.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
     beacon = ClusterBeacon(controller_ip=controller_ip, setup_port=args.port, bind_ip=controller_ip)
     beacon.start()
 
@@ -262,12 +277,18 @@ def main():
     print(f"  Press Ctrl+C when all workers have joined.\n")
 
     def handle_shutdown(signum, frame):
-        raise KeyboardInterrupt
+        # Raising from a signal handler can interrupt C code mid-op
+        # (json.load, os.replace) and leave cluster.json.tmp half-written.
+        # Flip an Event instead; the accept loop polls via socket timeout.
+        _stop_event.set()
 
+    # SIGINT keeps Python's default (raises KeyboardInterrupt) so operator
+    # Ctrl+C still breaks the blocking input() prompt. SIGTERM uses the
+    # event path because it can arrive during a file write.
     signal.signal(signal.SIGTERM, handle_shutdown)
 
     try:
-        while True:
+        while not _stop_event.is_set():
             try:
                 conn, addr = srv.accept()
             except socket.timeout:

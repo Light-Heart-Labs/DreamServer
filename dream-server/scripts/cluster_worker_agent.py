@@ -53,6 +53,14 @@ DOCKER_CLI_TIMEOUT = 30        # seconds for any docker subcommand
 GPU_PROBE_TIMEOUT = 10         # seconds for nvidia-smi probes
 VALID_GPU_BACKENDS = frozenset({"cpu", "nvidia", "amd"})
 
+# Crash-loop circuit breaker for the rpc-server container. Mirrors the
+# supervisor's CRASH_WINDOW_SECONDS / MAX_CRASHES_PER_WINDOW pair so a
+# deterministic failure (missing image, bad GPU device, OOM on startup)
+# exits non-zero and lets systemd's StartLimitBurst throttle the service
+# instead of the agent spinning docker run forever.
+RPC_CRASH_WINDOW_SECONDS = 120
+MAX_RPC_CRASHES_PER_WINDOW = 5
+
 _running = True
 
 
@@ -484,6 +492,26 @@ def main():
 
     state.update(gpu_backend=gpu_backend, rpc_port=rpc_port)
 
+    # Circuit breaker state. We count both failed startups (start_rpc_server
+    # returning False) and observed crashes (Docker container exiting while
+    # we were supposed to be monitoring it). Both indicate an unhealthy
+    # environment that retrying won't fix.
+    crash_times = []
+
+    def record_rpc_crash(reason):
+        now = time.monotonic()
+        crash_times.append(now)
+        crash_times[:] = [t for t in crash_times if now - t <= RPC_CRASH_WINDOW_SECONDS]
+        if len(crash_times) >= MAX_RPC_CRASHES_PER_WINDOW:
+            msg = (
+                f"rpc-server crashed {len(crash_times)} times in "
+                f"{RPC_CRASH_WINDOW_SECONDS}s (last: {reason}) — stopping. "
+                f"Check image, GPU devices, and worker logs."
+            )
+            print(f"[AGENT] {msg}", file=sys.stderr)
+            state.update(status="error", error=msg)
+            sys.exit(1)
+
     # Main loop: discover → join → run → monitor
     while _running:
         controller_ip = state.get("controller_ip", "")
@@ -532,6 +560,7 @@ def main():
                 state.update(status="running")
             else:
                 state.update(status="error")
+                record_rpc_crash("start_rpc_server returned False")
                 print(f"[AGENT] Failed to start rpc-server. Retrying in {DISCOVERY_RETRY_INTERVAL}s...")
                 for _ in range(DISCOVERY_RETRY_INTERVAL):
                     if not _running:
@@ -547,9 +576,12 @@ def main():
         if not _running:
             break
 
-        # rpc-server died — restart it
+        # rpc-server died — restart it. Count this against the circuit
+        # breaker; a container that exits shortly after start is almost
+        # always deterministic (bad image, missing device, OOM).
         print("[AGENT] rpc-server container stopped. Restarting...")
         state.update(status="joined")
+        record_rpc_crash("rpc-server container exited")
         time.sleep(2)
 
     # Cleanup

@@ -3164,7 +3164,11 @@ _cluster_save_state() {
     local cfg
     cfg=$(_cluster_config_file)
     mkdir -p "$(dirname "$cfg")"
-    echo "$1" > "$cfg"
+    # cluster.json holds the shared cluster token. Restrict mode BEFORE the
+    # first write (install -m then cat > keeps the inode under chmod) so no
+    # observer window exists between creation and the agent's later rewrite.
+    install -m 0600 /dev/null "$cfg"
+    printf '%s' "$1" > "$cfg"
 }
 
 _cluster_enable() {
@@ -3323,6 +3327,11 @@ PY
     _env_set "CLUSTER_TENSOR_SPLIT" ""
     _env_set "CLUSTER_CONTROLLER_IMAGE" "$image_tag"
     _env_set "CLUSTER_INTERFACE" "$controller_ip"
+
+    # .env now carries the cluster token in cleartext; restrict to the
+    # install user. Any other user on the box can otherwise read it via
+    # the project directory permissions.
+    chmod 0600 "$INSTALL_DIR/.env" || warn "chmod 0600 $INSTALL_DIR/.env failed"
 
     # Regenerate compose flags to pick up cluster overlay
     _regenerate_compose_flags
@@ -3592,11 +3601,13 @@ print(json.dumps(gpus))
 
     success "Controller accepted this worker."
 
-    # Stop existing rpc-server container if running
-    if docker ps -q -f name=dream-rpc-server 2>/dev/null | grep -q .; then
+    # Stop existing rpc-server container if running. The container existed
+    # at the ps check, so stop/rm failures here are unexpected (wedged
+    # dockerd, container-runtime bug) — surface rather than silence.
+    if docker ps -q -f name=dream-rpc-server | grep -q .; then
         log "Stopping existing rpc-server container..."
-        docker stop dream-rpc-server >/dev/null 2>&1 || true
-        docker rm dream-rpc-server >/dev/null 2>&1 || true
+        docker stop dream-rpc-server >/dev/null || warn "docker stop failed on existing rpc-server"
+        docker rm dream-rpc-server >/dev/null || warn "docker rm failed on existing rpc-server"
     fi
 
     # Start the rpc-server container
@@ -3694,31 +3705,26 @@ _cluster_add() {
     local agent_port="${CLUSTER_AGENT_PORT:-50054}"
     local worker_gpu_backend="unknown"
     local worker_gpus_json="[]"
-    local agent_response
-    agent_response=$(curl -sf --max-time 5 "http://${worker_ip}:${agent_port}/health" 2>/dev/null || true)
-    if [[ -n "$agent_response" ]]; then
+    local agent_response curl_rc=0
+    agent_response=$(curl -sf --max-time 5 "http://${worker_ip}:${agent_port}/health") || curl_rc=$?
+    if [[ $curl_rc -eq 0 && -n "$agent_response" ]]; then
+        # Let the parser crash on malformed JSON — that's a worker bug the
+        # operator needs to see, not a reason to silently store "unknown".
         local parsed
-        parsed=$(python3 - "$agent_response" <<'PY' || true
+        parsed=$(python3 - "$agent_response" <<'PY'
 import json, sys
-try:
-    payload = json.loads(sys.argv[1])
-    agent = payload.get("agent", {}) or {}
-    backend = agent.get("gpu_backend") or "unknown"
-    gpus = agent.get("gpus", []) or []
-    print(json.dumps({"backend": backend, "gpus": gpus}))
-except (ValueError, TypeError):
-    pass
+payload = json.loads(sys.argv[1])
+agent = payload.get("agent", {}) or {}
+backend = agent.get("gpu_backend") or "unknown"
+gpus = agent.get("gpus", []) or []
+print(json.dumps({"backend": backend, "gpus": gpus}))
 PY
 )
-        if [[ -n "$parsed" ]]; then
-            worker_gpu_backend=$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['backend'])" "$parsed")
-            worker_gpus_json=$(python3 -c "import json,sys; print(json.dumps(json.loads(sys.argv[1])['gpus']))" "$parsed")
-            success "Worker agent reports backend=${worker_gpu_backend}, $(echo "$worker_gpus_json" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))') GPU(s)"
-        else
-            warn "Worker agent at ${worker_ip}:${agent_port} responded but payload was unparseable"
-        fi
+        worker_gpu_backend=$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['backend'])" "$parsed")
+        worker_gpus_json=$(python3 -c "import json,sys; print(json.dumps(json.loads(sys.argv[1])['gpus']))" "$parsed")
+        success "Worker agent reports backend=${worker_gpu_backend}, $(echo "$worker_gpus_json" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))') GPU(s)"
     else
-        warn "Worker agent not reachable at ${worker_ip}:${agent_port} — storing backend=unknown (dashboard will show partial info until the agent is running)"
+        warn "Worker agent not reachable at ${worker_ip}:${agent_port} (curl exit=${curl_rc}) — storing backend=unknown (dashboard will show partial info until the agent is running)"
     fi
 
     # Update cluster state
@@ -4042,10 +4048,15 @@ _cluster_test() {
 
 _cluster_agent() {
     check_install
-    load_env 2>/dev/null || true
+    # load_env fails if .env is missing (fresh install before `dream cluster
+    # enable`); every sub-action below handles that state explicitly, so
+    # surface the failure as a warning instead of silencing it.
+    load_env || warn "load_env failed — continuing without .env (token/interface must come from CLI or env)"
 
     local action="${1:-status}"
-    shift 2>/dev/null || true
+    # Drop the action arg from the remaining list. `shift` only fails when
+    # $# is 0, in which case there's nothing to shift; no need to silence.
+    if [[ $# -gt 0 ]]; then shift; fi
 
     local config_file="$INSTALL_DIR/config/cluster-agent.json"
     local pid_file="$INSTALL_DIR/data/cluster-agent.pid"
@@ -4090,8 +4101,11 @@ elif os.path.exists('/dev/kfd'): print('amd')
 else: print('cpu')
 ")
                 mkdir -p "$(dirname "$config_file")"
+                # Create the config file with mode 0600 before writing so
+                # the token is never briefly world-readable. AgentState
+                # later preserves 0600 via O_EXCL + os.replace.
                 python3 - "$config_file" "$token" "$controller" "$gpu_backend" "$interface" <<'PY'
-import json, sys
+import json, os, sys
 config_file, token, controller, gpu_backend, interface = sys.argv[1:6]
 cfg = {
     "token": token,
@@ -4102,8 +4116,13 @@ cfg = {
     "interface": interface,
     "status": "idle",
 }
-with open(config_file, "w") as f:
+tmp = config_file + ".tmp"
+if os.path.exists(tmp):
+    os.unlink(tmp)
+fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+with os.fdopen(fd, "w") as f:
     json.dump(cfg, f, indent=2)
+os.replace(tmp, config_file)
 PY
                 log "Agent config initialized (backend: ${gpu_backend})"
             fi
@@ -4329,7 +4348,7 @@ EOF
 
 cmd_cluster() {
     local subcommand="${1:-status}"
-    shift 2>/dev/null || true
+    if [[ $# -gt 0 ]]; then shift; fi
 
     case "$subcommand" in
         status|s)           _cluster_status "$@" ;;

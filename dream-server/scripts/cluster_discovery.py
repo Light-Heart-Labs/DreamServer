@@ -51,28 +51,6 @@ MAGIC = b"DREAM1"
 # than the current behaviour.
 
 
-def get_interface_ips():
-    """Return list of (ip, name_hint) for all non-loopback IPv4 addresses."""
-    results = []
-    try:
-        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
-            ip = info[4][0]
-            if not ip.startswith("127."):
-                results.append(ip)
-    except socket.gaierror:
-        pass
-    # Fallback: parse /proc/net/if_inet6 alternative or use netifaces-like approach
-    # Simpler: just try all common interface patterns
-    if not results:
-        try:
-            import subprocess
-            out = subprocess.check_output(["hostname", "-I"], text=True).strip()
-            results = [ip for ip in out.split() if ":" not in ip and not ip.startswith("127.")]
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            pass
-    return sorted(set(results))
-
-
 def _compute_broadcast(ip):
     """Compute /24 broadcast address from an IP. Falls back to 255.255.255.255."""
     parts = ip.split(".")
@@ -159,11 +137,14 @@ def discover_controller(timeout=30, bind_ip=None):
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
+    # SO_BROADCAST is only required for *sending* to the broadcast address;
+    # this function only receives, so failure here is non-fatal but worth
+    # surfacing (hints at sandboxing / seccomp) instead of silently ignoring.
     try:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    except OSError:
-        pass
+    except OSError as e:
+        print(f"[DISCOVERY] SO_BROADCAST not settable on listen socket: {e}",
+              file=sys.stderr)
 
     sock.bind((bind_ip or "", DISCOVERY_PORT))
     sock.settimeout(min(timeout, 5.0))

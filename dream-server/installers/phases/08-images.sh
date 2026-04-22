@@ -153,17 +153,17 @@ else
         _rpc_dir="$SCRIPT_DIR/images/llama-rpc"
 
         # Stage the supervisor from its canonical location into the build
-        # context so Docker's COPY can see it. Without this step, editing
-        # scripts/dream-cluster-supervisor.py silently does nothing at
-        # image rebuild time (Docker only sees the stale images/llama-rpc
-        # copy) — the drift that was reported in review (M7).
+        # context so Docker's COPY can see it. The mirror in images/llama-rpc/
+        # is intentionally absent from git (see .gitignore) — Docker COPY
+        # can't read outside its build context, so the file has to be staged
+        # here at build time. If the canonical is missing we fail loudly
+        # rather than silently building a partial image.
         _supervisor_src="$SCRIPT_DIR/scripts/dream-cluster-supervisor.py"
         _supervisor_dst="$_rpc_dir/dream-cluster-supervisor.py"
-        if [[ -f "$_supervisor_src" ]]; then
-            install -m 0644 "$_supervisor_src" "$_supervisor_dst"
-        else
-            ai_warn "Canonical supervisor missing: $_supervisor_src (using build-context copy)"
+        if [[ ! -f "$_supervisor_src" ]]; then
+            error "Canonical supervisor missing: $_supervisor_src — cannot build cluster images."
         fi
+        install -m 0644 "$_supervisor_src" "$_supervisor_dst"
 
         if [[ "$GPU_BACKEND" == "amd" ]]; then
             _ctrl_dockerfile="Dockerfile.rocm"

@@ -47,7 +47,7 @@ for f in \
     images/llama-rpc/Dockerfile.rocm \
     images/llama-rpc/Dockerfile.rpc-cuda \
     images/llama-rpc/Dockerfile.rpc-rocm \
-    images/llama-rpc/dream-cluster-supervisor.py; do
+    scripts/dream-cluster-supervisor.py; do
     if [[ -f "$ROOT_DIR/$f" ]]; then
         pass "$f exists"
     else
@@ -327,13 +327,15 @@ echo ""
 
 echo "── Supervisor script structural checks ──"
 
-SUP="$ROOT_DIR/images/llama-rpc/dream-cluster-supervisor.py"
+SUP="$ROOT_DIR/scripts/dream-cluster-supervisor.py"
 
-# Should NOT have duplicate in scripts/
-if [[ -f "$ROOT_DIR/scripts/dream-cluster-supervisor.py" ]]; then
-    fail "Duplicate supervisor exists in scripts/ (should only be in images/llama-rpc/)"
+# Supervisor canonical location is scripts/. The image build context
+# (images/llama-rpc/) should NOT have a committed copy — it's staged at
+# install time by installers/phases/08-images.sh and is gitignored.
+if [[ -f "$ROOT_DIR/images/llama-rpc/dream-cluster-supervisor.py" ]]; then
+    fail "Stale supervisor copy in images/llama-rpc/ (should be staged at build, not committed)"
 else
-    pass "No duplicate supervisor in scripts/"
+    pass "No committed supervisor copy in image build context"
 fi
 
 # SIGTERM handler should reference _child_proc (not just sys.exit)

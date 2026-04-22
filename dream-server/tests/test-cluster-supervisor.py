@@ -25,9 +25,10 @@ import threading
 import time
 import unittest
 
-# Load the supervisor module from the Docker build context (canonical location)
+# Canonical supervisor lives in scripts/; images/llama-rpc/ is a staged
+# build-context copy populated by installers/phases/08-images.sh.
 SUPERVISOR_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "images", "llama-rpc", "dream-cluster-supervisor.py"
+    os.path.dirname(__file__), "..", "scripts", "dream-cluster-supervisor.py"
 )
 spec = importlib.util.spec_from_file_location("supervisor", SUPERVISOR_PATH)
 supervisor = importlib.util.module_from_spec(spec)

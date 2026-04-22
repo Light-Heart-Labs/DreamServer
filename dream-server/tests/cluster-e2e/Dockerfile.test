@@ -12,7 +12,7 @@ COPY scripts/cluster_discovery.py          /app/scripts/
 COPY scripts/cluster-setup-listener.py     /app/scripts/
 COPY scripts/cluster-join-client.py        /app/scripts/
 COPY scripts/cluster_worker_agent.py       /app/scripts/
-COPY images/llama-rpc/dream-cluster-supervisor.py /app/scripts/
+COPY scripts/dream-cluster-supervisor.py  /app/scripts/
 
 COPY tests/cluster-e2e/entrypoint-controller.sh /app/entrypoint-controller.sh
 COPY tests/cluster-e2e/entrypoint-worker.sh     /app/entrypoint-worker.sh
