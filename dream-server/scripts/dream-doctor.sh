@@ -57,8 +57,21 @@ sr_resolve_ports
 _DASHBOARD_PORT="${SERVICE_PORTS[dashboard]:-3001}"
 _WEBUI_PORT="${SERVICE_PORTS[open-webui]:-3000}"
 
-RAM_GB="$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print int($2/1024/1024)}' || echo 0)"
-DISK_GB="$(df -BG "$HOME" 2>/dev/null | tail -1 | awk '{gsub(/G/,"",$4); print int($4)}' || echo 0)"
+# RAM: platform-branch. /proc/meminfo does not exist on macOS; use sysctl.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    RAM_BYTES="$(sysctl -n hw.memsize 2>/dev/null || echo 0)"
+    RAM_GB=$(( RAM_BYTES / 1024 / 1024 / 1024 ))
+else
+    RAM_GB="$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print int($2/1024/1024)}' || echo 0)"
+fi
+# Installer-recorded fallback: if detection returned 0 and .env has HOST_RAM_GB, trust that.
+if (( RAM_GB == 0 )) && [[ -f "$ROOT_DIR/.env" ]]; then
+    _env_ram=$(grep '^HOST_RAM_GB=' "$ROOT_DIR/.env" | cut -d= -f2 | tr -d '"' || true)
+    [[ -n "${_env_ram:-}" ]] && RAM_GB="$_env_ram"
+fi
+
+# Disk: POSIX df -k — works on BSD and GNU identically (df -BG is GNU-only).
+DISK_GB="$(df -k "$HOME" 2>/dev/null | tail -1 | awk '{print int($4/1024/1024)}' || echo 0)"
 
 if [[ -x "$SCRIPT_DIR/scripts/build-capability-profile.sh" ]]; then
     CAP_ENV="$("$SCRIPT_DIR/scripts/build-capability-profile.sh" --output "$CAP_FILE" --env)"
@@ -187,8 +200,15 @@ collect_extension_diagnostics() {
             fi
         fi
 
-        # Check GPU backend compatibility (only if SERVICE_GPU_BACKENDS array exists from PR #357)
-        if declare -p SERVICE_GPU_BACKENDS &>/dev/null; then
+        # Check GPU backend compatibility (only if SERVICE_GPU_BACKENDS array exists from PR #357).
+        # dashboard-api uses GPU_BACKEND=nvidia internally on macOS (see
+        # installers/macos/docker-compose.macos.yml) so service manifests are
+        # discovered. doctor/preflight path doesn't have that workaround, so the
+        # raw gpu_backends check produces false positives for CPU-only services
+        # declaring gpu_backends: [amd, nvidia]. Skip the check on apple — if a
+        # service genuinely needs GPU and isn't available on Apple, it's a
+        # manifest-level concern, not a runtime doctor warning.
+        if [[ "$backend" != "apple" ]] && declare -p SERVICE_GPU_BACKENDS &>/dev/null; then
             local gpu_backends="${SERVICE_GPU_BACKENDS[$sid]:-}"
             if [[ -n "$gpu_backends" && ! " $gpu_backends " =~ " $backend " ]]; then
                 issues+=("gpu_backend_incompatible")
