@@ -3,7 +3,7 @@
 # Mission: M5 (Clonable Dream Setup Server)
 # Version: 2.0.0 — Registry-driven service resolution
 
-set -eo pipefail
+set -euo pipefail
 
 # Require Bash 4+ (associative arrays used by service registry and dream-cli)
 if (( BASH_VERSINFO[0] < 4 )); then
@@ -1845,7 +1845,7 @@ cmd_enable() {
     fi
 
     # Check inter-extension dependencies
-    local deps="${SERVICE_DEPENDS[$service_id]}"
+    local deps="${SERVICE_DEPENDS[$service_id]:-}"
     if [[ -n "$deps" ]]; then
         local missing=()
         for dep in $deps; do
@@ -2353,8 +2353,8 @@ META
             ;;
 
         diff|d)
-            local preset1="$2"
-            local preset2="$3"
+            local preset1="${2:-}"
+            local preset2="${3:-}"
 
             # Validate arguments
             if [[ -z "$preset1" ]] || [[ -z "$preset2" ]]; then
@@ -2394,7 +2394,7 @@ META
                 local all_sids=()
                 for sid in "${!ext1[@]}"; do all_sids+=("$sid"); done
                 for sid in "${!ext2[@]}"; do
-                    [[ -z "${ext1[$sid]}" ]] && all_sids+=("$sid")
+                    [[ -z "${ext1[$sid]:-}" ]] && all_sids+=("$sid")
                 done
 
                 # Sort and compare
@@ -2444,14 +2444,14 @@ META
                 local all_keys=()
                 for key in "${!env1[@]}"; do all_keys+=("$key"); done
                 for key in "${!env2[@]}"; do
-                    [[ -z "${env1[$key]}" ]] && all_keys+=("$key")
+                    [[ -z "${env1[$key]:-}" ]] && all_keys+=("$key")
                 done
 
                 # Sort and compare (mask secrets)
                 local has_diff=false
                 for key in $(printf '%s\n' "${all_keys[@]}" | sort); do
-                    local val1="${env1[$key]}"
-                    local val2="${env2[$key]}"
+                    local val1="${env1[$key]:-}"
+                    local val2="${env2[$key]:-}"
 
                     # Check if values differ BEFORE masking
                     if [[ "$val1" != "$val2" ]]; then
