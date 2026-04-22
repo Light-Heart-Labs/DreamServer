@@ -1240,20 +1240,44 @@ cmd_chat() {
     local _llm_port="${SERVICE_PORTS[llama-server]:-11434}"
     _llm_port="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-$_llm_port}}"
 
-    # Get model from llama-server if not specified
+    # Pre-flight reachability check.
+    local _probe
+    _probe=$(curl --silent --show-error --fail --max-time 3 \
+        "http://localhost:${_llm_port}/v1/models" 2>&1) || {
+        error "llama-server not reachable at http://localhost:${_llm_port} — is 'dream status' showing it healthy?"
+    }
+
     if [[ -z "$model" ]]; then
-        model=$(curl -s "http://localhost:${_llm_port}/v1/models" | jq -r '.data[0].id // "local"')
+        model=$(printf '%s' "$_probe" | jq -er '.data[0].id' 2>/dev/null || echo "local")
     fi
 
     log "Sending to $model..."
 
-    # Use jq to safely construct JSON payload (prevents injection)
-    local payload=$(jq -n --arg model "$model" --arg msg "$message" \
+    local payload
+    payload=$(jq -n --arg model "$model" --arg msg "$message" \
         '{model: $model, messages: [{role: "user", content: $msg}], max_tokens: 500}')
 
-    curl -s "http://localhost:${_llm_port}/v1/chat/completions" \
-        -H "Content-Type: application/json" \
-        -d "$payload" | jq -r '.choices[0].message.content // .error.message // "Error: no response"'
+    local _resp
+    # HTTP 4xx/5xx responses are delegated to the jq fallback below, which
+    # extracts .error.message cleanly. Only transport failures (DNS, refused,
+    # timeout) trip curl's non-zero exit here. Avoiding --fail / --fail-with-body
+    # also keeps compat with curl < 7.76 (Ubuntu 20.04, Debian 11, RHEL 8).
+    _resp=$(curl --silent --show-error --max-time 30 \
+        "http://localhost:${_llm_port}/v1/chat/completions" \
+        -H "Content-Type: application/json" -d "$payload" 2>&1) || {
+        error "LLM request failed: $_resp"
+    }
+
+    [[ -z "$_resp" ]] && error "LLM returned empty response"
+
+    local _content
+    _content=$(printf '%s' "$_resp" | jq -er '.choices[0].message.content') || {
+        local _err
+        _err=$(printf '%s' "$_resp" | jq -r '.error.message // "unknown error"' 2>/dev/null)
+        error "LLM error: ${_err:-unparseable response}"
+    }
+
+    printf '%s\n' "$_content"
 }
 
 cmd_benchmark() {
@@ -1263,7 +1287,10 @@ cmd_benchmark() {
     log "Running quick benchmark..."
 
     local start=$(date +%s)
-    local response=$(cmd_chat "Say exactly: Hello World" 2>/dev/null)
+    local response
+    if ! response=$(cmd_chat "Say exactly: Hello World" 2>&1); then
+        error "Benchmark failed: LLM unreachable or error — see 'dream chat' for details"
+    fi
     local end=$(date +%s)
 
     local duration=$(( end - start ))
