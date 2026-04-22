@@ -1392,7 +1392,7 @@ cmd_config() {
                 # substring match against common secret-ish keywords.
                 _kl="${_k,,}"
                 case "$_kl" in
-                    *secret*|*password*|*pass*|*token*|*key*|*salt*) return 0 ;;
+                    *secret*|*password*|*pass*|*token*|*key*|*salt*|*bearer*) return 0 ;;
                 esac
                 return 1
             }
