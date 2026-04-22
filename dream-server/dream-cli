@@ -1354,6 +1354,42 @@ cmd_shell() {
     fi
 }
 
+# File-scope helpers used by `dream config show` and `dream preset diff` to
+# mask secret values. `.env.schema.json` is the authoritative source; keys
+# marked `"secret": true` are treated as secrets. A keyword fallback covers
+# schema gaps (e.g. ANTHROPIC_API_KEY is currently secret:false) and the case
+# where the schema file or jq is unavailable. Callers must invoke
+# _cmd_config_load_secret_schema once (after check_install, so INSTALL_DIR is
+# set) before calling _cmd_config_is_secret.
+_cmd_config_secret_keys=()
+_cmd_config_schema_loaded=0
+
+_cmd_config_load_secret_schema() {
+    local _schema_path="$INSTALL_DIR/.env.schema.json"
+    _cmd_config_secret_keys=()
+    _cmd_config_schema_loaded=0
+    if [[ -f "$_schema_path" ]] && command -v jq >/dev/null 2>&1; then
+        mapfile -t _cmd_config_secret_keys < <(jq -r '.properties | to_entries[] | select(.value.secret == true) | .key' "$_schema_path" 2>/dev/null)
+        _cmd_config_schema_loaded=1
+    fi
+}
+
+_cmd_config_is_secret() {
+    local _k="$1" _s _kl
+    if (( _cmd_config_schema_loaded == 1 )); then
+        for _s in "${_cmd_config_secret_keys[@]}"; do
+            [[ "$_k" == "$_s" ]] && return 0
+        done
+        # Fall through to keyword match — defense in depth against schema gaps
+        # and against malformed schemas where jq returns zero secret keys.
+    fi
+    _kl="${_k,,}"
+    case "$_kl" in
+        *secret*|*password*|*pass*|*token*|*key*|*salt*|*bearer*) return 0 ;;
+    esac
+    return 1
+}
+
 cmd_config() {
     check_install
 
@@ -1366,36 +1402,7 @@ cmd_config() {
             echo ""
             echo -e "${CYAN}.env contents:${NC}"
 
-            # Mask secrets using .env.schema.json as the authoritative source:
-            # keys marked `"secret": true` in the schema are hidden. If the
-            # schema file or jq is unavailable, fall back to a case-insensitive
-            # substring match on common secret-ish keywords. The narrow regex
-            # that previously lived here missed suffixes like _PASSWORD and
-            # _SALT (see fix notes in commit message).
-            local _schema_path="$INSTALL_DIR/.env.schema.json"
-            local -a _secret_keys=()
-            local _schema_loaded=0
-            if [[ -f "$_schema_path" ]] && command -v jq >/dev/null 2>&1; then
-                mapfile -t _secret_keys < <(jq -r '.properties | to_entries[] | select(.value.secret == true) | .key' "$_schema_path" 2>/dev/null)
-                _schema_loaded=1
-            fi
-
-            _cmd_config_is_secret() {
-                local _k="$1" _s _kl
-                if (( _schema_loaded == 1 )); then
-                    for _s in "${_secret_keys[@]}"; do
-                        [[ "$_k" == "$_s" ]] && return 0
-                    done
-                    return 1
-                fi
-                # Fallback (schema or jq unavailable): case-insensitive
-                # substring match against common secret-ish keywords.
-                _kl="${_k,,}"
-                case "$_kl" in
-                    *secret*|*password*|*pass*|*token*|*key*|*salt*|*bearer*) return 0 ;;
-                esac
-                return 1
-            }
+            _cmd_config_load_secret_schema
 
             local _line _key
             while IFS= read -r _line; do
@@ -2379,6 +2386,11 @@ META
             # Compare environment variables
             echo -e "${BLUE}━━━ Environment Variables ━━━${NC}"
             if [[ -f "$dir1/env" ]] && [[ -f "$dir2/env" ]]; then
+                # Load secret schema so `_cmd_config_is_secret` below can consult
+                # .env.schema.json instead of the narrow regex the old version
+                # used (which missed _PASS, _SALT, email admin fields, etc.).
+                _cmd_config_load_secret_schema
+
                 # Parse both env files
                 declare -A env1 env2
                 while IFS='=' read -r key value; do
@@ -2410,7 +2422,7 @@ META
                         has_diff=true
 
                         # Mask sensitive values for display
-                        if [[ "$key" =~ (PASSWORD|SECRET|KEY|TOKEN|API) ]]; then
+                        if _cmd_config_is_secret "$key"; then
                             [[ -n "$val1" ]] && val1="***"
                             [[ -n "$val2" ]] && val2="***"
                         fi
