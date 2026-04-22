@@ -13,7 +13,12 @@ The Dashboard API runs inside a Docker container and cannot directly run `docker
 | Linux | systemd user service (`scripts/systemd/dream-host-agent.service`) |
 | macOS | Started by the installer (`installers/macos/install-macos.sh`) |
 
-The agent is started during installation (phase 07 on Linux) and binds to `127.0.0.1` only — it is not accessible from the network.
+The agent is started during installation (phase 07 on Linux). Its bind address is platform-aware:
+
+- **macOS and Windows:** binds to `127.0.0.1` — Docker Desktop routes `host.docker.internal` to the loopback interface, so containers and the host share that address.
+- **Linux:** binds to the Docker bridge gateway IP (auto-detected via `docker network inspect bridge`, typically `172.17.0.1`) so containers on the default bridge can reach it; if detection fails it falls back to `0.0.0.0` and logs a warning.
+
+Set `DREAM_AGENT_BIND=<ip>` in `.env` to override the default. The agent is never exposed to the LAN — the bridge gateway is a virtual interface reachable only from containers on that bridge.
 
 ## Configuration
 
