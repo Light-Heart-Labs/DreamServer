@@ -1415,7 +1415,11 @@ cmd_config() {
         validate)
             cd "$INSTALL_DIR"
             if [[ -x "$INSTALL_DIR/scripts/validate-env.sh" ]]; then
-                "$INSTALL_DIR/scripts/validate-env.sh" "$INSTALL_DIR/.env" "$INSTALL_DIR/.env.schema.json"
+                # Invoke through "$BASH" (the currently-running shell, guaranteed
+                # Bash 4+ by the version check at the top of this file). The
+                # target script uses associative arrays (declare -A), which
+                # crash under macOS's system /bin/bash (3.2).
+                "$BASH" "$INSTALL_DIR/scripts/validate-env.sh" "$INSTALL_DIR/.env" "$INSTALL_DIR/.env.schema.json"
             else
                 warn "validate-env.sh not found at $INSTALL_DIR/scripts/validate-env.sh"
                 warn "Make sure you're on a recent Dream Server release."
