@@ -1079,7 +1079,10 @@ cmd_shell() {
     check_install
     cd "$INSTALL_DIR"
 
-    # Resolve aliases (e.g. "llm" -> "llama-server"); sr_resolve calls sr_load.
+    # Load the service registry so SERVICE_IDS is populated in our shell.
+    sr_load
+
+    # Resolve aliases (e.g. "llm" -> "llama-server").
     local service
     service=$(sr_resolve "${1:-llm}")
 
@@ -1098,8 +1101,24 @@ cmd_shell() {
     local container
     container=$(sr_container "$service")
 
+    # Distinguish "daemon down" from "container stopped" — the container-running
+    # check below uses `docker ps`, which also exits non-zero when the daemon
+    # is unreachable. Without this preflight a user whose Docker is stopped
+    # sees "Container X is not running" and tries `dream start`, which also
+    # fails, creating a confusing loop. The explicit check lets the error
+    # reflect the actual cause.
+    #
+    # `docker info` can hang for 20+ seconds when Docker Desktop is mid-boot
+    # (socket exists, daemon not yet accepting RPCs). `timeout` isn't stock
+    # macOS, but `perl alarm` is (perl ships with macOS ≥ 10.5 and every
+    # Linux/WSL2 distro we target). `alarm` is inherited across `exec`, so
+    # the docker process receives SIGALRM after 3s if it hasn't returned.
+    if ! perl -e 'alarm 3; exec "docker", "info"' >/dev/null 2>&1; then
+        error "Docker is not running (or not responding within 3s). Start Docker Desktop / dockerd and retry."
+    fi
+
     # Confirm the container is running before trying to exec.
-    if ! docker ps --format '{{.Names}}' | grep -qx "$container"; then
+    if ! docker ps 2>/dev/null --format '{{.Names}}' | grep -qx "$container"; then
         error "Container $container is not running. Start it with: dream start $service"
     fi
 
