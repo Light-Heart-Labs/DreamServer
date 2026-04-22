@@ -1185,14 +1185,48 @@ cmd_config() {
             echo "Install dir: $INSTALL_DIR"
             echo ""
             echo -e "${CYAN}.env contents:${NC}"
-            grep -v "^#" "$INSTALL_DIR/.env" | grep -v "^$" | while read line; do
-                # Hide sensitive values
-                if echo "$line" | grep -qiE "(secret|pass|token|key)="; then
-                    echo "  ${line%%=*}=***"
-                else
-                    echo "  $line"
+
+            # Mask secrets using .env.schema.json as the authoritative source:
+            # keys marked `"secret": true` in the schema are hidden. If the
+            # schema file or jq is unavailable, fall back to a case-insensitive
+            # substring match on common secret-ish keywords. The narrow regex
+            # that previously lived here missed suffixes like _PASSWORD and
+            # _SALT (see fix notes in commit message).
+            local _schema_path="$INSTALL_DIR/.env.schema.json"
+            local -a _secret_keys=()
+            local _schema_loaded=0
+            if [[ -f "$_schema_path" ]] && command -v jq >/dev/null 2>&1; then
+                mapfile -t _secret_keys < <(jq -r '.properties | to_entries[] | select(.value.secret == true) | .key' "$_schema_path" 2>/dev/null)
+                _schema_loaded=1
+            fi
+
+            _cmd_config_is_secret() {
+                local _k="$1" _s _kl
+                if (( _schema_loaded == 1 )); then
+                    for _s in "${_secret_keys[@]}"; do
+                        [[ "$_k" == "$_s" ]] && return 0
+                    done
+                    return 1
                 fi
-            done
+                # Fallback (schema or jq unavailable): case-insensitive
+                # substring match against common secret-ish keywords.
+                _kl="${_k,,}"
+                case "$_kl" in
+                    *secret*|*password*|*pass*|*token*|*key*|*salt*) return 0 ;;
+                esac
+                return 1
+            }
+
+            local _line _key
+            while IFS= read -r _line; do
+                [[ -z "$_line" || "$_line" =~ ^[[:space:]]*# ]] && continue
+                _key="${_line%%=*}"
+                if _cmd_config_is_secret "$_key"; then
+                    echo "  ${_key}=***"
+                else
+                    echo "  $_line"
+                fi
+            done < "$INSTALL_DIR/.env"
             ;;
         edit)
             ${EDITOR:-nano} "$INSTALL_DIR/.env"
