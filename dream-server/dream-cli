@@ -3,7 +3,7 @@
 # Mission: M5 (Clonable Dream Setup Server)
 # Version: 2.0.0 — Registry-driven service resolution
 
-set -e
+set -eo pipefail
 
 # Require Bash 4+ (associative arrays used by service registry and dream-cli)
 if (( BASH_VERSINFO[0] < 4 )); then
@@ -251,7 +251,7 @@ _check_version_compat() {
 
     # 1. Installed version
     _COMPAT_INSTALLED_VER=$(grep '^DREAM_VERSION=' "$INSTALL_DIR/.env" 2>/dev/null \
-        | head -1 | cut -d= -f2 | tr -d '[:space:]')
+        | sed -n '1p' | cut -d= -f2 | tr -d '[:space:]')
     # Fall back to .version file (written by dream-update.sh / PR #349 convention)
     if [[ -z "$_COMPAT_INSTALLED_VER" && -f "$INSTALL_DIR/.version" ]]; then
         _COMPAT_INSTALLED_VER=$(jq -r '.version // empty' "$INSTALL_DIR/.version" 2>/dev/null \
@@ -1892,7 +1892,7 @@ META
 
             # Validate archive structure
             local archive_name
-            archive_name=$(tar tzf "$archive" 2>/dev/null | head -1 | cut -d/ -f1)
+            archive_name=$(tar tzf "$archive" 2>/dev/null | sed -n '1p' | cut -d/ -f1)
             [[ -z "$archive_name" ]] && error "Invalid archive structure"
 
             # Check if preset already exists
