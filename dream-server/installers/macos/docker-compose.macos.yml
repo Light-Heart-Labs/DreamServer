@@ -6,7 +6,7 @@
 
 services:
   llama-server:
-    image: busybox:latest   # Placeholder -- container never runs (replicas: 0)
+    image: busybox:1.36.1   # Placeholder -- container never runs (replicas: 0)
     deploy:
       replicas: 0    # Disabled -- running natively on macOS host via Metal
 
@@ -15,7 +15,7 @@ services:
   # lightweight container bridges the gap.  open-webui waits on its
   # healthcheck before starting.
   llama-server-ready:
-    image: busybox:latest
+    image: busybox:1.36.1
     container_name: dream-llama-ready
     restart: unless-stopped
     extra_hosts:

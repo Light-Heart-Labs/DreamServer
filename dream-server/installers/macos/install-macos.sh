@@ -1053,31 +1053,48 @@ fi
 
 # Health check loop
 ai "Running health checks..."
-MAX_ATTEMPTS=30
+MAX_ATTEMPTS=90   # 90 * 2s = 180s -- covers base compose start_period (60s) + image pull
 ALL_HEALTHY=true
 
-# Parallel arrays (Bash 3.2 compatible -- no associative arrays)
+# Parallel arrays (Bash 3.2 compatible -- no associative arrays).
+# HEALTH_CONTAINERS holds the Docker container name when a service runs in
+# Docker; an empty string means the service is host-native (llama-server
+# runs natively on macOS via Metal; OpenCode is a LaunchAgent). Docker
+# services wait on `docker inspect ... .State.Health.Status == healthy`;
+# host-native services fall back to an HTTP probe on 127.0.0.1.
 HEALTH_NAMES=("LLM (llama-server)" "Chat UI (Open WebUI)")
-HEALTH_URLS=("http://localhost:8080/health" "http://localhost:3000")
-$ENABLE_VOICE && HEALTH_NAMES+=("Whisper (STT)") && HEALTH_URLS+=("http://localhost:9000/health")
-$ENABLE_WORKFLOWS && HEALTH_NAMES+=("n8n (Workflows)") && HEALTH_URLS+=("http://localhost:5678/healthz")
-[[ -x "$OPENCODE_BIN" ]] && HEALTH_NAMES+=("OpenCode (IDE)") && HEALTH_URLS+=("http://localhost:${OPENCODE_PORT}")
+HEALTH_URLS=("http://127.0.0.1:8080/health" "http://127.0.0.1:3000")
+HEALTH_CONTAINERS=("" "dream-webui")
+$ENABLE_VOICE && HEALTH_NAMES+=("Whisper (STT)") && HEALTH_URLS+=("http://127.0.0.1:9000/health") && HEALTH_CONTAINERS+=("dream-whisper")
+$ENABLE_WORKFLOWS && HEALTH_NAMES+=("n8n (Workflows)") && HEALTH_URLS+=("http://127.0.0.1:5678/healthz") && HEALTH_CONTAINERS+=("dream-n8n")
+[[ -x "$OPENCODE_BIN" ]] && HEALTH_NAMES+=("OpenCode (IDE)") && HEALTH_URLS+=("http://127.0.0.1:${OPENCODE_PORT}") && HEALTH_CONTAINERS+=("")
 
 for ((idx=0; idx<${#HEALTH_NAMES[@]}; idx++)); do
     NAME="${HEALTH_NAMES[$idx]}"
     URL="${HEALTH_URLS[$idx]}"
+    CONTAINER="${HEALTH_CONTAINERS[$idx]}"
     HEALTHY=false
 
     for ((attempt=1; attempt<=MAX_ATTEMPTS; attempt++)); do
-        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$URL" 2>/dev/null || echo "000")
-        if [[ "$HTTP_CODE" -ge 200 ]] && [[ "$HTTP_CODE" -lt 400 ]]; then
-            HEALTHY=true
-            break
-        fi
-        # 401/403 means service is responding (auth-protected) -- treat as healthy
-        if [[ "$HTTP_CODE" == "401" ]] || [[ "$HTTP_CODE" == "403" ]]; then
-            HEALTHY=true
-            break
+        if [[ -n "$CONTAINER" ]]; then
+            # Docker service -- wait for the container healthcheck to report healthy.
+            STATUS=$(docker inspect --format '{{.State.Health.Status}}' "$CONTAINER" 2>/dev/null || echo "missing")
+            if [[ "$STATUS" == "healthy" ]]; then
+                HEALTHY=true
+                break
+            fi
+        else
+            # Host-native service -- poll HTTP on 127.0.0.1.
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$URL" 2>/dev/null || echo "000")
+            if [[ "$HTTP_CODE" -ge 200 ]] && [[ "$HTTP_CODE" -lt 400 ]]; then
+                HEALTHY=true
+                break
+            fi
+            # 401/403 means service is responding (auth-protected) -- treat as healthy
+            if [[ "$HTTP_CODE" == "401" ]] || [[ "$HTTP_CODE" == "403" ]]; then
+                HEALTHY=true
+                break
+            fi
         fi
         if (( attempt <= 3 || attempt % 5 == 0 )); then
             ai "  Waiting for ${NAME}... (${attempt}/${MAX_ATTEMPTS})"

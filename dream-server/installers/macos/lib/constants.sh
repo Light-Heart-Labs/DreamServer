@@ -79,6 +79,7 @@ BGRN='\033[1;32m'        # Bright green -- emphasis, success, headings
 DGRN='\033[2;32m'        # Dim green -- secondary text, lore
 AMB='\033[0;33m'         # Amber -- warnings, ETA labels
 WHT='\033[1;37m'         # White -- key URLs
+DIM='\033[2;37m'         # Dim white -- subdued hints, lore
 NC='\033[0m'             # Reset
 CURSOR='█'               # Block cursor for typing
 
