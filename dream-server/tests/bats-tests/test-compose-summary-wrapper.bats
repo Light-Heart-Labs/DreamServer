@@ -19,6 +19,7 @@ load '../bats/bats-assert/load'
 
 setup() {
     export TMPDIR_TEST="$BATS_TEST_TMPDIR"
+    export TMPDIR="$TMPDIR_TEST"
     mkdir -p "$TMPDIR_TEST/bin"
 
     # Color vars used by log/success/warn/log_error — stub to empty so
@@ -92,11 +93,11 @@ teardown() {
 @test "wrapper: success removes the compose log tmpfile" {
     export DOCKER_STUB_MODE=success
     # Track how many mktemp-produced files exist before & after. We rely on
-    # $TMPDIR being the system tmp — the wrapper uses `mktemp` with no args.
-    local before=$(find /tmp -maxdepth 1 -name 'tmp.*' -type f 2>/dev/null | wc -l)
+    # $TMPDIR being our per-test tempdir; the wrapper uses `mktemp` with no args.
+    local before=$(find "$TMPDIR_TEST" -maxdepth 1 -name 'tmp.*' -type f 2>/dev/null | wc -l)
     run _compose_run_with_summary "Starting all services" up -d
     assert_success
-    local after=$(find /tmp -maxdepth 1 -name 'tmp.*' -type f 2>/dev/null | wc -l)
+    local after=$(find "$TMPDIR_TEST" -maxdepth 1 -name 'tmp.*' -type f 2>/dev/null | wc -l)
     # Zero net new temp files (create + rm).
     [ "$after" -le "$before" ]
 }
