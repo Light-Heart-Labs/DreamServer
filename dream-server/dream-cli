@@ -1114,7 +1114,7 @@ cmd_config() {
         validate)
             cd "$INSTALL_DIR"
             if [[ -x "$INSTALL_DIR/scripts/validate-env.sh" ]]; then
-                "$INSTALL_DIR/scripts/validate-env.sh" "$INSTALL_DIR/.env" "$INSTALL_DIR/.env.schema.json"
+                "$BASH" "$INSTALL_DIR/scripts/validate-env.sh" "$INSTALL_DIR/.env" "$INSTALL_DIR/.env.schema.json"
             else
                 warn "validate-env.sh not found at $INSTALL_DIR/scripts/validate-env.sh"
                 warn "Make sure you're on a recent Dream Server release."
@@ -1122,7 +1122,7 @@ cmd_config() {
             echo ""
             if [[ -x "$INSTALL_DIR/scripts/validate-manifests.sh" ]]; then
                 log "Validating extension manifests and compatibility..."
-                if "$INSTALL_DIR/scripts/validate-manifests.sh"; then
+                if "$BASH" "$INSTALL_DIR/scripts/validate-manifests.sh"; then
                     success "Extension manifests validated"
                 else
                     warn "Extension manifest validation reported issues. See output above."

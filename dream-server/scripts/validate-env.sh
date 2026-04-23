@@ -7,6 +7,14 @@
 #  - Validate required keys, unknown keys, types, enums, and numeric ranges
 #  - Fail deterministically with a single exit code for CI
 
+# Require Bash 4+ (associative arrays used for env key/value/line tracking)
+if (( BASH_VERSINFO[0] < 4 )); then
+    echo "ERROR: $(basename "$0") requires Bash 4.0+ (you have $BASH_VERSION)" >&2
+    echo "  macOS ships Bash 3.2 due to licensing. Install a modern version:" >&2
+    echo "    brew install bash" >&2
+    exit 1
+fi
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

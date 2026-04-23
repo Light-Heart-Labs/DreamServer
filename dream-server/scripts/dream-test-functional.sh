@@ -11,6 +11,14 @@
 # This complements dream-test.sh which checks service health.
 #=============================================================================
 
+# Require Bash 4+ (associative arrays used for service-port lookup)
+if (( BASH_VERSINFO[0] < 4 )); then
+    echo "ERROR: $(basename "$0") requires Bash 4.0+ (you have $BASH_VERSION)" >&2
+    echo "  macOS ships Bash 3.2 due to licensing. Install a modern version:" >&2
+    echo "    brew install bash" >&2
+    exit 1
+fi
+
 set -euo pipefail
 
 # Colors
@@ -31,7 +39,7 @@ if [[ -f "$_FT_DIR/lib/service-registry.sh" ]]; then
 fi
 
 # Ensure SERVICE_PORTS is declared even if service-registry.sh was not sourced
-declare -A SERVICE_PORTS 2>/dev/null || true
+declare -A SERVICE_PORTS
 
 # Service endpoints — resolved from registry
 LLM_URL="${LLM_URL:-http://localhost:${SERVICE_PORTS[llama-server]:-11434}}"
