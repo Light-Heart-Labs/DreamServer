@@ -165,7 +165,7 @@ Write-DreamBanner
 #  Phase 03 → $enableVoice, $enableWorkflows, $enableRag, $enableOpenClaw, $openClawConfig
 #  Phase 04 → $requirementsMet
 #  Phase 05 → $dockerComposeCmd
-#  Phase 06 → $envResult (EnvPath, SearxngSecret, OpenclawToken, DreamAgentKey)
+#  Phase 06 → $envResult (SearxngSecret, OpenclawToken)
 #  Phase 07 → (no output -- tools installed to $env:USERPROFILE)
 
 . (Join-Path $PhasesDir "01-preflight.ps1")
