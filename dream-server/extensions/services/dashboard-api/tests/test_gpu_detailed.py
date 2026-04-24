@@ -12,6 +12,7 @@ from gpu import (
     get_gpu_info_nvidia_detailed,
     read_gpu_topology,
 )
+from models import GPUInfo
 
 
 # ============================================================================
@@ -337,3 +338,80 @@ class TestGpuHistoryBuffer:
             gpu_mod._GPU_HISTORY.clear()
             for item in saved:
                 gpu_mod._GPU_HISTORY.append(item)
+
+
+# ============================================================================
+# _get_raw_gpus — Apple Silicon dispatch (routers/gpu.py)
+# ============================================================================
+
+
+def _sample_apple_gpu_info() -> GPUInfo:
+    return GPUInfo(
+        name="Apple M3 Max",
+        memory_used_mb=24000,
+        memory_total_mb=65536,
+        memory_percent=36.6,
+        utilization_percent=0,
+        temperature_c=0,
+        power_w=None,
+        memory_type="unified",
+        gpu_backend="apple",
+    )
+
+
+class TestGetRawGpusApple:
+    def test_apple_returns_single_entry(self, monkeypatch):
+        """Apple backend wraps the single GPUInfo into a one-element IndividualGPU list."""
+        import routers.gpu as gpu_mod
+        monkeypatch.setattr(gpu_mod, "get_gpu_info_apple", lambda: _sample_apple_gpu_info())
+
+        result = gpu_mod._get_raw_gpus("apple")
+        assert result is not None
+        assert len(result) == 1
+        g = result[0]
+        assert g.index == 0
+        assert len(g.uuid) >= 8  # GPUCard.jsx calls uuid.slice(-8)
+        assert g.name == "Apple M3 Max"
+        assert g.memory_used_mb == 24000
+        assert g.memory_total_mb == 65536
+        assert g.memory_percent == 36.6
+        assert g.utilization_percent == 0
+        assert g.temperature_c == 0
+        assert g.power_w is None
+        assert g.assigned_services == []
+
+    def test_apple_returns_none_when_detection_fails(self, monkeypatch):
+        """Detection returning None propagates as None — endpoint will raise 503."""
+        import routers.gpu as gpu_mod
+        monkeypatch.setattr(gpu_mod, "get_gpu_info_apple", lambda: None)
+
+        assert gpu_mod._get_raw_gpus("apple") is None
+
+
+class TestGpuDetailedEndpointApple:
+    def test_endpoint_returns_apple_aggregate(self, monkeypatch, test_client):
+        """/api/gpu/detailed with GPU_BACKEND=apple returns 200 with single-GPU aggregate."""
+        import routers.gpu as gpu_mod
+        # Bypass the 3 s TTL cache so this test sees fresh data.
+        gpu_mod._detailed_cache["expires"] = 0.0
+        gpu_mod._detailed_cache["value"] = None
+
+        monkeypatch.setenv("GPU_BACKEND", "apple")
+        monkeypatch.setattr(gpu_mod, "get_gpu_info_apple", lambda: _sample_apple_gpu_info())
+        monkeypatch.setattr(gpu_mod, "decode_gpu_assignment", lambda: None)
+
+        try:
+            response = test_client.get("/api/gpu/detailed", headers=test_client.auth_headers)
+            assert response.status_code == 200
+            body = response.json()
+            assert body["backend"] == "apple"
+            assert body["gpu_count"] == 1
+            assert len(body["gpus"]) == 1
+            assert body["gpus"][0]["name"] == "Apple M3 Max"
+            assert body["gpus"][0]["index"] == 0
+            assert len(body["gpus"][0]["uuid"]) >= 8
+            assert body["aggregate"]["name"] == "Apple M3 Max"
+            assert body["aggregate"]["gpu_backend"] == "apple"
+        finally:
+            gpu_mod._detailed_cache["expires"] = 0.0
+            gpu_mod._detailed_cache["value"] = None
