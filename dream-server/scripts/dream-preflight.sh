@@ -22,6 +22,8 @@ if [[ -x "$SCRIPT_DIR/scripts/resolve-compose-stack.sh" ]]; then
     COMPOSE_FLAGS=$("$SCRIPT_DIR/scripts/resolve-compose-stack.sh" \
         --script-dir "$SCRIPT_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}")
 fi
+# Split COMPOSE_FLAGS into an array so paths with spaces survive expansion
+read -ra COMPOSE_FLAGS_ARR <<< "$COMPOSE_FLAGS"
 
 # Colors
 RED='\033[0;31m'
@@ -53,7 +55,7 @@ fi
 
 # Check containers are up
 echo -n "Core containers... "
-if docker compose $COMPOSE_FLAGS ps | grep -q "$LLM_CONTAINER"; then
+if docker compose "${COMPOSE_FLAGS_ARR[@]}" ps | grep -q "$LLM_CONTAINER"; then
     echo -e "${GREEN}✓ running${NC}"
 else
     echo -e "${RED}✗ not running${NC}"
@@ -94,7 +96,7 @@ fi
 for sid in "${SERVICE_IDS[@]}"; do
     [[ "${SERVICE_CATEGORIES[$sid]}" == "core" ]] && continue
     container="${SERVICE_CONTAINERS[$sid]}"
-    docker compose $COMPOSE_FLAGS ps 2>/dev/null | grep -q "$container" || continue
+    docker compose "${COMPOSE_FLAGS_ARR[@]}" ps 2>/dev/null | grep -q "$container" || continue
 
     port="${SERVICE_PORTS[$sid]:-0}"
     health="${SERVICE_HEALTH[$sid]:-/}"
