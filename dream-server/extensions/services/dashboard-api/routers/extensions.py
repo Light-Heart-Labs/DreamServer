@@ -198,6 +198,13 @@ def _compute_extension_status(ext: dict, services_by_id: dict) -> str:
             svc = services_by_id.get(ext_id)
             if svc and svc.status == "healthy":
                 return "enabled"
+            # HTTP 4xx/5xx from the health endpoint is the clearest "container
+            # is up but broken" signal — surface it as "unhealthy" so the UI
+            # can prompt a log check. Timeouts / connection refused / DNS
+            # failures stay "stopped" because they don't distinguish a crashed
+            # container from an intentionally-stopped one.
+            if svc and svc.status == "unhealthy":
+                return "unhealthy"
             return "stopped"
         if (user_dir / "compose.yaml.disabled").exists():
             return "disabled"
@@ -824,10 +831,11 @@ async def extensions_catalog(
 
     summary = {
         "total": len(extensions),
-        "installed": sum(1 for e in extensions if e["status"] in ("enabled", "disabled", "stopped")),
+        "installed": sum(1 for e in extensions if e["status"] in ("enabled", "disabled", "stopped", "unhealthy")),
         "enabled": sum(1 for e in extensions if e["status"] == "enabled"),
         "disabled": sum(1 for e in extensions if e["status"] == "disabled"),
         "stopped": sum(1 for e in extensions if e["status"] == "stopped"),
+        "unhealthy": sum(1 for e in extensions if e["status"] == "unhealthy"),
         "installing": sum(1 for e in extensions if e["status"] == "installing"),
         "setting_up": sum(1 for e in extensions if e["status"] == "setting_up"),
         "error": sum(1 for e in extensions if e["status"] == "error"),
@@ -1092,7 +1100,10 @@ def install_extension(service_id: str, api_key: str = Depends(verify_api_key)):
     agent_ok = _call_agent_install(service_id)
 
     if not agent_ok:
-        _write_error_progress(service_id, "Host agent failed to start extension")
+        _write_error_progress(
+            service_id,
+            "Host agent failed to start extension. Run 'dream restart' to recover.",
+        )
 
     logger.info("Installed extension: %s", service_id)
     return {
@@ -1259,6 +1270,11 @@ def enable_extension(
         # before the host agent starts the container.
         _call_agent_invalidate_compose_cache()
         agent_ok = _call_agent("start", service_id)
+        if not agent_ok:
+            _write_error_progress(
+                service_id,
+                "Host agent failed to start extension. Run 'dream restart' to recover.",
+            )
         logger.info("Started stopped extension: %s", service_id)
         return {
             "id": service_id,
