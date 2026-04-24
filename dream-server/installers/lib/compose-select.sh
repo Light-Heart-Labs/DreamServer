@@ -102,12 +102,5 @@ resolve_compose_config() {
         log "Including docker-compose.tier0.yml (Tier 0 memory limits)"
     fi
 
-    # Auto-include docker-compose.override.yml if present (standard Docker convention).
-    # This lets modders add services without editing core compose files.
-    if [[ -f "$SCRIPT_DIR/docker-compose.override.yml" ]]; then
-        COMPOSE_FLAGS="$COMPOSE_FLAGS -f docker-compose.override.yml"
-        log "Including docker-compose.override.yml (user overrides)"
-    fi
-
     log "Compose selection: $COMPOSE_FLAGS"
 }

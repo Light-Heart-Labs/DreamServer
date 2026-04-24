@@ -224,9 +224,55 @@ if ext_dir.exists():
 user_ext_dir = script_dir / "data" / "user-extensions"
 if user_ext_dir.exists():
     try:
+        import yaml
+        yaml_available = True
+    except ImportError:
+        yaml_available = False
+
+    try:
         for service_dir in sorted(user_ext_dir.iterdir()):
             if not service_dir.is_dir():
                 continue
+            # Find manifest
+            manifest_path = None
+            for name in ("manifest.yaml", "manifest.yml", "manifest.json"):
+                candidate = service_dir / name
+                if candidate.exists():
+                    manifest_path = candidate
+                    break
+            if not manifest_path:
+                continue
+            try:
+                with open(manifest_path) as f:
+                    if manifest_path.suffix == ".json":
+                        manifest = json.load(f)
+                    elif yaml_available:
+                        manifest = yaml.safe_load(f)
+                    else:
+                        continue  # skip YAML manifests when PyYAML unavailable
+                if manifest.get("schema_version") != "dream.services.v1":
+                    continue
+                service = manifest.get("service", {})
+                # same gpu_backends filter as built-in loop
+                backends = service.get("gpu_backends", ["amd", "nvidia"])
+                if gpu_backend not in backends and "all" not in backends and "none" not in backends:
+                    continue
+            except Exception as e:
+                yaml_error = yaml_available and hasattr(yaml, 'YAMLError') and isinstance(e, yaml.YAMLError)
+                json_error = isinstance(e, json.JSONDecodeError)
+                structure_error = isinstance(e, (KeyError, TypeError))
+
+                if yaml_error or json_error or structure_error:
+                    print(f"ERROR: Failed to parse manifest for {service_dir.name}: {e}", file=sys.stderr)
+                    print(f"  Manifest path: {manifest_path}", file=sys.stderr)
+                    print(f"  This service will be skipped. Fix the manifest or disable the service.", file=sys.stderr)
+                    if skip_broken:
+                        continue
+                    else:
+                        sys.exit(1)
+                else:
+                    raise
+
             compose_path = service_dir / "compose.yaml"
             if compose_path.exists():
                 resolved.append(str(compose_path.relative_to(script_dir)))
