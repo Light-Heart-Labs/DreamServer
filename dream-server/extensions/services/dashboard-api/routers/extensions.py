@@ -476,7 +476,12 @@ _AGENT_LOG_TIMEOUT = 30  # seconds — log fetches should be fast
 
 
 def _call_agent(action: str, service_id: str) -> bool:
-    """Call host agent to start/stop a service. Returns True on success."""
+    """Call host agent to start/stop a service. Returns True on success.
+
+    Accepts both 200 (synchronous completion) and 202 (host agent kicked off a
+    background retry — caller should let the dashboard's progress poll surface
+    the eventual outcome). Mirrors _call_agent_install's contract.
+    """
     url = f"{AGENT_URL}/v1/extension/{action}"
     headers = {
         "Content-Type": "application/json",
@@ -486,7 +491,7 @@ def _call_agent(action: str, service_id: str) -> bool:
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=_AGENT_TIMEOUT) as resp:
-            return resp.status == 200
+            return resp.status in (200, 202)
     except Exception:
         logger.warning("Host agent unreachable at %s — fallback to restart_required", AGENT_URL)
         return False
