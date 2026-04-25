@@ -902,26 +902,33 @@ class AgentHandler(BaseHTTPRequestHandler):
             json_response(self, 200, {"status": "ok", "service_id": sid, "synced": []})
             return
 
-        # Reject if the extension's config/ tree contains any symlink that
-        # escapes the extension directory — defence-in-depth against a
-        # malicious/buggy extension shipping config/x -> /etc/shadow.
-        ext_dir_resolved = ext_dir.resolve()
-        for root, _dirs, files in os.walk(str(ext_config), followlinks=False):
-            for name in files:
-                p = Path(root) / name
-                if p.is_symlink():
-                    try:
-                        target_real = p.resolve(strict=False)
-                    except OSError:
-                        target_real = p
-                    if not target_real.is_relative_to(ext_dir_resolved):
-                        json_response(self, 400, {
-                            "error": (
-                                f"config sync refused: symlink {p.name} in "
-                                f"{sid}/config escapes extension directory"
-                            ),
-                        })
-                        return
+        # Reject ANY symlink in the config/ tree (or if config/ itself is a
+        # symlink). _copytree_safe (the install-time copier) strips symlinks
+        # from user extensions, so legitimate extensions never have any.
+        # A symlink here implies tampering or a packaging bug, and would be
+        # dereferenced by shutil.copytree(symlinks=False) below — exfiltrating
+        # link-target content into a path the dashboard-api container can read.
+        # Iterating dirs + files (not just files) closes the symlinked-directory
+        # gap: os.walk(followlinks=False) does NOT recurse into symlinked dirs,
+        # so they only ever surface in the parent's `dirs` list.
+        if ext_config.is_symlink():
+            json_response(self, 400, {
+                "error": (
+                    f"config sync refused: {sid}/config is a symlink "
+                    f"(symlinks are not permitted in extension configs)"
+                ),
+            })
+            return
+        for root, dirs, files in os.walk(str(ext_config), followlinks=False):
+            for name in dirs + files:
+                if (Path(root) / name).is_symlink():
+                    json_response(self, 400, {
+                        "error": (
+                            f"config sync refused: symlink {name} in "
+                            f"{sid}/config (symlinks are not permitted)"
+                        ),
+                    })
+                    return
 
         install_config = (INSTALL_DIR / "config").resolve()
         try:

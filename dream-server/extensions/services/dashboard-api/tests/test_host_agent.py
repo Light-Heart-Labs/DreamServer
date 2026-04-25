@@ -336,6 +336,186 @@ class TestSyncExtensionConfigWire:
             server.server_close()
             thread.join(timeout=2)
 
+    @staticmethod
+    def _post(port, sid, *, key="wire-test-secret"):
+        """Direct HTTP POST to /v1/extension/sync_config so callers can
+        assert on the raw status code (the dashboard-api helper masks
+        4xx as a generic False, which is too coarse for these tests)."""
+        import json as _json
+        import urllib.request
+        import urllib.error
+        url = f"http://127.0.0.1:{port}/v1/extension/sync_config"
+        req = urllib.request.Request(
+            url,
+            data=_json.dumps({"service_id": sid}).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {key}",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                return resp.status, _json.loads(resp.read() or b"{}")
+        except urllib.error.HTTPError as exc:
+            try:
+                body = _json.loads(exc.read() or b"{}")
+            except ValueError:
+                body = {}
+            return exc.code, body
+
+    def test_rejects_symlink_in_config_tree(self, tmp_path, monkeypatch):
+        """Symlinks (file or directory, top-level or nested) must be rejected
+        outright. _copytree_safe strips symlinks at install time so legitimate
+        user extensions never have any; one here implies tampering."""
+        import threading
+        from http.server import HTTPServer
+
+        install_dir = tmp_path / "install"
+        user_root = install_dir / "data" / "user-extensions"
+        install_dir.mkdir()
+        user_root.mkdir(parents=True)
+        secret_dir = tmp_path / "secret"
+        secret_dir.mkdir()
+        (secret_dir / "private.key").write_text("EXFIL ME", encoding="utf-8")
+
+        # Build an extension whose config/ contains a symlinked directory
+        # pointing OUTSIDE the extension.  Pre-fix this got dereferenced by
+        # shutil.copytree(symlinks=False) and the secret leaked into
+        # INSTALL_DIR/config/leak/private.key.
+        ext = user_root / "fakesvc"
+        cfg = ext / "config"
+        cfg.mkdir(parents=True)
+        # Plus a normal file in the same tree to prove nothing was copied.
+        (cfg / "ok.yaml").write_text("ok: true\n", encoding="utf-8")
+        (cfg / "leak").symlink_to(secret_dir)
+
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+        monkeypatch.setattr(_mod, "USER_EXTENSIONS_DIR", user_root)
+        monkeypatch.setattr(_mod, "EXTENSIONS_DIR", tmp_path / "builtin-empty")
+        monkeypatch.setattr(_mod, "AGENT_API_KEY", "wire-test-secret")
+
+        server = HTTPServer(("127.0.0.1", 0), _mod.AgentHandler)
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            status, body = self._post(port, "fakesvc")
+            assert status == 400, f"expected 400, got {status}: {body}"
+            assert "symlink" in body.get("error", "").lower()
+            # Crucially: the secret file did NOT make it into INSTALL_DIR.
+            assert not (install_dir / "config" / "fakesvc").exists()
+            assert not (install_dir / "config" / "leak").exists()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+    def test_rejects_symlinked_file_in_config_tree(self, tmp_path, monkeypatch):
+        """Symlinked files (not just directories) are also rejected."""
+        import threading
+        from http.server import HTTPServer
+
+        install_dir = tmp_path / "install"
+        user_root = install_dir / "data" / "user-extensions"
+        install_dir.mkdir()
+        user_root.mkdir(parents=True)
+        secret = tmp_path / "secret.txt"
+        secret.write_text("nope", encoding="utf-8")
+
+        ext = user_root / "fakesvc"
+        cfg = ext / "config" / "fakesvc"
+        cfg.mkdir(parents=True)
+        (cfg / "leak.txt").symlink_to(secret)
+
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+        monkeypatch.setattr(_mod, "USER_EXTENSIONS_DIR", user_root)
+        monkeypatch.setattr(_mod, "EXTENSIONS_DIR", tmp_path / "builtin-empty")
+        monkeypatch.setattr(_mod, "AGENT_API_KEY", "wire-test-secret")
+
+        server = HTTPServer(("127.0.0.1", 0), _mod.AgentHandler)
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            status, body = self._post(port, "fakesvc")
+            assert status == 400
+            assert "symlink" in body.get("error", "").lower()
+            assert not (install_dir / "config" / "fakesvc").exists()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+    def test_rejects_invalid_service_id(self, tmp_path, monkeypatch):
+        """SERVICE_ID_RE rejection — match the auth/symlink reject style."""
+        import threading
+        from http.server import HTTPServer
+
+        install_dir = tmp_path / "install"
+        user_root = install_dir / "data" / "user-extensions"
+        install_dir.mkdir()
+        user_root.mkdir(parents=True)
+
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+        monkeypatch.setattr(_mod, "USER_EXTENSIONS_DIR", user_root)
+        monkeypatch.setattr(_mod, "EXTENSIONS_DIR", tmp_path / "builtin-empty")
+        monkeypatch.setattr(_mod, "AGENT_API_KEY", "wire-test-secret")
+
+        server = HTTPServer(("127.0.0.1", 0), _mod.AgentHandler)
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            for bad in ("../escape", "Bad-ID", "with space", "", "..", "FAKE"):
+                status, body = self._post(port, bad)
+                assert status == 400, f"bad={bad!r} -> {status}: {body}"
+                assert "service_id" in body.get("error", "").lower()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+    def test_noop_for_builtin_only_service(self, tmp_path, monkeypatch):
+        """Built-in extensions (not in USER_EXTENSIONS_DIR) get a 200 no-op.
+
+        Pins the deliberate decision NOT to overwrite installer-managed
+        configs when a built-in's compose toggle re-enables it.
+        """
+        import threading
+        from http.server import HTTPServer
+
+        install_dir = tmp_path / "install"
+        user_root = install_dir / "data" / "user-extensions"
+        builtin_root = tmp_path / "builtin"
+        install_dir.mkdir()
+        user_root.mkdir(parents=True)
+        builtin_root.mkdir()
+        # Built-in present, with a config/ subdir that should NOT be touched.
+        builtin_ext = builtin_root / "core-svc" / "config" / "core-svc"
+        builtin_ext.mkdir(parents=True)
+        (builtin_ext / "should_not_be_synced.yaml").write_text("x: 1\n", encoding="utf-8")
+
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+        monkeypatch.setattr(_mod, "USER_EXTENSIONS_DIR", user_root)
+        monkeypatch.setattr(_mod, "EXTENSIONS_DIR", builtin_root)
+        monkeypatch.setattr(_mod, "AGENT_API_KEY", "wire-test-secret")
+
+        server = HTTPServer(("127.0.0.1", 0), _mod.AgentHandler)
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            status, body = self._post(port, "core-svc")
+            assert status == 200
+            assert body.get("synced") == []
+            # No file should have been written into INSTALL_DIR/config/.
+            assert not (install_dir / "config" / "core-svc").exists()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
 
 class TestInvalidateComposeCache:
 
