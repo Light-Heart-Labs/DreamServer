@@ -55,9 +55,26 @@ if [[ "$(id -u)" -ne 0 ]]; then
     fi
 fi
 
+is_container_running() {
+    # docker ps returns only running containers; --quiet is empty when none match.
+    local name="$1"
+    [[ -n "$(docker ps --quiet --filter "name=^${name}$" 2>/dev/null)" ]]
+}
+
 chown_dir() {
     local dir="$1"
     local owner="$2"  # uid:gid
+    local guard_container="${3:-}"
+
+    # If the container is already running, ownership must already satisfy the
+    # image's uid (postgres won't start otherwise) — re-running chown -R on a
+    # live data directory races with WAL writes and gains nothing. Skip with
+    # a clear log line so re-invocation of the hook on a healthy install is
+    # safe.
+    if [[ -n "$guard_container" ]] && is_container_running "$guard_container"; then
+        log "$guard_container is running; skipping chown of $dir (ownership already correct)"
+        return 0
+    fi
 
     # Defensive: create the directory if the installer hasn't yet.
     # Phase 06 normally pre-creates these, but running the hook
@@ -95,10 +112,10 @@ chown_dir() {
 }
 
 # postgres official image: uid 70 (postgres user baked into image)
-chown_dir "$POSTGRES_DIR" "70:70"
+chown_dir "$POSTGRES_DIR" "70:70" "dream-langfuse-postgres"
 
 # clickhouse-server image: uid 101 (clickhouse user)
-chown_dir "$CLICKHOUSE_DIR" "101:101"
+chown_dir "$CLICKHOUSE_DIR" "101:101" "dream-langfuse-clickhouse"
 
 log "done"
 exit 0
