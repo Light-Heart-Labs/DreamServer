@@ -254,6 +254,7 @@ def _scan_compose_content(
     *,
     trusted: bool = False,
     skip_name_collision: bool = False,
+    skip_gpu_passthrough_check: bool = False,
 ) -> None:
     """Reject compose files containing dangerous directives."""
     try:
@@ -381,6 +382,25 @@ def _scan_compose_content(
                 status_code=400,
                 detail=f"Extension rejected: devices in {svc_name}",
             )
+        # Block Docker Compose v2 GPU passthrough for user extensions.
+        # Built-ins (e.g. docker-compose.nvidia.yml) legitimately request
+        # NVIDIA devices via deploy.resources.reservations.devices, so the
+        # caller passes skip_gpu_passthrough_check=True for those.
+        if not skip_gpu_passthrough_check:
+            deploy = svc_def.get("deploy") or {}
+            reservations = (
+                deploy.get("resources", {}).get("reservations", {})
+                if isinstance(deploy, dict) else {}
+            )
+            if isinstance(reservations, dict) and reservations.get("devices"):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Extension rejected: GPU passthrough via "
+                        f"deploy.resources.reservations.devices is not "
+                        f"permitted in user extensions ({svc_name})"
+                    ),
+                )
         ports = svc_def.get("ports", [])
         for port in ports:
             if isinstance(port, dict):
@@ -656,15 +676,18 @@ async def extensions_catalog(
 
     # Health-check user extensions so _compute_extension_status can distinguish
     # "enabled" (healthy) from "stopped" (unhealthy / not running).
-    from helpers import check_service_health
+    from helpers import _CATALOG_HEALTH_TIMEOUT, check_service_health
     from user_extensions import get_user_services_cached
 
     user_svc_configs = get_user_services_cached(USER_EXTENSIONS_DIR)
 
-    # Only health-check extensions that declare a health endpoint
+    # Only health-check extensions that declare a health endpoint.  Use a
+    # short per-probe timeout so one slow extension cannot stall the catalog
+    # response (frontend aborts at 8 s).
     checkable = {sid: cfg for sid, cfg in user_svc_configs.items() if cfg.get("health")}
     user_health_tasks = [
-        check_service_health(sid, cfg) for sid, cfg in checkable.items()
+        check_service_health(sid, cfg, timeout=_CATALOG_HEALTH_TIMEOUT)
+        for sid, cfg in checkable.items()
     ]
     user_health = await asyncio.gather(*user_health_tasks, return_exceptions=True)
     for (sid, _), result in zip(checkable.items(), user_health):
@@ -791,7 +814,7 @@ async def extension_detail(
     if not ext:
         raise HTTPException(status_code=404, detail=f"Extension not found: {service_id}")
 
-    from helpers import check_service_health, get_all_services
+    from helpers import _CATALOG_HEALTH_TIMEOUT, check_service_health, get_all_services
     from user_extensions import get_user_services_cached
 
     service_list = await get_all_services()
@@ -799,9 +822,12 @@ async def extension_detail(
 
     user_svc_configs = get_user_services_cached(USER_EXTENSIONS_DIR)
 
+    # Same short per-probe timeout as the catalog fan-out — one slow user
+    # extension must not block the detail view.
     checkable = {sid: cfg for sid, cfg in user_svc_configs.items() if cfg.get("health")}
     user_health_tasks = [
-        check_service_health(sid, cfg) for sid, cfg in checkable.items()
+        check_service_health(sid, cfg, timeout=_CATALOG_HEALTH_TIMEOUT)
+        for sid, cfg in checkable.items()
     ]
     user_health = await asyncio.gather(*user_health_tasks, return_exceptions=True)
     for (sid, _), result in zip(checkable.items(), user_health):
@@ -1109,7 +1135,11 @@ def _activate_service(service_id: str) -> dict:
     # and controls whether `build:` directives are allowed (library installs
     # need it, built-in activations do not).
     is_builtin = ext_dir.is_relative_to(EXTENSIONS_DIR.resolve())
-    _scan_compose_content(disabled_compose, skip_name_collision=is_builtin)
+    _scan_compose_content(
+        disabled_compose,
+        skip_name_collision=is_builtin,
+        skip_gpu_passthrough_check=is_builtin,
+    )
 
     # Reject symlinks
     st = os.lstat(disabled_compose)
@@ -1158,7 +1188,11 @@ def enable_extension(
             # appears in CORE_SERVICE_IDS — skip the name-collision check for
             # them, mirroring _activate_service's logic.
             is_builtin = ext_dir.is_relative_to(EXTENSIONS_DIR.resolve())
-            _scan_compose_content(enabled_compose, skip_name_collision=is_builtin)
+            _scan_compose_content(
+                enabled_compose,
+                skip_name_collision=is_builtin,
+                skip_gpu_passthrough_check=is_builtin,
+            )
         # Dependencies were satisfied at install time; compose content is re-scanned above
         _write_initial_progress(service_id)
         # Invalidate .compose-flags cache so dream-cli picks up this extension
@@ -1438,8 +1472,13 @@ def orphaned_storage(api_key: str = Depends(verify_api_key)):
     if not data_path.is_dir():
         return {"orphaned": [], "total_gb": 0}
 
-    # Known system directories that are not service data
-    system_dirs = {"models", "config", "user-extensions", "extensions-library"}
+    # Known system directories that are not service data.  Includes runtime
+    # state created outside the installer: extension-progress (this router)
+    # and config-backups (host agent's .env backup writer).
+    system_dirs = {
+        "models", "config", "user-extensions", "extensions-library",
+        "extension-progress", "config-backups",
+    }
     known_ids = set(SERVICES.keys()) | system_dirs
 
     orphaned = []

@@ -1248,6 +1248,32 @@ class TestComposeScanEdgeCases:
         assert resp.status_code == 400
         assert "dangerous security_opt" in resp.json()["detail"]
 
+    def test_scan_rejects_deploy_resources_devices(
+        self, test_client, monkeypatch, tmp_path,
+    ):
+        """400 when compose requests GPU passthrough via
+        deploy.resources.reservations.devices (Compose v2 GPU syntax).
+        Library installs default to skip_gpu_passthrough_check=False."""
+        compose = (
+            "services:\n  svc:\n    image: test\n"
+            "    deploy:\n"
+            "      resources:\n"
+            "        reservations:\n"
+            "          devices:\n"
+            "            - driver: nvidia\n"
+            "              count: 1\n"
+            "              capabilities: [gpu]\n"
+        )
+        lib_dir = _setup_library_ext(tmp_path, "bad-ext", compose_content=compose)
+        _patch_mutation_config(monkeypatch, tmp_path, lib_dir=lib_dir)
+
+        resp = test_client.post(
+            "/api/extensions/bad-ext/install",
+            headers=test_client.auth_headers,
+        )
+        assert resp.status_code == 400
+        assert "GPU passthrough" in resp.json()["detail"]
+
 
 # --- skip_name_collision flag isolation ---
 
@@ -1286,6 +1312,46 @@ class TestScanComposeSkipNameCollision:
         with pytest.raises(HTTPException) as exc:
             _scan_compose_content(compose, skip_name_collision=True)
         assert "Docker socket" in exc.value.detail
+
+
+# --- skip_gpu_passthrough_check flag isolation ---
+
+
+class TestScanComposeSkipGpuPassthroughCheck:
+    """Direct unit tests for the skip_gpu_passthrough_check parameter that
+    permits built-in extensions (e.g. comfyui's nvidia overlay) to declare
+    deploy.resources.reservations.devices while user extensions cannot."""
+
+    _GPU_COMPOSE = (
+        "services:\n  svc:\n    image: test\n"
+        "    deploy:\n"
+        "      resources:\n"
+        "        reservations:\n"
+        "          devices:\n"
+        "            - driver: nvidia\n"
+        "              count: 1\n"
+        "              capabilities: [gpu]\n"
+    )
+
+    def test_rejects_deploy_devices_by_default(self, tmp_path):
+        from routers.extensions import _scan_compose_content
+        compose = tmp_path / "compose.yaml"
+        compose.write_text(self._GPU_COMPOSE)
+        with pytest.raises(HTTPException) as exc:
+            _scan_compose_content(compose)
+        assert exc.value.status_code == 400
+        assert "GPU passthrough" in exc.value.detail
+
+    def test_allows_deploy_devices_when_skipped(self, tmp_path):
+        """Built-in compose paths pass skip_gpu_passthrough_check=True so the
+        legitimate NVIDIA reservation in docker-compose.nvidia.yml does not
+        get rejected when the dashboard-api re-scans during activate/enable.
+        """
+        from routers.extensions import _scan_compose_content
+        compose = tmp_path / "compose.yaml"
+        compose.write_text(self._GPU_COMPOSE)
+        # Should not raise
+        _scan_compose_content(compose, skip_gpu_passthrough_check=True)
 
 
 # --- Size quota enforcement ---
