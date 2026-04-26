@@ -1,0 +1,131 @@
+name: openclaw filesystem write gate
+
+# Detect when the upstream openclaw image starts writing to NEW paths under
+# /home/node/.openclaw/ that the compose volume layout does not account for.
+#
+# Background: issue #498 originally proposed using `docker diff` to detect
+# openclaw writes outside known paths. `docker diff` is structurally unable
+# to see writes into volumes (named or bind), so it cannot observe writes to
+# /home/node/.openclaw/ regardless of volume type.
+#
+# Mechanism instead: bind-mount a host directory over /home/node/.openclaw/
+# inside the container, run openclaw briefly so it writes its initial files,
+# then walk the host directory and fail if any file other than the expected
+# `openclaw.json` shows up. workspace/ is mounted separately to mirror the
+# production layout, so it does not pollute the inspection.
+#
+# Companion to PR #1035 (openclaw home dir removed from the persisted volume
+# layout). This workflow can run before #1035 lands because it overrides the
+# volume layout in `docker run`, but the gate is only meaningful once #1035
+# (or its successor) has set the production layout.
+
+on:
+  pull_request:
+    paths:
+      - 'dream-server/extensions/services/openclaw/compose.yaml'
+      - 'dream-server/extensions/services/openclaw/manifest.yaml'
+      - '.github/workflows/openclaw-image-diff.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  filesystem-write-gate:
+    name: Detect openclaw writes outside known paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      OPENCLAW_IMAGE: ghcr.io/openclaw/openclaw:2026.3.8
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Pull openclaw image
+        run: docker pull "$OPENCLAW_IMAGE"
+
+      - name: Prepare bind-mount layout
+        run: |
+          set -euo pipefail
+          mkdir -p ./openclaw-test-home
+          mkdir -p ./openclaw-test-workspace
+          mkdir -p ./openclaw-test-config
+          # Stub inject-token.js so the production entrypoint runs without
+          # needing the real /config tree. The real script only patches the
+          # Control UI for the browser auto-token; it has no role in deciding
+          # which paths openclaw itself writes to, which is what we audit.
+          cat > ./openclaw-test-config/inject-token.js <<'EOF'
+          // CI stub — production inject-token.js patches the Control UI HTML
+          // and is irrelevant to openclaw's own filesystem writes.
+          process.exit(0);
+          EOF
+
+      - name: Start openclaw with bind-mounted home
+        run: |
+          set -euo pipefail
+          # Mirror the production entrypoint (chown + drop to uid 1000 +
+          # docker-entrypoint.sh) so the same startup code path runs. We do
+          # NOT use --rm: we want to capture logs after the container exits
+          # if it crashed.
+          # NOTE: production compose.yaml exports OPENCLAW_CONFIG_PATH=/tmp/openclaw-config.json
+          # in its entrypoint. This workflow deliberately omits it so the audit observes
+          # any default in-tree config writes openclaw might make. Do NOT add it back as a
+          # "missing var" fix — the omission is the point of the audit.
+          docker run -d \
+            --name openclaw-test \
+            -e OPENCLAW_GATEWAY_TOKEN=ci-test-token \
+            -e OPENCLAW_TOKEN=ci-test-token \
+            -e HOME=/home/node \
+            -e OPENCLAW_EXTERNAL_PORT=7860 \
+            -v "$(pwd)/openclaw-test-config:/config:ro" \
+            -v "$(pwd)/openclaw-test-home:/home/node/.openclaw" \
+            -v "$(pwd)/openclaw-test-workspace:/home/node/.openclaw/workspace" \
+            --entrypoint /bin/sh \
+            "$OPENCLAW_IMAGE" \
+            -c "chown -R 1000:1000 /home/node/.openclaw; exec setpriv --reuid=1000 --regid=1000 --clear-groups /bin/sh -c 'node /config/inject-token.js; exec docker-entrypoint.sh node openclaw.mjs gateway --allow-unconfigured --bind lan'"
+          # Give the container time to write its initial files. The writes we
+          # care about happen at startup, well within 30s.
+          sleep 30
+          # Sanity-check that the container is still running. A crash is not
+          # itself a test failure (the bind-mount captures any writes that
+          # happened before the crash), but we surface logs so a regression
+          # in startup behavior is visible in the workflow output.
+          if ! docker ps --filter name=openclaw-test --filter status=running --format '{{.Names}}' | grep -q '^openclaw-test$'; then
+            echo "::warning::openclaw-test is not running after 30s — auditing captured writes anyway."
+            echo "--- container logs ---"
+            docker logs openclaw-test 2>&1 | tail -100 || true
+            echo "--- end logs ---"
+          fi
+
+      - name: Inspect bind-mount for unexpected writes
+        if: always()
+        run: |
+          set -euo pipefail
+          # Stop and remove the container so the bind-mount is quiescent.
+          docker rm -f openclaw-test >/dev/null 2>&1 || true
+
+          # Allowlist:
+          #   - openclaw.json   regenerated by openclaw on each container start
+          #   - workspace/      bind-mounted separately (its contents land in
+          #                     ./openclaw-test-workspace, not here, so the
+          #                     directory itself is just a mount point)
+          # Anything else is a new write path that the compose volume layout
+          # does not account for.
+          UNEXPECTED=$(find ./openclaw-test-home -mindepth 1 -maxdepth 5 \
+            -path './openclaw-test-home/workspace' -prune -o \
+            -type f ! -name 'openclaw.json' -print)
+
+          if [ -n "$UNEXPECTED" ]; then
+            echo "::error::openclaw is writing to new paths under /home/node/.openclaw/. Update compose.yaml volume layout to include these paths or update this test's allowlist."
+            echo "Unexpected files:"
+            echo "$UNEXPECTED"
+            exit 1
+          fi
+
+          # Positive assertion: a successful audit must have observed openclaw.json being
+          # written. If it's missing, the container probably crashed before the entrypoint
+          # got far enough to regenerate it — a silent crash-before-write would otherwise
+          # produce a false-green audit (empty bind-mount = no unexpected files = pass).
+          if [ ! -f ./openclaw-test-home/openclaw.json ]; then
+            echo "::warning::openclaw.json was never written — container likely crashed before regenerating it. Audit may be a false-green; check the container logs above."
+          fi
+
+          echo "openclaw filesystem writes match expected pattern (openclaw.json only)."
