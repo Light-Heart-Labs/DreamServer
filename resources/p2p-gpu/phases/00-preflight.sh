@@ -98,6 +98,17 @@ _verify_nvidia_passthrough() {
   if timeout --signal=TERM "${passthrough_timeout}" \
     docker run --rm --gpus all "${gpu_test_image}" nvidia-smi &>/dev/null; then
     log "NVIDIA Docker passthrough verified"
+    
+    # ── [FIX: nvml-mismatch] Detect and repair driver/library mismatch ────────
+    log "Checking for NVIDIA driver/library version misalignment..."
+    if ! detect_nvml_mismatch "${gpu_test_image}"; then
+      mismatch_status=$?
+      if [[ $mismatch_status -eq 1 ]]; then
+        warn "NVIDIA driver/library mismatch detected — attempting repair"
+        repair_nvml_mismatch
+      fi
+    fi
+    
     return 0
   else
     probe_rc=$?
@@ -123,6 +134,16 @@ _verify_nvidia_passthrough() {
       systemctl restart docker 2>>"$LOGFILE" || service docker restart 2>>"$LOGFILE" \
         || warn "docker restart failed (non-fatal)"
       log "nvidia-container-toolkit installed and configured"
+      
+      # ── [FIX: nvml-mismatch] Re-check after toolkit install ──────────────
+      log "Re-checking for NVIDIA driver/library mismatch after toolkit install..."
+      if ! detect_nvml_mismatch "${gpu_test_image}"; then
+        mismatch_status=$?
+        if [[ $mismatch_status -eq 1 ]]; then
+          warn "NVIDIA driver/library mismatch detected — attempting repair"
+          repair_nvml_mismatch
+        fi
+      fi
     fi
   fi
 }

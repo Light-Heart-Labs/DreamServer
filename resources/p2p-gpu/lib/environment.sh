@@ -274,6 +274,92 @@ detect_gpu_backend() {
   fi
 }
 
+# ── [FIX: nvml-mismatch] NVIDIA driver/library version mismatch detection ────
+# Detects if host NVIDIA driver and container CUDA driver versions are misaligned.
+# Returns: 0 = matched, 1 = mismatched, 2 = couldn't detect
+# Outputs: diagnostics to stdout (host_driver=X.X container_cuda=Y.Y)
+detect_nvml_mismatch() {
+  local host_driver container_cuda docker_test_image="${1:-nvidia/cuda:12.4.1-base-ubuntu22.04}"
+  local test_timeout="${NVIDIA_DOCKER_TEST_TIMEOUT:-180}"
+
+  # Get host driver version
+  host_driver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>>"$LOGFILE" | head -1 | xargs || echo "")
+  if [[ -z "$host_driver" ]]; then
+    log "NVIDIA driver version detection failed (non-fatal)"
+    return 2
+  fi
+
+  # Get container CUDA driver compatibility version
+  container_cuda=$(timeout --signal=TERM "$test_timeout" \
+    docker run --rm --gpus all "$docker_test_image" \
+    nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>>"$LOGFILE" | head -1 | xargs || echo "")
+
+  if [[ -z "$container_cuda" ]]; then
+    log "Container CUDA driver detection failed (non-fatal)"
+    return 2
+  fi
+
+  # Compare major.minor versions (e.g., 535.104.05 → 535.104)
+  local host_major_minor container_major_minor
+  host_major_minor=$(echo "$host_driver" | cut -d. -f1,2)
+  container_major_minor=$(echo "$container_cuda" | cut -d. -f1,2)
+
+  log "NVIDIA driver mismatch check: host=${host_driver} (${host_major_minor}) vs container=${container_cuda} (${container_major_minor})"
+
+  if [[ "$host_major_minor" != "$container_major_minor" ]]; then
+    log "NVIDIA driver/library MISMATCH detected: host ${host_driver} != container ${container_cuda}"
+    return 1
+  fi
+
+  log "NVIDIA driver/library versions aligned (${host_major_minor})"
+  return 0
+}
+
+# ── [FIX: nvml-mismatch] NVIDIA driver upgrade to align with container CUDA ──
+# Attempts to upgrade host NVIDIA driver to resolve mismatch.
+# Non-fatal: logs warnings on failure but does not halt.
+repair_nvml_mismatch() {
+  local initial_state post_repair_state
+  
+  log "Attempting to repair NVIDIA driver/library mismatch..."
+
+  # Capture initial state
+  initial_state=$(detect_nvml_mismatch)
+  
+  if [[ $? -eq 0 ]]; then
+    log "No mismatch detected, skipping repair"
+    return 0
+  fi
+
+  # Attempt upgrade
+  log "Running apt-get update && apt-get install --only-upgrade nvidia-driver-*"
+  if apt-get update -qq 2>>"$LOGFILE" && apt-get install -y -qq --only-upgrade "nvidia-driver-*" 2>>"$LOGFILE"; then
+    log "NVIDIA driver upgrade completed"
+    
+    # Restart Docker to recognize new driver
+    log "Restarting Docker daemon to recognize upgraded driver..."
+    if systemctl restart docker 2>>"$LOGFILE" || service docker restart 2>>"$LOGFILE"; then
+      log "Docker daemon restarted"
+    else
+      warn "Docker restart failed (non-fatal, may need manual restart)"
+    fi
+
+    # Verify post-repair
+    sleep 2  # brief delay for driver to stabilize
+    post_repair_state=$(detect_nvml_mismatch)
+    if [[ $? -eq 0 ]]; then
+      log "NVIDIA driver mismatch RESOLVED after upgrade"
+      return 0
+    else
+      warn "NVIDIA driver mismatch persists after upgrade (non-fatal, manual intervention may be needed)"
+      return 1
+    fi
+  else
+    warn "NVIDIA driver upgrade failed (non-fatal, GPU may still work)"
+    return 1
+  fi
+}
+
 # ── Post-install fix orchestrator ───────────────────────────────────────────
 # Called by phases/05, subcommands/fix, subcommands/resume.
 # Coordinates all post-install fixes in correct order.
@@ -317,6 +403,18 @@ apply_post_install_fixes() {
   _apply_compatibility_fixes "$ds_dir"
   _apply_env_defaults "$ds_dir" "$env_file" "$data_dir"
   ensure_dream_cli_command "$ds_dir"
+
+  # ── [FIX: nvml-mismatch] Post-install NVIDIA driver check (fallback) ──────
+  if [[ "$gpu_backend" == "nvidia" ]]; then
+    log "Checking for NVIDIA driver/library version alignment (post-install)..."
+    if ! detect_nvml_mismatch; then
+      mismatch_status=$?
+      if [[ $mismatch_status -eq 1 ]]; then
+        warn "NVIDIA driver/library mismatch detected post-install (non-fatal)"
+        warn "Run 'bash setup.sh --fix' to repair, or manually upgrade nvidia-driver-*"
+      fi
+    fi
+  fi
 
   log "Post-install fixes applied (including ACL-based permission system)"
 }
