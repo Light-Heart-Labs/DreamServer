@@ -137,15 +137,16 @@ if not resolved:
 if gpu_count > 1 and (script_dir / "docker-compose.multigpu.yml").exists():
     resolved.append("docker-compose.multigpu.yml")
 
+# Optional PyYAML — shared by built-in and user-installed extension loops.
+try:
+    import yaml
+    yaml_available = True
+except ImportError:
+    yaml_available = False
+
 # Discover enabled extension compose fragments via manifests
 ext_dir = script_dir / "extensions" / "services"
 if ext_dir.exists():
-    try:
-        import yaml
-        yaml_available = True
-    except ImportError:
-        yaml_available = False
-
     for service_dir in sorted(ext_dir.iterdir()):
         if not service_dir.is_dir():
             continue
@@ -166,6 +167,9 @@ if ext_dir.exists():
                     manifest = yaml.safe_load(f)
                 else:
                     continue  # skip YAML manifests when PyYAML unavailable
+            if not isinstance(manifest, dict):
+                print(f"WARNING: empty/non-dict manifest for {service_dir.name} at {manifest_path}, skipping", file=sys.stderr)
+                continue
             if manifest.get("schema_version") != "dream.services.v1":
                 continue
             service = manifest.get("service", {})
@@ -232,13 +236,75 @@ if user_ext_dir.exists():
         for service_dir in sorted(user_ext_dir.iterdir()):
             if not service_dir.is_dir():
                 continue
-            compose_path = service_dir / "compose.yaml"
-            if compose_path.exists():
-                resolved.append(str(compose_path.relative_to(script_dir)))
-                # GPU-specific overlay
+            # Find manifest
+            manifest_path = None
+            for name in ("manifest.yaml", "manifest.yml", "manifest.json"):
+                candidate = service_dir / name
+                if candidate.exists():
+                    manifest_path = candidate
+                    break
+            try:
+                if manifest_path is not None:
+                    with open(manifest_path) as f:
+                        if manifest_path.suffix == ".json":
+                            manifest = json.load(f)
+                        elif yaml_available:
+                            manifest = yaml.safe_load(f)
+                        else:
+                            manifest = None  # PyYAML unavailable — fall back to defaults
+                    if manifest is not None and not isinstance(manifest, dict):
+                        print(f"WARNING: empty/non-dict manifest for {service_dir.name} at {manifest_path}, skipping", file=sys.stderr)
+                        continue
+                    if isinstance(manifest, dict) and manifest.get("schema_version") != "dream.services.v1":
+                        continue
+                    service = manifest.get("service", {}) if isinstance(manifest, dict) else {}
+                else:
+                    service = {}
+                # Get compose file from manifest, default to compose.yaml
+                compose_rel = service.get("compose_file", "compose.yaml")
+                if compose_rel and not compose_rel.endswith(".disabled"):
+                    compose_path = service_dir / compose_rel
+                    if compose_path.exists():
+                        resolved.append(str(compose_path.relative_to(script_dir)))
+                    elif (service_dir / f"{compose_rel}.disabled").exists():
+                        continue  # Service disabled — skip all overlays
+                    else:
+                        # No base compose — skip overlays for this user extension
+                        continue
+                # GPU-specific overlay (filesystem discovery — not in manifest)
                 gpu_overlay = service_dir / f"compose.{gpu_backend}.yaml"
                 if gpu_overlay.exists():
                     resolved.append(str(gpu_overlay.relative_to(script_dir)))
+
+                # Mode-specific overlay — depends_on for local/hybrid mode only
+                if dream_mode in ("local", "hybrid", "lemonade"):
+                    local_mode_overlay = service_dir / "compose.local.yaml"
+                    if local_mode_overlay.exists():
+                        resolved.append(str(local_mode_overlay.relative_to(script_dir)))
+
+                # Multi-GPU overlay if we have more than 1 GPU
+                if gpu_count > 1:
+                    multi_gpu_overlay = service_dir / "compose.multigpu.yaml"
+                    if multi_gpu_overlay.exists():
+                        resolved.append(str(multi_gpu_overlay.relative_to(script_dir)))
+
+            except Exception as e:
+                # Narrow exception handling to specific parse/structure errors
+                yaml_error = yaml_available and hasattr(yaml, 'YAMLError') and isinstance(e, yaml.YAMLError)
+                json_error = isinstance(e, json.JSONDecodeError)
+                structure_error = isinstance(e, (KeyError, TypeError))
+
+                if yaml_error or json_error or structure_error:
+                    print(f"ERROR: Failed to parse manifest for {service_dir.name}: {e}", file=sys.stderr)
+                    print(f"  Manifest path: {manifest_path}", file=sys.stderr)
+                    print(f"  This service will be skipped. Fix the manifest or disable the service.", file=sys.stderr)
+                    if skip_broken:
+                        continue
+                    else:
+                        sys.exit(1)
+                else:
+                    # Unexpected error — re-raise to crash visibly
+                    raise
     except OSError as e:
         print(f"WARNING: Could not scan user-extensions: {e}", file=sys.stderr)
 
