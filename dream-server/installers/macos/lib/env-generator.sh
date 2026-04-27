@@ -116,6 +116,11 @@ generate_dream_env() {
         fi
         upsert_env_value "$env_path" "LLAMA_CPU_LIMIT" "$detected_cpu_limit"
         upsert_env_value "$env_path" "LLAMA_CPU_RESERVATION" "$detected_cpu_reservation"
+
+        # Upsert DREAM_AGENT_KEY when missing (pre-PR-#979 upgrade path)
+        if [[ -z "$(read_env_value "$env_path" "DREAM_AGENT_KEY")" ]]; then
+            upsert_env_value "$env_path" "DREAM_AGENT_KEY" "$(new_secure_hex 32)"
+        fi
         return 0
     fi
 
