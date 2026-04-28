@@ -8,7 +8,7 @@ services:
     environment:
       - HOST=0.0.0.0
       - PORT=3080
-      - MONGO_URI=mongodb://librechat:${LIBRECHAT_MONGO_PASSWORD}@librechat-mongodb:27017/LibreChat?authSource=admin
+      - MONGO_URI=mongodb://librechat:${LIBRECHAT_MONGO_PASSWORD:?LIBRECHAT_MONGO_PASSWORD must be set}@librechat-mongodb:27017/LibreChat?authSource=admin
       - MEILI_HOST=http://librechat-meilisearch:7700
       - MEILI_HTTP_ADDR=librechat-meilisearch:7700
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
