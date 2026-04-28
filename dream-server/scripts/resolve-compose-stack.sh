@@ -244,6 +244,7 @@ if user_ext_dir.exists():
                     manifest_path = candidate
                     break
             try:
+                manifest = None  # init so the gpu_backends gate below is safe in the manifest-less branch
                 if manifest_path is not None:
                     with open(manifest_path) as f:
                         if manifest_path.suffix == ".json":
@@ -260,6 +261,16 @@ if user_ext_dir.exists():
                     service = manifest.get("service", {}) if isinstance(manifest, dict) else {}
                 else:
                     service = {}
+                # Apply gpu_backends filter — same predicate as the built-in loop above.
+                # Gated on isinstance(manifest, dict) so the manifest-less compat
+                # carve-out (legacy user extensions that pre-date the manifest convention)
+                # falls through unfiltered. PyYAML-unavailable + manifest_path-is-None
+                # both end up with manifest=None, both intentionally bypass the filter.
+                if isinstance(manifest, dict):
+                    backends = service.get("gpu_backends", ["amd", "nvidia"])
+                    # "none" means CPU-only — compatible with any GPU backend
+                    if gpu_backend not in backends and "all" not in backends and "none" not in backends:
+                        continue
                 # Get compose file from manifest, default to compose.yaml
                 compose_rel = service.get("compose_file", "compose.yaml")
                 if compose_rel and not compose_rel.endswith(".disabled"):
