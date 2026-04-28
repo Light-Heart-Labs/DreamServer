@@ -91,8 +91,8 @@ teardown() {
         DOCKER_CMD="sudo docker"
         _docker_cmd_arr() {
             case "${DOCKER_CMD:-docker}" in
-                "sudo docker") echo "sudo" "docker" ;;
-                *)             echo "docker" ;;
+                "sudo docker") printf "%s\n" "sudo" "docker" ;;
+                *)             printf "%s\n" "docker" ;;
             esac
         }
         _docker_cmd_arr
@@ -105,8 +105,8 @@ teardown() {
         DOCKER_CMD=""
         _docker_cmd_arr() {
             case "${DOCKER_CMD:-docker}" in
-                "sudo docker") echo "sudo" "docker" ;;
-                *)             echo "docker" ;;
+                "sudo docker") printf "%s\n" "sudo" "docker" ;;
+                *)             printf "%s\n" "docker" ;;
             esac
         }
         _docker_cmd_arr
