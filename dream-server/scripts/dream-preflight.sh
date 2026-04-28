@@ -16,14 +16,17 @@ sr_load
 load_env_file "$SCRIPT_DIR/.env"
 sr_resolve_ports
 
-# Resolve compose flags for accurate status checks
-COMPOSE_FLAGS=""
+# Resolve compose flags for accurate status checks. The resolver's
+# --null mode emits each argv token NUL-separated so paths containing
+# whitespace round-trip through this consumer safely.
+COMPOSE_FLAGS_ARR=()
 if [[ -x "$SCRIPT_DIR/scripts/resolve-compose-stack.sh" ]]; then
-    COMPOSE_FLAGS=$("$SCRIPT_DIR/scripts/resolve-compose-stack.sh" \
-        --script-dir "$SCRIPT_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}")
+    while IFS= read -r -d '' _arg; do
+        COMPOSE_FLAGS_ARR+=("$_arg")
+    done < <("$SCRIPT_DIR/scripts/resolve-compose-stack.sh" \
+        --script-dir "$SCRIPT_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}" \
+        --null)
 fi
-# Split COMPOSE_FLAGS into an array so paths with spaces survive expansion
-read -ra COMPOSE_FLAGS_ARR <<< "$COMPOSE_FLAGS"
 
 # Colors
 RED='\033[0;31m'

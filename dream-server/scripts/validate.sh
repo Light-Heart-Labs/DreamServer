@@ -29,14 +29,17 @@ LLM_HEALTH="${SERVICE_HEALTH[llama-server]:-/health}"
 WEBUI_PORT="${WEBUI_PORT:-${SERVICE_PORTS[open-webui]:-3000}}"
 WEBUI_HEALTH="${WEBUI_HEALTH:-${SERVICE_HEALTH[open-webui]:-/}}"
 
-# Resolve compose flags to match actual stack
-COMPOSE_FLAGS=""
+# Resolve compose flags to match actual stack. The resolver's --null
+# mode emits each argv token NUL-separated so paths containing
+# whitespace round-trip through this consumer safely.
+COMPOSE_FLAGS_ARR=()
 if [[ -x "$PROJECT_DIR/scripts/resolve-compose-stack.sh" ]]; then
-    COMPOSE_FLAGS=$("$PROJECT_DIR/scripts/resolve-compose-stack.sh" \
-        --script-dir "$PROJECT_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}")
+    while IFS= read -r -d '' _arg; do
+        COMPOSE_FLAGS_ARR+=("$_arg")
+    done < <("$PROJECT_DIR/scripts/resolve-compose-stack.sh" \
+        --script-dir "$PROJECT_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}" \
+        --null)
 fi
-# Split COMPOSE_FLAGS into an array so paths with spaces survive expansion
-read -ra COMPOSE_FLAGS_ARR <<< "$COMPOSE_FLAGS"
 
 echo ""
 echo "╔═══════════════════════════════════════════╗"
