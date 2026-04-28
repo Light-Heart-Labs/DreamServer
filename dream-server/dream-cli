@@ -1368,24 +1368,60 @@ _cmd_config_load_secret_schema() {
     local _schema_path="$INSTALL_DIR/.env.schema.json"
     _cmd_config_secret_keys=()
     _cmd_config_schema_loaded=0
-    if [[ -f "$_schema_path" ]] && command -v jq >/dev/null 2>&1; then
+    [[ -f "$_schema_path" ]] || return 0
+
+    # Prefer jq when available — fast, single-process, schema-typed.
+    if command -v jq >/dev/null 2>&1; then
         mapfile -t _cmd_config_secret_keys < <(jq -r '.properties | to_entries[] | select(.value.secret == true) | .key' "$_schema_path" 2>/dev/null)
         _cmd_config_schema_loaded=1
+        return 0
     fi
+
+    # python3 fallback for environments without jq (Git Bash on Windows
+    # is the common one). The installer guarantees python3, so this
+    # path closes the gap where N8N_USER / LANGFUSE_INIT_USER_EMAIL etc.
+    # would otherwise leak through the keyword fallback.
+    if command -v python3 >/dev/null 2>&1; then
+        mapfile -t _cmd_config_secret_keys < <(python3 - "$_schema_path" <<'PYEOF' 2>/dev/null
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        data = json.load(f)
+except (OSError, json.JSONDecodeError):
+    sys.exit(0)
+for key, spec in (data.get("properties") or {}).items():
+    if isinstance(spec, dict) and spec.get("secret") is True:
+        print(key)
+PYEOF
+)
+        _cmd_config_schema_loaded=1
+        return 0
+    fi
+
+    # Neither jq nor python3 — leave _cmd_config_schema_loaded=0 so
+    # _cmd_config_is_secret falls through to the keyword regex (which
+    # covers user/email keys explicitly to avoid leaks in this case).
 }
 
 _cmd_config_is_secret() {
     local _k="$1" _s _kl
     if (( _cmd_config_schema_loaded == 1 )); then
         for _s in "${_cmd_config_secret_keys[@]}"; do
+            _s="${_s%$'\r'}"
             [[ "$_k" == "$_s" ]] && return 0
         done
         # Fall through to keyword match — defense in depth against schema gaps
-        # and against malformed schemas where jq returns zero secret keys.
+        # and against malformed schemas where jq/python returns zero secret keys.
     fi
     _kl="${_k,,}"
+    # `*user*` and `*email*` cover N8N_USER, LANGFUSE_INIT_USER_EMAIL, etc.
+    # in environments where neither jq nor python3 was available to read
+    # `.env.schema.json` (Git Bash without jq). Risks light over-masking
+    # on operational keys like USER_HOME, but `cat .env` remains the
+    # escape hatch — `dream config show` defaults to over-mask on
+    # purpose.
     case "$_kl" in
-        *secret*|*password*|*pass*|*token*|*key*|*salt*|*bearer*) return 0 ;;
+        *secret*|*password*|*pass*|*token*|*key*|*salt*|*bearer*|*user*|*email*) return 0 ;;
     esac
     return 1
 }
