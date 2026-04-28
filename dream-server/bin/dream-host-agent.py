@@ -574,6 +574,68 @@ def _find_ext_dir(service_id: str) -> Path | None:
     return None
 
 
+def _is_other_ext_compose(fpath: str, service_id: str, ext_roots: tuple) -> bool:
+    """True if fpath points to an extension compose file owned by an
+    extension other than service_id. Used to filter `-f` args from the
+    install pull command so unrelated extensions' ${VAR:?} guards don't
+    abort the pull.
+    """
+    p = Path(fpath)
+    if not p.is_absolute():
+        p = INSTALL_DIR / p
+    try:
+        resolved = p.resolve()
+    except OSError:
+        return False
+    if resolved.parent.name == service_id:
+        return False
+    for root in ext_roots:
+        try:
+            resolved.relative_to(root)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def _narrow_install_pull_flags(flags: list, service_id: str) -> list:
+    """Return a filtered copy of `flags` with `-f <path>` pairs pointing
+    at OTHER extensions' compose fragments removed. Base compose, GPU
+    overlay, and the target extension's own fragments are preserved.
+    """
+    ext_roots = (EXTENSIONS_DIR.resolve(), USER_EXTENSIONS_DIR.resolve())
+    narrowed: list = []
+    i = 0
+    while i < len(flags):
+        if (flags[i] == "-f" and i + 1 < len(flags)
+                and _is_other_ext_compose(flags[i + 1], service_id, ext_roots)):
+            i += 2
+            continue
+        narrowed.append(flags[i])
+        i += 1
+    return narrowed
+
+
+def _narrowed_compose_set_resolves(narrowed_flags: list, service_id: str,
+                                   cwd: str, timeout: int) -> bool:
+    """Verify the narrowed compose set parses cleanly and includes the
+    target service. Some extensions declare cross-extension `depends_on`
+    (e.g. perplexica → searxng); narrowing must fall back to the full
+    flag set whenever that drops a referenced service, otherwise
+    `docker compose pull` errors with "depends on undefined service".
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "compose"] + narrowed_flags + ["config", "--services"],
+            cwd=cwd, capture_output=True, text=True, timeout=timeout,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if result.returncode != 0:
+        return False
+    return service_id in result.stdout.split()
+
+
 class AgentHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         logger.info(fmt, *args)
@@ -1220,35 +1282,25 @@ class AgentHandler(BaseHTTPRequestHandler):
                 # compose so we don't refetch images for every other installed
                 # extension on each install. The `up` step below keeps full
                 # `flags` so cross-service `depends_on` still resolves.
-                ext_roots = (EXTENSIONS_DIR.resolve(), USER_EXTENSIONS_DIR.resolve())
-
-                def _is_other_ext_compose(fpath: str) -> bool:
-                    p = Path(fpath)
-                    if not p.is_absolute():
-                        p = INSTALL_DIR / p
-                    try:
-                        resolved = p.resolve()
-                    except OSError:
-                        return False
-                    if resolved.parent.name == service_id:
-                        return False
-                    for root in ext_roots:
-                        try:
-                            resolved.relative_to(root)
-                            return True
-                        except ValueError:
-                            continue
-                    return False
-
-                pull_flags: list = []
-                i = 0
-                while i < len(flags):
-                    if (flags[i] == "-f" and i + 1 < len(flags)
-                            and _is_other_ext_compose(flags[i + 1])):
-                        i += 2
-                        continue
-                    pull_flags.append(flags[i])
-                    i += 1
+                #
+                # Some extensions declare cross-extension `depends_on`
+                # (e.g. perplexica → searxng). Narrowing those out makes
+                # `docker compose pull` fail at config-parse time with
+                # "depends on undefined service". Validate the narrowed
+                # set with `config --services` first; if it doesn't
+                # resolve, fall back to the full flag set.
+                narrowed = _narrow_install_pull_flags(flags, service_id)
+                if narrowed != flags and _narrowed_compose_set_resolves(
+                    narrowed, service_id, str(INSTALL_DIR), SUBPROCESS_TIMEOUT_START,
+                ):
+                    pull_flags = narrowed
+                else:
+                    if narrowed != flags:
+                        logger.info(
+                            "Narrowed compose for %s drops a referenced service; using full set",
+                            service_id,
+                        )
+                    pull_flags = flags
 
                 _write_progress(service_id, "pulling", "Downloading image...")
                 pull_result = subprocess.run(
