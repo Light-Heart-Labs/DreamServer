@@ -65,9 +65,13 @@ trap 'rm -rf "$TEMP_DIR"' EXIT
 
 cp "$DREAM_CLI" "$TEMP_DIR/dream-cli"
 mkdir -p "$TEMP_DIR/lib"
+# Required: dream-cli unconditionally sources service-registry.sh.
 cp "$ROOT_DIR/lib/service-registry.sh" "$TEMP_DIR/lib/"
-cp "$ROOT_DIR/lib/safe-env.sh" "$TEMP_DIR/lib/" 2>/dev/null || true
-cp "$ROOT_DIR/lib/python-cmd.sh" "$TEMP_DIR/lib/" 2>/dev/null || true
+# Optional helpers — cp only if present so the test still runs on
+# trees that haven't landed them. Failure here would still propagate
+# (no `|| true`) — we want a missing-file regression to surface.
+[[ -f "$ROOT_DIR/lib/safe-env.sh"   ]] && cp "$ROOT_DIR/lib/safe-env.sh"   "$TEMP_DIR/lib/"
+[[ -f "$ROOT_DIR/lib/python-cmd.sh" ]] && cp "$ROOT_DIR/lib/python-cmd.sh" "$TEMP_DIR/lib/"
 
 # Valid extension — should appear in the JSON output.
 mkdir -p "$TEMP_DIR/extensions/services/valid-svc"
@@ -133,8 +137,10 @@ else
 fi
 
 # 4. stderr received the registry diagnostic — proving the warning fired
-#    while we were collecting stdout.
-if grep -q "SKIP" "$stderr_file"; then
+#    while we were collecting stdout. Match the literal `# SKIP:` prefix
+#    that lib/service-registry.sh:117-151 emits, not just the substring
+#    `SKIP` (which other code paths could legitimately emit later).
+if grep -q "# SKIP:" "$stderr_file"; then
     pass "stderr contains '# SKIP:' diagnostic from sr_load"
 else
     fail "stderr missing expected '# SKIP:' diagnostic"
@@ -142,8 +148,11 @@ else
 fi
 
 # 5. stdout has no leakage from stderr (registry diagnostics, log/warn
-#    sigils, ANSI colour escapes).
-if grep -qE 'SKIP|^⚠|^\[dream\]|\\033\[' "$stdout_file"; then
+#    sigils, ANSI colour escapes). Use $'\x1b' (literal ESC byte 0x1B)
+#    in the bash regex test so the ANSI check is real, not a string
+#    match against the four-character sequence "\033[".
+if grep -qE '# SKIP:|^⚠|^\[dream\]' "$stdout_file" \
+   || [[ "$(cat "$stdout_file")" == *$'\x1b['* ]]; then
     fail "stdout contains stderr-style content (would break jq pipelines)"
     echo "  --- stdout ---"; cat "$stdout_file" | sed 's/^/  /'
 else
