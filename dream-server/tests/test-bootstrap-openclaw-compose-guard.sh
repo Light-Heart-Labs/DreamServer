@@ -61,18 +61,26 @@ if [[ -z "$openclaw_block" ]]; then
     echo ""; echo "Result: $PASSED passed, $FAILED failed"; exit 1
 fi
 
+# Strip comment lines before grepping so the canonical-pattern check
+# matches the actual `if [[ ... ]]` statement, not a literal mention
+# of the guard inside the rationale comment block. Without this, a
+# future PR that rewrites the comment but breaks the code would
+# silently pass case #2.
+openclaw_code=$(grep -v '^[[:space:]]*#' <<<"$openclaw_block")
+
 # Guard literal — matches the canonical pattern used by the
 # llama-server hot-swap blocks earlier in the file. Single-quoted on
 # purpose: we want the literal $-bearing string for grep, not an
-# expansion.
+# expansion. Anchored to the `if [[ ... ]];` structural form so a
+# pasted-into-comment occurrence cannot satisfy this check.
 # shellcheck disable=SC2016
-canonical='${#COMPOSE_ARGS[@]} -gt 0 && -n "$DOCKER_COMPOSE_CMD"'
-if grep -qF "$canonical" <<<"$openclaw_block"; then
+canonical_if='if [[ ${#COMPOSE_ARGS[@]} -gt 0 && -n "$DOCKER_COMPOSE_CMD" ]];'
+if grep -qF "$canonical_if" <<<"$openclaw_code"; then
     pass "OpenClaw recreate guards on BOTH \${#COMPOSE_ARGS[@]} > 0 AND -n \"\$DOCKER_COMPOSE_CMD\""
 else
-    fail "OpenClaw recreate missing canonical guard"
-    echo "  --- block extracted ---"
-    awk '{print "  " $0}' <<<"$openclaw_block"
+    fail "OpenClaw recreate missing canonical guard (in active code, not just comments)"
+    echo "  --- code (comments stripped) ---"
+    awk '{print "  " $0}' <<<"$openclaw_code"
 fi
 
 # 2. Source-pattern check: the block must NOT use the single-condition
