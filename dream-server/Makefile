@@ -43,6 +43,9 @@ test: ## Run unit and contract tests
 	@echo ""
 	@echo "=== dream config show secret-mask matrix ==="
 	@bash tests/test-dream-config-secret-mask.sh
+	@echo ""
+	@echo "=== bootstrap OpenClaw compose-guard regression ==="
+	@bash tests/test-bootstrap-openclaw-compose-guard.sh
 
 bats: ## Run BATS unit tests for shell libraries
 	@echo "=== BATS unit tests ==="
