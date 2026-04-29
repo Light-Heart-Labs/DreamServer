@@ -84,7 +84,7 @@ The host agent (`bin/dream-host-agent.py`) has its own bind address, separate fr
 | Platform | Default | Behavior |
 |----------|---------|----------|
 | macOS / Windows | `127.0.0.1` | Docker Desktop routes container traffic via loopback — loopback is sufficient |
-| Linux | auto-detected | Detects the Docker bridge gateway IP (e.g. `172.17.0.1`) so containers can reach the agent; LAN devices cannot. Falls back to `0.0.0.0` if detection fails. |
+| Linux | auto-detected | Detects the Docker bridge gateway IP (e.g. `172.17.0.1`) so containers can reach the agent; LAN devices cannot. Falls back to `127.0.0.1` if detection fails (since #988 — the prior `0.0.0.0` fallback exposed the agent to LAN unnecessarily). |
 
 To override the default, set `DREAM_AGENT_BIND` in `.env`:
 
