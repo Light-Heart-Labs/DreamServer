@@ -153,8 +153,9 @@ def test_agent_health_endpoint_shape(controller_ip):
         assert body["status"] == "ok"
         assert "agent" in body
         assert "rpc_server_running" in body
-        for k in ("token", "controller_ip", "setup_port", "rpc_port", "gpu_backend", "status"):
+        for k in ("controller_ip", "setup_port", "rpc_port", "gpu_backend", "status"):
             assert k in body["agent"]
+        assert "token" not in body["agent"], "token must be stripped from /health response"
     finally:
         _stop(proc)
         os.unlink(cfg)
