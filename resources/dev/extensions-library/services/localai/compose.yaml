@@ -8,7 +8,7 @@ services:
     networks:
       - dream-network
     ports:
-      - "127.0.0.1:${LOCALAI_EXTERNAL_PORT:-7803}:8080"
+      - "${BIND_ADDRESS:-127.0.0.1}:${LOCALAI_EXTERNAL_PORT:-7803}:8080"
     volumes:
       - ./data/localai/models:/models
       - ./data/localai/builds:/builds
