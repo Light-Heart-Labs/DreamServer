@@ -58,7 +58,7 @@ services:
       resources:
         limits:
           cpus: '${LLAMA_CPU_LIMIT:-16.0}'
-          memory: 110G
+          memory: ${LLAMA_SERVER_MEMORY_LIMIT:-110G}
         reservations:
           cpus: '${LLAMA_CPU_RESERVATION:-4.0}'
           memory: 8G
