@@ -11,6 +11,7 @@ export const BASE_COMPOSE_SERVICES = new Set(['llama-server', 'open-webui', 'das
 // Precedence: has_errors > in_progress > applied > available
 export function getTemplateStatus(template, extensions) {
   const services = template.services || []
+  if (services.length === 0) return 'available'
   const serviceStatus = {}
   for (const svcId of services) {
     if (BASE_COMPOSE_SERVICES.has(svcId)) {
