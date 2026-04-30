@@ -3,7 +3,7 @@
 # Mission: M5 (Clonable Dream Setup Server)
 # Version: 2.0.0 — Registry-driven service resolution
 
-set -e
+set -eo pipefail
 
 # Require Bash 4+ (associative arrays used by service registry and dream-cli)
 if (( BASH_VERSINFO[0] < 4 )); then
@@ -274,6 +274,11 @@ _check_version_compat() {
     local force="${1:-false}"
 
     # 1. Installed version
+    # `|| true` preserves the tolerant fallback semantics required by
+    # the maintainer audit on PR #998: under `set -euo pipefail`,
+    # a fresh install whose .env lacks DREAM_VERSION must fall back
+    # to .version / manifest.json (handled below), not exit out of
+    # the surrounding command. Landed on main via #1008.
     _COMPAT_INSTALLED_VER=$(grep '^DREAM_VERSION=' "$INSTALL_DIR/.env" 2>/dev/null \
         | sed -n '1p' | cut -d= -f2 | tr -d '[:space:]' || true)
     # Fall back to .version file (written by dream-update.sh / PR #349 convention)
@@ -697,15 +702,18 @@ cmd_status() {
             awk -F', ' '{printf "  %s: %s%% GPU | %sMB/%sMB VRAM | %s°C\n", $1, $2, $3, $4, $5}'
     fi
 
-    # Bootstrap status
+    # Bootstrap status. The bootstrap-status.json file may be mid-write
+    # or partially populated, so the inner pipelines tolerate a missing
+    # field (`|| true`) under the pipefail flag added in this PR — a
+    # mid-write read MUST NOT abort `dream status`.
     local bootstrap_file="$INSTALL_DIR/data/bootstrap-status.json"
     if [[ -f "$bootstrap_file" ]]; then
         local bs_status
-        bs_status=$(grep -o '"status"[[:space:]]*:[[:space:]]*"[^"]*"' "$bootstrap_file" | sed -n '1p' | sed 's/.*"status"[[:space:]]*:[[:space:]]*"//' | sed 's/"//')
+        bs_status=$(grep -o '"status"[[:space:]]*:[[:space:]]*"[^"]*"' "$bootstrap_file" | sed -n '1p' | sed 's/.*"status"[[:space:]]*:[[:space:]]*"//' | sed 's/"//' || true)
         if [[ "$bs_status" == "downloading" || "$bs_status" == "starting" || "$bs_status" == "verifying" ]]; then
             local bs_model bs_percent
-            bs_model=$(grep -o '"model"[[:space:]]*:[[:space:]]*"[^"]*"' "$bootstrap_file" | sed -n '1p' | sed 's/.*"model"[[:space:]]*:[[:space:]]*"//' | sed 's/"//')
-            bs_percent=$(grep -o '"percent"[[:space:]]*:[[:space:]]*[0-9.]*' "$bootstrap_file" | sed -n '1p' | sed 's/.*:[[:space:]]*//')
+            bs_model=$(grep -o '"model"[[:space:]]*:[[:space:]]*"[^"]*"' "$bootstrap_file" | sed -n '1p' | sed 's/.*"model"[[:space:]]*:[[:space:]]*"//' | sed 's/"//' || true)
+            bs_percent=$(grep -o '"percent"[[:space:]]*:[[:space:]]*[0-9.]*' "$bootstrap_file" | sed -n '1p' | sed 's/.*:[[:space:]]*//' || true)
             log ""
             log "  Model Upgrade: $bs_model (${bs_percent:-?}% downloaded)"
         fi
@@ -1363,20 +1371,47 @@ cmd_chat() {
     local _llm_port="${SERVICE_PORTS[llama-server]:-11434}"
     _llm_port="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-$_llm_port}}"
 
-    # Get model from llama-server if not specified
+    # Pre-flight reachability check.
+    local _probe
+    _probe=$(curl --silent --show-error --fail --max-time 3 \
+        "http://localhost:${_llm_port}/v1/models" 2>&1) || {
+        error "llama-server not reachable at http://localhost:${_llm_port} — is 'dream status' showing it healthy?"
+    }
+
     if [[ -z "$model" ]]; then
-        model=$(curl -s "http://localhost:${_llm_port}/v1/models" | jq -r '.data[0].id // "local"')
+        model=$(printf '%s' "$_probe" | jq -er '.data[0].id' 2>/dev/null || echo "local")
     fi
 
     log "Sending to $model..."
 
-    # Use jq to safely construct JSON payload (prevents injection)
-    local payload=$(jq -n --arg model "$model" --arg msg "$message" \
+    local payload
+    payload=$(jq -n --arg model "$model" --arg msg "$message" \
         '{model: $model, messages: [{role: "user", content: $msg}], max_tokens: 500}')
 
-    curl -s "http://localhost:${_llm_port}/v1/chat/completions" \
-        -H "Content-Type: application/json" \
-        -d "$payload" | jq -r '.choices[0].message.content // .error.message // "Error: no response"'
+    local _resp
+    # HTTP 4xx/5xx responses are delegated to the jq fallback below, which
+    # extracts .error.message cleanly. Only transport failures (DNS, refused,
+    # timeout) trip curl's non-zero exit here. Avoiding --fail / --fail-with-body
+    # also keeps compat with curl < 7.76 (Ubuntu 20.04, Debian 11, RHEL 8).
+    _resp=$(curl --silent --show-error --max-time 30 \
+        "http://localhost:${_llm_port}/v1/chat/completions" \
+        -H "Content-Type: application/json" -d "$payload" 2>&1) || {
+        error "LLM request failed: $_resp"
+    }
+
+    [[ -z "$_resp" ]] && error "LLM returned empty response"
+
+    local _content
+    _content=$(printf '%s' "$_resp" | jq -er '.choices[0].message.content') || {
+        # `|| true` tolerates jq exit 5 (unparseable JSON) under pipefail
+        # so we reach the friendly error() instead of aborting silently.
+        # `${_err:-unparseable response}` already handles the empty case.
+        local _err
+        _err=$(printf '%s' "$_resp" | jq -r '.error.message // "unknown error"' 2>/dev/null || true)
+        error "LLM error: ${_err:-unparseable response}"
+    }
+
+    printf '%s\n' "$_content"
 }
 
 cmd_benchmark() {
@@ -1386,7 +1421,10 @@ cmd_benchmark() {
     log "Running quick benchmark..."
 
     local start=$(date +%s)
-    local response=$(cmd_chat "Say exactly: Hello World" 2>/dev/null)
+    local response
+    if ! response=$(cmd_chat "Say exactly: Hello World" 2>&1); then
+        error "Benchmark failed: LLM unreachable or error — see 'dream chat' for details"
+    fi
     local end=$(date +%s)
 
     local duration=$(( end - start ))
@@ -1735,6 +1773,7 @@ cmd_disable() {
     # Check built-in extensions first, then dashboard-installed user extensions
     local ext_dir="$INSTALL_DIR/extensions/services/$service_id"
     [[ ! -d "$ext_dir" ]] && ext_dir="$INSTALL_DIR/data/user-extensions/$service_id"
+    [[ -d "$ext_dir" ]] || error "Unknown service: $input"
     local cf="$ext_dir/compose.yaml"
 
     # Check it's not a core service
@@ -2043,8 +2082,11 @@ META
                 pname=$(basename "$dir")
                 local created="" backend=""
                 if [[ -f "$dir/meta.txt" ]]; then
-                    created=$(grep "^created=" "$dir/meta.txt" 2>/dev/null | cut -d= -f2 | cut -dT -f1)
-                    backend=$(grep "^gpu_backend=" "$dir/meta.txt" 2>/dev/null | cut -d= -f2)
+                    # Tolerate missing fields (`|| true`) under pipefail —
+                    # a malformed meta.txt must not abort the listing of
+                    # subsequent presets.
+                    created=$(grep "^created=" "$dir/meta.txt" 2>/dev/null | cut -d= -f2 | cut -dT -f1 || true)
+                    backend=$(grep "^gpu_backend=" "$dir/meta.txt" 2>/dev/null | cut -d= -f2 || true)
                 fi
                 printf "  %-20s %-22s %-10s\n" "$pname" "${created:-unknown}" "${backend:-unknown}"
             done
@@ -2107,7 +2149,7 @@ META
 
             # Validate archive structure
             local archive_name
-            archive_name=$(tar tzf "$archive" 2>/dev/null | head -1 | cut -d/ -f1)
+            archive_name=$(tar tzf "$archive" 2>/dev/null | sed -n '1p' | cut -d/ -f1)
             [[ -z "$archive_name" ]] && error "Invalid archive structure"
 
             # Check if preset already exists
@@ -2681,6 +2723,7 @@ cmd_agent() {
                 tail -f "$log_file"
             else
                 warn "No log file at $log_file"
+                return 1
             fi
             ;;
         *)
@@ -3081,19 +3124,19 @@ _gpu_reassign() {
 
     if ! command -v nvidia-smi &>/dev/null; then
         warn "GPU reassign is only supported for NVIDIA. Use 'dream gpu status' for AMD."
-        return
+        return 1
     fi
 
     if ! command -v jq &>/dev/null; then
         warn "jq not found — required for GPU reassignment"
-        return
+        return 1
     fi
 
     local topo_lib="$SCRIPT_DIR/installers/lib/nvidia-topo.sh"
     local assign_script="$SCRIPT_DIR/scripts/assign_gpus.py"
 
-    [[ -f "$topo_lib" ]] || { warn "Topology library not found: $topo_lib"; return; }
-    [[ -f "$assign_script" ]] || { warn "Assignment script not found: $assign_script"; return; }
+    [[ -f "$topo_lib" ]] || { warn "Topology library not found: $topo_lib"; return 1; }
+    [[ -f "$assign_script" ]] || { warn "Assignment script not found: $assign_script"; return 1; }
 
     # warn and err are already defined; source is safe
     . "$topo_lib"
