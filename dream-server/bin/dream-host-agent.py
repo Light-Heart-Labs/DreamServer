@@ -15,6 +15,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from datetime import datetime, timezone
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
@@ -226,7 +227,9 @@ def _fs_type(path: Path) -> str | None:
 
 def _precreate_data_dirs(service_id: str):
     """Pre-create data directories for an extension with correct ownership."""
-    ext_dir = USER_EXTENSIONS_DIR / service_id
+    ext_dir = _find_ext_dir(service_id)
+    if ext_dir is None:
+        return
     compose_path = ext_dir / "compose.yaml"
     if not compose_path.exists():
         return
@@ -259,7 +262,13 @@ def _precreate_data_dirs(service_id: str):
             continue
         for vol in volumes:
             vol_str = str(vol).split(":")[0]
-            if vol_str.startswith("./data/") or vol_str.startswith("data/"):
+            # Accept any relative bind-mount source (e.g. "./data/state",
+            # "./upload", "config/stuff"). Skip named volumes (no "/") and
+            # absolute paths ("/etc/..."). Docker Compose v2 resolves relative
+            # bind paths against the project directory (the first -f file's
+            # parent = INSTALL_DIR), not the individual fragment's directory,
+            # so anchor on INSTALL_DIR to match where Compose actually mounts.
+            if vol_str and not vol_str.startswith("/") and "/" in vol_str:
                 dir_path = (INSTALL_DIR / vol_str.lstrip("./")).resolve()
                 try:
                     dir_path.relative_to(INSTALL_DIR.resolve())
@@ -1172,10 +1181,15 @@ class AgentHandler(BaseHTTPRequestHandler):
             try:
                 flags = resolve_compose_flags()
 
+                ext_dir = _find_ext_dir(service_id)
+                if ext_dir is None:
+                    _write_progress(service_id, "error", "Installation failed",
+                                    error=f"Extension directory not found for {service_id}")
+                    return
+
                 # Step 1: Setup hook (if requested)
                 if run_setup_hook:
                     _write_progress(service_id, "setup_hook", "Running setup...")
-                    ext_dir = USER_EXTENSIONS_DIR / service_id
                     hook_path = _resolve_hook(ext_dir, "post_install")
                     if hook_path:
                         # Minimal allowlist env — mirror _execute_hook (L856-866)
@@ -1228,6 +1242,61 @@ class AgentHandler(BaseHTTPRequestHandler):
                     _write_progress(service_id, "error", "Installation failed",
                                     error=start_result.stderr[:500])
                     return
+
+                # By default, poll for running state: compose `up -d`
+                # returns 0 even for Created/Exited/Restarting containers,
+                # so a 0 exit is NOT conclusive proof the service actually
+                # started. Extensions whose containers intentionally exit
+                # after init (one-shot setup containers, extensions whose
+                # value is purely the setup_hook) can opt out via the
+                # manifest's `service.startup_check: false`, in which
+                # case compose's 0 exit is taken as success.
+                install_manifest = _read_manifest(ext_dir)
+                install_service_def = install_manifest.get("service", {}) if install_manifest else {}
+                if not isinstance(install_service_def, dict):
+                    install_service_def = {}
+                container_name = install_service_def.get("container_name") or f"dream-{service_id}"
+
+                # Manifest-driven opt-out for one-shot / setup-only extensions
+                # whose containers intentionally exit (init containers,
+                # extensions whose value is purely the setup_hook). Setting
+                # `service.startup_check: false` skips the running-state poll
+                # — compose up's clean exit is taken as success. Default is
+                # True so existing long-running services are unchanged.
+                startup_check = install_service_def.get("startup_check", True)
+
+                if startup_check:
+                    # Per-extension startup deadline; manifests with heavy init
+                    # (postgres, clickhouse, JVM-based services) can override the
+                    # 15s default via service.startup_timeout.
+                    startup_timeout = install_service_def.get("startup_timeout", 15)
+                    deadline = time.monotonic() + startup_timeout
+                    state: str | None = None
+                    state_error = ""
+                    while time.monotonic() < deadline:
+                        try:
+                            inspect_result = subprocess.run(
+                                ["docker", "inspect", "--format",
+                                 "{{.State.Status}}|{{.State.Error}}", container_name],
+                                capture_output=True, text=True, timeout=5,
+                            )
+                        except subprocess.TimeoutExpired:
+                            inspect_result = None
+                        if inspect_result is not None and inspect_result.returncode == 0:
+                            parts = inspect_result.stdout.strip().split("|", 1)
+                            state = parts[0] if parts else ""
+                            state_error = parts[1] if len(parts) > 1 else ""
+                            if state == "running":
+                                break
+                        time.sleep(1)
+
+                    if state != "running":
+                        msg = f"Container did not reach running state within {startup_timeout}s (state={state or 'unknown'})"
+                        if state_error:
+                            msg += f": {state_error}"
+                        _write_progress(service_id, "error", "Installation failed",
+                                        error=msg)
+                        return
 
                 # Step 4: Success
                 _write_progress(service_id, "started", "Service started")
