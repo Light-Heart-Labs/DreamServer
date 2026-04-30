@@ -94,14 +94,24 @@ export default function Extensions() {
   const [depConfirm, setDepConfirm] = useState(null)
   const [templates, setTemplates] = useState([])
   const [templatesOpen, setTemplatesOpen] = useState(false)
+  const [pollingLost, setPollingLost] = useState(false)
   const installProgressRef = useRef(null)
   const activePollers = useRef({})
+  // Per-service consecutive fetch-failure counter. Mirrors the log-streaming
+  // pattern in ExtensionDetailsModal (see function-local `fails` near L1009).
+  // We key by serviceId because multiple installs can be polling concurrently.
+  const consecutiveFailuresRef = useRef({})
 
   const pollProgress = (serviceId) => {
     if (activePollers.current[serviceId]) return
+    consecutiveFailuresRef.current[serviceId] = 0
     activePollers.current[serviceId] = setInterval(async () => {
       try {
         const res = await fetchJson(`/api/extensions/${serviceId}/progress`)
+        // Successful fetch (regardless of HTTP status) means the dashboard
+        // is reachable again — reset the failure counter and clear the banner.
+        consecutiveFailuresRef.current[serviceId] = 0
+        setPollingLost(prev => (prev ? false : prev))
         if (!res.ok) return
         const data = await res.json()
         if (data.status === 'idle') return
@@ -109,6 +119,7 @@ export default function Extensions() {
         if (data.status === 'error') {
           clearInterval(activePollers.current[serviceId])
           delete activePollers.current[serviceId]
+          delete consecutiveFailuresRef.current[serviceId]
           setToast({ type: 'error', text: data.error || 'Installation failed' })
           setProgressMap(prev => { const next = { ...prev }; delete next[serviceId]; return next })
           fetchCatalog()
@@ -123,12 +134,26 @@ export default function Extensions() {
           if (ext && ext.status === 'enabled') {
             clearInterval(activePollers.current[serviceId])
             delete activePollers.current[serviceId]
+            delete consecutiveFailuresRef.current[serviceId]
             setToast({ type: 'success', text: `Extension installed and started.` })
             setProgressMap(prev => { const next = { ...prev }; delete next[serviceId]; return next })
           }
           // If not yet "enabled", keep polling — healthcheck still running
         }
-      } catch { /* ignore */ }
+      } catch (err) {
+        // Dashboard-api may be mid-restart, or the browser briefly lost
+        // network. Count consecutive failures; surface a banner after 3
+        // so the user isn't left staring at a silent spinner forever.
+        const fails = (consecutiveFailuresRef.current[serviceId] || 0) + 1
+        consecutiveFailuresRef.current[serviceId] = fails
+        console.warn('poll fetch failed:', err)
+        if (fails >= 3) {
+          setPollingLost(true)
+          // Attempt to recover catalog state — if the backend is back,
+          // the next successful poll will clear the banner.
+          fetchCatalog()
+        }
+      }
     }, 3000)
   }
 
@@ -138,7 +163,11 @@ export default function Extensions() {
       .then(r => r.ok ? r.json() : { templates: [] })
       .then(d => setTemplates(d.templates || []))
       .catch(() => {})
-    return () => { Object.values(activePollers.current).forEach(clearInterval); activePollers.current = {} }
+    return () => {
+      Object.values(activePollers.current).forEach(clearInterval)
+      activePollers.current = {}
+      consecutiveFailuresRef.current = {}
+    }
   }, [])
 
   // Start polling for installing extensions + fetch progress for error state (after page refresh)
@@ -414,6 +443,16 @@ export default function Extensions() {
         </div>
       )}
 
+      {/* Polling-lost banner — 3+ consecutive progress-fetch failures.
+          Surfaces when dashboard-api restarts mid-install. Auto-clears on
+          the next successful poll. */}
+      {pollingLost && (
+        <div className="mb-4 rounded-xl border border-amber-500/15 bg-amber-500/[0.04] px-4 py-2 text-[10px] text-amber-400/80 flex items-center gap-2">
+          <Loader2 size={10} className="animate-spin shrink-0" />
+          <span>Connection to dashboard lost — retrying. Refresh if this persists.</span>
+        </div>
+      )}
+
       {/* Card grid */}
       {(() => {
         const enrichedTemplates = templates
@@ -659,12 +698,34 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
           <span>{progressData?.phase_label || (ext.status === 'setting_up' ? 'Running setup...' : 'Installing...')}</span>
         </div>
       )}
-      {/* Error message */}
-      {ext.status === 'error' && progressData?.error && (
-        <div className="px-4 py-2 border-t border-red-500/15 text-[10px] text-red-300/80 leading-relaxed">
-          {progressData.error.length > 200 ? progressData.error.slice(0, 200) + '...' : progressData.error}
-        </div>
-      )}
+      {/* Error message — expandable when long or multiline so docker-compose
+          stderr isn't cut off mid-actionable-line. */}
+      {ext.status === 'error' && progressData?.error && (() => {
+        const errorText = progressData.error
+        const firstLine = errorText.split('\n')[0]
+        const isMultiline = errorText.length > firstLine.length
+        const isLongLine = firstLine.length > 120
+        const needsExpand = isMultiline || isLongLine
+        if (!needsExpand) {
+          return (
+            <div className="px-4 py-2 border-t border-red-500/15 text-[10px] text-red-300/80 leading-relaxed">
+              {errorText}
+            </div>
+          )
+        }
+        const summaryText = isLongLine
+          ? firstLine.slice(0, 120) + '...'
+          : firstLine + (isMultiline ? '...' : '')
+        return (
+          <details className="group px-4 py-2 border-t border-red-500/15 text-[10px] text-red-300/80 leading-relaxed">
+            <summary className="cursor-pointer flex items-start gap-1 list-none [&::-webkit-details-marker]:hidden hover:text-red-300">
+              <ChevronDown size={10} className="mt-0.5 shrink-0 transition-transform group-open:rotate-180" />
+              <span className="flex-1 break-words">{summaryText}</span>
+            </summary>
+            <pre className="whitespace-pre-wrap text-[10px] text-red-300/80 mt-2 font-mono break-words">{errorText}</pre>
+          </details>
+        )
+      })()}
 
       {/* Card footer */}
       <div className="border-t border-theme-border/40 px-4 py-2.5 flex items-center justify-between bg-theme-bg/30">
