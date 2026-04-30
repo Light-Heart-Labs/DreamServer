@@ -606,6 +606,21 @@ _compose_run_with_summary() {
 #=============================================================================
 
 cmd_status() {
+    local json_mode="false"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --json) json_mode="true"; shift ;;
+            *) error "Unknown argument to 'dream status': $1" ;;
+        esac
+    done
+
+    if [[ "$json_mode" == "true" ]]; then
+        # Subshell isolates cmd_status_json's RETURN trap so it can't leak
+        # into this caller's frame and re-fire with an unbound $tmp under set -u.
+        ( cmd_status_json )
+        return $?
+    fi
+
     check_install
     cd "$INSTALL_DIR"
     load_env
@@ -1900,10 +1915,42 @@ cmd_purge() {
 }
 
 cmd_list() {
+    local json_mode="false"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --json) json_mode="true"; shift ;;
+            *) error "Unknown argument to 'dream list': $1" ;;
+        esac
+    done
+
     sr_load
     load_env 2>/dev/null || true
     local active_flags
     active_flags=$(get_compose_flags)
+
+    if [[ "$json_mode" == "true" ]]; then
+        # JSON output: array of {id, category, status}
+        local _first=1
+        printf '['
+        for sid in "${SERVICE_IDS[@]}"; do
+            local cat="${SERVICE_CATEGORIES[$sid]}"
+            local cf="${SERVICE_COMPOSE[$sid]}"
+            local status
+            if [[ "$cat" == "core" ]]; then
+                status="always-on"
+            elif [[ -n "$cf" && -f "$cf" && "$active_flags" == *"${cf#"$INSTALL_DIR/"}"* ]]; then
+                status="enabled"
+            else
+                status="disabled"
+            fi
+            (( _first == 1 )) || printf ','
+            printf '{"id":"%s","category":"%s","status":"%s"}' "$sid" "$cat" "$status"
+            _first=0
+        done
+        printf ']\n'
+        return 0
+    fi
+
     echo -e "${BLUE}━━━ Available Services ━━━${NC}"
     printf "%-20s %-12s %-10s\n" "SERVICE" "CATEGORY" "STATUS"
     printf "%-20s %-12s %-10s\n" "$(hr 20)" "$(hr 12)" "$(hr 10)"
@@ -3578,9 +3625,9 @@ Usage: dream <command> [options]
 ${CYAN}Commands:${NC}
   gpu [status|topology|assignment|validate|reassign]
                       Inspect and manage multi-GPU configuration
-  status              Show service health and GPU status
-  status-json         Machine-readable status (JSON) with mode/tier/model
-  list                List all services and their status
+  status [--json]     Show service health and GPU status (--json = machine-readable)
+  status-json         Alias for 'status --json' (kept for back-compat)
+  list [--json]       List all services and their status (--json = machine-readable)
   enable <service>    Enable an extension service
   disable <service>   Disable an extension service
   purge <service>     Permanently delete service data
@@ -3605,7 +3652,7 @@ ${CYAN}Commands:${NC}
                       View, edit, or validate configuration
   chat "<message>"    Quick chat with the LLM
   benchmark           Run a quick performance test
-  doctor [report]     Run diagnostics and write JSON report
+  doctor [report|--json]   Run diagnostics (--json writes JSON to stdout)
   repair|fix          Run basic repairs (currently redirects to doctor)
   template [action]   Apply pre-built service templates (list|preview|apply)
   audit [extensions]  Audit extension manifests and compose contracts
@@ -3703,9 +3750,9 @@ EOF
 #=============================================================================
 case "${1:-help}" in
     gpu|g)       shift; cmd_gpu "$@" ;;
-    status|s)    cmd_status ;;
+    status|s)    shift; cmd_status "$@" ;;
     status-json) cmd_status_json ;;
-    list|ls)     cmd_list ;;
+    list|ls)     shift; cmd_list "$@" ;;
     enable)      shift; cmd_enable "$@" ;;
     disable)     shift; cmd_disable "$@" ;;
     purge)       shift; cmd_purge "$@" ;;
