@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # Validate resolved Docker Compose stack for syntax errors
-# Usage: validate-compose-stack.sh --compose-flags "-f file1.yml -f file2.yml" [--env-file /path/to/.env]
+#
+# Usage:
+#   validate-compose-stack.sh --compose-flags "-f file1.yml -f file2.yml" [--env-file /path/to/.env]
+#   validate-compose-stack.sh --compose-flag -f --compose-flag file1.yml --compose-flag -f --compose-flag file2.yml [...]
+#
+# `--compose-flag` (singular, repeatable) is the path-with-spaces-safe
+# input form. `--compose-flags` (plural string) is whitespace-split and
+# kept for legacy callers (e.g. installers/phases/02-detection.sh).
 #
 # Returns:
 #   0 - Valid compose stack
@@ -8,14 +15,25 @@
 
 set -euo pipefail
 
-COMPOSE_FLAGS=""
+COMPOSE_FLAGS_ARR=()
 ENV_FILE=""
 QUIET=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --compose-flags)
-            COMPOSE_FLAGS="${2:-}"
+            # Legacy whitespace-split string form. Splits on any
+            # whitespace, so paths containing spaces are unsafe via
+            # this flag — use --compose-flag (singular) instead.
+            read -ra _legacy_arr <<< "${2:-}"
+            COMPOSE_FLAGS_ARR+=("${_legacy_arr[@]}")
+            shift 2
+            ;;
+        --compose-flag)
+            # Repeatable singular form. Each invocation appends one
+            # already-tokenised argv element, preserving any embedded
+            # whitespace in paths.
+            COMPOSE_FLAGS_ARR+=("${2:-}")
             shift 2
             ;;
         --env-file)
@@ -33,16 +51,20 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ -z "$COMPOSE_FLAGS" ]]; then
-    echo "ERROR: --compose-flags required" >&2
+if [[ ${#COMPOSE_FLAGS_ARR[@]} -eq 0 ]]; then
+    echo "ERROR: --compose-flag (repeatable) or --compose-flags (string) required" >&2
     exit 1
 fi
 
 # Build env-file flag if provided (allows compose to resolve required variable references)
-ENV_FILE_FLAG=""
+ENV_FILE_FLAG_ARR=()
 if [[ -n "$ENV_FILE" && -f "$ENV_FILE" ]]; then
-    ENV_FILE_FLAG="--env-file $ENV_FILE"
+    ENV_FILE_FLAG_ARR=(--env-file "$ENV_FILE")
 fi
+
+# Diagnostic-only string for log/error output; the array is what gets
+# executed.
+COMPOSE_FLAGS_DISPLAY="${COMPOSE_FLAGS_ARR[*]}"
 
 # Check if docker/docker compose is available
 if command -v docker &>/dev/null && docker compose version &>/dev/null; then
@@ -56,7 +78,7 @@ fi
 
 # Validate compose stack syntax
 if ! $QUIET; then
-    echo "Validating compose stack: $COMPOSE_FLAGS"
+    echo "Validating compose stack: $COMPOSE_FLAGS_DISPLAY"
 fi
 
 # Use docker compose config to validate syntax and merge
@@ -67,7 +89,7 @@ fi
 # - Circular dependencies
 # - Invalid environment variable references
 validation_output=$(mktemp)
-if $DOCKER_COMPOSE_CMD $ENV_FILE_FLAG $COMPOSE_FLAGS config > "$validation_output" 2>&1; then
+if $DOCKER_COMPOSE_CMD "${ENV_FILE_FLAG_ARR[@]}" "${COMPOSE_FLAGS_ARR[@]}" config > "$validation_output" 2>&1; then
     if ! $QUIET; then
         echo "Compose stack validation passed"
         # Show summary of services
@@ -82,7 +104,7 @@ else
     echo "Errors:" >&2
     cat "$validation_output" >&2
     echo "" >&2
-    echo "Compose flags: $COMPOSE_FLAGS" >&2
+    echo "Compose flags: $COMPOSE_FLAGS_DISPLAY" >&2
     rm -f "$validation_output"
     exit 1
 fi

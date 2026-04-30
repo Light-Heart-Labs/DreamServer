@@ -8,6 +8,7 @@ PROFILE_OVERLAYS=""
 ENV_MODE="false"
 SKIP_BROKEN="false"
 GPU_COUNT="1"
+NULL_MODE="false"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -39,6 +40,13 @@ while [[ $# -gt 0 ]]; do
             GPU_COUNT="${2:-$GPU_COUNT}"
             shift 2
             ;;
+        --null|-0)
+            # NUL-delimited output: emit args separated by \0 with a
+            # trailing \0 so consumers can use `read -d ''` to round-trip
+            # paths containing whitespace safely.
+            NULL_MODE="true"
+            shift
+            ;;
         *)
             echo "Unknown argument: $1" >&2
             exit 1
@@ -55,7 +63,7 @@ elif command -v python >/dev/null 2>&1; then
     PYTHON_CMD="python"
 fi
 
-"$PYTHON_CMD" - "$SCRIPT_DIR" "$TIER" "$GPU_BACKEND" "$PROFILE_OVERLAYS" "$ENV_MODE" "$SKIP_BROKEN" "$GPU_COUNT" <<'PY'
+"$PYTHON_CMD" - "$SCRIPT_DIR" "$TIER" "$GPU_BACKEND" "$PROFILE_OVERLAYS" "$ENV_MODE" "$SKIP_BROKEN" "$GPU_COUNT" "$NULL_MODE" <<'PY'
 import os
 import pathlib
 import platform
@@ -70,6 +78,7 @@ env_mode = (sys.argv[5] or "false").lower() == "true"
 skip_broken = (sys.argv[6] or "false").lower() == "true"
 dream_mode = os.environ.get("DREAM_MODE", "local").lower()
 gpu_count = int(sys.argv[7] or "1")
+null_mode = (sys.argv[8] or "false").lower() == "true"
 
 IS_DARWIN = platform.system() == "Darwin"
 APPLE_OVERLAY = "installers/macos/docker-compose.macos.yml" if IS_DARWIN else "docker-compose.apple.yml"
@@ -335,7 +344,19 @@ def to_flags(files):
 
 resolved_flags = to_flags(resolved)
 
-if env_mode:
+if null_mode:
+    # NUL-delimited stream of individual argv tokens. Trailing NUL lets
+    # consumers terminate `while IFS= read -r -d ''` loops cleanly even
+    # when the resolved set is empty.
+    parts = []
+    for f in resolved:
+        parts.append("-f")
+        parts.append(str(f))
+    payload = b"\0".join(p.encode("utf-8") for p in parts)
+    if payload:
+        payload += b"\0"
+    sys.stdout.buffer.write(payload)
+elif env_mode:
     def out(key, value):
         safe = str(value).replace("\\", "\\\\").replace('"', '\\"')
         print(f'{key}="{safe}"')

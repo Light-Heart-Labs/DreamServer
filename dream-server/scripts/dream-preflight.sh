@@ -16,11 +16,16 @@ sr_load
 load_env_file "$SCRIPT_DIR/.env"
 sr_resolve_ports
 
-# Resolve compose flags for accurate status checks
-COMPOSE_FLAGS=""
+# Resolve compose flags for accurate status checks. The resolver's
+# --null mode emits each argv token NUL-separated so paths containing
+# whitespace round-trip through this consumer safely.
+COMPOSE_FLAGS_ARR=()
 if [[ -x "$SCRIPT_DIR/scripts/resolve-compose-stack.sh" ]]; then
-    COMPOSE_FLAGS=$("$SCRIPT_DIR/scripts/resolve-compose-stack.sh" \
-        --script-dir "$SCRIPT_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}")
+    while IFS= read -r -d '' _arg; do
+        COMPOSE_FLAGS_ARR+=("$_arg")
+    done < <("$SCRIPT_DIR/scripts/resolve-compose-stack.sh" \
+        --script-dir "$SCRIPT_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}" \
+        --null)
 fi
 
 # Colors
@@ -53,7 +58,7 @@ fi
 
 # Check containers are up
 echo -n "Core containers... "
-if docker compose $COMPOSE_FLAGS ps | grep -q "$LLM_CONTAINER"; then
+if docker compose "${COMPOSE_FLAGS_ARR[@]}" ps | grep -q "$LLM_CONTAINER"; then
     echo -e "${GREEN}✓ running${NC}"
 else
     echo -e "${RED}✗ not running${NC}"
@@ -94,7 +99,7 @@ fi
 for sid in "${SERVICE_IDS[@]}"; do
     [[ "${SERVICE_CATEGORIES[$sid]}" == "core" ]] && continue
     container="${SERVICE_CONTAINERS[$sid]}"
-    docker compose $COMPOSE_FLAGS ps 2>/dev/null | grep -q "$container" || continue
+    docker compose "${COMPOSE_FLAGS_ARR[@]}" ps 2>/dev/null | grep -q "$container" || continue
 
     port="${SERVICE_PORTS[$sid]:-0}"
     health="${SERVICE_HEALTH[$sid]:-/}"
