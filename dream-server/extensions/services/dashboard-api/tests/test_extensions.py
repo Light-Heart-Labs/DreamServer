@@ -2539,48 +2539,68 @@ class TestInstallProgress:
         assert data["progress_endpoint"] == "/api/extensions/my-ext/progress"
 
 
-# --- Config sync ---
+# --- Config sync (delegated to host agent) ---
 
 
 class TestSyncExtensionConfig:
+    """The dashboard-api container has /dream-server/config bind-mounted
+    read-only, so _sync_extension_config must NOT touch the filesystem
+    locally — it forwards to the host agent. End-to-end file-copy behaviour
+    is covered by the host-agent wire test (TestSyncExtensionConfigWire)."""
 
-    def test_copies_config_subdir_to_install_dir(self, monkeypatch, tmp_path):
-        """Config subdir is synced to INSTALL_DIR/config/ after install."""
-        from routers.extensions import _sync_extension_config
+    def test_delegates_to_host_agent(self, monkeypatch):
+        """_sync_extension_config calls _call_agent_sync_config with the service id."""
+        from routers import extensions as ext_mod
 
-        user_dir = tmp_path / "user"
-        ext_dir = user_dir / "my-ext" / "config" / "my-ext"
-        ext_dir.mkdir(parents=True)
-        (ext_dir / "nginx.conf").write_text("server {}")
-        (ext_dir / "entrypoint.sh").write_text("#!/bin/sh\necho hi")
+        calls = []
 
-        install_dir = tmp_path / "install"
-        install_dir.mkdir()
+        def _fake(sid):
+            calls.append(sid)
+            return True
 
-        monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", user_dir)
-        monkeypatch.setattr("routers.extensions.INSTALL_DIR", str(install_dir))
+        monkeypatch.setattr(ext_mod, "_call_agent_sync_config", _fake)
+        result = ext_mod._sync_extension_config("my-ext")
 
-        _sync_extension_config("my-ext")
+        assert calls == ["my-ext"]
+        assert result is True
 
-        target = install_dir / "config" / "my-ext"
-        assert (target / "nginx.conf").exists()
-        assert (target / "nginx.conf").read_text() == "server {}"
-        # .sh files should be executable
-        import stat
-        mode = (target / "entrypoint.sh").stat().st_mode
-        assert mode & stat.S_IXUSR
+    def test_returns_false_on_agent_failure(self, monkeypatch):
+        """Agent failure surfaces as a False return; caller decides what to do."""
+        from routers import extensions as ext_mod
 
-    def test_noop_when_no_config_dir(self, monkeypatch, tmp_path):
-        """No crash when extension has no config/ subdirectory."""
-        from routers.extensions import _sync_extension_config
+        monkeypatch.setattr(
+            ext_mod, "_call_agent_sync_config", lambda _sid: False,
+        )
+        assert ext_mod._sync_extension_config("my-ext") is False
 
-        user_dir = tmp_path / "user"
-        (user_dir / "my-ext").mkdir(parents=True)
+    def test_call_agent_sync_config_sends_post(self, monkeypatch):
+        """The HTTP helper POSTs to /v1/extension/sync_config with bearer auth."""
+        from routers import extensions as ext_mod
 
-        monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", user_dir)
-        monkeypatch.setattr("routers.extensions.INSTALL_DIR", str(tmp_path))
+        captured = {}
 
-        _sync_extension_config("my-ext")  # should not raise
+        class _FakeResp:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def _fake_urlopen(req, timeout=None):
+            captured["url"] = req.full_url
+            captured["method"] = req.get_method()
+            captured["auth"] = req.get_header("Authorization")
+            captured["body"] = req.data
+            return _FakeResp()
+
+        monkeypatch.setattr(ext_mod, "AGENT_URL", "http://agent:7710")
+        monkeypatch.setattr(ext_mod, "DREAM_AGENT_KEY", "secret")
+        monkeypatch.setattr(ext_mod.urllib.request, "urlopen", _fake_urlopen)
+
+        assert ext_mod._call_agent_sync_config("my-ext") is True
+        assert captured["url"] == "http://agent:7710/v1/extension/sync_config"
+        assert captured["method"] == "POST"
+        assert captured["auth"] == "Bearer secret"
+        assert b'"service_id"' in captured["body"]
+        assert b'"my-ext"' in captured["body"]
 
 
 # --- Error progress ---

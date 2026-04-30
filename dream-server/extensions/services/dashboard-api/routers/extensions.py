@@ -24,7 +24,7 @@ from pydantic import BaseModel
 from config import (
     AGENT_URL, ALWAYS_ON_SERVICES, CORE_SERVICE_IDS, DATA_DIR,
     DREAM_AGENT_KEY, EXTENSION_CATALOG, EXTENSIONS_DIR,
-    EXTENSIONS_LIBRARY_DIR, GPU_BACKEND, INSTALL_DIR, SERVICES,
+    EXTENSIONS_LIBRARY_DIR, GPU_BACKEND, SERVICES,
     USER_EXTENSIONS_DIR,
 )
 from security import verify_api_key
@@ -122,35 +122,23 @@ def _write_error_progress(service_id: str, error_msg: str) -> None:
     progress_file.write_text(json.dumps(data), encoding="utf-8")
 
 
-def _sync_extension_config(service_id: str) -> None:
-    """Copy config/<id>/ from an installed extension to INSTALL_DIR/config/.
+def _sync_extension_config(service_id: str) -> bool:
+    """Ask host agent to copy config/<id>/ from an installed extension
+    into INSTALL_DIR/config/.
 
     Some extensions ship a config/ subdirectory whose files are
     bind-mounted by compose.yaml relative to the compose project root
     (INSTALL_DIR), not relative to the extension directory.  Without
     this sync, Docker auto-creates the mount source as an empty
     directory, and the container fails at startup.
+
+    The dashboard-api container has /dream-server/config bind-mounted
+    read-only, so the actual copy is delegated to the host agent.
+    Returns True on success (including the no-op case where the
+    extension has no config/ subdir), False if the agent rejected the
+    request or was unreachable.
     """
-    ext_config = USER_EXTENSIONS_DIR / service_id / "config"
-    if not ext_config.is_dir():
-        return
-    install_config = Path(INSTALL_DIR) / "config"
-    for child in ext_config.iterdir():
-        target = (install_config / child.name).resolve()
-        if not target.is_relative_to(install_config.resolve()):
-            logger.warning("Skipping config entry outside install dir: %s", child.name)
-            continue
-        if child.is_dir():
-            shutil.copytree(str(child), str(target), dirs_exist_ok=True)
-        else:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(str(child), str(target))
-    # Ensure scripts are executable (e.g. entrypoint.sh)
-    for root, _dirs, files in os.walk(str(install_config / service_id)):
-        for fname in files:
-            fpath = Path(root) / fname
-            if fname.endswith(".sh"):
-                fpath.chmod(fpath.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    return _call_agent_sync_config(service_id)
 
 
 def _compute_extension_status(ext: dict, services_by_id: dict) -> str:
@@ -651,6 +639,39 @@ def _call_agent_install(service_id: str) -> bool:
         return False
     except OSError as exc:
         logger.warning("Host agent install error for %s: %s", service_id, exc)
+        return False
+
+
+def _call_agent_sync_config(service_id: str) -> bool:
+    """Ask host agent to copy <ext>/config/* into INSTALL_DIR/config/.
+
+    The dashboard-api container has /dream-server/config bind-mounted
+    read-only, so it cannot do this work itself. The host agent runs
+    on the writable host filesystem.
+
+    Returns True on success (including the no-op case where the
+    extension has no shipped config), False if the agent rejected or
+    was unreachable.
+    """
+    url = f"{AGENT_URL}/v1/extension/sync_config"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {DREAM_AGENT_KEY}",
+    }
+    data = json.dumps({"service_id": service_id}).encode()
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=_AGENT_TIMEOUT) as resp:
+            return resp.status == 200
+    except urllib.error.HTTPError as exc:
+        logger.warning(
+            "sync_config failed for %s (HTTP %d)", service_id, exc.code,
+        )
+        return False
+    except (urllib.error.URLError, OSError, TimeoutError):
+        logger.warning(
+            "Host agent unreachable for sync_config at %s", AGENT_URL,
+        )
         return False
 
 

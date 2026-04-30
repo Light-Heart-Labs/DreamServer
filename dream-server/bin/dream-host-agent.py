@@ -12,6 +12,7 @@ import re
 import secrets
 import shutil
 import signal
+import stat as stat_mod
 import subprocess
 import sys
 import threading
@@ -699,6 +700,8 @@ class AgentHandler(BaseHTTPRequestHandler):
             self._handle_extension_compose_toggle(activate=True)
         elif self.path == "/v1/extension/deactivate":
             self._handle_extension_compose_toggle(activate=False)
+        elif self.path == "/v1/extension/sync_config":
+            self._handle_extension_sync_config()
         elif self.path == "/v1/service/logs":
             self._handle_service_logs()
         elif self.path == "/v1/model/download":
@@ -963,6 +966,174 @@ class AgentHandler(BaseHTTPRequestHandler):
 
         logger.info("%sd extension compose: %s", action, sid)
         json_response(self, 200, {"status": "ok", "service_id": sid, "action": action})
+
+    def _handle_extension_sync_config(self):
+        """Copy <ext_dir>/config/* into INSTALL_DIR/config/.
+
+        Some extensions ship a config/ subdirectory whose files are
+        bind-mounted by compose.yaml relative to the compose project root
+        (INSTALL_DIR), not the extension directory.  Without this sync,
+        Docker auto-creates the mount source as an empty directory and
+        the container fails at startup.
+
+        The dashboard-api previously did this copy itself, but its
+        bind-mount of /dream-server/config is read-only, so it cannot
+        write there.  The host agent runs on the host filesystem
+        (writable) and is the right place for this work.
+        """
+        if not check_auth(self):
+            return
+        body = read_json_body(self)
+        if body is None:
+            return
+
+        sid = body.get("service_id", "")
+        if not isinstance(sid, str) or not SERVICE_ID_RE.match(sid):
+            json_response(self, 400, {"error": "Invalid service_id"})
+            return
+
+        # Only user-installed extensions ship a config/ subdir for sync
+        # at install time; built-in configs are pre-created by the
+        # installer and must not be overwritten on re-toggle.
+        ext_dir = USER_EXTENSIONS_DIR / sid
+        if not ext_dir.is_dir():
+            # Not a user extension — no-op (built-ins handled by installer).
+            json_response(self, 200, {"status": "ok", "service_id": sid, "synced": []})
+            return
+
+        ext_config = ext_dir / "config"
+        if not ext_config.is_dir():
+            json_response(self, 200, {"status": "ok", "service_id": sid, "synced": []})
+            return
+
+        # Reject ANY symlink in the config/ tree (or if config/ itself is a
+        # symlink). _copytree_safe (the install-time copier) strips symlinks
+        # from user extensions, so legitimate extensions never have any.
+        # A symlink here implies tampering or a packaging bug, and would be
+        # dereferenced by shutil.copytree(symlinks=False) below — exfiltrating
+        # link-target content into a path the dashboard-api container can read.
+        # Iterating dirs + files (not just files) closes the symlinked-directory
+        # gap: os.walk(followlinks=False) does NOT recurse into symlinked dirs,
+        # so they only ever surface in the parent's `dirs` list.
+        # The walk covers the WHOLE config/ tree (including out-of-scope
+        # siblings) — a symlink anywhere is treated as tampering, even if the
+        # contract restriction below means we wouldn't have copied it anyway.
+        if ext_config.is_symlink():
+            json_response(self, 400, {
+                "error": (
+                    f"config sync refused: {sid}/config is a symlink "
+                    f"(symlinks are not permitted in extension configs)"
+                ),
+            })
+            return
+        for root, dirs, files in os.walk(str(ext_config), followlinks=False):
+            for name in dirs + files:
+                if (Path(root) / name).is_symlink():
+                    json_response(self, 400, {
+                        "error": (
+                            f"config sync refused: symlink {name} in "
+                            f"{sid}/config (symlinks are not permitted)"
+                        ),
+                    })
+                    return
+
+        # Default copy contract: an extension may only write to its OWN
+        # config tree — `<ext>/config/<service_id>/` → `INSTALL_DIR/config/<service_id>/`.
+        # Anything else under `<ext>/config/` (e.g. `<ext>/config/open-webui/`,
+        # `<ext>/config/litellm/`) is silently ignored — copying those would let
+        # a user extension overwrite installer-managed core configs or another
+        # extension's config tree. Cross-service writes are not part of the
+        # default contract; if a legitimate use case ever surfaces, an explicit
+        # manifest allowlist field is the right escape hatch (out of scope here).
+        src_svc = ext_config / sid
+
+        # Inventory siblings so the response can audit what was ignored.
+        out_of_scope: list[str] = []
+        for child in ext_config.iterdir():
+            if child.name != sid:
+                out_of_scope.append(child.name)
+                logger.info(
+                    "ignoring out-of-scope config entry %s/config/%s "
+                    "(default contract: only %s/config/%s/ is synced)",
+                    sid, child.name, sid, sid,
+                )
+
+        # If the extension ships no `config/<sid>/` at all, no-op.
+        if not src_svc.exists():
+            json_response(self, 200, {
+                "status": "ok",
+                "service_id": sid,
+                "synced": [],
+                "skipped": out_of_scope,
+            })
+            return
+        if not src_svc.is_dir():
+            json_response(self, 400, {
+                "error": (
+                    f"config sync refused: {sid}/config/{sid} must be a directory"
+                ),
+            })
+            return
+
+        install_config = (INSTALL_DIR / "config").resolve()
+        try:
+            install_config.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            json_response(self, 500, {"error": f"Failed to prepare config dir: {exc}"})
+            return
+
+        target = (install_config / sid).resolve()
+        # Path-traversal guard: target must stay under install_config. Always true
+        # because sid is validated against SERVICE_ID_RE above (no slashes / dots),
+        # but kept as defense-in-depth in case the regex ever loosens.
+        if not target.is_relative_to(install_config):
+            json_response(self, 400, {
+                "error": f"config sync refused: target outside install dir for {sid}",
+            })
+            return
+
+        synced: list[str] = []
+        lock = _service_locks[sid]
+        if not lock.acquire(blocking=False):
+            json_response(self, 409, {"error": f"Operation already in progress for {sid}"})
+            return
+        try:
+            try:
+                shutil.copytree(
+                    str(src_svc), str(target),
+                    dirs_exist_ok=True, symlinks=False,
+                )
+                synced.append(sid)
+            except OSError as exc:
+                json_response(self, 500, {
+                    "error": f"Failed to copy {sid}/config/{sid}: {exc}",
+                })
+                return
+            # Mark .sh files executable in the synced service tree.
+            for root, _dirs, files in os.walk(str(target)):
+                for fname in files:
+                    if fname.endswith(".sh"):
+                        fpath = Path(root) / fname
+                        try:
+                            fpath.chmod(
+                                fpath.stat().st_mode
+                                | stat_mod.S_IXUSR | stat_mod.S_IXGRP | stat_mod.S_IXOTH,
+                            )
+                        except OSError as exc:
+                            logger.warning("chmod +x failed for %s: %s", fpath, exc)
+        finally:
+            lock.release()
+
+        logger.info(
+            "synced config for extension %s (%d in-scope, %d out-of-scope ignored)",
+            sid, len(synced), len(out_of_scope),
+        )
+        json_response(self, 200, {
+            "status": "ok",
+            "service_id": sid,
+            "synced": synced,
+            "skipped": out_of_scope,
+        })
 
     def _handle_logs(self):
         if not check_auth(self):
