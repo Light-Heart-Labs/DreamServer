@@ -207,7 +207,10 @@ def _compute_extension_status(ext: dict, services_by_id: dict) -> str:
 
 def _is_installable(ext_id: str) -> bool:
     """Check if an extension is available in the extensions library."""
-    return (EXTENSIONS_LIBRARY_DIR / ext_id).is_dir()
+    # Require a deployable compose.yaml — a directory with only compose.yaml.disabled
+    # or compose.yaml.reference cannot actually deploy and must not be advertised.
+    ext_dir = EXTENSIONS_LIBRARY_DIR / ext_id
+    return ext_dir.is_dir() and (ext_dir / "compose.yaml").exists()
 
 
 def _validate_service_id(service_id: str) -> None:
@@ -1031,6 +1034,24 @@ def _install_from_library(service_id: str) -> None:
     if not source.is_dir():
         raise HTTPException(
             status_code=404, detail=f"Extension not found: {service_id}",
+        )
+
+    # Server-side install gate: refuse entries that have no deployable
+    # compose.yaml on disk (entries shipping only compose.yaml.disabled or
+    # compose.yaml.reference, e.g. dify, jan, fooocus). The catalog/UI hides
+    # the Install button for these via _is_installable, but a direct
+    # POST /api/extensions/{id}/install would otherwise succeed-without-effect:
+    # the directory gets copied to user-extensions/ but the host agent has
+    # nothing to start, surfacing as a cryptic post-install failure.
+    if not (source / "compose.yaml").exists():
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Extension '{service_id}' has no deployable compose.yaml "
+                f"and is not installable. Library entries that ship only "
+                f"compose.yaml.disabled or compose.yaml.reference files are "
+                f"reference material, not deployable services."
+            ),
         )
 
     dest = USER_EXTENSIONS_DIR / service_id

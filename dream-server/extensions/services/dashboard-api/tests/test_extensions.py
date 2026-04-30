@@ -448,6 +448,67 @@ class TestInstallExtension:
         )
         assert resp.status_code == 404
 
+    def test_install_rejects_library_entry_without_compose(
+        self, test_client, monkeypatch, tmp_path,
+    ):
+        """400 when the library entry exists but ships no deployable compose.yaml.
+
+        Mirrors the dify/jan/fooocus shape: directory present, manifest
+        present, but only `compose.yaml.disabled` or `compose.yaml.reference`
+        on disk. The catalog/UI already hides the Install button for these via
+        `_is_installable`, but a direct POST must also reject — otherwise the
+        copytree succeeds but the host agent can't start anything, surfacing
+        as a cryptic post-install failure instead of a clean 400.
+        """
+        lib_dir = tmp_path / "lib"
+        lib_dir.mkdir(exist_ok=True)
+        ext_dir = lib_dir / "reference-only"
+        ext_dir.mkdir(exist_ok=True)
+        # Only .disabled — no deployable compose.yaml
+        (ext_dir / "compose.yaml.disabled").write_text(_SAFE_COMPOSE)
+        (ext_dir / "manifest.yaml").write_text(yaml.dump({
+            "schema_version": "dream.services.v1",
+            "service": {"id": "reference-only", "name": "reference-only"},
+        }))
+        _patch_mutation_config(monkeypatch, tmp_path, lib_dir=lib_dir)
+
+        resp = test_client.post(
+            "/api/extensions/reference-only/install",
+            headers=test_client.auth_headers,
+        )
+        assert resp.status_code == 400
+        body = resp.json()
+        assert "compose.yaml" in body["detail"]
+        # Verify nothing was copied to user-extensions/
+        assert not (tmp_path / "user" / "reference-only").exists()
+
+    def test_install_rejects_library_entry_with_only_reference_compose(
+        self, test_client, monkeypatch, tmp_path,
+    ):
+        """Same shape, .reference suffix variant (mirrors fooocus).
+
+        Some library entries ship `compose.yaml.reference` instead of
+        `.disabled`. Either suffix is reference material — only literal
+        `compose.yaml` is deployable.
+        """
+        lib_dir = tmp_path / "lib"
+        lib_dir.mkdir(exist_ok=True)
+        ext_dir = lib_dir / "reference-only"
+        ext_dir.mkdir(exist_ok=True)
+        (ext_dir / "compose.yaml.reference").write_text(_SAFE_COMPOSE)
+        (ext_dir / "manifest.yaml").write_text(yaml.dump({
+            "schema_version": "dream.services.v1",
+            "service": {"id": "reference-only", "name": "reference-only"},
+        }))
+        _patch_mutation_config(monkeypatch, tmp_path, lib_dir=lib_dir)
+
+        resp = test_client.post(
+            "/api/extensions/reference-only/install",
+            headers=test_client.auth_headers,
+        )
+        assert resp.status_code == 400
+        assert not (tmp_path / "user" / "reference-only").exists()
+
     def test_install_core_service_403(self, test_client, monkeypatch, tmp_path):
         """403 when trying to install a core service."""
         _patch_mutation_config(monkeypatch, tmp_path)
