@@ -54,6 +54,34 @@ confirm_overwrite() {
   return 0
 }
 
+# ----------------------------- Compose-Helper --------------------------------
+# Liefert das `docker compose [-f ...]`-Kommando als Array zurück.
+# Hintergrund: resolve-compose-stack.sh gibt eine LANGE Argumentliste auf STDOUT
+# aus (`-f base.yml -f overlay.yml -f ext1.yml ...`). Mit `IFS=$'\n\t'` (siehe
+# Top des Skripts) splittet `$(...)` NICHT mehr auf Spaces → die ganze Zeile
+# landet als EIN Argument bei docker compose → "no such file or directory".
+# Lösung: read -a/-A in ein echtes Array (read setzt sein eigenes IFS=' \t\n').
+#
+# GPU_BACKEND=amd wird explizit übergeben, weil resolve-compose-stack.sh sonst
+# auf 'nvidia' defaultet (siehe scripts/resolve-compose-stack.sh:6).
+build_compose_cmd() {
+  local -n _out=$1   # nameref auf das Ziel-Array
+  _out=(docker compose)
+  if [[ -x "$DREAM_DIR/scripts/resolve-compose-stack.sh" ]]; then
+    local raw
+    raw="$("$DREAM_DIR/scripts/resolve-compose-stack.sh" \
+              --script-dir "$DREAM_DIR" \
+              --gpu-backend amd \
+              --skip-broken)"
+    # Word-Split auf Spaces/Tabs/Newlines unabhängig vom globalen IFS:
+    local -a parts
+    IFS=$' \t\n' read -r -a parts <<< "$raw"
+    _out+=("${parts[@]}")
+  else
+    _out+=(-f docker-compose.base.yml -f docker-compose.amd.yml)
+  fi
+}
+
 # ----------------------------- 0. Preflight ----------------------------------
 preflight() {
   log "[0/7] Preflight-Checks…"
@@ -104,12 +132,22 @@ preflight() {
 # Build-Args. Daher müssen LLAMA_CPP_REF & AMDGPU_TARGET VOR dem Rebuild in
 # der .env stehen – sonst greift der Dockerfile-Default (b8763).
 seed_build_env() {
-  log "[0a/7] Build-Env (LLAMA_CPP_REF, AMDGPU_TARGET) vor-seeden…"
+  log "[0a/7] Build-Env (GPU_BACKEND, LLAMA_CPP_REF, AMDGPU_TARGET) vor-seeden…"
   local f="$DREAM_DIR/.env"
   [[ -f "$f" ]] || { warn "$f fehlt – wird angelegt"; touch "$f"; }
+  # GPU_BACKEND=amd ist Pflicht – sonst defaultet resolve-compose-stack.sh:6
+  # auf 'nvidia' und lädt docker-compose.nvidia.yml + nvidia-Overlays.
+  set_env_var "$f" GPU_BACKEND     amd
   set_env_var "$f" LLAMA_CPP_REF  "$LLAMA_CPP_REF"
   set_env_var "$f" AMDGPU_TARGET  "$AMDGPU_TARGET"
-  log "  ✓ LLAMA_CPP_REF=$LLAMA_CPP_REF  AMDGPU_TARGET=$AMDGPU_TARGET in .env"
+  log "  ✓ GPU_BACKEND=amd  LLAMA_CPP_REF=$LLAMA_CPP_REF  AMDGPU_TARGET=$AMDGPU_TARGET in .env"
+
+  # Sanity-Check: Vorhandenen falschen Wert lautstark melden.
+  local existing_backend
+  existing_backend="$(grep -E '^GPU_BACKEND=' "$f" | tail -1 | cut -d= -f2 || true)"
+  if [[ -n "$existing_backend" && "$existing_backend" != "amd" ]]; then
+    warn "  ACHTUNG: GPU_BACKEND war zuvor '$existing_backend' – wurde auf 'amd' korrigiert."
+  fi
 }
 
 # ----------------------------- 0b. Lemonade Update ---------------------------
@@ -127,8 +165,10 @@ update_lemonade() {
 
   # 1. Repo aktualisieren falls vorhanden
   if [[ -x "$DREAM_DIR/dream-update.sh" ]]; then
-    log "  → dream-update.sh ausführen…"
-    ( cd "$DREAM_DIR" && ./dream-update.sh --yes ) || warn "dream-update.sh exit != 0"
+    log "  → dream-update.sh update ausführen…"
+    # dream-update.sh nutzt 'update' als Subcommand (kein --yes Flag).
+    ( cd "$DREAM_DIR" && ./dream-update.sh update ) || \
+      warn "dream-update.sh update exit != 0 – fahre trotzdem fort"
   elif [[ -d "$DREAM_DIR/.git" ]]; then
     log "  → git pull…"
     ( cd "$DREAM_DIR" && git pull --ff-only ) || warn "git pull fehlgeschlagen"
@@ -142,22 +182,12 @@ update_lemonade() {
   # Inline-Export stellt sicher, dass der Build-Arg auch dann gesetzt ist,
   # wenn .env nicht eingelesen wird (z.B. bei alternativen compose-Aufrufen).
   export LLAMA_CPP_REF AMDGPU_TARGET
-  # resolve-compose-stack.sh löst alle aktivierten Extension-Compose-Files
-  # samt GPU-Overlays auf (siehe scripts/resolve-compose-stack.sh).
-  if [[ -x "$DREAM_DIR/scripts/resolve-compose-stack.sh" ]]; then
-    # shellcheck disable=SC2046
-    docker compose $("$DREAM_DIR/scripts/resolve-compose-stack.sh") \
-      build --pull --no-cache \
+  local -a compose_cmd
+  build_compose_cmd compose_cmd
+  "${compose_cmd[@]}" build --pull --no-cache \
       --build-arg "LLAMA_CPP_REF=$LLAMA_CPP_REF" \
       --build-arg "AMDGPU_TARGET=$AMDGPU_TARGET" \
       llama-server
-  else
-    docker compose -f docker-compose.base.yml -f docker-compose.amd.yml \
-      build --pull --no-cache \
-      --build-arg "LLAMA_CPP_REF=$LLAMA_CPP_REF" \
-      --build-arg "AMDGPU_TARGET=$AMDGPU_TARGET" \
-      llama-server
-  fi
   log "  ✓ Lemonade-Image neu gebaut (llama.cpp $LLAMA_CPP_REF)"
   warn "  Build-Output auf 'WARNING: MMQ patch did not apply' prüfen – falls"
   warn "  vorhanden, sind die Strix-Halo-Patches nicht aktiv (b8994 != b8763)."
@@ -344,6 +374,7 @@ write_env() {
   set_env_var "$f" CTX_SIZE                65536
 
   # GPU/ROCm – HSA_OVERRIDE explizit LEER, damit gfx1151 nativ läuft
+  set_env_var "$f" GPU_BACKEND             amd
   set_env_var "$f" AMDGPU_TARGET           "$AMDGPU_TARGET"
   set_env_var "$f" LLAMA_CPP_REF           "$LLAMA_CPP_REF"
   set_env_var "$f" HSA_OVERRIDE_GFX_VERSION ""
@@ -638,14 +669,9 @@ restart_services() {
   cd "$DREAM_DIR"
 
   # Compose-Aufruf für diese Maschine ermitteln (resolve-compose-stack
-  # falls vorhanden, sonst klassisch base+amd).
+  # falls vorhanden, sonst klassisch base+amd) – siehe build_compose_cmd.
   local -a compose_cmd
-  if [[ -x "$DREAM_DIR/scripts/resolve-compose-stack.sh" ]]; then
-    # shellcheck disable=SC2207
-    compose_cmd=(docker compose $("$DREAM_DIR/scripts/resolve-compose-stack.sh"))
-  else
-    compose_cmd=(docker compose -f docker-compose.base.yml -f docker-compose.amd.yml)
-  fi
+  build_compose_cmd compose_cmd
 
   # Nur die Services starten, die im aufgelösten Compose tatsächlich existieren.
   # Sonst würde "up whisper" failen, falls die Extension nicht aktiviert ist.
