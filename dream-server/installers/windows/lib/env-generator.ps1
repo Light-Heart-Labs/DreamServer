@@ -356,10 +356,8 @@ LANGFUSE_INIT_USER_PASSWORD=$langfuseInitUserPassword
     }
 
     return @{
-        EnvPath        = $envPath
         SearxngSecret  = $searxngSecret
         OpenclawToken  = $openclawToken
-        DreamAgentKey  = $dreamAgentKey
     }
 }
 

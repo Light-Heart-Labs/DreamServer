@@ -16,7 +16,7 @@
 #   $openClawConfig            -- from phase 03
 #
 # Writes:
-#   $envResult  -- hashtable: EnvPath, SearxngSecret, OpenclawToken, DreamAgentKey
+#   $envResult  -- hashtable: SearxngSecret, OpenclawToken
 #
 # Modder notes:
 #   Add new directories to $_dirs array below.
@@ -38,10 +38,8 @@ if ($dryRun) {
     }
     # Signal to later phases: no envResult in dry-run mode
     $envResult = @{
-        EnvPath       = Join-Path $installDir ".env"
         SearxngSecret = "(dry-run-placeholder)"
         OpenclawToken = "(dry-run-placeholder)"
-        DreamAgentKey = "(dry-run-placeholder)"
     }
     return
 }

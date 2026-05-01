@@ -24,7 +24,6 @@ services:
     volumes:
       - ./config/openclaw:/config:ro
       - ./data/openclaw:/data
-      - openclaw-home:/home/node/.openclaw
       - ./config/openclaw/workspace:/home/node/.openclaw/workspace
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${OPENCLAW_PORT:-7860}:18789"
@@ -57,6 +56,3 @@ services:
     environment:
       - OPENAI_API_BASE_URLS=${LLM_API_URL:-http://llama-server:8080}/v1;http://openclaw:18790/v1
       - OPENAI_API_KEYS=;${OPENCLAW_TOKEN:-}
-
-volumes:
-  openclaw-home:

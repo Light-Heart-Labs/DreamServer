@@ -27,33 +27,38 @@ if $INTERACTIVE && ! $DRY_RUN; then
 
     # Only show individual feature prompts for Custom installs
     if [[ "${INSTALL_CHOICE:-1}" == "3" ]]; then
+        # Explicitly set each flag from the user's answer — do NOT rely on
+        # the pre-existing default. Previously these read 'reply || flag=true',
+        # which only *set* the flag to true when the answer wasn't N and
+        # never set it to false; combined with all defaults being true from
+        # install-core.sh, pressing 'n' was a no-op.
         read -p "  Enable voice (Whisper STT + Kokoro TTS)? [Y/n] " -r < /dev/tty
         echo
-        [[ $REPLY =~ ^[Nn]$ ]] || ENABLE_VOICE=true
+        if [[ $REPLY =~ ^[Nn]$ ]]; then ENABLE_VOICE=false; else ENABLE_VOICE=true; fi
 
         read -p "  Enable n8n workflow automation? [Y/n] " -r < /dev/tty
         echo
-        [[ $REPLY =~ ^[Nn]$ ]] || ENABLE_WORKFLOWS=true
+        if [[ $REPLY =~ ^[Nn]$ ]]; then ENABLE_WORKFLOWS=false; else ENABLE_WORKFLOWS=true; fi
 
         read -p "  Enable Qdrant vector database (for RAG)? [Y/n] " -r < /dev/tty
         echo
-        [[ $REPLY =~ ^[Nn]$ ]] || ENABLE_RAG=true
+        if [[ $REPLY =~ ^[Nn]$ ]]; then ENABLE_RAG=false; else ENABLE_RAG=true; fi
 
         read -p "  Enable OpenClaw AI agent framework? [y/N] " -r < /dev/tty
         echo
-        [[ $REPLY =~ ^[Yy]$ ]] && ENABLE_OPENCLAW=true
+        if [[ $REPLY =~ ^[Yy]$ ]]; then ENABLE_OPENCLAW=true; else ENABLE_OPENCLAW=false; fi
 
         read -p "  Enable image generation (ComfyUI + SDXL Lightning, ~6.5GB)? [Y/n] " -r < /dev/tty
         echo
-        [[ $REPLY =~ ^[Nn]$ ]] || ENABLE_COMFYUI=true
+        if [[ $REPLY =~ ^[Nn]$ ]]; then ENABLE_COMFYUI=false; else ENABLE_COMFYUI=true; fi
 
         read -p "  Enable DreamForge agent system? [Y/n] " -r < /dev/tty
         echo
-        [[ $REPLY =~ ^[Nn]$ ]] || ENABLE_DREAMFORGE=true
+        if [[ $REPLY =~ ^[Nn]$ ]]; then ENABLE_DREAMFORGE=false; else ENABLE_DREAMFORGE=true; fi
 
         read -p "  Enable Langfuse (LLM observability + telemetry, ~500MB)? [y/N] " -r < /dev/tty
         echo
-        [[ $REPLY =~ ^[Yy]$ ]] && ENABLE_LANGFUSE=true
+        if [[ $REPLY =~ ^[Yy]$ ]]; then ENABLE_LANGFUSE=true; else ENABLE_LANGFUSE=false; fi
 
         # Warn if ComfyUI enabled on low-tier hardware
         if [[ "$ENABLE_COMFYUI" == "true" ]]; then
@@ -84,53 +89,44 @@ fi
 # resolver uses the .disabled convention to exclude services from the compose
 # stack. These mv calls are skipped during --dry-run so the source tree is
 # never mutated by a preview invocation.
-if ! $DRY_RUN; then
-    _comfyui_compose="$SCRIPT_DIR/extensions/services/comfyui/compose.yaml"
-    if [[ "${ENABLE_COMFYUI:-}" == "true" ]]; then
+#
+# Without this sync, an extension's compose.yaml is ALWAYS picked up by
+# resolve-compose-stack.sh regardless of the ENABLE_* flag — the flag then
+# only gates cosmetic things (image pre-pull, health checks, summary URLs)
+# and the service still starts. Every optional service must be listed here
+# or the user can't opt out of it.
+_sync_extension_compose() {
+    local flag="$1" svc_dir="$2" label="$3" reason="$4"
+    local compose="$SCRIPT_DIR/extensions/services/$svc_dir/compose.yaml"
+    if [[ "$flag" == "true" ]]; then
         # Re-enable if previously disabled (re-install with different options)
-        if [[ ! -f "$_comfyui_compose" && -f "${_comfyui_compose}.disabled" ]]; then
-            mv "${_comfyui_compose}.disabled" "$_comfyui_compose"
-            log "ComfyUI compose re-enabled"
+        if [[ ! -f "$compose" && -f "${compose}.disabled" ]]; then
+            mv "${compose}.disabled" "$compose"
+            log "$label compose re-enabled"
         fi
     else
         # Disable — prevents resolve-compose-stack.sh from including a compose
         # file whose image was never built/pulled, blocking ALL containers.
-        if [[ -f "$_comfyui_compose" ]]; then
-            mv "$_comfyui_compose" "${_comfyui_compose}.disabled"
-            log "ComfyUI compose disabled (image generation not enabled)"
+        if [[ -f "$compose" ]]; then
+            mv "$compose" "${compose}.disabled"
+            log "$label compose disabled ($reason)"
         fi
     fi
-    unset _comfyui_compose
+}
 
-    # Sync DreamForge compose state with ENABLE_DREAMFORGE — same .disabled convention.
-    _dreamforge_compose="$SCRIPT_DIR/extensions/services/dreamforge/compose.yaml"
-    if [[ "${ENABLE_DREAMFORGE:-}" == "true" ]]; then
-        if [[ ! -f "$_dreamforge_compose" && -f "${_dreamforge_compose}.disabled" ]]; then
-            mv "${_dreamforge_compose}.disabled" "$_dreamforge_compose"
-            log "DreamForge compose re-enabled"
-        fi
-    else
-        if [[ -f "$_dreamforge_compose" ]]; then
-            mv "$_dreamforge_compose" "${_dreamforge_compose}.disabled"
-            log "DreamForge compose disabled (agent system not enabled)"
-        fi
-    fi
-    unset _dreamforge_compose
-
-    # Sync Langfuse compose state with ENABLE_LANGFUSE — same .disabled convention.
-    _langfuse_compose="$SCRIPT_DIR/extensions/services/langfuse/compose.yaml"
-    if [[ "${ENABLE_LANGFUSE:-}" == "true" ]]; then
-        if [[ ! -f "$_langfuse_compose" && -f "${_langfuse_compose}.disabled" ]]; then
-            mv "${_langfuse_compose}.disabled" "$_langfuse_compose"
-            log "Langfuse compose re-enabled"
-        fi
-    else
-        if [[ -f "$_langfuse_compose" ]]; then
-            mv "$_langfuse_compose" "${_langfuse_compose}.disabled"
-            log "Langfuse compose disabled (LLM observability not enabled)"
-        fi
-    fi
-    unset _langfuse_compose
+if ! $DRY_RUN; then
+    _sync_extension_compose "${ENABLE_VOICE:-}"      whisper    "Whisper (STT)" "voice not enabled"
+    _sync_extension_compose "${ENABLE_VOICE:-}"      tts        "Kokoro (TTS)"  "voice not enabled"
+    _sync_extension_compose "${ENABLE_WORKFLOWS:-}"  n8n        "n8n"           "workflows not enabled"
+    # RAG = qdrant (vector store) + embeddings (TEI). Both must follow
+    # ENABLE_RAG, otherwise opting out leaves the embeddings container
+    # being pulled and started even though nothing queries it.
+    _sync_extension_compose "${ENABLE_RAG:-}"        qdrant     "Qdrant"        "RAG not enabled"
+    _sync_extension_compose "${ENABLE_RAG:-}"        embeddings "Embeddings (TEI)" "RAG not enabled"
+    _sync_extension_compose "${ENABLE_OPENCLAW:-}"   openclaw   "OpenClaw"      "agent framework not enabled"
+    _sync_extension_compose "${ENABLE_COMFYUI:-}"    comfyui    "ComfyUI"       "image generation not enabled"
+    _sync_extension_compose "${ENABLE_DREAMFORGE:-}" dreamforge "DreamForge"    "agent system not enabled"
+    _sync_extension_compose "${ENABLE_LANGFUSE:-}"   langfuse   "Langfuse"      "LLM observability not enabled"
 fi
 
 # Re-resolve compose flags now that feature selection may have disabled services.

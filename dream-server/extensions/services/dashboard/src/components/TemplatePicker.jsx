@@ -149,7 +149,7 @@ export function TemplatePreview({ template, onClose, onApplied }) {
         timeout: 120000,
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       if (data.enabled_count > 0) {
         setApplied(data.restart_required ? 'restart_required' : 'enabled')
       } else {

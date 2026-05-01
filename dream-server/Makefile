@@ -33,6 +33,9 @@ test: ## Run unit and contract tests
 	@echo "=== Overlay/plist contracts ==="
 	@bash tests/contracts/test-overlay-map-coherence.sh
 	@bash tests/contracts/test-plist-log-paths.sh
+	@echo ""
+	@echo "=== Bind address sweep ==="
+	@bash tests/test-bind-address-sweep.sh
 
 bats: ## Run BATS unit tests for shell libraries
 	@echo "=== BATS unit tests ==="

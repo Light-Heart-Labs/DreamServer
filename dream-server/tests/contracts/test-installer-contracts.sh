@@ -58,6 +58,19 @@ grep -q 'MINIO_TELEMETRY_DISABLED.*1' extensions/services/langfuse/compose.yaml.
   grep -q 'MINIO_TELEMETRY_DISABLED.*1' extensions/services/langfuse/compose.yaml 2>/dev/null || \
   { echo "[FAIL] MinIO telemetry not disabled"; exit 1; }
 
+echo "[contract] ENABLE_RAG opt-out disables both qdrant and embeddings"
+# RAG = qdrant (vector store) + embeddings (TEI). Both compose files must
+# be gated on ENABLE_RAG in installers/phases/03-features.sh; otherwise
+# answering 'n' to the Custom-menu RAG prompt still leaves embeddings
+# being pulled and started.
+features_phase="dream-server/installers/phases/03-features.sh"
+test -f "$features_phase" || features_phase="installers/phases/03-features.sh"
+test -f "$features_phase" || { echo "[FAIL] cannot locate 03-features.sh"; exit 1; }
+for svc in qdrant embeddings; do
+  grep -qE "_sync_extension_compose +\"\\\$\\{ENABLE_RAG:-\\}\" +$svc\\b" "$features_phase" \
+    || { echo "[FAIL] ENABLE_RAG opt-out missing sync for '$svc' in $features_phase"; exit 1; }
+done
+
 echo "[contract] Token Spy dashboard ships offline chart assets"
 test -f extensions/services/token-spy/dashboard_charts.js || { echo "[FAIL] missing extensions/services/token-spy/dashboard_charts.js"; exit 1; }
 grep -q '/dashboard-assets/charts.js' extensions/services/token-spy/main.py || \

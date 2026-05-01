@@ -53,6 +53,9 @@ logger = logging.getLogger(__name__)
 
 _aio_session: Optional[aiohttp.ClientSession] = None
 _HEALTH_TIMEOUT = aiohttp.ClientTimeout(total=30)
+# Short timeout for the catalog fan-out: one slow probe must not stall the
+# whole Extensions page (frontend aborts after 8 s).
+_CATALOG_HEALTH_TIMEOUT = aiohttp.ClientTimeout(total=5)
 
 
 async def _get_aio_session() -> aiohttp.ClientSession:
@@ -231,8 +234,18 @@ def get_cached_services() -> Optional[list]:
 
 # --- Service Health ---
 
-async def check_service_health(service_id: str, config: dict) -> ServiceStatus:
-    """Check if a service is healthy by hitting its health endpoint."""
+async def check_service_health(
+    service_id: str,
+    config: dict,
+    *,
+    timeout: Optional[aiohttp.ClientTimeout] = None,
+) -> ServiceStatus:
+    """Check if a service is healthy by hitting its health endpoint.
+
+    *timeout* overrides the session-level timeout for a single probe.  The
+    catalog fan-out passes a shorter timeout so one slow service does not
+    stall the entire Extensions page.
+    """
     if config.get("type") == "host-systemd":
         # Host-systemd services bind to 127.0.0.1 and are unreachable from
         # inside Docker.  The installer manages them via systemd (auto-restart
@@ -255,7 +268,10 @@ async def check_service_health(service_id: str, config: dict) -> ServiceStatus:
         # Send Host header so reverse-proxy services (e.g. Caddy in Baserow)
         # route the request correctly instead of returning 404.
         headers = {"Host": "localhost"}
-        async with session.get(url, headers=headers) as resp:
+        get_kwargs: dict = {"headers": headers}
+        if timeout is not None:
+            get_kwargs["timeout"] = timeout
+        async with session.get(url, **get_kwargs) as resp:
             response_time = (asyncio.get_event_loop().time() - start) * 1000
             status = "healthy" if resp.status < 400 else "unhealthy"
     except asyncio.TimeoutError:
