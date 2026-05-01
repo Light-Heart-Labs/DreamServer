@@ -261,8 +261,12 @@ detect_gpu() {
             # Read device ID from sysfs
             GPU_DEVICE_ID=$(cat "$card_dir/device" 2>/dev/null) || GPU_DEVICE_ID="unknown"
 
-            # Detect APU: small VRAM + large GTT = unified memory
-            if [[ $gtt_gb -ge 16 && $vram_gb -le 4 ]] || [[ $gtt_gb -ge 32 ]] || [[ $vram_gb -ge 32 ]]; then
+            # Detect APU: small VRAM + large GTT = unified memory.
+            # GTT is the reliable signal — it represents system RAM available to
+            # the GPU and is large on APUs (Strix Halo). VRAM alone is not a
+            # safe gate: a future discrete 32 GB+ AMD card would be misidentified
+            # as unified memory if vram_gb >= 32 were kept as an OR branch.
+            if [[ $gtt_gb -ge 16 && $vram_gb -le 4 ]] || [[ $gtt_gb -ge 32 ]]; then
                 GPU_BACKEND="amd"
                 GPU_MEMORY_TYPE="unified"
                 GPU_VRAM=$(( vram_bytes / 1048576 ))  # in MB
