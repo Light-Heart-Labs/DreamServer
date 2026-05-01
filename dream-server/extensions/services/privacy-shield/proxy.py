@@ -100,37 +100,31 @@ def _is_authenticated(request: Request) -> bool:
 @app.get("/health")
 async def health(request: Request):
     """Health check endpoint. Sensitive fields require authentication."""
-    base = {
-        "status": "ok",
-        "service": "api-privacy-shield",
-        "version": "0.2.0",
-    }
     if _is_authenticated(request):
-        base.update({
+        return {
+            "status": "ok",
+            "service": "api-privacy-shield",
+            "version": "0.2.0",
             "target_api": TARGET_API_BASE,
             "cache_enabled": CACHE_ENABLED,
             "active_sessions": len(sessions),
-        })
-    return base
+        }
+    return {"status": "ok"}
 
 
-@app.get("/stats")
-async def stats(request: Request):
-    """Session statistics. Sensitive metrics require authentication."""
-    base = {
+@app.get("/stats", dependencies=[Depends(verify_api_key)])
+async def stats():
+    """Session statistics."""
+    total_pii = sum(
+        s.detector.get_stats()['unique_pii_count']
+        for s in sessions.values()
+    )
+    return {
         "cache_enabled": CACHE_ENABLED,
         "cache_size": CACHE_SIZE,
+        "active_sessions": len(sessions),
+        "total_pii_scrubbed": total_pii,
     }
-    if _is_authenticated(request):
-        total_pii = sum(
-            s.detector.get_stats()['unique_pii_count']
-            for s in sessions.values()
-        )
-        base.update({
-            "active_sessions": len(sessions),
-            "total_pii_scrubbed": total_pii,
-        })
-    return base
 
 
 @app.post("/{path:path}", dependencies=[Depends(verify_api_key)])

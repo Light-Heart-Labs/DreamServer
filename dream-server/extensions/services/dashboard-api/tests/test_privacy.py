@@ -197,7 +197,10 @@ def test_privacy_shield_toggle_os_error(test_client):
 
 
 def test_privacy_shield_stats_success(test_client):
-    """GET /api/privacy-shield/stats with mocked healthy response."""
+    """GET /api/privacy-shield/stats with mocked healthy response.
+
+    Also verifies the upstream call carries the SHIELD_API_KEY Bearer token.
+    """
     resp_mock = AsyncMock()
     resp_mock.status = 200
     resp_mock.json = AsyncMock(return_value={"requests": 42, "pii_detected": 3})
@@ -218,6 +221,20 @@ def test_privacy_shield_stats_success(test_client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["requests"] == 42
+
+    # The upstream call must forward a Bearer token built from SHIELD_API_KEY.
+    session_mock.get.assert_called_once()
+    forwarded_headers = session_mock.get.call_args.kwargs.get("headers", {})
+    assert forwarded_headers.get("Authorization") == "Bearer test-shield-key-fixture"
+
+
+def test_privacy_shield_stats_missing_shield_key(test_client, monkeypatch):
+    """GET /api/privacy-shield/stats when SHIELD_API_KEY is unset returns a clear error."""
+    monkeypatch.delenv("SHIELD_API_KEY", raising=False)
+    resp = test_client.get("/api/privacy-shield/stats", headers=test_client.auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data == {"error": "SHIELD_API_KEY not configured", "enabled": False}
 
 
 def test_privacy_shield_stats_non_200(test_client):

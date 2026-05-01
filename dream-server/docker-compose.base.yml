@@ -172,6 +172,7 @@ services:
       - N8N_URL=${N8N_URL:-http://n8n:5678}
       - DASHBOARD_API_KEY=${DASHBOARD_API_KEY:-}
       - DREAM_AGENT_KEY=${DREAM_AGENT_KEY:-}
+      - SHIELD_API_KEY=${SHIELD_API_KEY:-}
       - OPENCLAW_TOKEN=${OPENCLAW_TOKEN:-}
       - TOKEN_SPY_URL=${TOKEN_SPY_URL:-http://token-spy:8080}
       - TOKEN_SPY_API_KEY=${TOKEN_SPY_API_KEY:-}
