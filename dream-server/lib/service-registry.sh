@@ -228,10 +228,21 @@ sr_resolve_ports() {
     fi
 }
 
-# Resolve a user-provided name to a compose service ID
+# Resolve a user-provided name to a compose service ID.
+#
+# Users copy container names (e.g. `dream-token-spy`) from `docker ps` and
+# expect them to work as arguments to `dream restart|stop|start|update`. The
+# registry loader names every container `dream-<sid>` (or the manifest's
+# explicit `container_name`, which by convention follows the same pattern),
+# so stripping a leading `dream-` recovers the alias key when the literal
+# input doesn't match an alias.
 sr_resolve() {
     sr_load
     local input="$1"
+    if [[ -z "${SERVICE_ALIASES[$input]:-}" && "$input" == dream-* ]]; then
+        local _stripped="${input#dream-}"
+        [[ -n "${SERVICE_ALIASES[$_stripped]:-}" ]] && input="$_stripped"
+    fi
     echo "${SERVICE_ALIASES[$input]:-$input}"
 }
 
