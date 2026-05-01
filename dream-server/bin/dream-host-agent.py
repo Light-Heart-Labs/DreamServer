@@ -341,6 +341,29 @@ def docker_compose_recreate(service_ids: list[str]) -> tuple:
         return False, f"Docker compose operation timed out ({SUBPROCESS_TIMEOUT_START}s)"
 
 
+def _post_install_core_recreate(service_id: str) -> None:
+    """Force-recreate core services whose env was overridden by ``service_id``'s
+    compose.yaml overlay.
+
+    ``docker compose up -d <ext>`` (how _handle_install starts the extension)
+    will not pick up overlay changes targeting already-running core services
+    without ``--force-recreate``. openclaw's compose.yaml appends an
+    OPENAI_API_BASE_URLS entry to open-webui; without this post-install
+    recreate that overlay is silently ignored until the next core restart.
+
+    Failure is logged and swallowed — the extension itself is already running;
+    the overlay will apply on the next manual restart of the core service.
+    """
+    if service_id != "openclaw":
+        return
+    ok, err = docker_compose_recreate(["open-webui"])
+    if not ok:
+        logger.warning(
+            "Post-install recreate of open-webui failed after openclaw install: %s",
+            err,
+        )
+
+
 def _parse_mem_value(s: str) -> float:
     """Parse Docker memory string like '256MiB' or '4GiB' to MB."""
     s = s.strip()
@@ -1231,6 +1254,18 @@ class AgentHandler(BaseHTTPRequestHandler):
 
                 # Step 4: Success
                 _write_progress(service_id, "started", "Service started")
+
+                # Step 5: Post-install core recreate (best-effort, non-fatal).
+                # Some extensions (e.g. openclaw) add overlay env to already-
+                # running core services; `up -d <ext>` (without --force-recreate)
+                # won't apply those changes. Failure here must not fail the install.
+                try:
+                    _post_install_core_recreate(service_id)
+                except Exception:
+                    logger.exception(
+                        "Post-install core recreate raised for %s (ignored)",
+                        service_id,
+                    )
 
             except subprocess.TimeoutExpired:
                 _write_progress(service_id, "error", "Installation failed",
