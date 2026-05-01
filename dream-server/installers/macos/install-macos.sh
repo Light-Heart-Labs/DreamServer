@@ -882,7 +882,7 @@ else
     chapter "STARTING SERVICES"
     ai "Running: docker compose ${COMPOSE_FLAGS[*]} up -d"
     set +o pipefail  # pipefail would abort on compose exit before PIPESTATUS is read; capture it first
-    docker compose "${COMPOSE_FLAGS[@]}" up -d 2>&1 | while IFS= read -r line; do
+    docker compose "${COMPOSE_FLAGS[@]}" up -d --remove-orphans 2>&1 | while IFS= read -r line; do
         echo "  $line"
     done
     compose_exit="${PIPESTATUS[0]}"
@@ -982,7 +982,7 @@ OPENCODE_EOF
     <key>ProgramArguments</key>
     <array>
         <string>${HOME}/.opencode/bin/opencode</string>
-        <string>web</string>
+        <string>serve</string>
         <string>--port</string>
         <string>3003</string>
         <string>--hostname</string>
@@ -1005,9 +1005,9 @@ OPENCODE_EOF
         <false/>
     </dict>
     <key>StandardOutPath</key>
-    <string>${HOME}/Library/Logs/DreamServer/opencode-web.log</string>
+    <string>${HOME}/Library/Logs/DreamServer/opencode-serve.log</string>
     <key>StandardErrorPath</key>
-    <string>${HOME}/Library/Logs/DreamServer/opencode-web.log</string>
+    <string>${HOME}/Library/Logs/DreamServer/opencode-serve.log</string>
 </dict>
 </plist>
 PLIST_EOF
@@ -1021,7 +1021,7 @@ PLIST_EOF
             ai_ok "OpenCode Web UI service installed (LaunchAgent, port 3003)"
         else
             ai_warn "OpenCode LaunchAgent failed (rc=${_opencode_bootstrap_rc}): ${_opencode_bootstrap_err}"
-            ai_warn "Start manually: opencode web --port 3003"
+            ai_warn "Start manually: opencode serve --port 3003"
         fi
     fi
 fi
