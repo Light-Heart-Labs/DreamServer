@@ -238,7 +238,7 @@ get_native_llama_status() {
         NATIVE_LLAMA_PID="$saved_pid"
 
         # Health check
-        if curl -sf --max-time 10 http://localhost:8080/health >/dev/null 2>&1; then
+        if curl -sf --max-time 10 http://127.0.0.1:8080/health >/dev/null 2>&1; then
             NATIVE_LLAMA_HEALTHY=true
         fi
     else
@@ -300,7 +300,7 @@ start_native_llama() {
     while [[ "$waited" -lt "$max_wait" ]]; do
         sleep 2
         waited=$((waited + 2))
-        if curl -sf --max-time 10 http://localhost:8080/health >/dev/null 2>&1; then
+        if curl -sf --max-time 10 http://127.0.0.1:8080/health >/dev/null 2>&1; then
             ai_ok "Native llama-server healthy"
             return
         fi
@@ -368,7 +368,7 @@ cmd_status() {
 
     # Parallel arrays (Bash 3.2 compatible)
     local ep_names=("LLM API" "Chat UI" "Dashboard" "OpenCode (IDE)")
-    local ep_urls=("http://localhost:8080/health" "http://localhost:3000" "http://localhost:3001" "http://localhost:3003")
+    local ep_urls=("http://127.0.0.1:8080/health" "http://127.0.0.1:3000" "http://127.0.0.1:3001" "http://127.0.0.1:3003")
 
     for ((i=0; i<${#ep_names[@]}; i++)); do
         local name="${ep_names[$i]}"
@@ -544,7 +544,7 @@ cmd_chat() {
         '{model: "default", messages: [{role: "user", content: $msg}], max_tokens: 500}')
 
     local response
-    response=$(curl -sf -X POST "http://localhost:8080/v1/chat/completions" \
+    response=$(curl -sf -X POST "http://127.0.0.1:8080/v1/chat/completions" \
         -H "Content-Type: application/json" \
         -d "$payload" 2>/dev/null) || {
         ai_err "Chat request failed."

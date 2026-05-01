@@ -721,7 +721,7 @@ else
         while [[ "$WAITED" -lt "$MAX_WAIT" ]]; do
             sleep 2
             WAITED=$((WAITED + 2))
-            if curl -sf --max-time 10 http://localhost:8080/health >/dev/null 2>&1; then
+            if curl -sf --max-time 10 http://127.0.0.1:8080/health >/dev/null 2>&1; then
                 HEALTHY=true
                 break
             fi
@@ -1163,7 +1163,7 @@ if [[ "$ENABLE_VOICE" == "true" ]]; then
     STT_MODEL_ENCODED="${STT_MODEL//\//%2F}"
     # macOS reassigns Whisper to 9100 if port 9000 is in use (AirPlay Receiver).
     WHISPER_PORT_RESOLVED="${WHISPER_PORT:-9000}"
-    WHISPER_URL="http://localhost:${WHISPER_PORT_RESOLVED}"
+    WHISPER_URL="http://127.0.0.1:${WHISPER_PORT_RESOLVED}"
     STT_RECOVERY_CMD="curl --max-time 3600 -X POST ${WHISPER_URL}/v1/models/${STT_MODEL_ENCODED}"
 
     # Step 1: wait briefly for the models API to be ready (max 15s).
