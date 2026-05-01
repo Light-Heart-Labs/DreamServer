@@ -32,6 +32,14 @@ TIER="${TIER:-1}"             # 1 = nur essentielle Modelle, 2 = +reasoning/code
 LLAMA_CPP_REF="${LLAMA_CPP_REF:-b8994}"
 AMDGPU_TARGET="${AMDGPU_TARGET:-gfx1151}"
 
+# Lemonade Base-Image-Tag. Wird in Dockerfile.amd Stage 2 als
+# `FROM ghcr.io/lemonade-sdk/lemonade-server:${LEMONADE_REF}` verwendet.
+# Default: 'latest' → mit `--pull --no-cache` (siehe update_lemonade) wird
+# bei jedem Lauf der aktuell veröffentlichte Tag gezogen.
+# Reproduzierbarer Build: explizit pinnen, z.B. LEMONADE_REF=v10.3.0 ./...
+# Verfügbare Tags: https://github.com/lemonade-sdk/lemonade/pkgs/container/lemonade-server
+LEMONADE_REF="${LEMONADE_REF:-latest}"
+
 # ----------------------------- Logging / Trap --------------------------------
 log()  { printf '\033[1;36m[%s]\033[0m %s\n' "$(date +%H:%M:%S)" "$*"; }
 warn() { printf '\033[1;33m[WARN]\033[0m %s\n' "$*" >&2; }
@@ -89,6 +97,7 @@ preflight() {
   [[ -d "$DREAM_DIR" ]] || die "DreamServer-Verzeichnis fehlt: $DREAM_DIR"
   command -v docker  >/dev/null || die "docker nicht gefunden"
   command -v wget    >/dev/null || die "wget nicht gefunden"
+  command -v curl    >/dev/null || die "curl nicht gefunden (für URL-Preflight)"
   command -v python3 >/dev/null || die "python3 nicht gefunden"
   python3 -c 'import yaml' 2>/dev/null || die "python3-yaml fehlt: sudo apt install python3-yaml"
 
@@ -140,7 +149,8 @@ seed_build_env() {
   set_env_var "$f" GPU_BACKEND     amd
   set_env_var "$f" LLAMA_CPP_REF  "$LLAMA_CPP_REF"
   set_env_var "$f" AMDGPU_TARGET  "$AMDGPU_TARGET"
-  log "  ✓ GPU_BACKEND=amd  LLAMA_CPP_REF=$LLAMA_CPP_REF  AMDGPU_TARGET=$AMDGPU_TARGET in .env"
+  set_env_var "$f" LEMONADE_REF   "$LEMONADE_REF"
+  log "  ✓ GPU_BACKEND=amd  LLAMA_CPP_REF=$LLAMA_CPP_REF  AMDGPU_TARGET=$AMDGPU_TARGET  LEMONADE_REF=$LEMONADE_REF in .env"
 
   # Sanity-Check: Vorhandenen falschen Wert lautstark melden.
   local existing_backend
@@ -191,20 +201,73 @@ update_lemonade() {
   fi
 
   # 2. Lemonade/llama.cpp Image neu bauen
-  log "  → docker compose build llama-server (LLAMA_CPP_REF=$LLAMA_CPP_REF, --pull --no-cache, kann 5–10 min dauern)…"
+  patch_dockerfile_lemonade_ref     # macht FROM-Zeile parametrisch (idempotent)
+  log "  → docker compose build llama-server (LLAMA_CPP_REF=$LLAMA_CPP_REF, LEMONADE_REF=$LEMONADE_REF, --pull --no-cache, kann 5–10 min dauern)…"
   cd "$DREAM_DIR"
   # Inline-Export stellt sicher, dass der Build-Arg auch dann gesetzt ist,
   # wenn .env nicht eingelesen wird (z.B. bei alternativen compose-Aufrufen).
-  export LLAMA_CPP_REF AMDGPU_TARGET
+  export LLAMA_CPP_REF AMDGPU_TARGET LEMONADE_REF
   local -a compose_cmd
   build_compose_cmd compose_cmd
   "${compose_cmd[@]}" build --pull --no-cache \
       --build-arg "LLAMA_CPP_REF=$LLAMA_CPP_REF" \
       --build-arg "AMDGPU_TARGET=$AMDGPU_TARGET" \
+      --build-arg "LEMONADE_REF=$LEMONADE_REF" \
       llama-server
-  log "  ✓ Lemonade-Image neu gebaut (llama.cpp $LLAMA_CPP_REF)"
+  log "  ✓ Lemonade-Image neu gebaut (Lemonade=$LEMONADE_REF, llama.cpp=$LLAMA_CPP_REF)"
   warn "  Build-Output auf 'WARNING: MMQ patch did not apply' prüfen – falls"
   warn "  vorhanden, sind die Strix-Halo-Patches nicht aktiv (b8994 != b8763)."
+
+  # Effektive Lemonade-Version aus dem frisch gebauten Image abfragen
+  local lver
+  lver="$(docker run --rm --entrypoint /opt/lemonade/lemonade-server \
+    dream-lemonade-server:latest --version 2>/dev/null | awk 'END{print $NF}')"
+  [[ -n "$lver" ]] && log "  → eingebaute Lemonade-Version: $lver"
+}
+
+# ----------------------------- 0b1. Dockerfile parametrisieren ---------------
+# Älteres Dockerfile.amd hat die Lemonade-Version hartkodiert
+#   FROM ghcr.io/lemonade-sdk/lemonade-server:v10.2.0
+# → Build-Arg --build-arg LEMONADE_REF=... wirkt dann NICHT, weil kein ARG
+# definiert ist. Wir patchen die Datei einmalig auf:
+#   ARG LEMONADE_REF=v10.2.0
+#   FROM ghcr.io/lemonade-sdk/lemonade-server:${LEMONADE_REF}
+# Idempotent: wenn schon parametrisiert, NO-OP.
+patch_dockerfile_lemonade_ref() {
+  local df="$DREAM_DIR/extensions/services/llama-server/Dockerfile.amd"
+  if [[ ! -f "$df" ]]; then
+    warn "  Dockerfile nicht gefunden: $df – überspringe Patch"
+    return 0
+  fi
+  if grep -q 'FROM ghcr.io/lemonade-sdk/lemonade-server:\${LEMONADE_REF}' "$df"; then
+    log "  → Dockerfile.amd bereits parametrisch (LEMONADE_REF) – kein Patch nötig"
+    return 0
+  fi
+  if ! grep -qE '^FROM ghcr\.io/lemonade-sdk/lemonade-server:v?[0-9]' "$df"; then
+    warn "  Dockerfile.amd hat unerwartete FROM-Zeile – Patch übersprungen."
+    warn "  LEMONADE_REF=$LEMONADE_REF wird IGNORIERT bis Patch manuell eingebaut ist."
+    return 0
+  fi
+  backup "$df"
+  # ARG vor das FROM injecten + FROM-Tag durch Variable ersetzen.
+  # sed in-place, BSD/GNU-kompatibel via temp-Datei.
+  python3 - "$df" << 'PYEOF'
+import re, sys, pathlib
+p = pathlib.Path(sys.argv[1])
+src = p.read_text()
+m = re.search(r'^FROM ghcr\.io/lemonade-sdk/lemonade-server:(\S+)\s*$',
+              src, re.MULTILINE)
+if not m:
+    sys.exit(0)
+old_tag = m.group(1)
+new_block = (
+    f'ARG LEMONADE_REF={old_tag}\n'
+    'FROM ghcr.io/lemonade-sdk/lemonade-server:${LEMONADE_REF}'
+)
+src = src[:m.start()] + new_block + src[m.end():]
+p.write_text(src)
+print(f'  ✓ Dockerfile.amd parametrisiert: LEMONADE_REF default = {old_tag}')
+PYEOF
 }
 
 # ----------------------------- 1. Modell-Downloads ---------------------------
@@ -306,6 +369,25 @@ download_models() {
   local list=("${TIER1_MODELS[@]}")
   [[ "$TIER" -ge 2 ]] && list+=("${TIER2_MODELS[@]}")
 
+  # Globale Variable, damit der Cleanup-Trap weiß, welche .part gerade läuft.
+  local current_part=""
+  # Cleanup bei Abbruch (Ctrl+C, kill, oder Fehler):
+  # Anders als ein simpler `mv .part dst` lassen wir die .part-Datei stehen,
+  # damit `wget -c` beim nächsten Lauf weitermachen kann. Wir loggen aber,
+  # WAS abgebrochen wurde, statt stumm zu enden.
+  _dl_cleanup() {
+    local sig="$1"
+    if [[ -n "$current_part" && -f "$current_part" ]]; then
+      local size
+      size="$(du -h "$current_part" 2>/dev/null | cut -f1)"
+      warn "Download abgebrochen (Signal: $sig). Teildatei behalten:"
+      warn "  $current_part  (${size:-?})"
+      warn "  Nächster Lauf setzt mit wget -c automatisch fort."
+    fi
+  }
+  trap '_dl_cleanup INT;  exit 130' INT
+  trap '_dl_cleanup TERM; exit 143' TERM
+
   for entry in "${list[@]}"; do
     local rel="${entry%%|*}"
     local url="${entry##*|}"
@@ -315,10 +397,40 @@ download_models() {
       log "  ✓ vorhanden: $rel"
       continue
     fi
+
+    # Fail-fast: HEAD-Check verhindert ein 5-Minuten-Wget-Retry-Theater bei
+    # toter URL (HF-Repo umbenannt o.ä.). curl gibt nur den HTTP-Status aus.
+    log "  ? prüfe URL: $url"
+    local http_code
+    http_code="$(curl -sSL -o /dev/null -w '%{http_code}' --max-time 30 \
+                  --retry 2 --retry-delay 2 -I "$url" 2>/dev/null || echo "000")"
+    if [[ "$http_code" != "200" && "$http_code" != "302" && "$http_code" != "301" ]]; then
+      die "URL nicht erreichbar (HTTP $http_code) für $rel
+   URL: $url
+   → Repo evtl. umbenannt/entfernt. Alternative URL ins Skript eintragen
+     oder Eintrag aus TIER1_MODELS/TIER2_MODELS entfernen."
+    fi
+
     log "  ↓ $rel"
-    wget -c -q --show-progress -O "$dst.part" "$url"
-    mv "$dst.part" "$dst"
+    current_part="$dst.part"
+    # wget mit sichtbarem Fehleroutput (kein -q) + builtin Retries.
+    # --tries=3       Drei Versuche bei transienten TCP-Fehlern (kein Fallback,
+    #                 nur derselbe Server, derselbe Pfad).
+    # --timeout=60    DNS+Connect+Read jeweils 60s (HF kann hängen).
+    # --retry-connrefused  Auch 'Connection refused' als transient behandeln.
+    # --show-progress Fortschrittsbalken trotz Verbose-Modus.
+    if ! wget --continue --show-progress --tries=3 --timeout=60 \
+              --retry-connrefused -O "$current_part" "$url"; then
+      die "wget fehlgeschlagen für $rel
+   URL: $url
+   Teildatei behalten: $current_part (resume mit erneutem Skript-Lauf)"
+    fi
+    mv "$current_part" "$dst"
+    current_part=""
   done
+
+  # Trap zurücksetzen, damit der globale ERR-Trap am Top des Skripts wieder greift.
+  trap - INT TERM
 }
 
 # ----------------------------- 2. models.ini ---------------------------------
@@ -826,6 +938,7 @@ summary() {
 
 📋 Tipps:
    • llama.cpp-Version pinnen:        LLAMA_CPP_REF=b8763 ./...
+   • Lemonade-Version pinnen:         LEMONADE_REF=v10.3.0 ./...
    • GPU-Target ändern:               AMDGPU_TARGET=gfx1100 ./...
    • Lemonade-Update überspringen:    SKIP_LEMONADE_UPDATE=1 ./...
    • Nur Configs (kein Download):     SKIP_DOWNLOAD=1 ./...
