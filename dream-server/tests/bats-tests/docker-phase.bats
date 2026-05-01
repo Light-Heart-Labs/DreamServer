@@ -97,7 +97,12 @@ teardown() {
         }
         _docker_cmd_arr
     '
-    assert_output $'sudo\ndocker'
+    # `echo "sudo" "docker"` emits a single space-joined line — the same
+    # behaviour as the real function at installers/phases/05-docker.sh:27,
+    # whose consumer (`local -a cmd=($(_docker_cmd_arr))`) word-splits the
+    # single line into an array. Assertion was previously $'sudo\ndocker'
+    # (two newline-separated lines) which never matched.
+    assert_output 'sudo docker'
 }
 
 @test "_docker_cmd_arr: returns docker when DOCKER_CMD is empty" {

@@ -121,9 +121,13 @@ Options:
     --tier N          Force specific tier (1-4) instead of auto-detect
     --cloud           Cloud mode: skip GPU detection, use LiteLLM + cloud APIs
     --voice           Enable voice services (Whisper + Kokoro)
+    --no-voice        Disable voice services
     --workflows       Enable n8n workflow automation
+    --no-workflows    Disable n8n workflow automation
     --rag             Enable RAG with Qdrant vector database
+    --no-rag          Disable RAG / Qdrant
     --openclaw        Enable OpenClaw AI agent framework
+    --no-openclaw     Disable OpenClaw
     --comfyui         Enable ComfyUI image generation
     --no-comfyui      Disable ComfyUI image generation (saves ~34GB)
     --dreamforge      Enable DreamForge agent system (default)
@@ -168,9 +172,13 @@ while [[ $# -gt 0 ]]; do
         --tier) TIER="$2"; shift 2 ;;
         --cloud) DREAM_MODE="cloud"; shift ;;
         --voice) ENABLE_VOICE=true; shift ;;
+        --no-voice) ENABLE_VOICE=false; shift ;;
         --workflows) ENABLE_WORKFLOWS=true; shift ;;
+        --no-workflows) ENABLE_WORKFLOWS=false; shift ;;
         --rag) ENABLE_RAG=true; shift ;;
+        --no-rag) ENABLE_RAG=false; shift ;;
         --openclaw) ENABLE_OPENCLAW=true; shift ;;
+        --no-openclaw) ENABLE_OPENCLAW=false; shift ;;
         --comfyui) ENABLE_COMFYUI=true; shift ;;
         --no-comfyui) ENABLE_COMFYUI=false; shift ;;
         --dreamforge) ENABLE_DREAMFORGE=true; shift ;;

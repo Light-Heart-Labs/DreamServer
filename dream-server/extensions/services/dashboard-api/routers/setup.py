@@ -154,19 +154,32 @@ async def run_setup_diagnostics(api_key: str = Depends(verify_api_key)):
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         )
         try:
-            async for line in process.stdout:
-                yield line.decode()
-            await process.wait()
-            # Emit the human-readable trailer AND the machine-readable sentinel
-            # as a SINGLE chunk. Starlette's StreamingResponse finalizes the
-            # HTTP stream as soon as the async generator exits; when trailer
-            # and sentinel are separate yields, the final sentinel bytes have
-            # been observed to never reach the client (the generator yields
-            # them but the transport drops the last chunk during close).
-            # Combining into one yield guarantees both land on the wire.
-            trailer = "All tests passed!" if process.returncode == 0 else "Some tests failed."
-            status = "PASS" if process.returncode == 0 else "FAIL"
-            yield f"\n{trailer}\n__DREAM_RESULT__:{status}:{process.returncode}\n"
+            try:
+                async for line in process.stdout:
+                    yield line.decode()
+                await process.wait()
+                # Emit the human-readable trailer AND the machine-readable sentinel
+                # as a SINGLE chunk. Starlette's StreamingResponse finalizes the
+                # HTTP stream as soon as the async generator exits; when trailer
+                # and sentinel are separate yields, the final sentinel bytes have
+                # been observed to never reach the client (the generator yields
+                # them but the transport drops the last chunk during close).
+                # Combining into one yield guarantees both land on the wire.
+                trailer = "All tests passed!" if process.returncode == 0 else "Some tests failed."
+                status = "PASS" if process.returncode == 0 else "FAIL"
+                yield f"\n{trailer}\n__DREAM_RESULT__:{status}:{process.returncode}\n"
+            except (OSError, asyncio.CancelledError):
+                # Re-raise cancellation/disconnect — the client is gone, no point
+                # emitting a sentinel into a dead stream and CancelledError must
+                # propagate so the runtime can finalize the task tree.
+                raise
+            except Exception as exc:  # noqa: BLE001 — sentinel contract requires *some* terminal signal
+                # The frontend SetupWizard parser treats absence of a sentinel as
+                # failure, so even when the runner blows up unexpectedly we still
+                # close the stream with a FAIL sentinel rather than leaving the
+                # client to fall back on best-effort log scraping.
+                logger.exception("run_setup_diagnostics generator raised: %s", exc)
+                yield f"\nDiagnostic runner error: {exc}\n__DREAM_RESULT__:FAIL:1\n"
         finally:
             if process.returncode is None:
                 try:

@@ -15,6 +15,26 @@ No CLA. No committee. No waiting for permission. If it makes Dream Server better
 If you're adding or extending services, read these first:
 - [docs/EXTENSIONS.md](docs/EXTENSIONS.md) — how to add a new service in 30 minutes
 - [docs/INSTALLER-ARCHITECTURE.md](docs/INSTALLER-ARCHITECTURE.md) — how the installer works under the hood
+- [docs/DASHBOARD-API-DEVELOPMENT.md](docs/DASHBOARD-API-DEVELOPMENT.md) — how to actually iterate on the dashboard-api FastAPI backend without your changes silently no-op'ing
+
+## Dashboard API development
+
+If you're touching `extensions/services/dashboard-api/`, read [docs/DASHBOARD-API-DEVELOPMENT.md](docs/DASHBOARD-API-DEVELOPMENT.md) **before** you start editing.
+
+The short version: the dashboard-api `Dockerfile` copies the Python source into `/app/` at image build, and uvicorn imports from there. The compose service mounts `./extensions:/dream-server/extensions:ro` — but that bind-mount is for manifest and config discovery, not Python imports. Editing files under `extensions/services/dashboard-api/` on the host does **not** reload the running container. Your changes silently do nothing until the image is rebuilt.
+
+The recommended workflow is to run uvicorn natively on the host with `--reload`:
+
+```bash
+cd dream-server/extensions/services/dashboard-api
+pip install -r requirements.txt
+DREAM_INSTALL_DIR=/path/to/dream-server \
+  uvicorn main:app --host 127.0.0.1 --port 3002 --reload
+```
+
+Other services already reach the host via `host.docker.internal:host-gateway`, which is wired into the dashboard-api compose service, so the rest of the stack keeps working while you iterate. Hot-reload works natively on macOS and Linux; on WSL2, keep the repo on the WSL2 filesystem (not `/mnt/c/...`) for the watcher to behave.
+
+If you can't run native uvicorn for some reason, `docker cp <file> dream-dashboard-api:/app/<file>` followed by `docker compose restart dashboard-api` is a survivable stop-gap until the next image rebuild. The full guide covers why we did **not** ship a bind-mount overlay or a `uvicorn --reload` compose mode as the default.
 
 ## What We Care About Right Now
 

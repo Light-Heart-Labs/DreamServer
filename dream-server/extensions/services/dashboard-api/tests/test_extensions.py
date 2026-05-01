@@ -448,6 +448,67 @@ class TestInstallExtension:
         )
         assert resp.status_code == 404
 
+    def test_install_rejects_library_entry_without_compose(
+        self, test_client, monkeypatch, tmp_path,
+    ):
+        """400 when the library entry exists but ships no deployable compose.yaml.
+
+        Mirrors the dify/jan/fooocus shape: directory present, manifest
+        present, but only `compose.yaml.disabled` or `compose.yaml.reference`
+        on disk. The catalog/UI already hides the Install button for these via
+        `_is_installable`, but a direct POST must also reject — otherwise the
+        copytree succeeds but the host agent can't start anything, surfacing
+        as a cryptic post-install failure instead of a clean 400.
+        """
+        lib_dir = tmp_path / "lib"
+        lib_dir.mkdir(exist_ok=True)
+        ext_dir = lib_dir / "reference-only"
+        ext_dir.mkdir(exist_ok=True)
+        # Only .disabled — no deployable compose.yaml
+        (ext_dir / "compose.yaml.disabled").write_text(_SAFE_COMPOSE)
+        (ext_dir / "manifest.yaml").write_text(yaml.dump({
+            "schema_version": "dream.services.v1",
+            "service": {"id": "reference-only", "name": "reference-only"},
+        }))
+        _patch_mutation_config(monkeypatch, tmp_path, lib_dir=lib_dir)
+
+        resp = test_client.post(
+            "/api/extensions/reference-only/install",
+            headers=test_client.auth_headers,
+        )
+        assert resp.status_code == 400
+        body = resp.json()
+        assert "compose.yaml" in body["detail"]
+        # Verify nothing was copied to user-extensions/
+        assert not (tmp_path / "user" / "reference-only").exists()
+
+    def test_install_rejects_library_entry_with_only_reference_compose(
+        self, test_client, monkeypatch, tmp_path,
+    ):
+        """Same shape, .reference suffix variant (mirrors fooocus).
+
+        Some library entries ship `compose.yaml.reference` instead of
+        `.disabled`. Either suffix is reference material — only literal
+        `compose.yaml` is deployable.
+        """
+        lib_dir = tmp_path / "lib"
+        lib_dir.mkdir(exist_ok=True)
+        ext_dir = lib_dir / "reference-only"
+        ext_dir.mkdir(exist_ok=True)
+        (ext_dir / "compose.yaml.reference").write_text(_SAFE_COMPOSE)
+        (ext_dir / "manifest.yaml").write_text(yaml.dump({
+            "schema_version": "dream.services.v1",
+            "service": {"id": "reference-only", "name": "reference-only"},
+        }))
+        _patch_mutation_config(monkeypatch, tmp_path, lib_dir=lib_dir)
+
+        resp = test_client.post(
+            "/api/extensions/reference-only/install",
+            headers=test_client.auth_headers,
+        )
+        assert resp.status_code == 400
+        assert not (tmp_path / "user" / "reference-only").exists()
+
     def test_install_core_service_403(self, test_client, monkeypatch, tmp_path):
         """403 when trying to install a core service."""
         _patch_mutation_config(monkeypatch, tmp_path)
@@ -611,6 +672,111 @@ class TestEnableExtension:
         )
         assert resp.status_code == 400
         assert "local build" in resp.json()["detail"]
+
+
+class TestEnableExtensionHookReturnHandling:
+    """pre_start failures must block start; post_start failures surface as warnings."""
+
+    def test_enable_pre_start_failure_blocks_start(
+        self, test_client, monkeypatch, tmp_path,
+    ):
+        """pre_start False → start NOT called, error progress written, agent_ok=False."""
+        user_dir = _setup_user_ext(tmp_path, "my-ext", enabled=False)
+        _patch_mutation_config(monkeypatch, tmp_path, user_dir=user_dir)
+
+        start_calls = []
+
+        def fake_start(action, sid):
+            start_calls.append((action, sid))
+            return True
+
+        monkeypatch.setattr("routers.extensions._call_agent", fake_start)
+        # pre_start returns False, post_start would return True (but should not be reached)
+        monkeypatch.setattr(
+            "routers.extensions._call_agent_hook",
+            lambda sid, hook: hook != "pre_start",
+        )
+
+        resp = test_client.post(
+            "/api/extensions/my-ext/enable",
+            headers=test_client.auth_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["action"] == "enabled"
+        assert data["restart_required"] is True
+        assert "Run 'dream restart'" in data["message"]
+        assert data["warnings"] == []
+        # start was never called for the service whose pre_start failed
+        assert ("start", "my-ext") not in start_calls
+
+        # Error progress file should record the pre_start failure
+        progress_file = tmp_path / "extension-progress" / "my-ext.json"
+        assert progress_file.exists()
+        progress = json.loads(progress_file.read_text())
+        assert progress["status"] == "error"
+        assert "pre_start hook failed" in progress["error"]
+
+    def test_enable_post_start_failure_returns_warning(
+        self, test_client, monkeypatch, tmp_path,
+    ):
+        """post_start False → start IS called, response carries a warning, success path."""
+        user_dir = _setup_user_ext(tmp_path, "my-ext", enabled=False)
+        _patch_mutation_config(monkeypatch, tmp_path, user_dir=user_dir)
+
+        start_calls = []
+
+        def fake_start(action, sid):
+            start_calls.append((action, sid))
+            return True
+
+        monkeypatch.setattr("routers.extensions._call_agent", fake_start)
+        # pre_start succeeds, post_start fails
+        monkeypatch.setattr(
+            "routers.extensions._call_agent_hook",
+            lambda sid, hook: hook != "post_start",
+        )
+
+        resp = test_client.post(
+            "/api/extensions/my-ext/enable",
+            headers=test_client.auth_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["action"] == "enabled"
+        # post_start failure is non-fatal — service still reports success
+        assert data["restart_required"] is False
+        assert data["message"] == "Extension enabled and started."
+        assert ("start", "my-ext") in start_calls
+        assert isinstance(data["warnings"], list)
+        assert len(data["warnings"]) == 1
+        assert "my-ext" in data["warnings"][0]
+        assert "post_start hook failed" in data["warnings"][0]
+
+    def test_enable_both_hooks_succeed_no_warnings(
+        self, test_client, monkeypatch, tmp_path,
+    ):
+        """Baseline: pre_start + post_start True → no warnings, agent_ok True."""
+        user_dir = _setup_user_ext(tmp_path, "my-ext", enabled=False)
+        _patch_mutation_config(monkeypatch, tmp_path, user_dir=user_dir)
+
+        monkeypatch.setattr(
+            "routers.extensions._call_agent", lambda action, sid: True,
+        )
+        monkeypatch.setattr(
+            "routers.extensions._call_agent_hook", lambda sid, hook: True,
+        )
+
+        resp = test_client.post(
+            "/api/extensions/my-ext/enable",
+            headers=test_client.auth_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["action"] == "enabled"
+        assert data["restart_required"] is False
+        assert data["warnings"] == []
+        assert data["message"] == "Extension enabled and started."
 
 
 # --- Disable endpoint ---
@@ -1337,6 +1503,32 @@ class TestComposeScanEdgeCases:
         assert resp.status_code == 400
         assert "dangerous security_opt" in resp.json()["detail"]
 
+    def test_scan_rejects_deploy_resources_devices(
+        self, test_client, monkeypatch, tmp_path,
+    ):
+        """400 when compose requests GPU passthrough via
+        deploy.resources.reservations.devices (Compose v2 GPU syntax).
+        Library installs default to skip_gpu_passthrough_check=False."""
+        compose = (
+            "services:\n  svc:\n    image: test\n"
+            "    deploy:\n"
+            "      resources:\n"
+            "        reservations:\n"
+            "          devices:\n"
+            "            - driver: nvidia\n"
+            "              count: 1\n"
+            "              capabilities: [gpu]\n"
+        )
+        lib_dir = _setup_library_ext(tmp_path, "bad-ext", compose_content=compose)
+        _patch_mutation_config(monkeypatch, tmp_path, lib_dir=lib_dir)
+
+        resp = test_client.post(
+            "/api/extensions/bad-ext/install",
+            headers=test_client.auth_headers,
+        )
+        assert resp.status_code == 400
+        assert "GPU passthrough" in resp.json()["detail"]
+
 
 # --- Direct unit tests for the port-binding helpers ---
 
@@ -1562,6 +1754,105 @@ class TestScanComposeSkipNameCollision:
         assert "Docker socket" in exc.value.detail
 
 
+# --- skip_gpu_passthrough_check flag isolation ---
+
+
+class TestScanComposeSkipGpuPassthroughCheck:
+    """Direct unit tests for the skip_gpu_passthrough_check parameter that
+    permits built-in extensions (e.g. comfyui's nvidia overlay) to declare
+    deploy.resources.reservations.devices while user extensions cannot."""
+
+    _GPU_COMPOSE = (
+        "services:\n  svc:\n    image: test\n"
+        "    deploy:\n"
+        "      resources:\n"
+        "        reservations:\n"
+        "          devices:\n"
+        "            - driver: nvidia\n"
+        "              count: 1\n"
+        "              capabilities: [gpu]\n"
+    )
+
+    def test_rejects_deploy_devices_by_default(self, tmp_path):
+        from routers.extensions import _scan_compose_content
+        compose = tmp_path / "compose.yaml"
+        compose.write_text(self._GPU_COMPOSE)
+        with pytest.raises(HTTPException) as exc:
+            _scan_compose_content(compose)
+        assert exc.value.status_code == 400
+        assert "GPU passthrough" in exc.value.detail
+
+    def test_allows_deploy_devices_when_skipped(self, tmp_path):
+        """Built-in compose paths pass skip_gpu_passthrough_check=True so the
+        legitimate NVIDIA reservation in docker-compose.nvidia.yml does not
+        get rejected when the dashboard-api re-scans during activate/enable.
+        """
+        from routers.extensions import _scan_compose_content
+        compose = tmp_path / "compose.yaml"
+        compose.write_text(self._GPU_COMPOSE)
+        # Should not raise
+        _scan_compose_content(compose, skip_gpu_passthrough_check=True)
+
+    def test_handles_null_resources_without_500(self, tmp_path):
+        """Strict regression for the audit-flagged bug: `deploy: { resources: null }`.
+
+        Pre-fix code did `deploy.get("resources", {}).get("reservations", {})`.
+        `dict.get(key, default)` returns the value when the key is present,
+        NOT the default — so `{"resources": None}.get("resources", {})` yields
+        None, and the next `.get()` AttributeError'd → 500 to the caller.
+        The fix's `isinstance(resources, dict)` guard short-circuits cleanly
+        because no GPU passthrough request can be expressed via null resources.
+        """
+        from routers.extensions import _scan_compose_content
+        compose = tmp_path / "compose.yaml"
+        compose.write_text(
+            "services:\n  svc:\n    image: test\n"
+            "    deploy:\n"
+            "      resources: null\n"
+        )
+        # Should not raise — no GPU request can be expressed via null resources.
+        _scan_compose_content(compose)
+
+    def test_handles_null_reservations_without_500(self, tmp_path):
+        """Defense-in-depth: `resources: { reservations: null }`.
+
+        The pre-fix code was already safe at this level — its leaf check
+        `isinstance(reservations, dict) and reservations.get("devices")`
+        short-circuited on `None`. This test locks the behavior in so a
+        future refactor that drops the leaf isinstance check (e.g. relying
+        only on the new outer guards) cannot reintroduce a 500 here.
+        """
+        from routers.extensions import _scan_compose_content
+        compose = tmp_path / "compose.yaml"
+        compose.write_text(
+            "services:\n  svc:\n    image: test\n"
+            "    deploy:\n"
+            "      resources:\n"
+            "        reservations: null\n"
+        )
+        # Should not raise.
+        _scan_compose_content(compose)
+
+    def test_handles_null_deploy_without_500(self, tmp_path):
+        """Defense-in-depth: `deploy: null`.
+
+        The pre-fix code was already safe at this level via
+        `deploy = svc_def.get("deploy") or {}` — None is falsy and falls
+        through to `{}`. This test locks the behavior in so a future
+        refactor that drops the `or {}` short-circuit (e.g. switching to
+        explicit isinstance gating without the falsy fallback) cannot
+        reintroduce a 500 here.
+        """
+        from routers.extensions import _scan_compose_content
+        compose = tmp_path / "compose.yaml"
+        compose.write_text(
+            "services:\n  svc:\n    image: test\n"
+            "    deploy: null\n"
+        )
+        # Should not raise.
+        _scan_compose_content(compose)
+
+
 # --- Size quota enforcement ---
 
 
@@ -1656,6 +1947,44 @@ class TestExtensionLifecycleStatus:
         ext = resp.json()["extensions"][0]
         assert ext["status"] == "stopped"
 
+    def test_user_extension_http_unhealthy_returns_unhealthy(self, test_client, monkeypatch, tmp_path):
+        """User extension with compose.yaml + HTTP 4xx/5xx health → unhealthy."""
+        user_dir = tmp_path / "user"
+        ext_dir = user_dir / "my-ext"
+        ext_dir.mkdir(parents=True)
+        (ext_dir / "compose.yaml").write_text(_SAFE_COMPOSE)
+        (ext_dir / "manifest.yaml").write_text(yaml.dump({
+            "schema_version": "dream.services.v1",
+            "service": {"id": "my-ext", "name": "My Ext", "port": 8080,
+                         "health": "/health"},
+        }))
+
+        catalog = [_make_catalog_ext("my-ext", "My Extension")]
+        _patch_extensions_config(monkeypatch, catalog, tmp_path=tmp_path)
+        monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", user_dir)
+
+        mock_svc = _make_service_status("my-ext", "unhealthy")
+        with patch("user_extensions.get_user_services_cached",
+                   return_value={"my-ext": {"host": "my-ext", "port": 8080,
+                                             "health": "/health", "name": "My Ext"}}):
+            with patch("helpers.get_all_services", new_callable=AsyncMock,
+                       return_value=[]):
+                with patch("helpers.check_service_health", new_callable=AsyncMock,
+                           return_value=mock_svc):
+                    resp = test_client.get(
+                        "/api/extensions/catalog",
+                        headers=test_client.auth_headers,
+                    )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        ext = data["extensions"][0]
+        assert ext["status"] == "unhealthy"
+        # Unhealthy counts toward "installed" and has its own summary bucket
+        assert data["summary"]["unhealthy"] == 1
+        assert data["summary"]["installed"] == 1
+        assert data["summary"]["stopped"] == 0
+
     def test_user_extension_disabled_unchanged(self, test_client, monkeypatch, tmp_path):
         """User extension with compose.yaml.disabled → disabled (unchanged)."""
         user_dir = tmp_path / "user"
@@ -1741,6 +2070,50 @@ class TestExtensionLifecycleStatus:
         assert data["action"] == "enabled"
         # compose.yaml should still exist (not renamed)
         assert (user_dir / "my-ext" / "compose.yaml").exists()
+
+    def test_enable_stopped_writes_error_progress_on_agent_failure(
+        self, test_client, monkeypatch, tmp_path,
+    ):
+        """Enable-stopped path writes error progress with restart guidance on agent failure."""
+        user_dir = _setup_user_ext(tmp_path, "my-ext", enabled=True)
+        _patch_mutation_config(monkeypatch, tmp_path, user_dir=user_dir)
+        monkeypatch.setattr("routers.extensions._call_agent",
+                            lambda action, sid: False)
+
+        resp = test_client.post(
+            "/api/extensions/my-ext/enable",
+            headers=test_client.auth_headers,
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["restart_required"] is True
+
+        progress_file = Path(tmp_path) / "extension-progress" / "my-ext.json"
+        assert progress_file.exists(), "enable-stopped path must write progress on agent failure"
+        data = json.loads(progress_file.read_text())
+        assert data["status"] == "error"
+        assert "dream restart" in data["error"]
+
+    def test_install_error_progress_includes_restart_guidance(
+        self, test_client, monkeypatch, tmp_path,
+    ):
+        """Install failure-path error message contains 'dream restart' actionable guidance."""
+        lib_dir = _setup_library_ext(tmp_path, "my-ext")
+        _patch_mutation_config(monkeypatch, tmp_path, lib_dir=lib_dir)
+        monkeypatch.setattr("routers.extensions._call_agent_install",
+                            lambda sid: False)
+
+        resp = test_client.post(
+            "/api/extensions/my-ext/install",
+            headers=test_client.auth_headers,
+        )
+
+        assert resp.status_code == 200
+        progress_file = Path(tmp_path) / "extension-progress" / "my-ext.json"
+        assert progress_file.exists()
+        data = json.loads(progress_file.read_text())
+        assert data["status"] == "error"
+        assert "dream restart" in data["error"]
 
     def test_enable_stopped_rejects_malicious_compose(self, test_client, monkeypatch, tmp_path):
         """Enable stopped ext with malicious compose.yaml → 400."""
@@ -2352,48 +2725,68 @@ class TestInstallProgress:
         assert data["progress_endpoint"] == "/api/extensions/my-ext/progress"
 
 
-# --- Config sync ---
+# --- Config sync (delegated to host agent) ---
 
 
 class TestSyncExtensionConfig:
+    """The dashboard-api container has /dream-server/config bind-mounted
+    read-only, so _sync_extension_config must NOT touch the filesystem
+    locally — it forwards to the host agent. End-to-end file-copy behaviour
+    is covered by the host-agent wire test (TestSyncExtensionConfigWire)."""
 
-    def test_copies_config_subdir_to_install_dir(self, monkeypatch, tmp_path):
-        """Config subdir is synced to INSTALL_DIR/config/ after install."""
-        from routers.extensions import _sync_extension_config
+    def test_delegates_to_host_agent(self, monkeypatch):
+        """_sync_extension_config calls _call_agent_sync_config with the service id."""
+        from routers import extensions as ext_mod
 
-        user_dir = tmp_path / "user"
-        ext_dir = user_dir / "my-ext" / "config" / "my-ext"
-        ext_dir.mkdir(parents=True)
-        (ext_dir / "nginx.conf").write_text("server {}")
-        (ext_dir / "entrypoint.sh").write_text("#!/bin/sh\necho hi")
+        calls = []
 
-        install_dir = tmp_path / "install"
-        install_dir.mkdir()
+        def _fake(sid):
+            calls.append(sid)
+            return True
 
-        monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", user_dir)
-        monkeypatch.setattr("routers.extensions.INSTALL_DIR", str(install_dir))
+        monkeypatch.setattr(ext_mod, "_call_agent_sync_config", _fake)
+        result = ext_mod._sync_extension_config("my-ext")
 
-        _sync_extension_config("my-ext")
+        assert calls == ["my-ext"]
+        assert result is True
 
-        target = install_dir / "config" / "my-ext"
-        assert (target / "nginx.conf").exists()
-        assert (target / "nginx.conf").read_text() == "server {}"
-        # .sh files should be executable
-        import stat
-        mode = (target / "entrypoint.sh").stat().st_mode
-        assert mode & stat.S_IXUSR
+    def test_returns_false_on_agent_failure(self, monkeypatch):
+        """Agent failure surfaces as a False return; caller decides what to do."""
+        from routers import extensions as ext_mod
 
-    def test_noop_when_no_config_dir(self, monkeypatch, tmp_path):
-        """No crash when extension has no config/ subdirectory."""
-        from routers.extensions import _sync_extension_config
+        monkeypatch.setattr(
+            ext_mod, "_call_agent_sync_config", lambda _sid: False,
+        )
+        assert ext_mod._sync_extension_config("my-ext") is False
 
-        user_dir = tmp_path / "user"
-        (user_dir / "my-ext").mkdir(parents=True)
+    def test_call_agent_sync_config_sends_post(self, monkeypatch):
+        """The HTTP helper POSTs to /v1/extension/sync_config with bearer auth."""
+        from routers import extensions as ext_mod
 
-        monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", user_dir)
-        monkeypatch.setattr("routers.extensions.INSTALL_DIR", str(tmp_path))
+        captured = {}
 
-        _sync_extension_config("my-ext")  # should not raise
+        class _FakeResp:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def _fake_urlopen(req, timeout=None):
+            captured["url"] = req.full_url
+            captured["method"] = req.get_method()
+            captured["auth"] = req.get_header("Authorization")
+            captured["body"] = req.data
+            return _FakeResp()
+
+        monkeypatch.setattr(ext_mod, "AGENT_URL", "http://agent:7710")
+        monkeypatch.setattr(ext_mod, "DREAM_AGENT_KEY", "secret")
+        monkeypatch.setattr(ext_mod.urllib.request, "urlopen", _fake_urlopen)
+
+        assert ext_mod._call_agent_sync_config("my-ext") is True
+        assert captured["url"] == "http://agent:7710/v1/extension/sync_config"
+        assert captured["method"] == "POST"
+        assert captured["auth"] == "Bearer secret"
+        assert b'"service_id"' in captured["body"]
+        assert b'"my-ext"' in captured["body"]
 
 
 # --- Error progress ---

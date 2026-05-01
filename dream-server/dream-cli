@@ -534,6 +534,68 @@ get_compose_flags() {
     fi
 }
 
+# Run `docker compose <args...>` with a compact summary on success and a
+# surfaced error banner on failure.
+#
+# Usage:  _compose_run_with_summary <verb> <compose_args...>
+#   <verb>           Human-readable gerund phrase, e.g. "Restarting all services"
+#   <compose_args>   Everything that goes after `docker compose`, including
+#                    any `-f` flags resolved by get_compose_flags.
+#
+# Behavior:
+#   - Runs `docker compose --progress quiet <compose_args>`, capturing
+#     stdout+stderr to a mktemp log file.
+#   - On success: prints "<verb> — done" and removes the log file.
+#   - On failure: prints an error banner, surfaces up to 20 lines matching
+#                 /error|unhealthy|failed|dependency/, preserves the full
+#                 log file for inspection, and returns the compose exit
+#                 code so the caller (under `set -e`) aborts with it.
+#
+# The summary grep pipeline can legitimately produce zero matches if the
+# failing compose output has no error-keyword hits. `upstream/main` today
+# runs under `set -e` only (no `pipefail`), so grep's exit 1 is absorbed
+# by the pipeline's final-stage exit and the function continues to the
+# log-path surface below. When pipefail is eventually adopted (sibling
+# nounset/exit-code audit change), grep's no-match or a SIGPIPE from
+# `head -20` on >20 matches would abort this function before the caller
+# sees the compose log path or the compose exit code. `|| warn "..."`
+# is the project-blessed form (per CLAUDE.md) for "tolerate this specific
+# non-match and log why the summary is empty" — it costs nothing today
+# and keeps the function correct under future pipefail.
+_compose_run_with_summary() {
+    local _verb="$1"; shift
+    log "${_verb}..."
+
+    local _compose_log
+    _compose_log=$(mktemp)
+    trap 'rm -f "$_compose_log"' INT TERM
+
+    local _rc=0
+    docker compose --progress quiet "$@" >"$_compose_log" 2>&1 || _rc=$?
+
+    if (( _rc == 0 )); then
+        success "${_verb} — done"
+        rm -f "$_compose_log"
+        trap - INT TERM
+        return 0
+    fi
+
+    log_error "${_verb} failed:"
+    local _surfaced
+    _surfaced=$(grep -iE 'error|unhealthy|failed|dependency' "$_compose_log" \
+        | sed 's/^/  /' \
+        | head -20 || true)
+    if [[ -n "$_surfaced" ]]; then
+        printf '%s\n' "$_surfaced"
+    else
+        warn "(no error keywords matched in compose log)"
+    fi
+    echo ""
+    log "Full compose output: $_compose_log"
+    trap - INT TERM
+    return "$_rc"
+}
+
 #=============================================================================
 # Commands
 #=============================================================================
@@ -742,7 +804,7 @@ cmd_status_json() {
             --arg backend "apple" \
             --arg chip "$_chip" \
             --argjson unified_memory_gb "$_total_mem_gb" \
-            --arg gpu_cores "$_gpu_cores" \
+            --argjson gpu_cores "$([[ "$_gpu_cores" =~ ^[0-9]+$ ]] && printf '%s' "$_gpu_cores" || printf 'null')" \
             '{backend: $backend, chip: $chip, unified_memory_gb: $unified_memory_gb, gpu_cores: $gpu_cores}')
     elif command -v nvidia-smi >/dev/null 2>&1; then
         # Represent each GPU line as raw strings in an array
@@ -802,14 +864,10 @@ cmd_restart() {
     read -ra flags <<< "$flags_str"
 
     if [[ -z "$service" ]]; then
-        log "Restarting all services..."
-        docker compose "${flags[@]}" up -d
-        success "All services restarted"
+        _compose_run_with_summary "Restarting all services" "${flags[@]}" up -d
     else
         service=$(resolve_service "$service")
-        log "Restarting $service..."
-        docker compose "${flags[@]}" up -d "$service"
-        success "$service restarted"
+        _compose_run_with_summary "Restarting $service" "${flags[@]}" up -d "$service"
     fi
 }
 
@@ -825,14 +883,10 @@ cmd_stop() {
     read -ra flags <<< "$flags_str"
 
     if [[ -z "$service" ]]; then
-        log "Stopping all services..."
-        docker compose "${flags[@]}" down
-        success "All services stopped"
+        _compose_run_with_summary "Stopping all services" "${flags[@]}" down
     else
         service=$(resolve_service "$service")
-        log "Stopping $service..."
-        docker compose "${flags[@]}" stop "$service"
-        success "$service stopped"
+        _compose_run_with_summary "Stopping $service" "${flags[@]}" stop "$service"
     fi
 }
 
@@ -850,15 +904,11 @@ cmd_start() {
     read -ra flags <<< "$flags_str"
 
     if [[ -z "$service" ]]; then
-        log "Starting all services..."
-        docker compose "${flags[@]}" up -d
-        success "All services started"
+        _compose_run_with_summary "Starting all services" "${flags[@]}" up -d
     else
         service=$(resolve_service "$service")
         _run_hook "$service" "pre_start"
-        log "Starting $service..."
-        docker compose "${flags[@]}" up -d "$service"
-        success "$service started"
+        _compose_run_with_summary "Starting $service" "${flags[@]}" up -d "$service"
         _run_hook "$service" "post_start"
     fi
 }
@@ -1064,13 +1114,11 @@ cmd_update() {
         warn "dream-update.sh and dream-backup.sh not found; skipping pre-update snapshot."
     fi
 
-    log "Pulling latest images..."
-    if ! docker compose "${flags[@]}" pull; then
+    if ! _compose_run_with_summary "Pulling latest images" "${flags[@]}" pull; then
         error "Failed to pull latest images"
     fi
 
-    log "Recreating containers with new images..."
-    if ! docker compose "${flags[@]}" up -d --force-recreate; then
+    if ! _compose_run_with_summary "Recreating containers with new images" "${flags[@]}" up -d --force-recreate; then
         error "Failed to recreate containers. Run 'dream rollback' to restore previous state."
     fi
 
@@ -2564,11 +2612,15 @@ _gpu_status() {
     check_install
     load_env
 
-    local gpu_count
-    gpu_count=$(nvidia-smi --list-gpus 2>/dev/null | wc -l | tr -d ' ') || gpu_count=0
-
-    echo -e "${BLUE}━━━ GPU Status (${gpu_count} GPU$([ "$gpu_count" -ne 1 ] && echo s)) ━━━${NC}"
-    echo ""
+    if [[ "${GPU_BACKEND:-}" == "apple" ]]; then
+        echo -e "${BLUE}━━━ GPU Status (1 integrated GPU) ━━━${NC}"
+        echo ""
+    else
+        local gpu_count
+        gpu_count=$(nvidia-smi --list-gpus 2>/dev/null | wc -l | tr -d ' ') || gpu_count=0
+        echo -e "${BLUE}━━━ GPU Status (${gpu_count} GPU$([ "$gpu_count" -ne 1 ] && echo s)) ━━━${NC}"
+        echo ""
+    fi
 
     if [[ "${GPU_BACKEND:-nvidia}" == "nvidia" ]] && command -v nvidia-smi &>/dev/null && [ "$gpu_count" -gt 0 ]; then
         local output

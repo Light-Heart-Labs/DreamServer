@@ -58,6 +58,7 @@ const friendlyError = (detail) => {
 const STATUS_STYLES = {
   enabled:       'bg-green-500/20 text-green-400',
   stopped:       'bg-red-500/20 text-red-400',
+  unhealthy:     'bg-amber-500/20 text-amber-400',
   disabled:      'bg-theme-border text-theme-text-muted',
   not_installed: 'border border-theme-border text-theme-text-muted',
   incompatible:  'bg-orange-500/20 text-orange-400',
@@ -69,7 +70,8 @@ const STATUS_STYLES = {
 const STATUS_DESCRIPTIONS = {
   enabled:       'Service is running and healthy',
   disabled:      'Installed but turned off \u2014 won\u2019t start on restart',
-  stopped:       'Enabled but container is not running or unhealthy',
+  stopped:       'Enabled but container is not running',
+  unhealthy:     'Container is running but health check is failing \u2014 check logs',
   not_installed: 'Available to install from the extension library',
   incompatible:  'Requires a GPU backend not available on this system',
   installing:    'Being downloaded and set up',
@@ -94,14 +96,24 @@ export default function Extensions() {
   const [depConfirm, setDepConfirm] = useState(null)
   const [templates, setTemplates] = useState([])
   const [templatesOpen, setTemplatesOpen] = useState(false)
+  const [pollingLost, setPollingLost] = useState(false)
   const installProgressRef = useRef(null)
   const activePollers = useRef({})
+  // Per-service consecutive fetch-failure counter. Mirrors the log-streaming
+  // pattern in ExtensionDetailsModal (see function-local `fails` near L1009).
+  // We key by serviceId because multiple installs can be polling concurrently.
+  const consecutiveFailuresRef = useRef({})
 
   const pollProgress = (serviceId) => {
     if (activePollers.current[serviceId]) return
+    consecutiveFailuresRef.current[serviceId] = 0
     activePollers.current[serviceId] = setInterval(async () => {
       try {
         const res = await fetchJson(`/api/extensions/${serviceId}/progress`)
+        // Successful fetch (regardless of HTTP status) means the dashboard
+        // is reachable again — reset the failure counter and clear the banner.
+        consecutiveFailuresRef.current[serviceId] = 0
+        setPollingLost(prev => (prev ? false : prev))
         if (!res.ok) return
         const data = await res.json()
         if (data.status === 'idle') return
@@ -109,6 +121,7 @@ export default function Extensions() {
         if (data.status === 'error') {
           clearInterval(activePollers.current[serviceId])
           delete activePollers.current[serviceId]
+          delete consecutiveFailuresRef.current[serviceId]
           setToast({ type: 'error', text: data.error || 'Installation failed' })
           setProgressMap(prev => { const next = { ...prev }; delete next[serviceId]; return next })
           fetchCatalog()
@@ -123,12 +136,26 @@ export default function Extensions() {
           if (ext && ext.status === 'enabled') {
             clearInterval(activePollers.current[serviceId])
             delete activePollers.current[serviceId]
+            delete consecutiveFailuresRef.current[serviceId]
             setToast({ type: 'success', text: `Extension installed and started.` })
             setProgressMap(prev => { const next = { ...prev }; delete next[serviceId]; return next })
           }
           // If not yet "enabled", keep polling — healthcheck still running
         }
-      } catch { /* ignore */ }
+      } catch (err) {
+        // Dashboard-api may be mid-restart, or the browser briefly lost
+        // network. Count consecutive failures; surface a banner after 3
+        // so the user isn't left staring at a silent spinner forever.
+        const fails = (consecutiveFailuresRef.current[serviceId] || 0) + 1
+        consecutiveFailuresRef.current[serviceId] = fails
+        console.warn('poll fetch failed:', err)
+        if (fails >= 3) {
+          setPollingLost(true)
+          // Attempt to recover catalog state — if the backend is back,
+          // the next successful poll will clear the banner.
+          fetchCatalog()
+        }
+      }
     }, 3000)
   }
 
@@ -138,7 +165,11 @@ export default function Extensions() {
       .then(r => r.ok ? r.json() : { templates: [] })
       .then(d => setTemplates(d.templates || []))
       .catch(() => {})
-    return () => { Object.values(activePollers.current).forEach(clearInterval); activePollers.current = {} }
+    return () => {
+      Object.values(activePollers.current).forEach(clearInterval)
+      activePollers.current = {}
+      consecutiveFailuresRef.current = {}
+    }
   }, [])
 
   // Start polling for installing extensions + fetch progress for error state (after page refresh)
@@ -282,8 +313,8 @@ export default function Extensions() {
       .filter(Boolean)
   )]
 
-  const STATUS_FILTERS = ['all', 'enabled', 'stopped', 'disabled', 'installing', 'setting_up', 'error', 'not_installed', 'incompatible']
-  const STATUS_LABELS = { all: 'All', enabled: 'Enabled', stopped: 'Stopped', disabled: 'Disabled', installing: 'Installing', setting_up: 'Setting Up', error: 'Error', not_installed: 'Not Installed', incompatible: 'Incompatible' }
+  const STATUS_FILTERS = ['all', 'enabled', 'stopped', 'unhealthy', 'disabled', 'installing', 'setting_up', 'error', 'not_installed', 'incompatible']
+  const STATUS_LABELS = { all: 'All', enabled: 'Enabled', stopped: 'Stopped', unhealthy: 'Unhealthy', disabled: 'Disabled', installing: 'Installing', setting_up: 'Setting Up', error: 'Error', not_installed: 'Not Installed', incompatible: 'Incompatible' }
 
   // Filter extensions
   const query = search.toLowerCase()
@@ -336,6 +367,7 @@ export default function Extensions() {
           <SummaryItem label="Total" value={summary.total || extensions.length} color="bg-theme-text-muted" />
           <SummaryItem label="Installed" value={summary.installed ?? 0} color="bg-green-500" />
           <SummaryItem label="Stopped" value={summary.stopped ?? 0} color="bg-red-500" />
+          <SummaryItem label="Unhealthy" value={summary.unhealthy ?? 0} color="bg-amber-500" />
           <SummaryItem label="Available" value={summary.not_installed ?? 0} color="bg-theme-accent" />
           <SummaryItem label="Installing" value={summary.installing ?? 0} color="bg-blue-500" />
           <SummaryItem label="Error" value={summary.error ?? 0} color="bg-red-500" />
@@ -411,6 +443,16 @@ export default function Extensions() {
         <div className="mb-4 rounded-xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3 text-[11px] text-amber-300/80 flex items-center gap-2.5">
           <span className="shrink-0 text-amber-400">!</span>
           <span>Host agent is offline — install, enable, and disable operations are unavailable. Container logs cannot be fetched.</span>
+        </div>
+      )}
+
+      {/* Polling-lost banner — 3+ consecutive progress-fetch failures.
+          Surfaces when dashboard-api restarts mid-install. Auto-clears on
+          the next successful poll. */}
+      {pollingLost && (
+        <div className="mb-4 rounded-xl border border-amber-500/15 bg-amber-500/[0.04] px-4 py-2 text-[10px] text-amber-400/80 flex items-center gap-2">
+          <Loader2 size={10} className="animate-spin shrink-0" />
+          <span>Connection to dashboard lost — retrying. Refresh if this persists.</span>
         </div>
       )}
 
@@ -580,7 +622,8 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
   const isUserExt = ext.source === 'user'
   const isError = status === 'error'
   const isStopped = status === 'stopped'
-  const isToggleable = isUserExt && (status === 'enabled' || status === 'disabled' || status === 'error' || status === 'stopped')
+  const isUnhealthy = status === 'unhealthy'
+  const isToggleable = isUserExt && (status === 'enabled' || status === 'disabled' || status === 'error' || status === 'stopped' || status === 'unhealthy')
   const showRemove = isUserExt && (status === 'disabled' || isError)
   const showInstall = status === 'not_installed' && ext.installable
 
@@ -595,6 +638,7 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
             <div className={`p-1.5 rounded-lg ${
               status === 'enabled' ? 'bg-green-500/10' :
               status === 'stopped' ? 'bg-red-500/10' :
+              status === 'unhealthy' ? 'bg-amber-500/10' :
               status === 'incompatible' ? 'bg-orange-500/10' :
               (status === 'installing' || status === 'setting_up') ? 'bg-blue-500/10' :
               status === 'error' ? 'bg-red-500/10' :
@@ -603,6 +647,7 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
               <Icon size={16} className={
                 status === 'enabled' ? 'text-green-400' :
                 status === 'stopped' ? 'text-red-400' :
+                status === 'unhealthy' ? 'text-amber-400' :
                 status === 'incompatible' ? 'text-orange-400' :
                 (status === 'installing' || status === 'setting_up') ? 'text-blue-400' :
                 status === 'error' ? 'text-red-400' :
@@ -635,6 +680,7 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
                 className={`relative inline-flex h-[18px] w-[32px] shrink-0 rounded-full transition-colors disabled:opacity-50 ${
                   status === 'error' ? 'bg-red-500' :
                   status === 'stopped' ? 'bg-amber-500' :
+                  status === 'unhealthy' ? 'bg-amber-500' :
                   status === 'enabled' ? 'bg-green-500' : 'bg-theme-border'
                 }`}
               >
@@ -659,12 +705,34 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
           <span>{progressData?.phase_label || (ext.status === 'setting_up' ? 'Running setup...' : 'Installing...')}</span>
         </div>
       )}
-      {/* Error message */}
-      {ext.status === 'error' && progressData?.error && (
-        <div className="px-4 py-2 border-t border-red-500/15 text-[10px] text-red-300/80 leading-relaxed">
-          {progressData.error.length > 200 ? progressData.error.slice(0, 200) + '...' : progressData.error}
-        </div>
-      )}
+      {/* Error message — expandable when long or multiline so docker-compose
+          stderr isn't cut off mid-actionable-line. */}
+      {ext.status === 'error' && progressData?.error && (() => {
+        const errorText = progressData.error
+        const firstLine = errorText.split('\n')[0]
+        const isMultiline = errorText.length > firstLine.length
+        const isLongLine = firstLine.length > 120
+        const needsExpand = isMultiline || isLongLine
+        if (!needsExpand) {
+          return (
+            <div className="px-4 py-2 border-t border-red-500/15 text-[10px] text-red-300/80 leading-relaxed">
+              {errorText}
+            </div>
+          )
+        }
+        const summaryText = isLongLine
+          ? firstLine.slice(0, 120) + '...'
+          : firstLine + (isMultiline ? '...' : '')
+        return (
+          <details className="group px-4 py-2 border-t border-red-500/15 text-[10px] text-red-300/80 leading-relaxed">
+            <summary className="cursor-pointer flex items-start gap-1 list-none [&::-webkit-details-marker]:hidden hover:text-red-300">
+              <ChevronDown size={10} className="mt-0.5 shrink-0 transition-transform group-open:rotate-180" />
+              <span className="flex-1 break-words">{summaryText}</span>
+            </summary>
+            <pre className="whitespace-pre-wrap text-[10px] text-red-300/80 mt-2 font-mono break-words">{errorText}</pre>
+          </details>
+        )
+      })()}
 
       {/* Card footer */}
       <div className="border-t border-theme-border/40 px-4 py-2.5 flex items-center justify-between bg-theme-bg/30">
@@ -687,6 +755,16 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
               className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] rounded-lg bg-green-500/15 text-green-400 hover:bg-green-500/25 transition-colors disabled:opacity-50"
             >
               {isMutating ? <Loader2 size={12} className="animate-spin" /> : 'Start'}
+            </button>
+          )}
+          {isUserExt && isUnhealthy && (
+            <button
+              onClick={onConsole}
+              disabled={agentOffline}
+              title={agentOffline ? 'Host agent is offline' : 'View container logs'}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] rounded-lg bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 transition-colors disabled:opacity-50"
+            >
+              <Terminal size={12} /> Check Logs
             </button>
           )}
           {isError && (
@@ -759,7 +837,7 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
               className={`flex items-center gap-1.5 px-2 py-1.5 text-[10px] rounded-lg transition-colors ${
                 agentOffline ? 'text-theme-text-muted/40 cursor-not-allowed' :
                 isError ? 'text-red-400 hover:text-red-300 hover:bg-red-500/10' :
-                (status === 'installing' || isStopped) ? 'text-amber-400/80 hover:text-amber-300 hover:bg-amber-500/10' :
+                (status === 'installing' || isStopped || isUnhealthy) ? 'text-amber-400/80 hover:text-amber-300 hover:bg-amber-500/10' :
                 'text-theme-text-secondary hover:text-theme-text hover:bg-theme-surface-hover/40'
               }`}
               title={agentOffline ? 'Agent offline' : 'View logs'}
