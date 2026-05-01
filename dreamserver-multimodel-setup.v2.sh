@@ -40,6 +40,13 @@ AMDGPU_TARGET="${AMDGPU_TARGET:-gfx1151}"
 # Verfügbare Tags: https://github.com/lemonade-sdk/lemonade/pkgs/container/lemonade-server
 LEMONADE_REF="${LEMONADE_REF:-latest}"
 
+# ROCm SDK-Version für den llama.cpp-Build-Stage
+# (FROM rocm/dev-ubuntu-24.04:${ROCM_VERSION}-complete in Dockerfile.amd).
+# Default: 7.2.2 (aktuelles Patchlevel, getestet 14.04.2026).
+# Verfügbare Tags: https://hub.docker.com/r/rocm/dev-ubuntu-24.04/tags
+# Auf Strix Halo (gfx1151) ist 7.0+ Pflicht; ältere Versionen ignorieren.
+ROCM_VERSION="${ROCM_VERSION:-7.2.2}"
+
 # Optionaler HuggingFace-Token (für gated repos / höheres Rate-Limit).
 # Wird in curl- UND wget-Requests als 'Authorization: Bearer ...' gesendet.
 # Holen: https://huggingface.co/settings/tokens (Read-only Token reicht).
@@ -107,13 +114,39 @@ preflight() {
   command -v python3 >/dev/null || die "python3 nicht gefunden"
   python3 -c 'import yaml' 2>/dev/null || die "python3-yaml fehlt: sudo apt install python3-yaml"
 
-  # ROCm / GPU
-  if command -v rocminfo >/dev/null; then
-    if ! rocminfo 2>/dev/null | grep -q gfx1151; then
-      warn "gfx1151 nicht in rocminfo – Treiber/ROCm prüfen"
-    fi
+  # GPU-Kernel-Devices auf dem HOST (Container braucht nur diese):
+  # /dev/kfd       = AMDGPU Kernel Fusion Driver (Compute-Submission)
+  # /dev/dri/render*= Direct Rendering Manager Render-Node (Memory + Submit)
+  # rocminfo selbst liegt IM Container (ROCm-SDK), nicht auf dem Host – daher
+  # checken wir nur die Devices und delegieren den eigentlichen ROCm-Test
+  # an den schon gebauten dream-lemonade-server.
+  local has_gpu_devs=1
+  [[ -e /dev/kfd ]]               || { warn "/dev/kfd fehlt (amdgpu/KFD nicht geladen)";        has_gpu_devs=0; }
+  compgen -G '/dev/dri/renderD*' >/dev/null \
+                                   || { warn "/dev/dri/renderD* fehlt (DRM-Render-Node)";       has_gpu_devs=0; }
+  if [[ "$has_gpu_devs" == "1" ]]; then
+    log "  GPU-Devices: /dev/kfd + $(echo /dev/dri/renderD* | tr ' ' ',') vorhanden"
   else
-    warn "rocminfo fehlt – ROCm 7.0+ wird empfohlen"
+    warn "GPU-Devices unvollständig – Container kann nicht auf die GPU zugreifen."
+    warn "  Prüfe: lsmod | grep amdgpu  +  groups (user muss in 'render' und 'video' sein)"
+  fi
+
+  # Echter ROCm-Check IM CONTAINER (nur möglich wenn Image schon existiert –
+  # beim Erstlauf wird das Image gleich danach gebaut, dann beim nächsten Lauf
+  # greift dieser Check).
+  if docker image inspect dream-lemonade-server:latest >/dev/null 2>&1; then
+    if docker run --rm \
+         --device=/dev/kfd --device=/dev/dri \
+         --group-add video --group-add render \
+         dream-lemonade-server:latest \
+         bash -c 'command -v rocminfo >/dev/null && rocminfo 2>/dev/null | grep -q "gfx1151"' \
+         2>/dev/null; then
+      log "  ✓ ROCm im Container sieht gfx1151 (Strix Halo)"
+    else
+      warn "ROCm im Container findet gfx1151 NICHT – Treiber/Permissions prüfen."
+      warn "  Manuell debuggen: docker run --rm --device=/dev/kfd --device=/dev/dri \\"
+      warn "    --group-add video --group-add render dream-lemonade-server:latest rocminfo"
+    fi
   fi
 
   # NPU (XDNA2)
@@ -156,7 +189,8 @@ seed_build_env() {
   set_env_var "$f" LLAMA_CPP_REF  "$LLAMA_CPP_REF"
   set_env_var "$f" AMDGPU_TARGET  "$AMDGPU_TARGET"
   set_env_var "$f" LEMONADE_REF   "$LEMONADE_REF"
-  log "  ✓ GPU_BACKEND=amd  LLAMA_CPP_REF=$LLAMA_CPP_REF  AMDGPU_TARGET=$AMDGPU_TARGET  LEMONADE_REF=$LEMONADE_REF in .env"
+  set_env_var "$f" ROCM_VERSION   "$ROCM_VERSION"
+  log "  ✓ GPU_BACKEND=amd  LLAMA_CPP_REF=$LLAMA_CPP_REF  AMDGPU_TARGET=$AMDGPU_TARGET  LEMONADE_REF=$LEMONADE_REF  ROCM_VERSION=$ROCM_VERSION in .env"
 
   # Sanity-Check: Vorhandenen falschen Wert lautstark melden.
   local existing_backend
@@ -208,19 +242,20 @@ update_lemonade() {
 
   # 2. Lemonade/llama.cpp Image neu bauen
   patch_dockerfile_lemonade_ref     # macht FROM-Zeile parametrisch (idempotent)
-  log "  → docker compose build llama-server (LLAMA_CPP_REF=$LLAMA_CPP_REF, LEMONADE_REF=$LEMONADE_REF, --pull --no-cache, kann 5–10 min dauern)…"
+  log "  → docker compose build llama-server (LLAMA_CPP_REF=$LLAMA_CPP_REF, LEMONADE_REF=$LEMONADE_REF, ROCM_VERSION=$ROCM_VERSION, --pull --no-cache, kann 5–10 min dauern)…"
   cd "$DREAM_DIR"
   # Inline-Export stellt sicher, dass der Build-Arg auch dann gesetzt ist,
   # wenn .env nicht eingelesen wird (z.B. bei alternativen compose-Aufrufen).
-  export LLAMA_CPP_REF AMDGPU_TARGET LEMONADE_REF
+  export LLAMA_CPP_REF AMDGPU_TARGET LEMONADE_REF ROCM_VERSION
   local -a compose_cmd
   build_compose_cmd compose_cmd
   "${compose_cmd[@]}" build --pull --no-cache \
       --build-arg "LLAMA_CPP_REF=$LLAMA_CPP_REF" \
       --build-arg "AMDGPU_TARGET=$AMDGPU_TARGET" \
       --build-arg "LEMONADE_REF=$LEMONADE_REF" \
+      --build-arg "ROCM_VERSION=$ROCM_VERSION" \
       llama-server
-  log "  ✓ Lemonade-Image neu gebaut (Lemonade=$LEMONADE_REF, llama.cpp=$LLAMA_CPP_REF)"
+  log "  ✓ Lemonade-Image neu gebaut (Lemonade=$LEMONADE_REF, llama.cpp=$LLAMA_CPP_REF, ROCm=$ROCM_VERSION)"
   warn "  Build-Output auf 'WARNING: MMQ patch did not apply' prüfen – falls"
   warn "  vorhanden, sind die Strix-Halo-Patches nicht aktiv (b8994 != b8763)."
 
@@ -1026,6 +1061,7 @@ summary() {
 📋 Tipps:
    • llama.cpp-Version pinnen:        LLAMA_CPP_REF=b8763 ./...
    • Lemonade-Version pinnen:         LEMONADE_REF=v10.3.0 ./...
+   • ROCm-Version pinnen:             ROCM_VERSION=7.2.1 ./...
    • GPU-Target ändern:               AMDGPU_TARGET=gfx1100 ./...
    • Lemonade-Update überspringen:    SKIP_LEMONADE_UPDATE=1 ./...
    • HuggingFace gated repos:         HF_TOKEN=hf_xxx ./...
