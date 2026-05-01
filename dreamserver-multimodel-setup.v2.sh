@@ -40,6 +40,12 @@ AMDGPU_TARGET="${AMDGPU_TARGET:-gfx1151}"
 # Verfügbare Tags: https://github.com/lemonade-sdk/lemonade/pkgs/container/lemonade-server
 LEMONADE_REF="${LEMONADE_REF:-latest}"
 
+# Optionaler HuggingFace-Token (für gated repos / höheres Rate-Limit).
+# Wird in curl- UND wget-Requests als 'Authorization: Bearer ...' gesendet.
+# Holen: https://huggingface.co/settings/tokens (Read-only Token reicht).
+# Setzen z.B.:  HF_TOKEN=hf_xxx ./dreamserver-multimodel-setup.v2.sh
+HF_TOKEN="${HF_TOKEN:-}"
+
 # ----------------------------- Logging / Trap --------------------------------
 log()  { printf '\033[1;36m[%s]\033[0m %s\n' "$(date +%H:%M:%S)" "$*"; }
 warn() { printf '\033[1;33m[WARN]\033[0m %s\n' "$*" >&2; }
@@ -430,17 +436,57 @@ download_models() {
     fi
 
     # Fail-fast: HEAD-Check verhindert ein 5-Minuten-Wget-Retry-Theater bei
-    # toter URL (HF-Repo umbenannt o.ä.). curl gibt nur den HTTP-Status aus.
+    # toter URL (HF-Repo umbenannt o.ä.). HF gibt aber bei einigen Files
+    # anonym 401 oder lehnt HEAD ab (405) — daher zweistufig:
+    #   1. HEAD mit ggf. HF_TOKEN
+    #   2. Wenn HEAD 401/403/405/000: Range-GET (1 Byte) als Fallback
     log "  ? prüfe URL: $url"
+
+    # Auth-Header nur setzen wenn HF_TOKEN vorhanden UND URL auf huggingface.co.
+    local -a auth_hdr=()
+    if [[ -n "$HF_TOKEN" && "$url" == *"huggingface.co"* ]]; then
+      auth_hdr=(-H "Authorization: Bearer $HF_TOKEN")
+    fi
+
     local http_code
     http_code="$(curl -sSL -o /dev/null -w '%{http_code}' --max-time 30 \
-                  --retry 2 --retry-delay 2 -I "$url" 2>/dev/null || echo "000")"
-    if [[ "$http_code" != "200" && "$http_code" != "302" && "$http_code" != "301" ]]; then
-      die "URL nicht erreichbar (HTTP $http_code) für $rel
-   URL: $url
-   → Repo evtl. umbenannt/entfernt. Alternative URL ins Skript eintragen
-     oder Eintrag aus TIER1_MODELS/TIER2_MODELS entfernen."
+                  --retry 2 --retry-delay 2 -I "${auth_hdr[@]}" "$url" 2>/dev/null \
+                  || echo "000")"
+
+    # 405 = HEAD nicht erlaubt (manche CDNs). 401/403 oft anonym, GET klappt.
+    # 000 = Netzwerkfehler/Timeout — auch nochmal mit GET versuchen.
+    if [[ "$http_code" =~ ^(401|403|405|000)$ ]]; then
+      log "  ? HEAD lieferte $http_code – versuche Range-GET-Fallback…"
+      http_code="$(curl -sSL -o /dev/null -w '%{http_code}' --max-time 30 \
+                    --retry 2 --retry-delay 2 -r 0-0 \
+                    "${auth_hdr[@]}" "$url" 2>/dev/null || echo "000")"
     fi
+
+    case "$http_code" in
+      200|206|301|302)
+        : # OK
+        ;;
+      401|403)
+        die "URL nicht autorisiert (HTTP $http_code) für $rel
+   URL: $url
+   → Repo ist 'gated' oder anonyme Downloads sind blockiert.
+   1. Auf HuggingFace einloggen, Repo öffnen und Lizenz akzeptieren:
+      $(echo "$url" | sed 's|/resolve/main/.*||')
+   2. Read-only Token erstellen: https://huggingface.co/settings/tokens
+   3. Skript erneut starten mit:  HF_TOKEN=hf_xxx ./dreamserver-multimodel-setup.v2.sh"
+        ;;
+      404)
+        die "URL nicht gefunden (HTTP 404) für $rel
+   URL: $url
+   → Repo umbenannt/entfernt. Alternative URL ins Skript eintragen
+     oder Eintrag aus TIER1_MODELS/TIER2_MODELS entfernen."
+        ;;
+      *)
+        die "URL nicht erreichbar (HTTP $http_code) für $rel
+   URL: $url
+   → Netzwerkproblem oder unerwarteter HTTP-Status."
+        ;;
+    esac
 
     log "  ↓ $rel"
     current_part="$dst.part"
@@ -450,8 +496,13 @@ download_models() {
     # --timeout=60    DNS+Connect+Read jeweils 60s (HF kann hängen).
     # --retry-connrefused  Auch 'Connection refused' als transient behandeln.
     # --show-progress Fortschrittsbalken trotz Verbose-Modus.
+    local -a wget_auth=()
+    if [[ -n "$HF_TOKEN" && "$url" == *"huggingface.co"* ]]; then
+      wget_auth=(--header="Authorization: Bearer $HF_TOKEN")
+    fi
     if ! wget --continue --show-progress --tries=3 --timeout=60 \
-              --retry-connrefused -O "$current_part" "$url"; then
+              --retry-connrefused "${wget_auth[@]}" \
+              -O "$current_part" "$url"; then
       die "wget fehlgeschlagen für $rel
    URL: $url
    Teildatei behalten: $current_part (resume mit erneutem Skript-Lauf)"
@@ -972,6 +1023,7 @@ summary() {
    • Lemonade-Version pinnen:         LEMONADE_REF=v10.3.0 ./...
    • GPU-Target ändern:               AMDGPU_TARGET=gfx1100 ./...
    • Lemonade-Update überspringen:    SKIP_LEMONADE_UPDATE=1 ./...
+   • HuggingFace gated repos:         HF_TOKEN=hf_xxx ./...
    • Nur Configs (kein Download):     SKIP_DOWNLOAD=1 ./...
    • Erzwinge Überschreiben:          FORCE=1 ./...
    • Tier-2 (MXFP4-Upgrade nachladen): TIER=2 ./...
