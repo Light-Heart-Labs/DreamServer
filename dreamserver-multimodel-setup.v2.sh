@@ -131,21 +131,51 @@ preflight() {
     warn "  Prüfe: lsmod | grep amdgpu  +  groups (user muss in 'render' und 'video' sein)"
   fi
 
-  # Echter ROCm-Check IM CONTAINER (nur möglich wenn Image schon existiert –
-  # beim Erstlauf wird das Image gleich danach gebaut, dann beim nächsten Lauf
-  # greift dieser Check).
+  # Echter ROCm-Check IM CONTAINER (nur möglich wenn Image schon existiert).
+  # ACHTUNG: Das Lemonade-Runtime-Image enthält die ROCm-Libs, aber NICHT
+  # das diagnostische `rocminfo`-Tool (das liegt im rocm/dev:*-complete-Image).
+  # Wir probieren daher mehrere Tools und werten aus, was tatsächlich da ist.
   if docker image inspect dream-lemonade-server:latest >/dev/null 2>&1; then
-    if docker run --rm \
+    # Probe-Skript: erst Device-Visibility im Container, dann ROCm-Tools
+    # in Reihenfolge der Wahrscheinlichkeit. Exit 0 wenn GPU sichtbar UND
+    # mindestens ein ROCm-Pfad existiert.
+    local probe_out
+    probe_out="$(docker run --rm \
          --device=/dev/kfd --device=/dev/dri \
          --group-add video --group-add render \
-         dream-lemonade-server:latest \
-         bash -c 'command -v rocminfo >/dev/null && rocminfo 2>/dev/null | grep -q "gfx1151"' \
-         2>/dev/null; then
+         --entrypoint /bin/bash \
+         dream-lemonade-server:latest -c '
+           set +e
+           echo "--- devices ---"
+           ls -la /dev/kfd /dev/dri/renderD* 2>/dev/null | head -5
+           echo "--- rocm install ---"
+           [[ -d /opt/rocm ]] && echo "OK /opt/rocm exists" || echo "MISSING /opt/rocm"
+           ls /opt/rocm/lib/libamdhip64.so* 2>/dev/null | head -1
+           echo "--- gpu detection ---"
+           if command -v rocminfo >/dev/null; then
+               rocminfo 2>/dev/null | grep -E "Name:.*gfx" | head -3
+           elif command -v rocm-smi >/dev/null; then
+               rocm-smi --showproductname 2>/dev/null | grep -i "gpu\|card"
+           elif [[ -d /opt/llama-custom ]] && /opt/llama-custom/llama-server --list-devices 2>&1 | grep -i "device\|rocm\|hip" | head -3; then
+               :
+           else
+               echo "NO_PROBE_TOOL"
+           fi
+         ' 2>&1 || true)"
+
+    if echo "$probe_out" | grep -q "gfx1151"; then
       log "  ✓ ROCm im Container sieht gfx1151 (Strix Halo)"
+    elif echo "$probe_out" | grep -qE "ROCm device|rocm0|HIP device"; then
+      log "  ✓ ROCm im Container sieht eine GPU (kein gfx1151-Match, aber Device da)"
+    elif echo "$probe_out" | grep -q "OK /opt/rocm exists"; then
+      log "  ℹ ROCm-Libs im Container vorhanden, kein Diagnose-Tool installiert."
+      log "    (Funktionale Verifikation erfolgt erst beim llama-server-Start in Phase 6.)"
     else
-      warn "ROCm im Container findet gfx1151 NICHT – Treiber/Permissions prüfen."
-      warn "  Manuell debuggen: docker run --rm --device=/dev/kfd --device=/dev/dri \\"
-      warn "    --group-add video --group-add render dream-lemonade-server:latest rocminfo"
+      warn "ROCm-Probe im Container fehlgeschlagen. Output zur Diagnose:"
+      printf '%s\n' "$probe_out" | sed 's/^/    /' >&2
+      warn "  Funktionaler Test: docker run --rm --device=/dev/kfd --device=/dev/dri \\"
+      warn "    --group-add video --group-add render dream-lemonade-server:latest \\"
+      warn "    /opt/llama-custom/llama-server --list-devices"
     fi
   fi
 
