@@ -250,22 +250,46 @@ declare -a EXISTING_REQUIRED=(
   "qwen3-vl-30b/mmproj-Qwen3VL-30B-A3B-Instruct-F16.gguf"
 )
 
+# Liefert 0, wenn $1 (relativer Modellpfad) in TIER1_MODELS oder
+# (bei TIER>=2) in TIER2_MODELS als Download-Eintrag steht – dann wird die
+# Datei in download_models() ohnehin nachgeladen und darf in check_existing()
+# NICHT zum Abbruch führen.
+is_downloadable() {
+  local needle="$1" entry rel
+  for entry in "${TIER1_MODELS[@]}"; do
+    rel="${entry%%|*}"
+    [[ "$rel" == "$needle" ]] && return 0
+  done
+  if [[ "$TIER" -ge 2 ]]; then
+    for entry in "${TIER2_MODELS[@]}"; do
+      rel="${entry%%|*}"
+      [[ "$rel" == "$needle" ]] && return 0
+    done
+  fi
+  return 1
+}
+
 check_existing() {
-  local missing=0
+  local missing_hard=0   # fehlt UND nicht downloadbar → fataler Fehler
+  local missing_soft=0   # fehlt, wird aber gleich gedownloaded
   for rel in "${EXISTING_REQUIRED[@]}"; do
     if [[ -f "$MODELS_DIR/$rel" ]]; then
       log "  ✓ vorhanden: $rel"
+    elif is_downloadable "$rel"; then
+      log "  ↻ fehlt, wird in [1/7] geladen: $rel"
+      missing_soft=1
     else
-      warn "  ✗ FEHLT: $MODELS_DIR/$rel"
-      missing=1
+      warn "  ✗ FEHLT (kein Download-Eintrag): $MODELS_DIR/$rel"
+      missing_hard=1
     fi
   done
-  if [[ "$missing" == "1" ]]; then
-    warn "Fehlende Dateien werden in [1/7] versucht herunterzuladen, falls sie"
-    warn "in TIER1_MODELS/TIER2_MODELS stehen. Sonst: manuell besorgen oder"
-    warn "models.ini-Section entfernen. FORCE=1 überspringt nur diesen Check,"
-    warn "lädt aber NICHT automatisch (außer der Eintrag ist auch in TIERx_MODELS)."
+  if [[ "$missing_hard" == "1" ]]; then
+    warn "Diese Dateien stehen NICHT in TIER1_MODELS/TIER2_MODELS und müssen"
+    warn "manuell besorgt oder die models.ini-Section entfernt werden."
     [[ "$FORCE" == "1" ]] || die "Abbruch (mit FORCE=1 trotzdem fortfahren)"
+  fi
+  if [[ "$missing_soft" == "1" && "$SKIP_DOWNLOAD" == "1" ]]; then
+    die "Fehlende Modelle vorhanden, aber SKIP_DOWNLOAD=1 verhindert das Laden."
   fi
 }
 
