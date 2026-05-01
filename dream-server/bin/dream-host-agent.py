@@ -134,6 +134,12 @@ def _detect_docker_bridge_gateway() -> str:
                 _ipaddress.ip_address(addr)  # validate — Docker can return "<no value>"
                 logger.info("Detected Docker bridge gateway: %s", addr)
                 return addr
+        else:
+            logger.warning(
+                "Docker bridge gateway detection failed (exit %d): %s",
+                result.returncode,
+                result.stderr.strip() or "<no stderr>",
+            )
     except ValueError:
         logger.debug("Docker bridge returned non-IP value, ignoring")
     except (subprocess.SubprocessError, OSError) as exc:
