@@ -596,68 +596,42 @@ download_models() {
 }
 
 # ----------------------------- 2. models.ini ---------------------------------
-# WICHTIG: Mit `--extra-models-dir /models` exponiert Lemonade JEDE GGUF unter
-# /models automatisch als API-Modell-ID `extra.<DATEINAME.gguf>`. Die hier
-# definierten [section]-Namen dienen nur als Config-Overrides (n-ctx, mmproj,
-# load-on-startup). Im LiteLLM-Routing müssen die `extra.<filename>`-IDs stehen
-# (siehe write_litellm), siehe scripts/bootstrap-upgrade.sh:439 im Repo.
+# WICHTIG (Lemonade 10.3+): models.ini macht mehr Schaden als Nutzen!
+#   • `load-on-startup` wird IGNORIERT (alle Modelle laden lazy).
+#   • Per-Model-Felder (filename, n-ctx, mmproj) werden zu RESERVED-Args
+#     (--model, --ctx-size, --mmproj) und triggern HTTP 500 beim Modell-Load:
+#     "Argument '...' is managed by Lemonade and cannot be overridden".
+#   • Section-Namen matchen die Auto-Discovery-IDs (z.B. [qwen3-4b] matcht
+#     extra.qwen3-4b), das Override greift dann SOFORT beim Laden.
+#
+# → Wir schreiben eine LEERE models.ini (nur Header-Kommentar). Auto-Discovery
+#   unter /models genügt. mmproj wird automatisch erkannt wenn die Datei im
+#   selben Unterverzeichnis liegt und mit `mmproj` im Namen beginnt (Lemonade-
+#   Konvention, siehe qwen3-vl-30b/mmproj-Qwen3VL-30B-A3B-Instruct-F16.gguf).
+#
+# Falls man später wieder Overrides braucht: nur Felder verwenden, die NICHT
+# in der Reserved-Liste stehen, UND Section-Namen so wählen, dass sie keine
+# Auto-Discovery-ID matchen (sonst doppelt geladen / Konflikt).
 write_models_ini() {
-  log "[2/7] models.ini schreiben…"
+  log "[2/7] models.ini schreiben (LEER, da Lemonade 10.3+ Auto-Discovery nutzt)…"
   local f="$DREAM_DIR/config/llama-server/models.ini"
   mkdir -p "$(dirname "$f")"
   backup "$f"
 
-  # Echtes Lemonade-Format (siehe DreamServer-Repo, models.ini):
-  #   [section-name]
-  #   filename = <relativer Pfad unter /models>
-  #   n-ctx = <kontext>
-  #   load-on-startup = true|false
-  # Multipart-GGUF: nur erste Datei angeben, llama.cpp findet die Splits selbst.
   cat > "$f" << 'EOF'
-# === Default / Tool-Routing – Qwen3-4B-Instruct-2507 (klein, schnell) ===
-[qwen3-4b]
-filename = qwen3-4b/Qwen3-4B-Instruct-2507-Q6_K.gguf
-n-ctx = 32768
-load-on-startup = true
-
-# === Allrounder (Hauptmodell) – Qwen3.6-35B-A3B-Q4_K_XL ===
-# 35B MoE mit 3B aktiv – Sweet-Spot für Strix Halo.
-[qwen3.6-35b-a3b]
-filename = Qwen3.6-35B-A3B-Q4_K_XL.gguf
-n-ctx = 65536
-load-on-startup = true
-
-# === Vision – Qwen3-VL-30B-A3B-Instruct (Q5_K_M) ===
-[qwen3-vl-30b]
-filename = qwen3-vl-30b/Qwen3VL-30B-A3B-Instruct-Q5_K_M.gguf
-mmproj = qwen3-vl-30b/mmproj-Qwen3VL-30B-A3B-Instruct-F16.gguf
-n-ctx = 32768
-load-on-startup = false
-
-# === Code – Qwen3-Coder-Next Q4_K_M ===
-[qwen3-coder-next]
-filename = qwen3-coder-next-Q4_K_M.gguf
-n-ctx = 65536
-load-on-startup = false
-
-# === Heavy Reasoning / OpenCLAW – Qwen3.5-122B-A10B (Q4_K_M, 3-part) ===
-# Splits werden automatisch geladen – nur die erste Datei referenzieren.
-[qwen3.5-122b-a10b]
-filename = Qwen3.5-122B-A10B-Q4_K_M-00001-of-00003.gguf
-n-ctx = 65536
-load-on-startup = false
-
-# === Embedding ===
-[qwen3-embedding-0.6b]
-filename = qwen3-embedding/Qwen3-Embedding-0.6B-Q8_0.gguf
-n-ctx = 8192
-load-on-startup = true
-
-# === Reranker ===
-[qwen3-reranker-0.6b]
-filename = qwen3-reranker/Qwen3-Reranker-0.6B-Q8_0.gguf
-n-ctx = 8192
-load-on-startup = false
+# Intentionally empty — see dreamserver-multimodel-setup.v2.sh:write_models_ini()
+#
+# Lemonade 10.3+ exponiert alle GGUFs unter --extra-models-dir AUTOMATISCH:
+#   /models/foo.gguf       → ID `extra.foo.gguf`
+#   /models/bar/main.gguf  → ID `extra.bar`              (Subdir → Dirname)
+#   /models/bar/mmproj.gguf → wird automatisch als mmproj zum Subdir-Modell geladen
+#
+# Per-Model-Overrides via models.ini sind in v10.3+ NICHT empfohlen:
+# - load-on-startup wird ignoriert (alle Modelle laden lazy beim ersten Call)
+# - filename/n-ctx/mmproj-Felder kollidieren mit reserved CLI args → HTTP 500
+#
+# Falls dennoch nötig: nur ungefährliche Keys nutzen (siehe Lemonade-Docs)
+# UND Section-Namen so wählen, dass sie KEINE Auto-Discovery-ID matchen.
 EOF
 }
 
