@@ -1024,3 +1024,151 @@ class TestHandleModelDownloadCancel:
         assert handler.parse_response()["status"] == "cancelling"
         assert _mod._model_download_cancel.is_set() is True
         assert proc.killed is True
+
+
+# --- _precreate_data_dirs + install flow (PR 2A regressions) ---
+#
+# Defect 1/2: _run_install and _precreate_data_dirs must use _find_ext_dir()
+# so built-in extensions (under EXTENSIONS_DIR) are found — the old
+# USER_EXTENSIONS_DIR-only path silently no-op'd for every built-in.
+#
+# Defect 3: _precreate_data_dirs must create dirs for any relative bind
+# source (not just "./data/..."), so extensions with "./upload:/..." style
+# mounts also get their dirs pre-created. Anchored on INSTALL_DIR because
+# Docker Compose v2 resolves relative bind paths against the project
+# directory (the first -f file's parent = INSTALL_DIR), not against the
+# individual fragment's directory.
+#
+# Defect 5: _handle_install must verify the container reached "running"
+# state before reporting success — compose `up -d` returns 0 even for
+# Created/Exited/Restarting containers.
+
+
+class TestPrecreateDataDirs:
+
+    def _write_compose(self, ext_dir: Path, volumes: list[str]):
+        vol_yaml = "\n".join(f"      - {v}" for v in volumes)
+        ext_dir.mkdir(parents=True, exist_ok=True)
+        (ext_dir / "compose.yaml").write_text(
+            "services:\n"
+            "  svc:\n"
+            "    image: test:latest\n"
+            "    volumes:\n" + vol_yaml + "\n",
+            encoding="utf-8",
+        )
+
+    def test_creates_dirs_for_builtin_ext_via_find_ext_dir(self, tmp_path, monkeypatch):
+        """Defect 1/2: built-in extensions resolved via _find_ext_dir, not USER_EXTENSIONS_DIR."""
+        pytest.importorskip("yaml")
+        builtin_root = tmp_path / "builtin"
+        user_root = tmp_path / "user"
+        install_dir = tmp_path / "install"
+        builtin_root.mkdir()
+        user_root.mkdir()
+        install_dir.mkdir()
+        ext_dir = builtin_root / "svc-b"
+        self._write_compose(ext_dir, ["./data/state:/state"])
+
+        monkeypatch.setattr(_mod, "EXTENSIONS_DIR", builtin_root)
+        monkeypatch.setattr(_mod, "USER_EXTENSIONS_DIR", user_root)
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+
+        _mod._precreate_data_dirs("svc-b")
+
+        # Dir lives under INSTALL_DIR (the Compose project directory),
+        # NOT under ext_dir — matching where Compose actually mounts.
+        assert (install_dir / "data" / "state").is_dir()
+        assert not (ext_dir / "data" / "state").exists()
+
+    def test_creates_dirs_for_non_data_prefix(self, tmp_path, monkeypatch):
+        """Defect 3: relative bind sources outside './data/' must still be created."""
+        pytest.importorskip("yaml")
+        user_root = tmp_path / "user"
+        builtin_root = tmp_path / "builtin"
+        install_dir = tmp_path / "install"
+        user_root.mkdir()
+        builtin_root.mkdir()
+        install_dir.mkdir()
+        ext_dir = user_root / "svc-u"
+        self._write_compose(ext_dir, ["./upload:/upload", "./data/state:/state"])
+
+        monkeypatch.setattr(_mod, "EXTENSIONS_DIR", builtin_root)
+        monkeypatch.setattr(_mod, "USER_EXTENSIONS_DIR", user_root)
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+
+        _mod._precreate_data_dirs("svc-u")
+
+        # Both non-"./data/" and "./data/..." mounts must materialise under
+        # INSTALL_DIR (the Compose project directory).
+        assert (install_dir / "upload").is_dir()
+        assert (install_dir / "data" / "state").is_dir()
+
+    def test_skips_named_volumes(self, tmp_path, monkeypatch):
+        """Named volumes (no '/') must not trigger filesystem creation."""
+        pytest.importorskip("yaml")
+        user_root = tmp_path / "user"
+        builtin_root = tmp_path / "builtin"
+        install_dir = tmp_path / "install"
+        user_root.mkdir()
+        builtin_root.mkdir()
+        install_dir.mkdir()
+        ext_dir = user_root / "svc-n"
+        self._write_compose(ext_dir, ["named_vol:/var/lib/data"])
+
+        monkeypatch.setattr(_mod, "EXTENSIONS_DIR", builtin_root)
+        monkeypatch.setattr(_mod, "USER_EXTENSIONS_DIR", user_root)
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+
+        _mod._precreate_data_dirs("svc-n")
+
+        # Named volume must not materialize as a directory anywhere we own.
+        assert not (ext_dir / "named_vol").exists()
+        assert not (install_dir / "named_vol").exists()
+
+
+class TestInstallRunningStateVerification:
+    """Defect 5: `_handle_install` must poll container state before reporting success."""
+
+    def _install_source(self):
+        import inspect
+        return inspect.getsource(_mod.AgentHandler._handle_install)
+
+    def test_install_uses_find_ext_dir(self):
+        """Defect 1: _run_install resolves ext_dir via _find_ext_dir, not USER_EXTENSIONS_DIR."""
+        src = self._install_source()
+        assert "_find_ext_dir(service_id)" in src
+        assert "USER_EXTENSIONS_DIR / service_id" not in src
+
+    def test_install_polls_docker_inspect_state(self):
+        """State-poll loop must run `docker inspect` and check running state."""
+        src = self._install_source()
+        assert "docker" in src and "inspect" in src
+        assert "{{.State.Status}}" in src
+        assert 'state == "running"' in src
+
+    def test_install_writes_error_when_state_not_running(self):
+        """Failed state-poll must surface as progress error, not 'started'.
+
+        The error message is built via f-string with the
+        manifest-driven `startup_timeout` rather than the literal "15s",
+        so we assert the constant prefix and the timeout reference, not
+        a hardcoded duration.
+        """
+        src = self._install_source()
+        # Error path uses the existing _write_progress("error", ...) API.
+        assert '_write_progress(service_id, "error"' in src
+        # Error message template carries the dynamic startup_timeout.
+        assert "did not reach running state within" in src
+        assert "{startup_timeout}s" in src
+
+    def test_install_supports_startup_check_opt_out(self):
+        """One-shot / setup-only extensions can set
+        `service.startup_check: false` in their manifest to skip the
+        running-state poll. The install completes after `compose up -d`
+        returns 0; the inspect loop is gated on `if startup_check:`.
+        """
+        src = self._install_source()
+        # Manifest field is read with True default for back-compat.
+        assert 'startup_check = install_service_def.get("startup_check", True)' in src
+        # The state-poll loop is conditionally entered.
+        assert "if startup_check:" in src
