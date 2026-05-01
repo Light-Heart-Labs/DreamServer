@@ -61,7 +61,7 @@ try {
   // Ensure controlUi flags are set for local use
   config.gateway.controlUi.allowInsecureAuth = true;
   config.gateway.controlUi.dangerouslyDisableDeviceAuth = true;
-  config.gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback = true;
+  delete config.gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback;  // defang upgrades from pre-PR installs that wrote this flag to the persistent volume
 
   // Keep token auth (required for LAN bind) with token from env
   if (token) {
@@ -217,7 +217,7 @@ try {
     if (!primary.gateway.controlUi) primary.gateway.controlUi = {};
     primary.gateway.controlUi.allowInsecureAuth = true;
     primary.gateway.controlUi.dangerouslyDisableDeviceAuth = true;
-    primary.gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback = true;
+    delete primary.gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback;  // defang carry-over (mirrors Part 1)
     const extPort = process.env.OPENCLAW_EXTERNAL_PORT || '7860';
     const origins = primary.gateway.controlUi.allowedOrigins || [];
     for (const o of [`http://localhost:${extPort}`, `http://127.0.0.1:${extPort}`]) {
