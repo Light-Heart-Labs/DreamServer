@@ -164,6 +164,77 @@ else
     fail "JSON parse error: --skip-broken should not exit"
 fi
 
+# ============================================================================
+# 11. Path-traversal hardening: compose_file with .. must not escape ext dir
+# ============================================================================
+# Clean prior broken-ext fixture so it doesn't interfere with traversal checks.
+rm -rf "$TEMP_DIR/extensions/services/broken-ext"
+
+mkdir -p "$TEMP_DIR/extensions/services/traversal-ext"
+cat > "$TEMP_DIR/extensions/services/traversal-ext/manifest.yaml" <<'EOF'
+schema_version: dream.services.v1
+service:
+  id: traversal-ext
+  name: Traversal Test
+  compose_file: "../../../../../../etc/passwd"
+  gpu_backends: ["nvidia", "amd", "apple"]
+EOF
+
+traversal_exit=0
+traversal_stderr_file="$TEMP_DIR/traversal.stderr"
+traversal_stdout=$(bash "$ROOT_DIR/scripts/resolve-compose-stack.sh" \
+    --script-dir "$TEMP_DIR" --tier 1 --gpu-backend nvidia --skip-broken \
+    2>"$traversal_stderr_file") || traversal_exit=$?
+traversal_stderr=$(cat "$traversal_stderr_file")
+
+if [[ $traversal_exit -ne 0 ]]; then
+    fail "Traversal compose_file caused resolver to crash (exit $traversal_exit)"
+elif echo "$traversal_stdout" | grep -q "etc/passwd"; then
+    fail "Traversal path INCLUDED in resolved stack (security regression)"
+else
+    pass "Traversal compose_file rejected from resolved stack"
+fi
+
+if echo "$traversal_stderr" | grep -qi "WARNING.*traversal-ext.*escapes"; then
+    pass "WARNING emitted for traversal-ext compose_file"
+else
+    fail "Expected WARNING for traversal-ext compose_file"
+fi
+
+# ============================================================================
+# 12. Path-traversal hardening: absolute compose_file must not crash resolver
+# ============================================================================
+mkdir -p "$TEMP_DIR/extensions/services/absolute-ext"
+cat > "$TEMP_DIR/extensions/services/absolute-ext/manifest.yaml" <<'EOF'
+schema_version: dream.services.v1
+service:
+  id: absolute-ext
+  name: Absolute Path Test
+  compose_file: "/etc/shadow"
+  gpu_backends: ["nvidia", "amd", "apple"]
+EOF
+
+abs_exit=0
+abs_stderr_file="$TEMP_DIR/absolute.stderr"
+abs_stdout=$(bash "$ROOT_DIR/scripts/resolve-compose-stack.sh" \
+    --script-dir "$TEMP_DIR" --tier 1 --gpu-backend nvidia --skip-broken \
+    2>"$abs_stderr_file") || abs_exit=$?
+abs_stderr=$(cat "$abs_stderr_file")
+
+if [[ $abs_exit -ne 0 ]]; then
+    fail "Resolver crashed on absolute compose_file (DoS regression, exit $abs_exit)"
+elif echo "$abs_stdout" | grep -q "/etc/shadow"; then
+    fail "Absolute path INCLUDED in resolved stack (security regression)"
+else
+    pass "Resolver handled absolute compose_file gracefully"
+fi
+
+if echo "$abs_stderr" | grep -qi "WARNING.*absolute-ext.*escapes"; then
+    pass "WARNING emitted for absolute-ext compose_file"
+else
+    fail "Expected WARNING for absolute-ext compose_file"
+fi
+
 echo ""
 echo "Result: $PASSED passed, $FAILED failed"
 [[ $FAILED -eq 0 ]]

@@ -177,7 +177,24 @@ if ext_dir.exists():
             # Get compose file from manifest
             compose_rel = service.get("compose_file", "")
             if compose_rel and not compose_rel.endswith(".disabled"):
+                # Validate compose_file stays inside its extension's directory.
+                # Path.relative_to() does lexical part-prefix matching, so a
+                # `..`-traversal ("../../../etc/passwd") still string-matches
+                # script_dir without escape detection; an absolute compose_file
+                # ("/etc/shadow") replaces service_dir entirely under `/`. Both
+                # would otherwise reach docker compose `-f`. Boundary-check on
+                # fully resolved paths, but keep the unresolved compose_path
+                # for the emit so the existing relative_to(script_dir) contract
+                # still holds on systems where script_dir contains symlinks
+                # (macOS /var -> /private/var would mismatch otherwise).
                 compose_path = service_dir / compose_rel
+                try:
+                    compose_path.resolve().relative_to(service_dir.resolve())
+                except ValueError:
+                    print(f"WARNING: {service_dir.name}: compose_file '{compose_rel}' "
+                          f"escapes the extension directory; skipping",
+                          file=sys.stderr)
+                    continue
                 if compose_path.exists():
                     resolved.append(str(compose_path.relative_to(script_dir)))
                 elif (service_dir / f"{compose_rel}.disabled").exists():
