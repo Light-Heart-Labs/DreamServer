@@ -19,7 +19,7 @@ MODELS_DIR="${MODELS_DIR:-$DREAM_DIR/data/models}"
 TS="$(date +%Y%m%d-%H%M%S)"
 FORCE="${FORCE:-0}"           # FORCE=1 → bestehende Configs überschreiben
 SKIP_DOWNLOAD="${SKIP_DOWNLOAD:-0}"
-TIER="${TIER:-2}"             # 1 = nur essentielle Modelle, 2 = +reasoning/code
+TIER="${TIER:-1}"             # 1 = nur essentielle Modelle, 2 = +reasoning/code
 
 # llama.cpp git ref (Tag oder Commit) – wird als Build-Arg an Dockerfile.amd
 # gereicht (siehe extensions/services/llama-server/Dockerfile.amd, ARG LLAMA_CPP_REF).
@@ -164,16 +164,30 @@ update_lemonade() {
   fi
 
   # 1. Repo aktualisieren falls vorhanden
-  if [[ -x "$DREAM_DIR/dream-update.sh" ]]; then
-    log "  → dream-update.sh update ausführen…"
-    # dream-update.sh nutzt 'update' als Subcommand (kein --yes Flag).
+  # Wir unterscheiden ZWEI Verzeichnisse:
+  #   • $DREAM_DIR        = Deploy-Install (~/dream-server, KEIN .git in 99% der Fälle)
+  #   • $SCRIPT_REPO_DIR  = Source-Repo wo dieses Skript drinliegt (~/DreamServer o.ä.)
+  # `dream-update.sh update` braucht .git im Deploy-Dir – sonst printet es laut
+  # "[ERROR] Not a git repository". Daher VORHER prüfen und nur dann aufrufen.
+  local script_repo_dir
+  script_repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+  if [[ -x "$DREAM_DIR/dream-update.sh" && -d "$DREAM_DIR/.git" ]]; then
+    log "  → dream-update.sh update ausführen (Deploy ist Git-Klon)…"
     ( cd "$DREAM_DIR" && ./dream-update.sh update ) || \
       warn "dream-update.sh update exit != 0 – fahre trotzdem fort"
+  elif [[ -d "$script_repo_dir/.git" ]]; then
+    log "  → Deploy-Dir ($DREAM_DIR) ist kein Git-Klon."
+    log "  → Stattdessen git pull im Source-Repo: $script_repo_dir"
+    ( cd "$script_repo_dir" && git pull --ff-only ) || \
+      warn "git pull in $script_repo_dir fehlgeschlagen – fahre trotzdem fort"
   elif [[ -d "$DREAM_DIR/.git" ]]; then
-    log "  → git pull…"
+    log "  → git pull in $DREAM_DIR…"
     ( cd "$DREAM_DIR" && git pull --ff-only ) || warn "git pull fehlgeschlagen"
   else
-    warn "Kein dream-update.sh und kein .git – überspringe Repo-Update"
+    log "  → Kein .git in $DREAM_DIR und kein Source-Repo gefunden."
+    log "    Repo-Update übersprungen (Image-Rebuild läuft trotzdem mit"
+    log "    --pull --no-cache und holt aktuelle Lemonade & llama.cpp $LLAMA_CPP_REF)."
   fi
 
   # 2. Lemonade/llama.cpp Image neu bauen
@@ -208,6 +222,13 @@ declare -a TIER1_MODELS=(
   "qwen3-embedding/Qwen3-Embedding-0.6B-Q8_0.gguf|https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/Qwen3-Embedding-0.6B-Q8_0.gguf"
   # Reranker (~600 MB)
   "qwen3-reranker/Qwen3-Reranker-0.6B-Q8_0.gguf|https://huggingface.co/Qwen/Qwen3-Reranker-0.6B-GGUF/resolve/main/Qwen3-Reranker-0.6B-Q8_0.gguf"
+  # Vision Hauptmodell (~22 GB) – Q5_K_M von unsloth
+  # Falls die URL 404 liefert: HuggingFace-Repo geändert. Alternativen prüfen:
+  #   https://huggingface.co/unsloth/Qwen3-VL-30B-A3B-Instruct-GGUF
+  #   https://huggingface.co/Qwen/Qwen3-VL-30B-A3B-Instruct-GGUF
+  "qwen3-vl-30b/Qwen3VL-30B-A3B-Instruct-Q5_K_M.gguf|https://huggingface.co/unsloth/Qwen3-VL-30B-A3B-Instruct-GGUF/resolve/main/Qwen3-VL-30B-A3B-Instruct-Q5_K_M.gguf"
+  # Vision mmproj (~1.4 GB) – wird zusammen mit dem Hauptmodell von llama.cpp geladen
+  "qwen3-vl-30b/mmproj-Qwen3VL-30B-A3B-Instruct-F16.gguf|https://huggingface.co/unsloth/Qwen3-VL-30B-A3B-Instruct-GGUF/resolve/main/mmproj-F16.gguf"
 )
 
 # Tier 2: optionale MXFP4-Upgrades (besser als Q4_K_M, ~25 % schneller auf gfx1151)
@@ -240,7 +261,10 @@ check_existing() {
     fi
   done
   if [[ "$missing" == "1" ]]; then
-    warn "Fehlende Dateien manuell besorgen oder models.ini anpassen."
+    warn "Fehlende Dateien werden in [1/7] versucht herunterzuladen, falls sie"
+    warn "in TIER1_MODELS/TIER2_MODELS stehen. Sonst: manuell besorgen oder"
+    warn "models.ini-Section entfernen. FORCE=1 überspringt nur diesen Check,"
+    warn "lädt aber NICHT automatisch (außer der Eintrag ist auch in TIERx_MODELS)."
     [[ "$FORCE" == "1" ]] || die "Abbruch (mit FORCE=1 trotzdem fortfahren)"
   fi
 }
