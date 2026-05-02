@@ -2521,7 +2521,7 @@ cmd_agent() {
     case "$(uname -s)" in
         Darwin) daemon_type="launchd" ;;
         Linux)
-            if systemctl --user status >/dev/null 2>&1; then
+            if systemctl status >/dev/null 2>&1 || [[ -d /run/systemd/system ]]; then
                 daemon_type="systemd"
             fi
             ;;
@@ -2546,7 +2546,7 @@ cmd_agent() {
                         success "Agent started (LaunchAgent)" || warn "Agent start failed"
                     ;;
                 systemd)
-                    systemctl --user start dream-host-agent.service 2>/dev/null && \
+                    sudo systemctl start dream-host-agent.service 2>/dev/null && \
                         success "Agent started (systemd)" || warn "Agent start failed"
                     ;;
                 *)
@@ -2572,7 +2572,7 @@ cmd_agent() {
                         success "Agent stopped" || warn "Agent not running"
                     ;;
                 systemd)
-                    systemctl --user stop dream-host-agent.service 2>/dev/null && \
+                    sudo systemctl stop dream-host-agent.service 2>/dev/null && \
                         success "Agent stopped" || warn "Agent not running"
                     ;;
                 *)

@@ -220,49 +220,99 @@ OPENCODE_EOF
 fi
 
 # ── Dream Host Agent (extension lifecycle management) ──
+# System-mode systemd unit (was --user mode pre-#573). Installs to
+# /etc/systemd/system, runs as the installing user with SupplementaryGroups=docker
+# so the agent can manage Docker without socket-mounting into a container.
 if [[ -f "$INSTALL_DIR/bin/dream-host-agent.py" ]]; then
     AGENT_PYTHON="$(command -v python3)"
     if [[ -n "$AGENT_PYTHON" ]]; then
-        if systemctl --user status >/dev/null 2>&1; then
-            # systemd path
-            SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
-            mkdir -p "$SYSTEMD_USER_DIR"
+        if systemctl status >/dev/null 2>&1 || [[ -d /run/systemd/system ]]; then
+            # Migrate any pre-existing user-mode unit (idempotent — no-op if absent).
+            if [[ -f "$HOME/.config/systemd/user/dream-host-agent.service" ]]; then
+                systemctl --user stop dream-host-agent.service 2>/dev/null || true
+                systemctl --user disable dream-host-agent.service 2>/dev/null || true
+                rm -f "$HOME/.config/systemd/user/dream-host-agent.service"
+                systemctl --user daemon-reload 2>/dev/null || true
+                ai_ok "Migrated host agent from --user mode to system mode"
+            fi
+
+            # System-mode install requires sudo. Fail fast in non-interactive
+            # mode if passwordless sudo isn't available (mirrors phase 05).
+            if [[ "${INTERACTIVE:-true}" != "true" ]] && ! sudo -n true 2>/dev/null; then
+                ai_bad "Host agent install requires sudo and sudo requires a password."
+                ai_bad "In non-interactive mode, either:"
+                ai "  1. Run with passwordless sudo (NOPASSWD in sudoers)"
+                ai "  2. Run the installer interactively (without --non-interactive)"
+                error "Cannot install host agent system unit without sudo in non-interactive mode."
+            fi
+
+            # Determine the user that should own the running agent. Under
+            # `sudo bash install.sh`, $(whoami) returns root — wrong; we want
+            # the original invoking user. SUDO_USER is set by sudo and is
+            # empty otherwise. INSTALL_USER override wins if explicitly set.
+            if [[ -n "${INSTALL_USER:-}" ]]; then
+                _agent_user="$INSTALL_USER"
+            elif [[ -n "${SUDO_USER:-}" ]]; then
+                _agent_user="$SUDO_USER"
+            else
+                _agent_user="$(whoami)"
+            fi
+
+            # Surface (don't block) the case where the agent will run as root.
+            # Happens under `sudo su` → `bash install.sh` (SUDO_USER unset, whoami=root).
+            # Some appliance/single-user installs may want this; warn so the operator
+            # can override with INSTALL_USER if it's unintentional.
+            if [[ "$_agent_user" == "root" ]]; then
+                ai_warn "Resolved install user is 'root' — host agent will run as root."
+                ai_warn "  Set INSTALL_USER=<non-root user> before re-running install if this is unintentional."
+            fi
+
             if [[ -f "$INSTALL_DIR/scripts/systemd/dream-host-agent.service" ]]; then
                 svc_tmp="/tmp/dream-host-agent.service.$$"
                 cp "$INSTALL_DIR/scripts/systemd/dream-host-agent.service" "$svc_tmp"
                 # Substitute placeholders — use sed directly with | delimiter
-                # (paths contain / but never |, so | is a safe delimiter)
+                # (paths contain / but never |, so | is a safe delimiter).
+                # Dual-form for BSD/GNU sed compatibility.
                 sed -i "s|__INSTALL_DIR__|${INSTALL_DIR}|g" "$svc_tmp" 2>/dev/null || \
                     sed -i '' "s|__INSTALL_DIR__|${INSTALL_DIR}|g" "$svc_tmp"
                 sed -i "s|__HOME__|${HOME}|g" "$svc_tmp" 2>/dev/null || \
                     sed -i '' "s|__HOME__|${HOME}|g" "$svc_tmp"
                 sed -i "s|__PYTHON3__|${AGENT_PYTHON}|g" "$svc_tmp" 2>/dev/null || \
                     sed -i '' "s|__PYTHON3__|${AGENT_PYTHON}|g" "$svc_tmp"
+                sed -i "s|__INSTALL_USER__|${_agent_user}|g" "$svc_tmp" 2>/dev/null || \
+                    sed -i '' "s|__INSTALL_USER__|${_agent_user}|g" "$svc_tmp"
                 # Verify placeholders were actually rendered
-                if grep -q '__INSTALL_DIR__\|__HOME__\|__PYTHON3__' "$svc_tmp"; then
+                if grep -q '__INSTALL_DIR__\|__HOME__\|__PYTHON3__\|__INSTALL_USER__' "$svc_tmp"; then
                     ai_warn "Host agent systemd unit has unrendered placeholders — check $svc_tmp"
                 else
-                    cp "$svc_tmp" "$SYSTEMD_USER_DIR/dream-host-agent.service"
+                    sudo install -m 644 "$svc_tmp" /etc/systemd/system/dream-host-agent.service
                 fi
                 rm -f "$svc_tmp"
             fi
-            systemctl --user daemon-reload 2>/dev/null || true
-            systemctl --user enable --now dream-host-agent.service >> "$LOG_FILE" 2>&1 && \
-                ai_ok "Dream host agent installed (systemd --user, port 7710)" || \
+            sudo systemctl daemon-reload 2>/dev/null || true
+            # Pipe through tee (matching the file's existing sudo+log idiom at L31-45)
+            # so the redirect runs in the user's shell rather than under sudo (avoids
+            # SC2024). pipefail is set in install-core.sh, so the if branches on the
+            # actual systemctl exit status, not tee's.
+            if sudo systemctl enable --now dream-host-agent.service 2>&1 | tee -a "$LOG_FILE" >/dev/null; then
+                ai_ok "Dream host agent installed (systemd system-mode, user=${_agent_user}, port 7710)"
+            else
                 ai_warn "Dream host agent service failed to start — run: dream agent start"
+            fi
             # Force-restart so the running process matches the binary the installer
             # just rewrote. enable --now is a no-op when the unit was already active,
             # which would leave an old daemon holding a deleted inode and serving
             # stale code after a reinstall. See issue #334. Use is-enabled (not
             # is-active) so a temporarily-down daemon during a fresh install still
             # triggers the restart rather than skipping it.
-            if systemctl --user is-enabled dream-host-agent.service >/dev/null 2>&1; then
-                systemctl --user restart dream-host-agent.service >> "$LOG_FILE" 2>&1 && \
-                    ai_ok "Dream host agent restarted (loaded new binary)" || \
-                    ai_warn "Dream host agent restart failed (non-fatal) — run: systemctl --user restart dream-host-agent.service"
+            if sudo systemctl is-enabled dream-host-agent.service >/dev/null 2>&1; then
+                if sudo systemctl restart dream-host-agent.service 2>&1 | tee -a "$LOG_FILE" >/dev/null; then
+                    ai_ok "Dream host agent restarted (loaded new binary)"
+                else
+                    ai_warn "Dream host agent restart failed (non-fatal) — run: sudo systemctl restart dream-host-agent.service"
+                fi
             fi
-            loginctl enable-linger "$(whoami)" 2>/dev/null || \
-                sudo -n loginctl enable-linger "$(whoami)" 2>/dev/null || true
+            # loginctl enable-linger no longer needed for host agent (system-mode unit)
         else
             ai_warn "No systemd detected — dream host agent not auto-installed."
             ai_warn "  Start manually: dream agent start"
