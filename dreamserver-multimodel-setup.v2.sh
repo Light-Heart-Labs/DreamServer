@@ -23,13 +23,25 @@ TIER="${TIER:-1}"             # 1 = nur essentielle Modelle, 2 = +reasoning/code
 
 # llama.cpp git ref (Tag oder Commit) – wird als Build-Arg an Dockerfile.amd
 # gereicht (siehe extensions/services/llama-server/Dockerfile.amd, ARG LLAMA_CPP_REF).
-# Aktuell: b8994 (https://github.com/ggml-org/llama.cpp/releases)
-# ACHTUNG: Der MMQ-Register-Patch im Dockerfile (sed auf mmq.cu) ist gegen
-# b8763 validiert. Bei Bump können die sed-Targets fehlschlagen → Build läuft
+# Aktuell gepinnt: b8763 (https://github.com/ggml-org/llama.cpp/releases)
+#
+# WARUM b8763 (und NICHT neuer)?
+#   Ab ~b8800 aktiviert llama.cpp für Qwen3-Family (Qwen3-Next, Qwen3.5/3.6
+#   MoE, Qwen3-VL) "fused Gated Delta Net (autoregressive)". Auf ROCm/gfx1151
+#   führt das beim ersten Prompt-Processing-Batch zu silent Zombie-Prozessen:
+#     • Lemonade liefert HTTP 200, Body: "CURL error: Couldn't connect to server"
+#     • llama-server-Backend auf Port 8001 ist tot, kein Stack-Trace
+#   Reproduziert mit b8994 + den großen Qwen3-Modellen (qwen3-coder-next,
+#   Qwen3.6-35B-A3B, Qwen3.5-122B-A10B, qwen3-vl-30b). qwen3-4b (klassisch,
+#   ohne fused GDN) lief in b8994 noch sauber. Workaround: bei b8763 bleiben
+#   bis Upstream-Fix für ROCm + Hybrid-Attention.
+#
+# ACHTUNG: Der MMQ-Register-Patch im Dockerfile (sed auf mmq.cu) ist ebenfalls
+# gegen b8763 validiert. Bei einem zukünftigen Bump können die sed-Targets fehlschlagen → Build läuft
 # trotzdem durch, druckt aber "WARNING: MMQ patch did not apply". Nach dem
 # Build prüfen:
 #   docker logs <build> | grep "MMQ patch"
-LLAMA_CPP_REF="${LLAMA_CPP_REF:-b8994}"
+LLAMA_CPP_REF="${LLAMA_CPP_REF:-b8763}"
 AMDGPU_TARGET="${AMDGPU_TARGET:-gfx1151}"
 
 # Lemonade Base-Image-Tag. Wird in Dockerfile.amd Stage 2 als
@@ -297,7 +309,7 @@ update_lemonade() {
       llama-server
   log "  ✓ Lemonade-Image neu gebaut (Lemonade=$LEMONADE_REF, llama.cpp=$LLAMA_CPP_REF, ROCm=$ROCM_VERSION)"
   warn "  Build-Output auf 'WARNING: MMQ patch did not apply' prüfen – falls"
-  warn "  vorhanden, sind die Strix-Halo-Patches nicht aktiv (b8994 != b8763)."
+  warn "  vorhanden, sind die Strix-Halo-Patches nicht aktiv (LLAMA_CPP_REF != b8763)."
 
   # Effektive Lemonade-Version aus dem frisch gebauten Image abfragen
   local lver
@@ -1161,7 +1173,7 @@ summary() {
      }
 
 🔧 Aktive Optimierungen:
-   • llama.cpp aktualisiert (LLAMA_CPP_REF=b8994, --pull --no-cache)
+   • llama.cpp gepinnt auf LLAMA_CPP_REF=b8763 (vor fused-GDN-Bug auf ROCm), --pull --no-cache
    • Lemonade-Image neu gebaut mit aktueller llama.cpp + rocWMMA
    • FlashAttention-2 (-fa on, rocWMMA-Build aus Dockerfile.amd)
    • KV-Cache Q8_0  (halbiert KV-RAM bei langem Kontext)
