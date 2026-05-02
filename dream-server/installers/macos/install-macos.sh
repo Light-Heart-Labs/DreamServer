@@ -830,6 +830,17 @@ else
 
             REL_PATH="${COMPOSE_PATH#"${INSTALL_DIR}/"}"
             COMPOSE_FLAGS+=("-f" "$REL_PATH")
+
+            # GPU-backend overlay (mirrors resolve-compose-stack.sh discovery).
+            # E.g. extensions/services/litellm/compose.apple.yaml on macOS.
+            # Skipped in cloud mode (CURRENT_BACKEND=none) since no native
+            # GPU/host-gateway patches apply when llama-server runs remotely.
+            if [[ "$CURRENT_BACKEND" != "none" ]]; then
+                GPU_OVERLAY_PATH="${SVC_DIR}compose.${CURRENT_BACKEND}.yaml"
+                if [[ -f "$GPU_OVERLAY_PATH" ]]; then
+                    COMPOSE_FLAGS+=("-f" "${GPU_OVERLAY_PATH#"${INSTALL_DIR}/"}")
+                fi
+            fi
         done
     fi
 
