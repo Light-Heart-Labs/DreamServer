@@ -1,6 +1,7 @@
 services:
   dreamforge:
     image: ${DREAMFORGE_IMAGE:-ghcr.io/light-heart-labs/dreamforge:v0.1.0}
+    platform: linux/amd64  # DreamForge image is amd64-only; Rosetta 2 emulation on Apple Silicon
     build:
       context: ./extensions/services/dreamforge
       dockerfile: Dockerfile.rust
