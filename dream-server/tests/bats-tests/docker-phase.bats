@@ -91,17 +91,14 @@ teardown() {
         DOCKER_CMD="sudo docker"
         _docker_cmd_arr() {
             case "${DOCKER_CMD:-docker}" in
-                "sudo docker") printf "%s\n" "sudo" "docker" ;;
+                "sudo docker") printf "%s %s\n" "sudo" "docker" ;;
                 *)             printf "%s\n" "docker" ;;
             esac
         }
         _docker_cmd_arr
     '
-    # `echo "sudo" "docker"` emits a single space-joined line — the same
-    # behaviour as the real function at installers/phases/05-docker.sh:27,
-    # whose consumer (`local -a cmd=($(_docker_cmd_arr))`) word-splits the
-    # single line into an array. Assertion was previously $'sudo\ndocker'
-    # (two newline-separated lines) which never matched.
+    # The helper emits one shell-like command line; consumers word-split it
+    # into argv with `local -a cmd=($(_docker_cmd_arr))`.
     assert_output 'sudo docker'
 }
 
@@ -110,7 +107,7 @@ teardown() {
         DOCKER_CMD=""
         _docker_cmd_arr() {
             case "${DOCKER_CMD:-docker}" in
-                "sudo docker") printf "%s\n" "sudo" "docker" ;;
+                "sudo docker") printf "%s %s\n" "sudo" "docker" ;;
                 *)             printf "%s\n" "docker" ;;
             esac
         }

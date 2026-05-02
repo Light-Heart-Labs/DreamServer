@@ -26,7 +26,7 @@ ai "Preparing container runtime..."
 # Helper wrappers that are safe even if DOCKER_CMD contains spaces (e.g. "sudo docker")
 _docker_cmd_arr() {
     case "${DOCKER_CMD:-docker}" in
-        "sudo docker") printf '%s\n' "sudo" "docker" ;;
+        "sudo docker") printf '%s %s\n' "sudo" "docker" ;;
         *)             printf '%s\n' "docker" ;;
     esac
 }
