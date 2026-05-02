@@ -303,6 +303,7 @@ def _scan_compose_content(
     trusted: bool = False,
     skip_name_collision: bool = False,
     skip_gpu_passthrough_check: bool = False,
+    skip_root_user_check: bool = False,
 ) -> None:
     """Reject compose files containing dangerous directives."""
     try:
@@ -395,12 +396,13 @@ def _scan_compose_content(
                 status_code=400,
                 detail=f"Service '{svc_name}' uses host user namespace",
             )
-        user = svc_def.get("user")
-        if user is not None and str(user).split(":")[0] in ("root", "0"):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Service '{svc_name}' runs as root",
-            )
+        if not skip_root_user_check:
+            user = svc_def.get("user")
+            if user is not None and str(user).split(":")[0] in ("root", "0"):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Service '{svc_name}' runs as root",
+                )
         if not trusted and "build" in svc_def:
             raise HTTPException(
                 status_code=400,
@@ -1283,14 +1285,18 @@ def _activate_service(service_id: str) -> dict:
     # Re-scan compose content (TOCTOU prevention). Built-in extensions
     # legitimately declare their own service name in their compose file, so
     # skip the CORE_SERVICE_IDS name-collision check for them. User extensions
-    # still get the full anti-shadowing scan. The `trusted` flag is separate
-    # and controls whether `build:` directives are allowed (library installs
-    # need it, built-in activations do not).
+    # still get the full anti-shadowing scan. Some built-ins also legitimately
+    # need `user: "0:0"` to perform init-time chown before dropping privileges
+    # via setpriv (e.g. openclaw), so skip the root-user check for built-ins
+    # only. The `trusted` flag is separate and controls whether `build:`
+    # directives are allowed (library installs need it, built-in activations
+    # do not).
     is_builtin = ext_dir.is_relative_to(EXTENSIONS_DIR.resolve())
     _scan_compose_content(
         disabled_compose,
         skip_name_collision=is_builtin,
         skip_gpu_passthrough_check=is_builtin,
+        skip_root_user_check=is_builtin,
     )
 
     # Reject symlinks
@@ -1344,6 +1350,7 @@ def enable_extension(
                 enabled_compose,
                 skip_name_collision=is_builtin,
                 skip_gpu_passthrough_check=is_builtin,
+                skip_root_user_check=is_builtin,
             )
         # Dependencies were satisfied at install time; compose content is re-scanned above
         _write_initial_progress(service_id)
