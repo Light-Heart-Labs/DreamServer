@@ -48,14 +48,29 @@ TIER="${TIER:-1}"             # 1 = nur essentielle Modelle, 2 = +reasoning/code
 # llama.cpp für ROCm + fused GDN, oder einen Vulkan-Build mit korrekt
 # verlinkter libssl (aktuell: undefined symbol httplib::SSLServer).
 #
-# TEILFIX gefunden (sky-net 2026-05-02): ROCM_VERSION=7.2.1 statt 7.2.2
-# behebt den GDN-Linear-Crash bei qwen3-coder-next (dichte GDN/Linear-Attn,
-# 80B-A3B). Empirisch verifiziert: 52 tok/s sauberer Antwort statt Zombie.
-#   → Root-Cause des GDN-Falls: ROCm 7.2.2-Regression im hipMemcpyAsync-Pfad
-#     (siehe ROCm/rocm-systems#4817), NICHT in llama.cpp.
+# TEILFIX gefunden (sky-net 2026-05-02): die Kombination aus
+#   ROCM_VERSION=7.2.1 (statt 7.2.2)  ← fixt GDN-Linear-Crash (qwen3-coder-next)
+#   LEMONADE_REF=v10.2.0 (statt v10.3.x) ← fixt MoE/VL-Crash (Qwen3.6, vl-30b, 122B)
+# ergibt einen vollständig funktionierenden Stack auf Strix Halo. Alle
+# zuvor crashenden Modelle antworten jetzt sauber:
+#   extra.qwen3-4b                       ✅
+#   extra.qwen3-coder-next-Q4_K_M        ✅ (war GDN-Crash)
+#   extra.Qwen3.6-35B-A3B-Q4_K_XL        ✅ (war MoE-Crash)
+#   extra.qwen3-vl-30b                   ✅ (war MoE+VL-Crash)
+#   extra.Qwen3.5-122B-A10B (Q4_K_M)     ✅ (war 122B MoE-Crash, 28 tok/s)
 #
-# Erschöpfend getestete tote Workaround-Pfade (sky-net 2026-05-02, NICHT
-# erneut probieren — alle endeten im silent-Zombie-Crash):
+# Root-Causes (zwei separate Upstream-Regressionen):
+#   1) ROCm 7.2.2 → hipMemcpyAsync MAF im fused-GDN-Pfad
+#      (ROCm/rocm-systems#4817, llama.cpp #20176 + #22135)
+#   2) Lemonade 10.3 → MoE/VL-Routing kaputt auf ROCm gfx1151
+#      (vermutlich Server-Refactor in 10.3, da Outer-Process-Tod)
+#
+# Kritischer Repo-Fix: docker-compose.amd.yml leitete weder ROCM_VERSION
+# noch LEMONADE_REF als Build-Args durch — daher griff jeder Override
+# in .env nur auf den Outer-Container-Tag, nicht auf den Build. Behoben
+# in fix(amd-build) Commit f7b9145.
+#
+# Erschöpfend getestete tote Workaround-Pfade (NICHT erneut probieren):
 #   - LLAMA_CPP_REF=b8763 (vermeintlich vor fused GDN — enthält Code bereits)
 #   - LLAMA_CPP_REF=b8994 (aktueller Pin)
 #   - HSA_ENABLE_SDMA=0 (per llama.cpp #19908)
@@ -64,17 +79,11 @@ TIER="${TIER:-1}"             # 1 = nur essentielle Modelle, 2 = +reasoning/code
 #   - --cache-ram 0 (Prompt-Cache aus, per llama.cpp #20176)
 #   - --ctx-checkpoints 0 (Checkpoints aus, per llama.cpp #20176)
 #   - -fa off (Flash Attention aus)
-#   - Lemonade Vulkan-Backend (Binary fehlt komplett im Image,
-#     Self-Build hat undefined symbol httplib::SSLServer)
+#   - Lemonade Vulkan-Backend (Binary fehlt komplett im Image)
 #
-# OFFEN: extra.Qwen3.6-35B-A3B (MoE) und extra.qwen3-vl-30b (MoE+VL)
-# crashen mit ROCm 7.2.1 + b8994 + Lemonade 10.3 weiterhin am gleichen
-# Spot ("prompt processing done"). Vermutlich separate Regression in
-# Lemonade 10.3 vs 10.2 (Upstream Light-Heart-Labs/DreamServer pinnt
-# noch v10.2.0). Nächster Test: LEMONADE_REF=v10.2.0 downgrade.
-# Crash-Ort: direkt nach "slot update_slots: prompt processing done".
-# Inner llama-server wird zum <defunct>-Zombie ohne Stack.
-# Root-Cause-Tracker: llama.cpp #20176 + ROCm/rocm-systems #4817
+# WICHTIG vor Bumps:
+#   - ROCM_VERSION nicht auf 7.2.2+ ohne erneuten qwen3-coder-next Smoke
+#   - LEMONADE_REF nicht auf v10.3+ ohne erneuten Qwen3.6-35B-A3B Smoke
 #
 # ACHTUNG: Der MMQ-Register-Patch im Dockerfile (sed auf mmq.cu) ist ebenfalls
 # gegen b8763 validiert. Bei einem zukünftigen Bump können die sed-Targets fehlschlagen → Build läuft
@@ -85,12 +94,14 @@ LLAMA_CPP_REF="${LLAMA_CPP_REF:-b8994}"
 AMDGPU_TARGET="${AMDGPU_TARGET:-gfx1151}"
 
 # Lemonade Base-Image-Tag. Wird in Dockerfile.amd Stage 2 als
-# `FROM ghcr.io/lemonade-sdk/lemonade-server:${LEMONADE_REF}` verwendet.
-# Default: 'latest' → mit `--pull --no-cache` (siehe update_lemonade) wird
-# bei jedem Lauf der aktuell veröffentlichte Tag gezogen.
-# Reproduzierbarer Build: explizit pinnen, z.B. LEMONADE_REF=v10.3.0 ./...
+# `FROM ghcr.io/lemonade-sdk/lemonade-server:${LEMONADE_REF}` verwendet
+# (Forward über docker-compose.amd.yml build.args).
+# Default: v10.2.0 — v10.3 brachte eine MoE/VL-Routing-Regression auf
+# ROCm gfx1151, die Qwen3.6-35B-A3B / qwen3-vl-30b / 122B silent killt.
+# Verifiziert auf sky-net 2026-05-02: v10.2.0 alle Modelle ✅, v10.3.0
+# nur GDN-Linear ✅, MoE/VL ❌.
 # Verfügbare Tags: https://github.com/lemonade-sdk/lemonade/pkgs/container/lemonade-server
-LEMONADE_REF="${LEMONADE_REF:-latest}"
+LEMONADE_REF="${LEMONADE_REF:-v10.2.0}"
 
 # ROCm SDK-Version für den llama.cpp-Build-Stage
 # (FROM rocm/dev-ubuntu-24.04:${ROCM_VERSION}-complete in Dockerfile.amd).
