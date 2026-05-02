@@ -656,7 +656,7 @@ cmd_status() {
 
         # Launch health check in background
         (
-            url="http://localhost:${port}${health}"
+            url="http://127.0.0.1:${port}${health}"
             timeout="${SERVICE_HEALTH_TIMEOUTS[$sid]:-5}"
             if curl -sf --max-time "$timeout" "$url" > /dev/null 2>&1; then
                 echo "healthy|$name" > "$tmpdir/$sid"
@@ -767,7 +767,7 @@ cmd_status_json() {
         if [[ "$cat" != "core" && "$container_status" == "stopped" ]]; then
             status="stopped"
         else
-            local url="http://localhost:${port}${health}"
+            local url="http://127.0.0.1:${port}${health}"
             if curl -sf --max-time 5 "$url" > /dev/null 2>&1; then
                 status="healthy"
             else
@@ -943,7 +943,7 @@ cmd_dry_run() {
     if [[ -n "$api_key" ]]; then
         api_json=$(curl -sf --max-time 5 \
             -H "X-API-Key: ${api_key}" \
-            "http://localhost:${dashboard_port}/api/update/dry-run" 2>/dev/null || true)
+            "http://127.0.0.1:${dashboard_port}/api/update/dry-run" 2>/dev/null || true)
     fi
 
     local latest_ver="" changelog_url="" update_status=""
@@ -1285,7 +1285,7 @@ cmd_chat() {
 
     # Get model from llama-server if not specified
     if [[ -z "$model" ]]; then
-        model=$(curl -s "http://localhost:${_llm_port}/v1/models" | jq -r '.data[0].id // "local"')
+        model=$(curl -s "http://127.0.0.1:${_llm_port}/v1/models" | jq -r '.data[0].id // "local"')
     fi
 
     log "Sending to $model..."
@@ -1294,7 +1294,7 @@ cmd_chat() {
     local payload=$(jq -n --arg model "$model" --arg msg "$message" \
         '{model: $model, messages: [{role: "user", content: $msg}], max_tokens: 500}')
 
-    curl -s "http://localhost:${_llm_port}/v1/chat/completions" \
+    curl -s "http://127.0.0.1:${_llm_port}/v1/chat/completions" \
         -H "Content-Type: application/json" \
         -d "$payload" | jq -r '.choices[0].message.content // .error.message // "Error: no response"'
 }
@@ -2353,7 +2353,7 @@ cmd_stt() {
     port=$(_env_get_raw WHISPER_PORT)
     [[ -z "$port" ]] && port="9000"
     model_encoded="${model//\//%2F}"
-    url="http://localhost:${port}"
+    url="http://127.0.0.1:${port}"
 
     case "$subcmd" in
         current)

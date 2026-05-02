@@ -188,7 +188,7 @@ log "[4/8] Checking LLM endpoint..."
 LLM_PORT="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-8080}}"
 # Also probe the actual mapped port in case docker remapped it
 EXTERNAL_PORT=$(docker port dream-llama-server 8080/tcp 2>/dev/null | head -1 | cut -d: -f2 || echo "$LLM_PORT")
-LLM_ENDPOINTS=("http://${SERVICE_HOST}:${EXTERNAL_PORT}" "http://localhost:${EXTERNAL_PORT}" "http://localhost:${LLM_PORT}")
+LLM_ENDPOINTS=("http://${SERVICE_HOST}:${EXTERNAL_PORT}" "http://127.0.0.1:${EXTERNAL_PORT}" "http://127.0.0.1:${LLM_PORT}")
 LLM_SERVICE_NAME="llama-server"
 LLM_START_CMD="docker compose up -d llama-server"
 
@@ -214,7 +214,7 @@ log ""
 
 # 5. Whisper STT check
 log "[5/8] Checking Whisper STT..."
-WHISPER_ENDPOINTS=("http://${SERVICE_HOST}:9000" "http://localhost:9000")
+WHISPER_ENDPOINTS=("http://${SERVICE_HOST}:9000" "http://127.0.0.1:9000")
 WHISPER_FOUND=false
 
 for ENDPOINT in "${WHISPER_ENDPOINTS[@]}"; do
@@ -232,7 +232,7 @@ log ""
 
 # 6. TTS check
 log "[6/8] Checking TTS (Kokoro)..."
-TTS_ENDPOINTS=("http://${SERVICE_HOST}:8880" "http://localhost:8880")
+TTS_ENDPOINTS=("http://${SERVICE_HOST}:8880" "http://127.0.0.1:8880")
 TTS_FOUND=false
 
 for ENDPOINT in "${TTS_ENDPOINTS[@]}"; do
@@ -250,7 +250,7 @@ log ""
 
 # 7. Embeddings check
 log "[7/8] Checking Embeddings..."
-EMBEDDING_ENDPOINTS=("http://${SERVICE_HOST}:8090" "http://localhost:8090")
+EMBEDDING_ENDPOINTS=("http://${SERVICE_HOST}:8090" "http://127.0.0.1:8090")
 EMBEDDING_FOUND=false
 
 for ENDPOINT in "${EMBEDDING_ENDPOINTS[@]}"; do
@@ -268,7 +268,7 @@ log ""
 
 # 8. Dashboard check (replaces LiveKit — more useful for all backends)
 log "[8/8] Checking Dashboard..."
-DASHBOARD_ENDPOINTS=("http://${SERVICE_HOST}:3001" "http://localhost:3001")
+DASHBOARD_ENDPOINTS=("http://${SERVICE_HOST}:3001" "http://127.0.0.1:3001")
 DASHBOARD_FOUND=false
 
 for ENDPOINT in "${DASHBOARD_ENDPOINTS[@]}"; do
