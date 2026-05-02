@@ -33,6 +33,7 @@ DRY_RUN=()
 PRUNE=()
 PULL=0
 VERBOSE=0
+AUTO_RESTART=0
 RESTART_SERVICES=()
 
 while [[ $# -gt 0 ]]; do
@@ -53,6 +54,10 @@ while [[ $# -gt 0 ]]; do
       VERBOSE=1
       shift
       ;;
+    --auto-restart)
+      AUTO_RESTART=1
+      shift
+      ;;
     --restart)
       shift
       while [[ $# -gt 0 && "$1" != --* ]]; do
@@ -62,7 +67,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     -h|--help)
       cat <<EOF
-Usage: $(basename "$0") [--dry-run] [--prune] [--pull] [--verbose] [--restart svc1 svc2 ...]
+Usage: $(basename "$0") [--dry-run] [--prune] [--pull] [--verbose] [--auto-restart] [--restart svc1 svc2 ...]
 
 Sync the repo working copy into the installed runtime directory.
 Default mode is ADDITIVE (no deletes) to preserve local state.
@@ -73,7 +78,9 @@ Options:
                         (DANGEROUS — combine with --dry-run first!)
   --pull                Run 'git pull --ff-only' in the repo first
   --verbose, -v         Show every file rsync visits (not just changes)
+  --auto-restart        Auto-detect changed services and restart them via dream-cli
   --restart svc...      Restart given services after sync via dream-cli
+                        (combinable with --auto-restart; explicit names always restart)
 
 Environment overrides:
   DREAM_REPO_DIR        (default: \$HOME/DreamServer/dream-server)
@@ -81,7 +88,9 @@ Environment overrides:
 
 Always preserved (excluded from sync, even with --prune):
   Local env:      .env  .env.local  .env.bak.*
-  Runtime data:   data/  logs/  models/  workspace/  images/
+  Runtime data:   data/  logs/  cache/  tmp/  (top-level AND nested, e.g.
+                  extensions/services/qdrant/data/)
+  Models/media:   models/  workspace/  images/
   Backups:        *.bak  *.bak.*  *.bak2  *.broken
   Logs:           *.log  *-import.log
   Installer:      .compose-flags  .install-state*
@@ -90,6 +99,7 @@ Always preserved (excluded from sync, even with --prune):
 
 Examples:
   $(basename "$0") --dry-run
+  $(basename "$0") --pull --auto-restart
   $(basename "$0") --pull --restart n8n
   $(basename "$0") --prune --dry-run        # preview mirror-mode deletions
 EOF
@@ -147,8 +157,16 @@ EXCLUDES=(
   --exclude='.env'
   --exclude='.env.local'
   --exclude='.env.bak.*'
+  # Runtime data — exclude at any depth (top-level + nested service dirs like
+  # extensions/services/qdrant/data/, extensions/services/n8n/data/, etc.)
   --exclude='data/'
+  --exclude='**/data/'
   --exclude='logs/'
+  --exclude='**/logs/'
+  --exclude='cache/'
+  --exclude='**/cache/'
+  --exclude='tmp/'
+  --exclude='**/tmp/'
   --exclude='models/'
   --exclude='workspace/'
   --exclude='images/'
@@ -236,18 +254,99 @@ if [[ "$noise_count" -gt 0 && "$VERBOSE" -ne 1 ]]; then
 fi
 if [[ ${#DRY_RUN[@]} -gt 0 ]]; then
   echo "  (dry-run only — re-run without --dry-run to apply)"
+  # Still preview which services WOULD be auto-restarted
+  if [[ "$AUTO_RESTART" -eq 1 ]]; then
+    echo
+    echo "→ Auto-restart preview (--auto-restart):"
+    detect_changed_services "$OUTPUT_BODY" | while read -r svc; do
+      [[ -n "$svc" ]] && echo "    would restart: $svc"
+    done
+  fi
   exit 0
 fi
 
-if [[ ${#RESTART_SERVICES[@]} -gt 0 ]]; then
+# ─────────────────────────────────────────────────────────────────────────────
+# Auto-restart: detect which services were touched by the sync and add them to
+# the restart list. Mapping:
+#   extensions/services/<name>/...   → service <name>
+#   config/<name>/...                → service <name> (if a manifest exists)
+#   docker-compose.*.yml             → all services (warn instead, too broad)
+#   .env / install-core.sh / etc.    → ignored (no service mapping)
+# ─────────────────────────────────────────────────────────────────────────────
+detect_changed_services() {
+  local body="$1"
+  local svc_dir="${DST}extensions/services"
+  local cfg_dir="${DST}config"
+  local stack_wide=0
+
+  # Extract paths from itemize lines (skip pure-mtime noise + dirs).
+  # Itemize format: "<11-char code><space><path>"
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    [[ "$line" =~ $NOISE_REGEX ]] && continue
+    local code path
+    code="${line:0:11}"
+    path="${line:12}"
+
+    # Only care about file changes/creates, not directory mtime updates
+    case "$code" in
+      \>f*|cd+++++++++*) : ;;
+      *) continue ;;
+    esac
+
+    # Top-level docker-compose.* affects the whole stack
+    if [[ "$path" =~ ^docker-compose\..+\.yml$ ]]; then
+      stack_wide=1
+      continue
+    fi
+
+    # extensions/services/<name>/...
+    if [[ "$path" =~ ^extensions/services/([^/]+)/ ]]; then
+      echo "${BASH_REMATCH[1]}"
+      continue
+    fi
+
+    # config/<name>/...  → only if a service manifest exists for that name
+    if [[ "$path" =~ ^config/([^/]+)/ ]]; then
+      local name="${BASH_REMATCH[1]}"
+      if [[ -f "$svc_dir/$name/manifest.yaml" ]]; then
+        echo "$name"
+      fi
+      continue
+    fi
+  done <<< "$body" | sort -u
+
+  if [[ "$stack_wide" -eq 1 ]]; then
+    echo "WARN: docker-compose.*.yml changed — restart the full stack manually:" >&2
+    echo "      $DST/dream-cli down && $DST/dream-cli up" >&2
+  fi
+}
+
+# Combine explicit + auto-detected restart targets (dedup, preserve order)
+ALL_RESTARTS=("${RESTART_SERVICES[@]}")
+if [[ "$AUTO_RESTART" -eq 1 ]]; then
+  while IFS= read -r svc; do
+    [[ -z "$svc" ]] && continue
+    # Skip if already in the list
+    skip=0
+    for existing in "${ALL_RESTARTS[@]}"; do
+      [[ "$existing" == "$svc" ]] && skip=1 && break
+    done
+    [[ "$skip" -eq 0 ]] && ALL_RESTARTS+=("$svc")
+  done < <(detect_changed_services "$OUTPUT_BODY")
+fi
+
+if [[ ${#ALL_RESTARTS[@]} -gt 0 ]]; then
   CLI="$DST/dream-cli"
   if [[ ! -x "$CLI" ]]; then
     echo "WARN: dream-cli not found or not executable at $CLI — skipping restart." >&2
     exit 0
   fi
-  for svc in "${RESTART_SERVICES[@]}"; do
-    echo "→ Restarting $svc"
-    "$CLI" restart "$svc" || echo "WARN: restart $svc failed (non-fatal)"
+  echo
+  echo "→ Restarting ${#ALL_RESTARTS[@]} service(s): ${ALL_RESTARTS[*]}"
+  for svc in "${ALL_RESTARTS[@]}"; do
+    echo "  · $svc"
+    "$CLI" restart "$svc" || echo "    WARN: restart $svc failed (non-fatal)"
   done
 fi
 
