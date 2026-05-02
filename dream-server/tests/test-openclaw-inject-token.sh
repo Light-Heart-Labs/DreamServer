@@ -206,6 +206,77 @@ else
     fi
 fi
 
+# ── HOST_LAN_IP: positive case populates LAN origins (Part 1 + Part 3) ─────
+# When BIND_ADDRESS=0.0.0.0 the installer exports HOST_LAN_IP so inject-token.js
+# can append the host's LAN address to allowedOrigins. Both the home config
+# (Part 1) and the merged config (Part 3) must include http+https variants.
+echo ""
+rm -f "$MERGED_PATH" "$HOME_CONFIG"
+HOME="$TEST_HOME" \
+HOST_LAN_IP="192.168.1.50" \
+OPENCLAW_GATEWAY_TOKEN="test-token-abc123" \
+OPENCLAW_EXTERNAL_PORT="7860" \
+OPENCLAW_CONFIG="$SOURCE_CONFIG" \
+LLM_MODEL="test-model" \
+GGUF_FILE="" \
+OLLAMA_URL="" \
+OPENCLAW_LLM_URL="" \
+LITELLM_KEY="" \
+    node "$INJECT_SCRIPT" >/dev/null 2>&1
+
+for origin in "http://192.168.1.50:7860" "https://192.168.1.50:7860"; do
+    if jq -e --arg o "$origin" '.gateway.controlUi.allowedOrigins | index($o)' "$MERGED_PATH" >/dev/null 2>&1; then
+        pass "merged config allowedOrigins contains $origin"
+    else
+        fail "merged config allowedOrigins missing expected entry: $origin"
+    fi
+    if jq -e --arg o "$origin" '.gateway.controlUi.allowedOrigins | index($o)' "$HOME_CONFIG" >/dev/null 2>&1; then
+        pass "home config allowedOrigins contains $origin"
+    else
+        fail "home config allowedOrigins missing expected entry: $origin"
+    fi
+done
+
+# ── HOST_LAN_IP: empty/unset must NOT inject http:/// or https:/// ──────────
+# Empty-string guard regression: a bare "if (hostLanIp)" check would let an
+# unset/empty value through and produce malformed origin URLs.
+for empty_case in "empty" "unset"; do
+    rm -f "$MERGED_PATH" "$HOME_CONFIG"
+    if [[ "$empty_case" == "empty" ]]; then
+        HOME="$TEST_HOME" \
+        HOST_LAN_IP="" \
+        OPENCLAW_GATEWAY_TOKEN="test-token-abc123" \
+        OPENCLAW_EXTERNAL_PORT="7860" \
+        OPENCLAW_CONFIG="$SOURCE_CONFIG" \
+        LLM_MODEL="test-model" \
+        GGUF_FILE="" \
+        OLLAMA_URL="" \
+        OPENCLAW_LLM_URL="" \
+        LITELLM_KEY="" \
+            node "$INJECT_SCRIPT" >/dev/null 2>&1
+    else
+        # Truly unset: do not export HOST_LAN_IP at all.
+        HOME="$TEST_HOME" \
+        OPENCLAW_GATEWAY_TOKEN="test-token-abc123" \
+        OPENCLAW_EXTERNAL_PORT="7860" \
+        OPENCLAW_CONFIG="$SOURCE_CONFIG" \
+        LLM_MODEL="test-model" \
+        GGUF_FILE="" \
+        OLLAMA_URL="" \
+        OPENCLAW_LLM_URL="" \
+        LITELLM_KEY="" \
+            node "$INJECT_SCRIPT" >/dev/null 2>&1
+    fi
+
+    for cfg in "$MERGED_PATH" "$HOME_CONFIG"; do
+        if jq -e '.gateway.controlUi.allowedOrigins | map(test("^https?:///")) | any' "$cfg" >/dev/null 2>&1; then
+            fail "HOST_LAN_IP $empty_case case: $cfg has malformed http:/// or https:/// entry"
+        else
+            pass "HOST_LAN_IP $empty_case case: $cfg has no malformed http:/// or https:/// entry"
+        fi
+    done
+done
+
 # ── Negative test: verify the test would actually catch a regression ────────
 # Re-run inject-token.js against a fixture that re-introduces the bad flag,
 # and confirm assertion 1 would have failed.

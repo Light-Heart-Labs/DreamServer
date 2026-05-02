@@ -53,6 +53,15 @@ try {
     const hostname = require('os').hostname();
     if (hostname) needed.push(`http://${hostname}:${EXTERNAL_PORT}`);
   } catch {}
+  // When BIND_ADDRESS=0.0.0.0, the installer writes the host's LAN IP into
+  // HOST_LAN_IP so the Control UI can be reached from other devices on the
+  // network. os.hostname() returns the container ID inside Docker, not the
+  // host LAN address, so this env-passthrough is the only reliable source.
+  const hostLanIp = process.env.HOST_LAN_IP;
+  if (hostLanIp) {
+    needed.push(`http://${hostLanIp}:${EXTERNAL_PORT}`);
+    needed.push(`https://${hostLanIp}:${EXTERNAL_PORT}`);
+  }
   for (const origin of needed) {
     if (!origins.includes(origin)) origins.push(origin);
   }
@@ -230,7 +239,15 @@ try {
     delete primary.gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback;  // defang carry-over (mirrors Part 1)
     const extPort = process.env.OPENCLAW_EXTERNAL_PORT || '7860';
     const origins = primary.gateway.controlUi.allowedOrigins || [];
-    for (const o of [`http://localhost:${extPort}`, `http://127.0.0.1:${extPort}`]) {
+    const mergedNeeded = [`http://localhost:${extPort}`, `http://127.0.0.1:${extPort}`];
+    // Mirror Part 1: append the host LAN IP when BIND_ADDRESS=0.0.0.0 so the
+    // Control UI accepts requests from LAN clients hitting the host directly.
+    const mergedHostLanIp = process.env.HOST_LAN_IP;
+    if (mergedHostLanIp) {
+      mergedNeeded.push(`http://${mergedHostLanIp}:${extPort}`);
+      mergedNeeded.push(`https://${mergedHostLanIp}:${extPort}`);
+    }
+    for (const o of mergedNeeded) {
       if (!origins.includes(o)) origins.push(o);
     }
     primary.gateway.controlUi.allowedOrigins = origins;

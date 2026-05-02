@@ -268,6 +268,29 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
     # Network binding (--lan sets 0.0.0.0; default is localhost-only)
     BIND_ADDRESS=$(_env_get BIND_ADDRESS "${BIND_ADDRESS:-127.0.0.1}")
 
+    # Host LAN IP — only meaningful when BIND_ADDRESS=0.0.0.0. Some services
+    # (e.g. openclaw) need to know the host's LAN address so the Control UI
+    # accepts cross-origin requests from LAN clients. Detection prefers
+    # `hostname -I` (GNU coreutils, Linux) then `ip route get` then ifconfig
+    # so WSL2 + odd Linux variants are covered. Empty default keeps the
+    # compose ${HOST_LAN_IP:-} fallback safe when binding to loopback.
+    HOST_LAN_IP=""
+    if [[ "$BIND_ADDRESS" == "0.0.0.0" ]]; then
+        if command -v hostname >/dev/null 2>&1 && hostname -I >/dev/null 2>&1; then
+            HOST_LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+        fi
+        if [[ -z "$HOST_LAN_IP" ]] && command -v ip >/dev/null 2>&1; then
+            HOST_LAN_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1); exit}')
+        fi
+        if [[ -z "$HOST_LAN_IP" ]] && command -v ifconfig >/dev/null 2>&1; then
+            HOST_LAN_IP=$(ifconfig 2>/dev/null | awk '/inet / && $2 != "127.0.0.1" {print $2; exit}')
+        fi
+    fi
+    # Preserve operator override across re-runs: if .env already has a value,
+    # use it instead of the freshly-detected one (matches the _env_get pattern
+    # used for every other persistent value in this phase).
+    HOST_LAN_IP=$(_env_get HOST_LAN_IP "$HOST_LAN_IP")
+
     # Whisper STT model — NVIDIA picks the larger turbo model, everyone else
     # uses base. Phase 12 reads this to pre-download the right file, and
     # Open WebUI reads it to request the same model for transcription.
@@ -310,6 +333,9 @@ DREAM_VERSION=${VERSION:-2.4.0}
 # 127.0.0.1 = localhost only (secure default)
 # 0.0.0.0   = accessible from LAN (install with --lan or set manually)
 BIND_ADDRESS=${BIND_ADDRESS}
+# Host LAN IP (populated when BIND_ADDRESS=0.0.0.0; empty otherwise).
+# Containers like openclaw read this to advertise the host's LAN address.
+HOST_LAN_IP=${HOST_LAN_IP}
 
 #=== LLM Backend Mode ===
 DREAM_MODE=$(if [[ "$GPU_BACKEND" == "amd" && "${DREAM_MODE:-local}" == "local" ]]; then echo "lemonade"; else echo "${DREAM_MODE:-local}"; fi)
