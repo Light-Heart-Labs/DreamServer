@@ -179,23 +179,58 @@ OUTPUT=$(rsync "${RSYNC_FLAGS[@]}" "${DRY_RUN[@]}" "${PRUNE[@]}" \
   "${EXCLUDES[@]}" \
   "$SRC" "$DST")
 
-# Print itemize lines (skip rsync's stats footer; we'll add our own)
-echo "$OUTPUT" | sed '/^$/,$d'
+# Strip rsync's stats footer (everything after the first blank line)
+OUTPUT_BODY=$(echo "$OUTPUT" | sed '/^$/,$d')
 
-# Itemize codes legend (only on dry-run or when changes exist)
+# Itemize-code legend (each code is 11 chars: YXcstpoguax):
+#   >f.st......  content changed (size+time differ) → real change
+#   >f+++++++++  new file
+#   cd+++++++++  new directory
+#   >f..tp.....  permission bit changed (e.g. exec bit) → real change
+#   >f..t......  ONLY mtime differs (content identical) → noise from clone-time vs install-time
+#   .d..t......  ONLY directory mtime differs           → noise
+#   *deleting    file removed (only with --prune)
+#
+# Filter: hide pure-mtime noise unless --verbose was passed.
+NOISE_REGEX='^[>.][fd]\.\.t\.\.\.\.\.\.$'
+
+if [[ "$VERBOSE" -eq 1 ]]; then
+    DISPLAY="$OUTPUT_BODY"
+    noise_count=0
+else
+    DISPLAY=$(echo "$OUTPUT_BODY" | grep -Ev "$NOISE_REGEX" || true)
+    noise_count=$(echo "$OUTPUT_BODY" | grep -Ec "$NOISE_REGEX" || true)
+fi
+
+if [[ -n "$DISPLAY" ]]; then
+    echo "$DISPLAY"
+else
+    echo "  (no real content/permission changes)"
+fi
+
+# Counts
 created=0
 updated=0
 deleted=0
 while IFS= read -r line; do
+  [[ -z "$line" ]] && continue
   case "$line" in
     \>f+++++++++*|cd+++++++++*) created=$((created+1)) ;;
-    \>f*) updated=$((updated+1)) ;;
     \*deleting*)  deleted=$((deleted+1)) ;;
+    \>f*)
+        # any file change other than pure-mtime noise counts as updated
+        if [[ ! "$line" =~ $NOISE_REGEX ]]; then
+            updated=$((updated+1))
+        fi
+        ;;
   esac
-done <<< "$OUTPUT"
+done <<< "$OUTPUT_BODY"
 
 echo
-echo "✓ Summary:  created=$created  updated=$updated  deleted=$deleted"
+echo "✓ Summary:  created=$created  updated=$updated  deleted=$deleted  mtime-only=$noise_count"
+if [[ "$noise_count" -gt 0 && "$VERBOSE" -ne 1 ]]; then
+    echo "  ($noise_count files have identical content, only timestamp differs — pass --verbose to see them)"
+fi
 if [[ ${#DRY_RUN[@]} -gt 0 ]]; then
   echo "  (dry-run only — re-run without --dry-run to apply)"
   exit 0
