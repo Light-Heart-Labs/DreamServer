@@ -260,10 +260,12 @@ MODELS_INI_EOF
                 for _key_val in "GGUF_FILE=$GGUF_FILE" "LLM_MODEL=$LLM_MODEL" "MAX_CONTEXT=$MAX_CONTEXT"; do
                     _key="${_key_val%%=*}"
                     _val="${_key_val#*=}"
-                    if ! awk -v v="$_val" '{ if (index($0, "'"$_key"'=") == 1) print "'"$_key"'=" v; else print }' \
+                    if awk -v v="$_val" '{ if (index($0, "'"$_key"'=") == 1) print "'"$_key"'=" v; else print }' \
                         "$_env_file" > "${_env_file}.tmp" 2>>"$LOG_FILE" \
                         && cat "${_env_file}.tmp" > "$_env_file" 2>>"$LOG_FILE" \
                         && rm -f "${_env_file}.tmp"; then
+                        : # success
+                    else
                         _env_patch_ok=false
                         warn "Failed to patch $_key in .env"
                     fi
