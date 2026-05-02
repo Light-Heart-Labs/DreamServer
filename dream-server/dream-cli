@@ -3545,6 +3545,7 @@ cmd_sync() {
     local dry_run="false"
     local prune="false"
     local pull="false"
+    local force_pull="false"
     local verbose="false"
     local auto_restart="false"
     local restart_args=()
@@ -3553,6 +3554,7 @@ cmd_sync() {
             --dry-run|-n) dry_run="true"; shift ;;
             --prune|--delete) prune="true"; shift ;;
             --pull) pull="true"; shift ;;
+            --force-pull) pull="true"; force_pull="true"; shift ;;
             --verbose|-v) verbose="true"; shift ;;
             --auto-restart) auto_restart="true"; shift ;;
             --restart)
@@ -3581,6 +3583,8 @@ Options:
   --dry-run, -n         Preview changes without writing
   --prune, --delete     Mirror mode (deletes extra files in dest — careful!)
   --pull                Run 'git pull --ff-only' in the repo first
+                        (refuses to run if working tree is dirty)
+  --force-pull          Like --pull but resets local changes first (DESTRUCTIVE)
   --verbose, -v         Show every file rsync visits (not just changes)
   --auto-restart        Auto-detect changed services and restart them
   --repo <path>         Override repo location (default: auto-detect or \$DREAM_REPO_DIR)
@@ -3619,6 +3623,7 @@ EOF
     [[ "$dry_run" == "true" ]]      && args+=(--dry-run)
     [[ "$prune" == "true" ]]        && args+=(--prune)
     [[ "$pull" == "true" ]]         && args+=(--pull)
+    [[ "$force_pull" == "true" ]]   && args+=(--force-pull)
     [[ "$verbose" == "true" ]]      && args+=(--verbose)
     [[ "$auto_restart" == "true" ]] && args+=(--auto-restart)
     if [[ ${#restart_args[@]} -gt 0 ]]; then

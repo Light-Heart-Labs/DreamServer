@@ -32,6 +32,7 @@ DST="${DST%/}/"
 DRY_RUN=()
 PRUNE=()
 PULL=0
+FORCE_PULL=0
 VERBOSE=0
 AUTO_RESTART=0
 RESTART_SERVICES=()
@@ -48,6 +49,11 @@ while [[ $# -gt 0 ]]; do
       ;;
     --pull)
       PULL=1
+      shift
+      ;;
+    --force-pull)
+      PULL=1
+      FORCE_PULL=1
       shift
       ;;
     --verbose|-v)
@@ -77,6 +83,9 @@ Options:
   --prune, --delete     Mirror mode: delete files in DST that are not in SRC
                         (DANGEROUS — combine with --dry-run first!)
   --pull                Run 'git pull --ff-only' in the repo first
+                        (refuses to run if the working tree is dirty)
+  --force-pull          Like --pull but 'git reset --hard origin/<branch>' first.
+                        DESTRUCTIVE — discards uncommitted local changes.
   --verbose, -v         Show every file rsync visits (not just changes)
   --auto-restart        Auto-detect changed services and restart them via dream-cli
   --restart svc...      Restart given services after sync via dream-cli
@@ -131,15 +140,44 @@ command -v rsync >/dev/null 2>&1 || {
 # (e.g. SRC=~/DreamServer/dream-server, .git lives in ~/DreamServer).
 if [[ "$PULL" -eq 1 ]]; then
   git_top=$(git -C "${SRC%/}" rev-parse --show-toplevel 2>/dev/null || true)
-  if [[ -n "$git_top" ]]; then
-    echo "→ git pull --ff-only in $git_top"
-    git -C "$git_top" pull --ff-only || {
-      echo "ERROR: git pull failed" >&2
-      exit 1
-    }
-    echo
-  else
+  if [[ -z "$git_top" ]]; then
     echo "WARN: --pull requested but $SRC is not inside a git repo — skipping" >&2
+  else
+    # Check for uncommitted changes (porcelain output is empty for clean trees).
+    dirty=$(git -C "$git_top" status --porcelain 2>/dev/null || true)
+    if [[ -n "$dirty" && "$FORCE_PULL" -ne 1 ]]; then
+      echo "ERROR: Repo has uncommitted changes — refusing to pull." >&2
+      echo "       Repo: $git_top" >&2
+      echo >&2
+      echo "$dirty" | sed 's/^/         /' >&2
+      echo >&2
+      echo "       Options:" >&2
+      echo "         1) Commit/stash your changes:  git -C $git_top stash" >&2
+      echo "         2) Discard them and pull:      $0 --force-pull ..." >&2
+      echo "         3) Skip --pull entirely and just sync the working copy as-is." >&2
+      exit 1
+    fi
+
+    if [[ "$FORCE_PULL" -eq 1 && -n "$dirty" ]]; then
+      branch=$(git -C "$git_top" rev-parse --abbrev-ref HEAD)
+      remote=$(git -C "$git_top" config "branch.${branch}.remote" 2>/dev/null || echo origin)
+      echo "→ --force-pull: discarding local changes in $git_top"
+      git -C "$git_top" fetch "$remote" "$branch" || {
+        echo "ERROR: git fetch failed" >&2
+        exit 1
+      }
+      git -C "$git_top" reset --hard "${remote}/${branch}" || {
+        echo "ERROR: git reset --hard failed" >&2
+        exit 1
+      }
+    else
+      echo "→ git pull --ff-only in $git_top"
+      git -C "$git_top" pull --ff-only || {
+        echo "ERROR: git pull failed" >&2
+        exit 1
+      }
+    fi
+    echo
   fi
 fi
 
