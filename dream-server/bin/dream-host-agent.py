@@ -268,14 +268,18 @@ def _precreate_data_dirs(service_id: str):
         if not isinstance(volumes, list):
             continue
         for vol in volumes:
-            vol_str = str(vol).split(":")[0]
-            # Accept any relative bind-mount source (e.g. "./data/state",
-            # "./upload", "config/stuff"). Skip named volumes (no "/") and
-            # absolute paths ("/etc/..."). Docker Compose v2 resolves relative
-            # bind paths against the project directory (the first -f file's
-            # parent = INSTALL_DIR), not the individual fragment's directory,
-            # so anchor on INSTALL_DIR to match where Compose actually mounts.
-            if vol_str and not vol_str.startswith("/") and "/" in vol_str:
+            if isinstance(vol, dict):
+                # Compose long-form mount; only bind mounts have a host source.
+                if vol.get("type") != "bind":
+                    continue
+                vol_str = vol.get("source", "")
+            else:
+                vol_str = str(vol).split(":")[0]
+            # Skip sources compose does not pre-expand (env vars, home,
+            # backticks, Windows-style escapes) — we cannot resolve them safely.
+            if not vol_str or vol_str.startswith(("~", "$", "`", "\\")):
+                continue
+            if vol_str.startswith("./data/") or vol_str.startswith("data/"):
                 dir_path = (INSTALL_DIR / vol_str.lstrip("./")).resolve()
                 try:
                     dir_path.relative_to(INSTALL_DIR.resolve())
@@ -449,6 +453,70 @@ def _read_progress_status(service_id: str) -> str | None:
     return status if isinstance(status, str) else None
 
 
+def _run_post_install_hook(service_id: str, ext_dir: Path) -> tuple[bool, str]:
+    """Run an extension's ``post_install`` hook with sandboxed env.
+
+    Shared between the install path (``_handle_install._run_install``) and
+    the enable-retry path (``_enable_retry_work``) so both write the same
+    progress transitions and use the same env allowlist.
+
+    Returns ``(ok, error_message)``:
+    - ``(True, "")`` when no hook is declared OR the hook completes with
+      exit code 0. The caller continues with its own next progress write.
+    - ``(False, msg)`` when the hook times out or exits non-zero. The
+      helper has already written an ``error`` progress entry; the caller
+      should abort and NOT overwrite progress.
+
+    Progress writes:
+    - ``setup_hook`` ("Running setup...") only when a hook is actually
+      resolved — callers must NOT pre-write this message, otherwise the
+      "Running setup..." status appears for extensions with no hook.
+    - ``error`` on timeout / non-zero exit.
+    - On success the helper writes nothing further; the caller proceeds.
+
+    The 8-key env allowlist mirrors ``_execute_hook`` (L1488-1498) to
+    keep host-agent secrets out of extension scripts. Stderr is sliced
+    tail-500 so the actionable end of the output reaches the dashboard.
+    """
+    hook_path = _resolve_hook(ext_dir, "post_install")
+    if not hook_path:
+        return (True, "")
+
+    _write_progress(service_id, "setup_hook", "Running setup...")
+    manifest = _read_manifest(ext_dir)
+    service_def = manifest.get("service", {}) if manifest else {}
+    if not isinstance(service_def, dict):
+        service_def = {}
+    hook_env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": os.environ.get("HOME", ""),
+        "SERVICE_ID": service_id,
+        "SERVICE_PORT": str(service_def.get("port", 0)),
+        "SERVICE_DATA_DIR": str(DATA_DIR / service_id),
+        "DREAM_VERSION": DREAM_VERSION,
+        "GPU_BACKEND": GPU_BACKEND,
+        "HOOK_NAME": "post_install",
+    }
+    try:
+        result = subprocess.run(
+            ["bash", str(hook_path), str(INSTALL_DIR), GPU_BACKEND],
+            cwd=str(ext_dir), env=hook_env,
+            capture_output=True, text=True,
+            timeout=SUBPROCESS_TIMEOUT_START,
+        )
+    except subprocess.TimeoutExpired:
+        msg = f"post_install hook timed out ({SUBPROCESS_TIMEOUT_START}s)"
+        _write_progress(service_id, "error", "Setup failed", error=msg)
+        return (False, msg)
+
+    if result.returncode != 0:
+        msg = (result.stderr or "")[-500:]
+        _write_progress(service_id, "error", "Setup failed", error=msg)
+        return (False, msg)
+
+    return (True, "")
+
+
 def _enable_retry_work(service_id: str) -> None:
     """Re-run post_install hook (if declared) then start the service.
 
@@ -468,40 +536,9 @@ def _enable_retry_work(service_id: str) -> None:
         # expected to be idempotent (check-then-create for secrets,
         # env vars, data dirs) so re-running repopulates anything an
         # earlier failed install may have left unset.
-        hook_path = _resolve_hook(ext_dir, "post_install")
-        if hook_path:
-            _write_progress(service_id, "setup_hook", "Running setup...")
-            manifest = _read_manifest(ext_dir)
-            service_def = manifest.get("service", {}) if manifest else {}
-            if not isinstance(service_def, dict):
-                service_def = {}
-            # Minimal allowlist env — mirror _handle_install (L1129-1138)
-            # to keep host-agent secrets out of extension scripts.
-            hook_env = {
-                "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-                "HOME": os.environ.get("HOME", ""),
-                "SERVICE_ID": service_id,
-                "SERVICE_PORT": str(service_def.get("port", 0)),
-                "SERVICE_DATA_DIR": str(DATA_DIR / service_id),
-                "DREAM_VERSION": DREAM_VERSION,
-                "GPU_BACKEND": GPU_BACKEND,
-                "HOOK_NAME": "post_install",
-            }
-            try:
-                hook_result = subprocess.run(
-                    ["bash", str(hook_path), str(INSTALL_DIR), GPU_BACKEND],
-                    cwd=str(ext_dir), env=hook_env,
-                    capture_output=True, text=True,
-                    timeout=SUBPROCESS_TIMEOUT_START,
-                )
-            except subprocess.TimeoutExpired:
-                _write_progress(service_id, "error", "Setup failed",
-                                error=f"post_install hook timed out ({SUBPROCESS_TIMEOUT_START}s)")
-                return
-            if hook_result.returncode != 0:
-                _write_progress(service_id, "error", "Setup failed",
-                                error=(hook_result.stderr or "")[:500])
-                return
+        ok, _ = _run_post_install_hook(service_id, ext_dir)
+        if not ok:
+            return
 
         _write_progress(service_id, "starting", "Starting container...")
         ok, err = docker_compose_action(service_id, "start")
@@ -708,6 +745,68 @@ def _find_ext_dir(service_id: str) -> Path | None:
     if builtin_dir.is_dir():
         return builtin_dir
     return None
+
+
+def _is_other_ext_compose(fpath: str, service_id: str, ext_roots: tuple) -> bool:
+    """True if fpath points to an extension compose file owned by an
+    extension other than service_id. Used to filter `-f` args from the
+    install pull command so unrelated extensions' ${VAR:?} guards don't
+    abort the pull.
+    """
+    p = Path(fpath)
+    if not p.is_absolute():
+        p = INSTALL_DIR / p
+    try:
+        resolved = p.resolve()
+    except OSError:
+        return False
+    if resolved.parent.name == service_id:
+        return False
+    for root in ext_roots:
+        try:
+            resolved.relative_to(root)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def _narrow_install_pull_flags(flags: list, service_id: str) -> list:
+    """Return a filtered copy of `flags` with `-f <path>` pairs pointing
+    at OTHER extensions' compose fragments removed. Base compose, GPU
+    overlay, and the target extension's own fragments are preserved.
+    """
+    ext_roots = (EXTENSIONS_DIR.resolve(), USER_EXTENSIONS_DIR.resolve())
+    narrowed: list = []
+    i = 0
+    while i < len(flags):
+        if (flags[i] == "-f" and i + 1 < len(flags)
+                and _is_other_ext_compose(flags[i + 1], service_id, ext_roots)):
+            i += 2
+            continue
+        narrowed.append(flags[i])
+        i += 1
+    return narrowed
+
+
+def _narrowed_compose_set_resolves(narrowed_flags: list, service_id: str,
+                                   cwd: str, timeout: int) -> bool:
+    """Verify the narrowed compose set parses cleanly and includes the
+    target service. Some extensions declare cross-extension `depends_on`
+    (e.g. perplexica → searxng); narrowing must fall back to the full
+    flag set whenever that drops a referenced service, otherwise
+    `docker compose pull` errors with "depends on undefined service".
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "compose"] + narrowed_flags + ["config", "--services"],
+            cwd=cwd, capture_output=True, text=True, timeout=timeout,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if result.returncode != 0:
+        return False
+    return service_id in result.stdout.split()
 
 
 class AgentHandler(BaseHTTPRequestHandler):
@@ -1505,48 +1604,52 @@ class AgentHandler(BaseHTTPRequestHandler):
                                     error=f"Extension directory not found for {service_id}")
                     return
 
-                # Step 1: Setup hook (if requested)
+                # Step 1: Setup hook (if requested). The helper is a no-op
+                # when no hook is declared — it does not pre-write any
+                # "Running setup..." progress, so extensions without a hook
+                # don't show a misleading setup phase in the dashboard.
                 if run_setup_hook:
-                    _write_progress(service_id, "setup_hook", "Running setup...")
-                    hook_path = _resolve_hook(ext_dir, "post_install")
-                    if hook_path:
-                        # Minimal allowlist env — mirror _execute_hook (L856-866)
-                        # to prevent leaking host-agent secrets to extension scripts.
-                        manifest = _read_manifest(ext_dir)
-                        service_def = manifest.get("service", {}) if manifest else {}
-                        if not isinstance(service_def, dict):
-                            service_def = {}
-                        hook_env = {
-                            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-                            "HOME": os.environ.get("HOME", ""),
-                            "SERVICE_ID": service_id,
-                            "SERVICE_PORT": str(service_def.get("port", 0)),
-                            "SERVICE_DATA_DIR": str(DATA_DIR / service_id),
-                            "DREAM_VERSION": DREAM_VERSION,
-                            "GPU_BACKEND": GPU_BACKEND,
-                            "HOOK_NAME": "post_install",
-                        }
-                        result = subprocess.run(
-                            ["bash", str(hook_path), str(INSTALL_DIR), GPU_BACKEND],
-                            cwd=str(ext_dir), env=hook_env,
-                            capture_output=True, text=True,
-                            timeout=SUBPROCESS_TIMEOUT_START,
-                        )
-                        if result.returncode != 0:
-                            _write_progress(service_id, "error", "Setup failed",
-                                            error=result.stderr[:500])
-                            return
+                    ok, _ = _run_post_install_hook(service_id, ext_dir)
+                    if not ok:
+                        return
 
-                # Step 2: Pull (best-effort — failure is non-fatal if cached image exists)
+                # Step 2: Pull (best-effort — failure is non-fatal if cached image exists).
+                # Narrow the pull to base + GPU overlay + this extension's own
+                # compose so we don't refetch images for every other installed
+                # extension on each install. The `up` step below keeps full
+                # `flags` so cross-service `depends_on` still resolves.
+                #
+                # Some extensions declare cross-extension `depends_on`
+                # (e.g. perplexica → searxng). Narrowing those out makes
+                # `docker compose pull` fail at config-parse time with
+                # "depends on undefined service". Validate the narrowed
+                # set with `config --services` first; if it doesn't
+                # resolve, fall back to the full flag set.
+                narrowed = _narrow_install_pull_flags(flags, service_id)
+                # 30s mirrors `resolve_compose_flags`: `config --services`
+                # is essentially instant when Docker is healthy; a long
+                # timeout just delays detection of a hung daemon.
+                if narrowed != flags and _narrowed_compose_set_resolves(
+                    narrowed, service_id, str(INSTALL_DIR), 30,
+                ):
+                    pull_flags = narrowed
+                else:
+                    if narrowed != flags:
+                        logger.info(
+                            "Narrowed compose for %s drops a referenced service; using full set",
+                            service_id,
+                        )
+                    pull_flags = flags
+
                 _write_progress(service_id, "pulling", "Downloading image...")
                 pull_result = subprocess.run(
-                    ["docker", "compose"] + flags + ["pull", service_id],
+                    ["docker", "compose"] + pull_flags + ["pull", service_id],
                     cwd=str(INSTALL_DIR), capture_output=True, text=True,
                     timeout=SUBPROCESS_TIMEOUT_START,
                 )
                 if pull_result.returncode != 0:
                     logger.warning("Pull failed for %s (rc=%d), proceeding to start: %s",
-                                   service_id, pull_result.returncode, pull_result.stderr[:200])
+                                   service_id, pull_result.returncode, pull_result.stderr[-200:])
 
                 # Step 3: Start
                 _write_progress(service_id, "starting", "Starting container...")
@@ -1558,7 +1661,7 @@ class AgentHandler(BaseHTTPRequestHandler):
                 )
                 if start_result.returncode != 0:
                     _write_progress(service_id, "error", "Installation failed",
-                                    error=start_result.stderr[:500])
+                                    error=start_result.stderr[-500:])
                     return
 
                 # By default, poll for running state: compose `up -d`
@@ -1660,13 +1763,17 @@ class AgentHandler(BaseHTTPRequestHandler):
             library_path = INSTALL_DIR / "config" / "model-library.json"
             env_path = INSTALL_DIR / ".env"
 
-            # Load library
+            # Load library. A missing file is fine (fresh install); an
+            # unreadable/malformed file is a real error — surface it as 500
+            # rather than silently returning an empty catalog.
             library = []
             if library_path.exists():
                 try:
                     library = json.loads(library_path.read_text(encoding="utf-8")).get("models", [])
                 except (json.JSONDecodeError, OSError):
-                    pass
+                    logger.exception("Model library catalog unavailable")
+                    json_response(self, 500, {"error": "Model catalog unavailable"})
+                    return
 
             # Scan downloaded GGUFs
             downloaded = {}
@@ -1743,10 +1850,15 @@ class AgentHandler(BaseHTTPRequestHandler):
         # cover every part of split-file downloads, not just single-file models.
         library_path = INSTALL_DIR / "config" / "model-library.json"
         allowed = False
+        # Sentinel: distinguishes "catalog unreadable/missing" (500) from
+        # "catalog readable but model not listed" (403). Conflating the two
+        # masks broken installs as policy denials.
+        catalog_ok = False
         expected_sha_by_file: dict = {}
         if library_path.exists():
             try:
                 lib = json.loads(library_path.read_text(encoding="utf-8"))
+                catalog_ok = True
                 for m in lib.get("models", []):
                     if m.get("gguf_file") != gguf_file:
                         continue
@@ -1769,7 +1881,12 @@ class AgentHandler(BaseHTTPRequestHandler):
                         expected_sha_by_file = {gguf_file: m.get("gguf_sha256", "")}
                     break
             except (json.JSONDecodeError, OSError):
-                pass
+                logger.exception("Model library catalog unavailable")
+                json_response(self, 500, {"error": "Model catalog unavailable"})
+                return
+        if not catalog_ok:
+            json_response(self, 500, {"error": "Model catalog unavailable"})
+            return
         if not allowed:
             json_response(self, 403, {"error": "Model not in library catalog"})
             return
@@ -2616,8 +2733,8 @@ def _recreate_llama_server(env: dict, override_image: str = ""):
     result = subprocess.run(run_cmd, capture_output=True, text=True, timeout=60)
     if result.returncode != 0:
         logger.error("Failed to create llama-server: %s", result.stderr)
-    else:
-        logger.info("llama-server container created successfully")
+        raise RuntimeError(f"docker run failed: {result.stderr[-500:]}")
+    logger.info("llama-server container created successfully")
 
 
 def _write_model_status(path: Path, status: str, model: str, downloaded: int, total: int, error: str = ""):
@@ -2635,8 +2752,10 @@ def _write_model_status(path: Path, status: str, model: str, downloaded: int, to
     try:
         tmp.write_text(json.dumps(data), encoding="utf-8")
         tmp.rename(path)
-    except OSError:
-        pass
+    except OSError as e:
+        # Don't crash the activate flow; surface to the journal so operators
+        # can diagnose why progress stalled.
+        logger.warning("Failed to write model status to %s: %s", path, e)
 
 
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):

@@ -660,34 +660,41 @@ class TestInvalidateComposeCache:
 # --- Install setup-hook env allowlist (regression) ---
 #
 # Locks in the fix that strips host-agent secrets from the env passed to
-# extension setup hooks during _handle_install. A source-level check is used
-# because the subprocess.run call lives inside a nested closure started on a
-# daemon thread, which makes dynamic mocking fragile.
+# extension setup hooks. The env-construction + subprocess.run call lives in
+# the shared `_run_post_install_hook` helper (used by both _handle_install
+# and _enable_retry_work). A source-level check is used because the helper
+# is invoked from a nested closure on a daemon thread, which makes dynamic
+# mocking fragile.
 
 
 class TestInstallHookEnvAllowlist:
+
+    def _hook_helper_source(self):
+        import inspect
+        return inspect.getsource(_mod._run_post_install_hook)
 
     def _install_source(self):
         import inspect
         return inspect.getsource(_mod.AgentHandler._handle_install)
 
     def test_setup_hook_subprocess_run_passes_env_kwarg(self):
-        src = self._install_source()
+        src = self._hook_helper_source()
         assert "env=hook_env" in src, (
             "setup_hook subprocess.run must pass env=hook_env "
             "(regression: do not fall back to inheriting os.environ)"
         )
 
     def test_setup_hook_env_excludes_host_agent_secrets(self):
-        src = self._install_source()
-        for secret in ("AGENT_API_KEY", "DREAM_AGENT_KEY", "DASHBOARD_API_KEY"):
-            assert secret not in src, (
-                f"_handle_install must not reference {secret}; "
-                "extension setup hooks must not receive host-agent secrets"
-            )
+        # Both the helper and the call-site must stay secret-free.
+        for src in (self._hook_helper_source(), self._install_source()):
+            for secret in ("AGENT_API_KEY", "DREAM_AGENT_KEY", "DASHBOARD_API_KEY"):
+                assert secret not in src, (
+                    f"setup_hook code path must not reference {secret}; "
+                    "extension setup hooks must not receive host-agent secrets"
+                )
 
     def test_setup_hook_env_contains_allowlist_keys(self):
-        src = self._install_source()
+        src = self._hook_helper_source()
         for key in (
             "PATH", "HOME", "SERVICE_ID", "SERVICE_PORT",
             "SERVICE_DATA_DIR", "DREAM_VERSION", "GPU_BACKEND", "HOOK_NAME",
@@ -697,7 +704,7 @@ class TestInstallHookEnvAllowlist:
             )
 
     def test_setup_hook_uses_resolve_hook_with_post_install(self):
-        src = self._install_source()
+        src = self._hook_helper_source()
         assert '_resolve_hook(ext_dir, "post_install")' in src, (
             "setup_hook must use _resolve_hook(..., 'post_install'); "
             "the legacy _resolve_setup_hook has been removed"
