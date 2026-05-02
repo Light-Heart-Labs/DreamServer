@@ -35,9 +35,6 @@ services:
         reservations:
           cpus: '0.5'
           memory: 1G
-    depends_on:
-      searxng:
-        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "if [ \"$$OPENCLAW_HTTP_API\" = 'true' ]; then wget -qO- http://127.0.0.1:18790/v1/models || exit 1; else wget -qO- http://127.0.0.1:18789/ || exit 1; fi"]
       interval: 30s
