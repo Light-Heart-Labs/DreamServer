@@ -148,11 +148,11 @@ if [[ "$ENABLE_OPENCLAW" == "true" ]]; then
     case $TIER in
         NV_ULTRA) OPENCLAW_CONFIG="pro.json" ;;
         SH_LARGE|SH_COMPACT) OPENCLAW_CONFIG="openclaw-strix-halo.json" ;;
-        1) OPENCLAW_CONFIG="minimal.json" ;;
-        2) OPENCLAW_CONFIG="entry.json" ;;
-        3) OPENCLAW_CONFIG="prosumer.json" ;;
+        1) OPENCLAW_CONFIG="openclaw.json" ;;
+        2) OPENCLAW_CONFIG="openclaw.json" ;;
+        3) OPENCLAW_CONFIG="openclaw.json" ;;
         4) OPENCLAW_CONFIG="pro.json" ;;
-        *) OPENCLAW_CONFIG="prosumer.json" ;;
+        *) OPENCLAW_CONFIG="openclaw.json" ;;
     esac
     log "OpenClaw config: $OPENCLAW_CONFIG (matched to Tier $TIER)"
 fi

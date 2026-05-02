@@ -188,12 +188,8 @@ if ($enableOpenClaw) {
             Copy-Item -Path $_ocSrcProfile -Destination $_ocDstProfile -Force
             Write-AISuccess "Installed OpenClaw profile: $openClawConfig -> openclaw.json"
         } else {
-            # Fallback to example if tier profile is missing
-            $_ocExample = Join-Path (Join-Path $installDir "config\openclaw") "openclaw.json.example"
-            if (Test-Path $_ocExample) {
-                Copy-Item -Path $_ocExample -Destination $_ocDstProfile -Force
-                Write-AIWarn "OpenClaw profile $openClawConfig not found -- using default example"
-            }
+            Write-AIError "Missing OpenClaw config $openClawConfig and no fallback present in repo. This is a packaging bug; please re-clone or report."
+            exit 1
         }
     }
 }
