@@ -5,6 +5,7 @@ import io
 import json
 import subprocess
 import sys
+import types
 from pathlib import Path, PurePosixPath
 
 import pytest
@@ -1634,3 +1635,357 @@ class TestEnableRetry:
         )
         # Progress must be unchanged
         assert self._progress(data_dir, "fakesvc")["status"] == "started"
+
+
+class TestInstallStatePollBehavior:
+    """End-to-end behavioral tests for the running-state poll inside
+    ``AgentHandler._handle_install``.
+
+    The existing :class:`TestInstallRunningStateVerification` class above is
+    100% source-inspection (asserts substrings appear in the function body).
+    This class drives the real handler over HTTP with a mocked
+    ``subprocess.run`` so that a refactor that preserves the substrings but
+    breaks the runtime behavior would still get caught.
+
+    Pattern matches :class:`TestComposeCacheInvalidationWire` and
+    :class:`TestComposeToggleWire` above:
+      * Spin up an in-process ``HTTPServer`` bound to ``AgentHandler``.
+      * POST to ``/v1/extension/install`` with the bearer token.
+      * Wait for the install thread to write a terminal status to the
+        progress file (``status in {'started', 'error'}``).
+      * Assert on the progress payload + on the recorded subprocess calls.
+
+    Time is virtualised — ``time.sleep`` and ``time.monotonic`` are
+    monkeypatched on the host-agent module so a 15-second deadline elapses
+    instantly. Tests must not actually wait wall-clock seconds.
+    """
+
+    PROGRESS_WAIT_SECONDS = 5.0
+
+    def _make_extension(self, user_root, sid, *, startup_check=True,
+                        startup_timeout=None, container_name=None):
+        """Create a minimal user-extension dir with manifest only.
+
+        No ``compose.yaml`` is written — that keeps ``_precreate_data_dirs``
+        an early-return no-op so the only ``subprocess.run`` invocations are
+        the ones the install path itself issues (compose pull / compose up /
+        docker inspect).
+        """
+        import yaml  # PyYAML is a hard dep of dashboard-api; if missing the
+                    # whole test module would already have failed at import.
+        ext_dir = user_root / sid
+        ext_dir.mkdir(parents=True)
+        service_def = {}
+        if startup_check is False:
+            service_def["startup_check"] = False
+        if startup_timeout is not None:
+            service_def["startup_timeout"] = startup_timeout
+        if container_name is not None:
+            service_def["container_name"] = container_name
+        manifest = {
+            "schema_version": "dream.services.v1",
+            "id": sid,
+            "service": service_def,
+        }
+        (ext_dir / "manifest.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
+        return ext_dir
+
+    def _post_install(self, port, key, sid):
+        import urllib.request
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/v1/extension/install",
+            data=json.dumps({"service_id": sid}).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            assert resp.status == 202
+            return json.loads(resp.read())
+
+    def _wait_for_terminal(self, progress_file, timeout=None):
+        import time as _real_time
+        timeout = timeout if timeout is not None else self.PROGRESS_WAIT_SECONDS
+        deadline = _real_time.monotonic() + timeout
+        while _real_time.monotonic() < deadline:
+            if progress_file.exists():
+                try:
+                    payload = json.loads(progress_file.read_text(encoding="utf-8"))
+                except (json.JSONDecodeError, OSError):
+                    payload = None
+                if payload and payload.get("status") in {"started", "error"}:
+                    return payload
+            _real_time.sleep(0.05)
+        raise AssertionError(
+            f"Install thread did not reach a terminal status within {timeout}s; "
+            f"last seen: {progress_file.read_text(encoding='utf-8') if progress_file.exists() else '<missing>'}"
+        )
+
+    def _setup_agent(self, tmp_path, monkeypatch, *, sid, startup_check=True,
+                     startup_timeout=None, container_name=None):
+        """Common scaffolding: temp dirs, manifest, monkeypatched module
+        constants, virtual clock, returns ``(install_dir, progress_file, ext_dir)``."""
+        install_dir = tmp_path / "install"
+        data_dir = tmp_path / "data"
+        user_root = tmp_path / "user-extensions"
+        builtin_root = tmp_path / "builtin-empty"
+        install_dir.mkdir()
+        data_dir.mkdir()
+        user_root.mkdir()
+        builtin_root.mkdir()
+        # Pre-populate compose flags so resolve_compose_flags() doesn't
+        # shell out to resolve-compose-stack.sh (which doesn't exist here).
+        (install_dir / ".compose-flags").write_text(
+            "--env-file .env -f docker-compose.base.yml", encoding="utf-8",
+        )
+
+        ext_dir = self._make_extension(
+            user_root, sid,
+            startup_check=startup_check,
+            startup_timeout=startup_timeout,
+            container_name=container_name,
+        )
+
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+        monkeypatch.setattr(_mod, "DATA_DIR", data_dir)
+        monkeypatch.setattr(_mod, "USER_EXTENSIONS_DIR", user_root)
+        monkeypatch.setattr(_mod, "EXTENSIONS_DIR", builtin_root)
+        monkeypatch.setattr(_mod, "AGENT_API_KEY", "wire-test-secret")
+
+        # Virtual clock so the 15s startup_timeout deadline elapses
+        # instantly. ``time.sleep(1)`` advances the fake clock by 1.0 and
+        # returns immediately; ``time.monotonic()`` returns the current value.
+        # Replace ``_mod.time`` with a stub namespace rather than mutating
+        # attributes on the real ``time`` module — otherwise the test helper
+        # itself (which uses real ``time.sleep`` to wait for the install
+        # thread) ends up calling the no-op fake and busy-loops in zero
+        # wall-clock time, racing the install thread.
+        import time as _real_time
+        clock = [0.0]
+        def fake_monotonic():
+            return clock[0]
+        def fake_sleep(seconds):
+            clock[0] += float(seconds)
+        fake_time = types.SimpleNamespace(
+            monotonic=fake_monotonic,
+            sleep=fake_sleep,
+            time=_real_time.time,
+        )
+        monkeypatch.setattr(_mod, "time", fake_time)
+
+        progress_file = data_dir / "extension-progress" / f"{sid}.json"
+        return install_dir, progress_file, ext_dir
+
+    def _start_server(self, monkeypatch):
+        import threading
+        from http.server import HTTPServer
+        server = HTTPServer(("127.0.0.1", 0), _mod.AgentHandler)
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        return server, thread, port
+
+    @staticmethod
+    def _is_inspect_call(call):
+        """Return True if ``call`` is the docker-inspect state probe."""
+        argv = call["argv"]
+        return (
+            len(argv) >= 2
+            and argv[0] == "docker"
+            and argv[1] == "inspect"
+        )
+
+    @staticmethod
+    def _is_compose_call(call, verb):
+        """Return True if ``call`` is a ``docker compose <verb> ...`` call."""
+        argv = call["argv"]
+        if len(argv) < 3 or argv[0] != "docker" or argv[1] != "compose":
+            return False
+        return verb in argv
+
+    def _install_subprocess_mock(self, monkeypatch, inspect_responses):
+        """Install a ``subprocess.run`` patch on the host-agent module.
+
+        ``inspect_responses`` is a list of items consumed in order for each
+        ``docker inspect`` call. Each item is either:
+          * a tuple ``(state, error)`` -> return rc=0 with ``"<state>|<error>"``
+          * the exception class ``subprocess.TimeoutExpired`` (or an instance) ->
+            raise it for that call
+          * a callable ``(argv) -> CompletedProcess`` for full custom control
+        Compose ``pull`` and ``up`` always succeed (rc=0).
+        Returns a ``calls`` list (each entry: ``{'argv': [...], 'kwargs': {...}}``).
+        """
+        calls = []
+        responses = list(inspect_responses)
+
+        class _CP:  # minimal stand-in for subprocess.CompletedProcess
+            def __init__(self, returncode, stdout="", stderr=""):
+                self.returncode = returncode
+                self.stdout = stdout
+                self.stderr = stderr
+
+        def fake_run(argv, **kwargs):
+            calls.append({"argv": list(argv), "kwargs": dict(kwargs)})
+
+            # docker inspect ... -> consume next scripted response
+            if (len(argv) >= 2 and argv[0] == "docker" and argv[1] == "inspect"):
+                if not responses:
+                    return _CP(0, "running|", "")
+                resp = responses.pop(0)
+                if isinstance(resp, type) and issubclass(resp, BaseException):
+                    raise resp(cmd=argv, timeout=5)
+                if isinstance(resp, BaseException):
+                    raise resp
+                if callable(resp):
+                    return resp(argv)
+                state, err = resp
+                return _CP(0, f"{state}|{err}", "")
+
+            # docker compose ... -> always success.
+            if (len(argv) >= 2 and argv[0] == "docker" and argv[1] == "compose"):
+                return _CP(0, "", "")
+
+            # Anything else: refuse so the test fails loudly rather than
+            # silently shelling out.
+            raise AssertionError(f"unexpected subprocess.run argv: {argv}")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+        return calls
+
+    # ------------------------------------------------------------------
+    # Test cases
+    # ------------------------------------------------------------------
+
+    def test_install_writes_error_progress_when_state_never_running(
+        self, tmp_path, monkeypatch,
+    ):
+        """Container stuck in ``created`` for the whole startup window must
+        surface as ``status=error`` with a ``did not reach running state``
+        message — not as a false ``started``."""
+        sid = "fakesvc"
+        install_dir, progress_file, _ = self._setup_agent(
+            tmp_path, monkeypatch, sid=sid, startup_timeout=3,
+        )
+        # All inspect calls report 'created'; deadline must elapse.
+        # 3s timeout / 1s fake sleep -> 3 inspect calls.
+        calls = self._install_subprocess_mock(
+            monkeypatch,
+            inspect_responses=[("created", "")] * 10,
+        )
+
+        server, thread, port = self._start_server(monkeypatch)
+        try:
+            self._post_install(port, "wire-test-secret", sid)
+            payload = self._wait_for_terminal(progress_file)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+        assert payload["status"] == "error", payload
+        assert "did not reach running state" in (payload.get("error") or "")
+        # At least one inspect call happened (otherwise the gate isn't running).
+        assert any(self._is_inspect_call(c) for c in calls), calls
+
+    def test_install_skips_state_poll_when_startup_check_false(
+        self, tmp_path, monkeypatch,
+    ):
+        """``service.startup_check: false`` must skip the docker-inspect
+        poll entirely and report ``started`` as soon as ``compose up``
+        returns 0."""
+        sid = "fakesvc"
+        install_dir, progress_file, _ = self._setup_agent(
+            tmp_path, monkeypatch, sid=sid, startup_check=False,
+        )
+        calls = self._install_subprocess_mock(
+            monkeypatch,
+            # Empty list: any inspect call would still get a default
+            # "running|" response — but the test asserts none happened.
+            inspect_responses=[],
+        )
+
+        server, thread, port = self._start_server(monkeypatch)
+        try:
+            self._post_install(port, "wire-test-secret", sid)
+            payload = self._wait_for_terminal(progress_file)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+        assert payload["status"] == "started", payload
+        inspect_calls = [c for c in calls if self._is_inspect_call(c)]
+        assert inspect_calls == [], (
+            f"docker inspect must NOT be called when startup_check is false; "
+            f"saw: {inspect_calls}"
+        )
+        # Sanity: compose up did happen.
+        assert any(self._is_compose_call(c, "up") for c in calls), calls
+
+    def test_install_records_started_on_state_transition(
+        self, tmp_path, monkeypatch,
+    ):
+        """First inspect returns ``starting``, second returns ``running`` —
+        the loop must break on the transition and report ``started``."""
+        sid = "fakesvc"
+        install_dir, progress_file, _ = self._setup_agent(
+            tmp_path, monkeypatch, sid=sid, startup_timeout=10,
+        )
+        calls = self._install_subprocess_mock(
+            monkeypatch,
+            inspect_responses=[("starting", ""), ("running", "")],
+        )
+
+        server, thread, port = self._start_server(monkeypatch)
+        try:
+            self._post_install(port, "wire-test-secret", sid)
+            payload = self._wait_for_terminal(progress_file)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+        assert payload["status"] == "started", payload
+        inspect_calls = [c for c in calls if self._is_inspect_call(c)]
+        # Exactly two inspect calls: starting -> running, then break.
+        # Allow >=2 to accept any future implementation that double-checks.
+        assert len(inspect_calls) >= 2, inspect_calls
+
+    def test_install_tolerates_docker_inspect_timeout(
+        self, tmp_path, monkeypatch,
+    ):
+        """A single ``subprocess.TimeoutExpired`` from docker inspect must
+        be absorbed by the poll loop — the install thread must NOT abort
+        the whole install on a one-off probe failure."""
+        import subprocess as _real_subprocess
+        sid = "fakesvc"
+        install_dir, progress_file, _ = self._setup_agent(
+            tmp_path, monkeypatch, sid=sid, startup_timeout=10,
+        )
+        # First inspect call raises TimeoutExpired; second returns "running".
+        # If the install thread propagates the timeout up to the outer
+        # try/except, _write_progress would be called with status="error"
+        # and message "timed out (...)". The test asserts "started" instead.
+        calls = self._install_subprocess_mock(
+            monkeypatch,
+            inspect_responses=[
+                _real_subprocess.TimeoutExpired,
+                ("running", ""),
+            ],
+        )
+
+        server, thread, port = self._start_server(monkeypatch)
+        try:
+            self._post_install(port, "wire-test-secret", sid)
+            payload = self._wait_for_terminal(progress_file)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+        assert payload["status"] == "started", payload
+        inspect_calls = [c for c in calls if self._is_inspect_call(c)]
+        # At least the timeout + the success call.
+        assert len(inspect_calls) >= 2, inspect_calls
