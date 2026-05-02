@@ -44,6 +44,11 @@ router = APIRouter(tags=["extensions"])
 _SERVICE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 _MAX_EXTENSION_BYTES = 50 * 1024 * 1024  # 50 MB
 
+# Per-probe budget for unmonitored user extensions (no /health endpoint).
+# Probes run concurrently via asyncio.gather, so total catalog cost stays
+# bounded even with many unmonitored exts.
+_UNMONITORED_PROBE_TIMEOUT = 0.5
+
 
 def _is_stale(iso_timestamp: str, max_age_seconds: int) -> bool:
     """Check if an ISO timestamp is older than max_age_seconds."""
@@ -139,6 +144,53 @@ def _sync_extension_config(service_id: str) -> bool:
     request or was unreachable.
     """
     return _call_agent_sync_config(service_id)
+
+
+async def _probe_unmonitored_user_ext(sid: str, cfg: dict):
+    """TCP-connect probe for user extensions that declare no /health endpoint.
+
+    Returns a ``ServiceStatus`` on connect-success, ``None`` on any failure
+    (timeout / connection refused / DNS / OS error).  A ``None`` result is
+    intentional: it leaves the extension out of ``services_by_id`` so
+    ``_compute_extension_status`` falls through to the ``stopped`` branch
+    rather than reporting a bogus ``healthy``.
+
+    The probe budget is intentionally tight (``_UNMONITORED_PROBE_TIMEOUT``);
+    callers run probes concurrently via ``asyncio.gather`` so the catalog
+    response stays well under the 8 s frontend abort.
+    """
+    from models import ServiceStatus
+
+    host = cfg.get("host") or "127.0.0.1"
+    port = cfg.get("port") or 0
+    if not port:
+        return None
+
+    start = time.monotonic()
+    try:
+        _reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port),
+            timeout=_UNMONITORED_PROBE_TIMEOUT,
+        )
+    except (asyncio.TimeoutError, OSError):
+        return None
+
+    try:
+        writer.close()
+        with contextlib.suppress(OSError):
+            await writer.wait_closed()
+    except OSError:
+        pass
+
+    elapsed_ms = (time.monotonic() - start) * 1000.0
+    return ServiceStatus(
+        id=sid,
+        name=cfg.get("name", sid),
+        port=port,
+        external_port=cfg.get("external_port", port),
+        status="healthy",
+        response_time_ms=elapsed_ms,
+    )
 
 
 def _compute_extension_status(ext: dict, services_by_id: dict) -> str:
@@ -821,17 +873,23 @@ async def extensions_catalog(
         if not isinstance(result, BaseException):
             services_by_id[sid] = result
 
-    # Extensions without health endpoints — assume running if scanned
-    # (presence in user_svc_configs means compose.yaml + manifest exist)
-    from models import ServiceStatus
-    for sid, cfg in user_svc_configs.items():
-        if not cfg.get("health") and sid not in services_by_id:
-            services_by_id[sid] = ServiceStatus(
-                id=sid, name=cfg.get("name", sid),
-                port=cfg.get("port", 0),
-                external_port=cfg.get("external_port", cfg.get("port", 0)),
-                status="healthy", response_time_ms=None,
-            )
+    # Extensions without a /health endpoint: TCP-probe their port concurrently
+    # so we can distinguish a running container ("enabled") from one that's not
+    # running ("stopped").  Probes that fail (timeout / refused / DNS) drop out
+    # of services_by_id and fall through to the "stopped" branch.
+    unmonitored = {
+        sid: cfg for sid, cfg in user_svc_configs.items()
+        if not cfg.get("health") and sid not in services_by_id
+    }
+    if unmonitored:
+        probe_results = await asyncio.gather(
+            *(_probe_unmonitored_user_ext(sid, cfg)
+              for sid, cfg in unmonitored.items()),
+            return_exceptions=True,
+        )
+        for sid, result in zip(unmonitored.keys(), probe_results):
+            if not isinstance(result, BaseException) and result is not None:
+                services_by_id[sid] = result
 
     extensions = []
     for ext in EXTENSION_CATALOG:
@@ -964,15 +1022,20 @@ async def extension_detail(
         if not isinstance(result, BaseException):
             services_by_id[sid] = result
 
-    from models import ServiceStatus
-    for sid, cfg in user_svc_configs.items():
-        if not cfg.get("health") and sid not in services_by_id:
-            services_by_id[sid] = ServiceStatus(
-                id=sid, name=cfg.get("name", sid),
-                port=cfg.get("port", 0),
-                external_port=cfg.get("external_port", cfg.get("port", 0)),
-                status="healthy", response_time_ms=None,
-            )
+    # Same TCP-probe fan-out as the catalog endpoint for unmonitored exts.
+    unmonitored = {
+        sid: cfg for sid, cfg in user_svc_configs.items()
+        if not cfg.get("health") and sid not in services_by_id
+    }
+    if unmonitored:
+        probe_results = await asyncio.gather(
+            *(_probe_unmonitored_user_ext(sid, cfg)
+              for sid, cfg in unmonitored.items()),
+            return_exceptions=True,
+        )
+        for sid, result in zip(unmonitored.keys(), probe_results):
+            if not isinstance(result, BaseException) and result is not None:
+                services_by_id[sid] = result
 
     status = _compute_extension_status(ext, services_by_id)
     installable = _is_installable(service_id)
@@ -1404,10 +1467,16 @@ def enable_extension(
         if enabled_services:
             _call_agent_invalidate_compose_cache()
 
-    # Start all enabled services via agent (outside lock)
+    # Start all enabled services via agent (outside lock).
+    # Mirror the stopped-path pattern: write an initial progress record so
+    # the dashboard's poll-loop has something to track, then surface a clear
+    # error progress on agent failure.  Without this, the frontend polls
+    # /api/extensions/<sid>/progress, gets {"status": "idle"} forever, and
+    # never reaches a terminal toast.
     agent_ok = True
     warnings: list[str] = []
     for svc_id in enabled_services:
+        _write_initial_progress(svc_id)
         # pre_start failure is terminal for this service — do not start it
         if not _call_agent_hook(svc_id, "pre_start"):
             agent_ok = False
@@ -1418,6 +1487,11 @@ def enable_extension(
             continue
         if not _call_agent("start", svc_id):
             agent_ok = False
+            _write_error_progress(
+                svc_id,
+                "Host agent failed to start extension. Run 'dream restart' to recover.",
+            )
+            continue
         # post_start is non-terminal — log failure but don't fail the enable
         if not _call_agent_hook(svc_id, "post_start"):
             logger.warning("post_start hook failed for %s (non-fatal)", svc_id)

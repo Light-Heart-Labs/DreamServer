@@ -372,6 +372,18 @@ def _post_install_core_recreate(service_id: str) -> None:
             "Post-install recreate of open-webui failed after openclaw install: %s",
             err,
         )
+        # Surface the silent failure into the progress file so the dashboard
+        # can show a follow-up toast.  Status stays "started" — openclaw
+        # itself IS running; the warning communicates that the open-webui
+        # overlay won't take effect until a manual restart.
+        _write_progress(
+            service_id,
+            status="started",
+            warnings=[
+                f"Installed, but post-install recreate of open-webui failed: "
+                f"{err}. Run 'dream restart' to retry.",
+            ],
+        )
 
 
 def _parse_mem_value(s: str) -> float:
@@ -395,19 +407,32 @@ _BEARER_RE = re.compile(r"Bearer\s+[A-Za-z0-9._\-=+/]+", re.IGNORECASE)
 
 
 def _write_progress(service_id: str, status: str, phase_label: str = "",
-                    error: str | None = None) -> None:
-    """Atomically write install progress file."""
+                    error: str | None = None,
+                    warnings: list[str] | None = None) -> None:
+    """Atomically write install progress file.
+
+    ``warnings`` is an optional list of non-fatal messages surfaced alongside
+    a terminal status (e.g. ``"started"``).  Used by callers like
+    ``_post_install_core_recreate`` to flag that the install itself
+    succeeded but a follow-up step (overlay re-apply) silently failed.  The
+    field is omitted from the JSON when no warnings are present so existing
+    consumers keep their current shape.
+    """
     progress_dir = DATA_DIR / "extension-progress"
     progress_dir.mkdir(parents=True, exist_ok=True)
     progress_file = progress_dir / f"{service_id}.json"
     tmp_file = progress_file.with_suffix(".json.tmp")
 
-    # Preserve started_at from existing file
+    # Preserve started_at and any pre-existing warnings from existing file
     started_at = _iso_now()
+    existing_warnings: list[str] = []
     if progress_file.exists():
         try:
             existing = json.loads(progress_file.read_text(encoding="utf-8"))
             started_at = existing.get("started_at", started_at)
+            prior = existing.get("warnings")
+            if isinstance(prior, list):
+                existing_warnings = [w for w in prior if isinstance(w, str)]
         except (json.JSONDecodeError, OSError):
             pass
 
@@ -421,6 +446,9 @@ def _write_progress(service_id: str, status: str, phase_label: str = "",
         "started_at": started_at,
         "updated_at": _iso_now(),
     }
+    merged_warnings = existing_warnings + list(warnings or [])
+    if merged_warnings:
+        data["warnings"] = merged_warnings
     tmp_file.write_text(json.dumps(data), encoding="utf-8")
     os.rename(str(tmp_file), str(progress_file))
 

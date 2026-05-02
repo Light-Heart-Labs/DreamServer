@@ -774,10 +774,13 @@ class TestPostInstallCoreRecreate:
             _post_install_core_recreate(svc)
         assert calls == []
 
-    def test_recreate_failure_is_swallowed(self, monkeypatch):
+    def test_recreate_failure_is_swallowed(self, monkeypatch, tmp_path):
         """Install must not fail if the post-install recreate errors — openclaw
         is already running; the overlay just won't take effect until a manual
         core restart."""
+        # Redirect DATA_DIR so the warning-progress write side-effect doesn't
+        # leak a file into the working tree.
+        monkeypatch.setattr(_mod, "DATA_DIR", tmp_path)
 
         def _fake_recreate(_ids):
             return False, "docker compose exploded"
@@ -785,6 +788,41 @@ class TestPostInstallCoreRecreate:
         monkeypatch.setattr(_mod, "docker_compose_recreate", _fake_recreate)
         # Must not raise
         _post_install_core_recreate("openclaw")
+
+    def test_recreate_failure_writes_warning_to_progress(self, monkeypatch, tmp_path):
+        """Silent recreate failure surfaces as a ``warnings`` entry on the
+        progress file so the dashboard can show a follow-up toast.
+
+        Regression for #495 — previously the failure was logged-and-swallowed
+        with no visibility to the user.
+        """
+        progress_dir = tmp_path / "extension-progress"
+        progress_dir.mkdir(parents=True)
+        monkeypatch.setattr(_mod, "DATA_DIR", tmp_path)
+
+        def _fake_recreate(_ids):
+            return False, "docker compose exploded"
+
+        monkeypatch.setattr(_mod, "docker_compose_recreate", _fake_recreate)
+        _post_install_core_recreate("openclaw")
+
+        progress_file = progress_dir / "openclaw.json"
+        assert progress_file.exists(), (
+            "post-install recreate failure must write a progress record so "
+            "the warning is visible to the dashboard"
+        )
+        data = json.loads(progress_file.read_text(encoding="utf-8"))
+        assert data["status"] == "started", (
+            "openclaw itself is running; status must stay 'started' so the "
+            "frontend's success-path UX still fires"
+        )
+        warnings = data.get("warnings") or []
+        assert any("post-install recreate" in w for w in warnings), (
+            f"expected a 'post-install recreate' warning, got {warnings!r}"
+        )
+        assert any("dream restart" in w for w in warnings), (
+            f"warning should suggest 'dream restart' to retry, got {warnings!r}"
+        )
 
 
 class TestRunInstallCallsPostInstallRecreate:

@@ -2115,6 +2115,127 @@ class TestExtensionLifecycleStatus:
         assert data["status"] == "error"
         assert "dream restart" in data["error"]
 
+    def test_unmonitored_user_ext_probe_refused_falls_through_to_stopped(
+        self, test_client, monkeypatch, tmp_path,
+    ):
+        """User extension with no /health endpoint: TCP probe refused → stopped.
+
+        Regression for #511 — previously the catalog synthesised a synthetic
+        ``healthy`` ServiceStatus for any unmonitored user extension that had
+        a compose.yaml on disk, regardless of whether the container was
+        actually running.  TCP-connect probe distinguishes "running" from
+        "stopped".
+        """
+        user_dir = tmp_path / "user"
+        ext_dir = user_dir / "my-ext"
+        ext_dir.mkdir(parents=True)
+        (ext_dir / "compose.yaml").write_text(_SAFE_COMPOSE)
+        (ext_dir / "manifest.yaml").write_text(yaml.dump({
+            "schema_version": "dream.services.v1",
+            "service": {"id": "my-ext", "name": "My Ext", "port": 8080},
+        }))
+
+        catalog = [_make_catalog_ext("my-ext", "My Extension")]
+        _patch_extensions_config(monkeypatch, catalog, tmp_path=tmp_path)
+        monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", user_dir)
+
+        async def _refuse(*_args, **_kwargs):
+            raise ConnectionRefusedError("port closed")
+
+        with patch("user_extensions.get_user_services_cached",
+                   return_value={"my-ext": {"host": "127.0.0.1", "port": 8080,
+                                             "name": "My Ext"}}):
+            with patch("helpers.get_all_services", new_callable=AsyncMock,
+                       return_value=[]):
+                with patch("routers.extensions.asyncio.open_connection",
+                           side_effect=_refuse):
+                    resp = test_client.get(
+                        "/api/extensions/catalog",
+                        headers=test_client.auth_headers,
+                    )
+
+        assert resp.status_code == 200
+        ext = resp.json()["extensions"][0]
+        assert ext["status"] == "stopped"
+
+    def test_unmonitored_user_ext_probe_success_reports_enabled(
+        self, test_client, monkeypatch, tmp_path,
+    ):
+        """User extension with no /health endpoint: TCP probe succeeds → enabled."""
+        user_dir = tmp_path / "user"
+        ext_dir = user_dir / "my-ext"
+        ext_dir.mkdir(parents=True)
+        (ext_dir / "compose.yaml").write_text(_SAFE_COMPOSE)
+        (ext_dir / "manifest.yaml").write_text(yaml.dump({
+            "schema_version": "dream.services.v1",
+            "service": {"id": "my-ext", "name": "My Ext", "port": 8080},
+        }))
+
+        catalog = [_make_catalog_ext("my-ext", "My Extension")]
+        _patch_extensions_config(monkeypatch, catalog, tmp_path=tmp_path)
+        monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", user_dir)
+
+        class _FakeWriter:
+            def close(self):
+                pass
+
+            async def wait_closed(self):
+                return None
+
+        async def _accept(*_args, **_kwargs):
+            return (object(), _FakeWriter())
+
+        with patch("user_extensions.get_user_services_cached",
+                   return_value={"my-ext": {"host": "127.0.0.1", "port": 8080,
+                                             "name": "My Ext"}}):
+            with patch("helpers.get_all_services", new_callable=AsyncMock,
+                       return_value=[]):
+                with patch("routers.extensions.asyncio.open_connection",
+                           side_effect=_accept):
+                    resp = test_client.get(
+                        "/api/extensions/catalog",
+                        headers=test_client.auth_headers,
+                    )
+
+        assert resp.status_code == 200
+        ext = resp.json()["extensions"][0]
+        assert ext["status"] == "enabled"
+
+    def test_enable_disabled_writes_error_progress_on_agent_start_failure(
+        self, test_client, monkeypatch, tmp_path,
+    ):
+        """Activate-from-disabled path writes error progress when host agent
+        fails to start the service.
+
+        Regression: previously the loop set ``agent_ok = False`` but never
+        wrote an error progress file, so the dashboard's poll-loop got
+        ``{"status": "idle"}`` forever and no terminal toast.
+        """
+        user_dir = _setup_user_ext(tmp_path, "my-ext", enabled=False)
+        _patch_mutation_config(monkeypatch, tmp_path, user_dir=user_dir)
+        monkeypatch.setattr("routers.extensions._call_agent_hook",
+                            lambda sid, hook: True)
+        monkeypatch.setattr("routers.extensions._call_agent_invalidate_compose_cache",
+                            lambda: None)
+        monkeypatch.setattr("routers.extensions._call_agent",
+                            lambda action, sid: False)
+
+        resp = test_client.post(
+            "/api/extensions/my-ext/enable",
+            headers=test_client.auth_headers,
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["restart_required"] is True
+
+        progress_file = Path(tmp_path) / "extension-progress" / "my-ext.json"
+        assert progress_file.exists(), (
+            "activate path must write progress on agent start failure"
+        )
+        data = json.loads(progress_file.read_text())
+        assert data["status"] == "error"
+        assert "dream restart" in data["error"]
+
     def test_enable_stopped_rejects_malicious_compose(self, test_client, monkeypatch, tmp_path):
         """Enable stopped ext with malicious compose.yaml → 400."""
         bad_compose = "services:\n  svc:\n    image: test\n    privileged: true\n"
