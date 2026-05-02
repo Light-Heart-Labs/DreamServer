@@ -402,9 +402,9 @@ if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --f
     # Pick health endpoint based on GPU backend — Lemonade (AMD) serves
     # /api/v1/health, llama.cpp (NVIDIA/Apple/CPU) serves /health.
     if [[ "$_gpu_backend" == "amd" ]]; then
-        _health_url="http://localhost:${OLLAMA_PORT:-8080}/api/v1/health"
+        _health_url="http://127.0.0.1:${OLLAMA_PORT:-8080}/api/v1/health"
     else
-        _health_url="http://localhost:${OLLAMA_PORT:-8080}/health"
+        _health_url="http://127.0.0.1:${OLLAMA_PORT:-8080}/health"
     fi
 
     # Wait for health (up to 5 minutes for the larger model to load)
@@ -439,7 +439,7 @@ if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --f
                     _model_id="extra.${FULL_GGUF_FILE//\"/\\\"}"
                     log "Sending warm-up request to trigger model loading: $_model_id (attempt $_i/60)"
                     if curl -sf --max-time 30 -X POST \
-                        "http://localhost:${OLLAMA_PORT:-8080}/api/v1/chat/completions" \
+                        "http://127.0.0.1:${OLLAMA_PORT:-8080}/api/v1/chat/completions" \
                         -H "Content-Type: application/json" \
                         -d "{\"model\":\"${_model_id}\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],\"max_tokens\":1}" \
                         &>/dev/null; then
