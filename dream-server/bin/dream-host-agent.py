@@ -139,7 +139,7 @@ def _detect_docker_bridge_gateway() -> str:
     except ValueError:
         logger.debug("Docker bridge returned non-IP value, ignoring")
     except (subprocess.SubprocessError, OSError) as exc:
-        logger.debug("Docker bridge detection failed: %s", exc)
+        logger.warning("Docker bridge detection failed: %s", exc)
     return ""
 
 
