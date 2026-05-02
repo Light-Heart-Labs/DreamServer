@@ -145,11 +145,13 @@ try {
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8');
   console.log('[inject-token] patched runtime config:', CONFIG_PATH);
 
-  // Log the browser-accessible URL with token for Docker users
+  // Confirm token was injected without leaking it to stdout.
+  // Anyone with `docker logs dream-openclaw` access could otherwise harvest
+  // the gateway token from a URL printed here.
   if (token) {
     console.log(`[inject-token] ┌─────────────────────────────────────────────┐`);
-    console.log(`[inject-token] │ OpenClaw Control UI:                        │`);
-    console.log(`[inject-token] │ http://localhost:${EXTERNAL_PORT}/#token=${token}`);
+    console.log(`[inject-token] │ OpenClaw Control UI ready on port ${EXTERNAL_PORT}.`);
+    console.log(`[inject-token] │ Token redacted; paste from .env to sign in. │`);
     console.log(`[inject-token] └─────────────────────────────────────────────┘`);
   }
 } catch (err) {
@@ -160,18 +162,26 @@ try {
 
 if (token && fs.existsSync(HTML_PATH)) {
   try {
-    // 1. Create external JS file with token-setting code
-    const jsCode = [
-      '(function() {',
-      '  var k = "openclaw.control.settings.v1";',
-      '  var s = {};',
-      '  try { s = JSON.parse(localStorage.getItem(k) || "{}"); } catch(e) {}',
-      '  s.token = ' + JSON.stringify(token) + ';',
-      '  s.gatewayUrl = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;',
-      '  localStorage.setItem(k, JSON.stringify(s));',
-      '})();',
+    // 1. Auto-token injection is DISABLED.
+    //
+    // Previously this wrote the raw gateway token into /app/dist/control-ui/auto-token.js,
+    // which the OpenClaw gateway serves UNAUTHENTICATED at HTTP root. With
+    // BIND_ADDRESS=0.0.0.0 (LAN mode) anyone on the LAN could fetch
+    // http://<host>:<port>/auto-token.js and harvest the token. See fork issue #548.
+    //
+    // We still write a placeholder file (and keep the <script src="./auto-token.js">
+    // injection below) so the gateway's CSP `script-src 'self'` policy is satisfied
+    // and existing HTML references do not 404. The placeholder contains no secrets.
+    //
+    // UX impact: Control UI no longer auto-signs-in. Users must paste the token
+    // manually from the install summary or the OPENCLAW_TOKEN value in .env.
+    const placeholder = [
+      '// Auto-token injection disabled to prevent gateway-token disclosure via',
+      '// this unauthenticated static asset (fork issue #548).',
+      '// Paste the token manually from .env (OPENCLAW_TOKEN) into the Control UI.',
+      '(function(){ /* no-op */ })();',
     ].join('\n');
-    fs.writeFileSync(JS_PATH, jsCode);
+    fs.writeFileSync(JS_PATH, placeholder);
 
     // 2. Inject <script src> tag as first element in <head> (satisfies CSP 'self')
     let html = fs.readFileSync(HTML_PATH, 'utf8');
@@ -182,7 +192,7 @@ if (token && fs.existsSync(HTML_PATH)) {
     html = html.replace('<head>', '<head><script src="./auto-token.js"></script>');
     fs.writeFileSync(HTML_PATH, html);
 
-    console.log('[inject-token] created auto-token.js and injected <script src> into Control UI');
+    console.log('[inject-token] wrote placeholder auto-token.js (token disclosure mitigated; manual sign-in required)');
   } catch (err) {
     console.error('[inject-token] UI injection warning:', err.message);
   }
