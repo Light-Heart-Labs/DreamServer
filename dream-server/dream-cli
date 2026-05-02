@@ -3608,15 +3608,10 @@ EOF
     if [[ ! -f "$sync_script" ]]; then
         error "Sync script not found at: $sync_script"
     fi
-    if [[ ! -x "$sync_script" ]]; then
-        # Try to fix it silently; fall back to invoking via bash if not writable.
-        chmod +x "$sync_script" 2>/dev/null || true
-    fi
-    if [[ -x "$sync_script" ]]; then
-        sync_script_cmd=("$sync_script")
-    else
-        sync_script_cmd=(bash "$sync_script")
-    fi
+    # Always invoke via bash. Do NOT chmod the script in the repo — that flips
+    # the exec bit, which git tracks, marking the file as modified and breaking
+    # subsequent 'git pull'.
+    sync_script_cmd=(bash "$sync_script")
 
     # Build args for the sync script
     local args=()
