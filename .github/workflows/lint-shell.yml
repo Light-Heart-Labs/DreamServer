@@ -60,3 +60,22 @@ jobs:
           echo "$shfiles" | xargs shellcheck \
             --exclude=SC1091,SC2034 \
             --severity=error
+
+      - name: Regression guard - no http://localhost in shell scripts
+        run: |
+          # IPv6 ::1 resolution can hang on macOS — always use 127.0.0.1 in
+          # shell scripts. Excludes: demo-offline.sh (echo'd documentation,
+          # never executed) and test-extension-audit.sh (heredoc compose YAML
+          # fixtures with container-internal localhost).
+          # Note: extensionless scripts (e.g. dream-cli) are not scanned by
+          # this glob; coverage is limited to *.sh / *.bash. dream-cli's
+          # localhost sites are swept by PR #1074.
+          matches=$(find dream-server -type f \( -name '*.sh' -o -name '*.bash' \) \
+            ! -path 'dream-server/scripts/demo-offline.sh' \
+            ! -path 'dream-server/tests/test-extension-audit.sh' \
+            -exec grep -nE 'curl[^|]*http://localhost:' {} + || true)
+          if [ -n "$matches" ]; then
+            echo "::error::curl http://localhost: detected — use 127.0.0.1 (IPv6 ::1 resolution can hang on macOS):"
+            echo "$matches"
+            exit 1
+          fi

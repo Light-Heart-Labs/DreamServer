@@ -65,7 +65,7 @@ benchmark_sequential() {
 
     # Simulate 13 sequential curl calls with 1 second timeout each
     for i in {1..13}; do
-        curl -sf --max-time 1 http://localhost:8080/health > /dev/null 2>&1 || true
+        curl -sf --max-time 1 http://127.0.0.1:8080/health > /dev/null 2>&1 || true
     done
 
     local end duration
@@ -83,7 +83,7 @@ benchmark_parallel() {
 
     # Launch 13 parallel curl calls
     for i in {1..13}; do
-        (curl -sf --max-time 1 http://localhost:8080/health > /dev/null 2>&1 && echo "ok" > "$tmpdir/$i") &
+        (curl -sf --max-time 1 http://127.0.0.1:8080/health > /dev/null 2>&1 && echo "ok" > "$tmpdir/$i") &
         pids+=($!)
     done
 
