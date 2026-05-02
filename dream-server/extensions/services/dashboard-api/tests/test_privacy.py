@@ -275,3 +275,29 @@ def test_privacy_shield_stats_connection_error(test_client):
     data = resp.json()
     assert "error" in data
     assert data["enabled"] is False
+
+
+def test_privacy_shield_stats_missing_shield_key(test_client, monkeypatch):
+    """GET /api/privacy-shield/stats when SHIELD_API_KEY is unset short-circuits before any HTTP call."""
+    monkeypatch.delenv("SHIELD_API_KEY", raising=False)
+    session_factory = MagicMock()
+
+    with patch("routers.privacy.aiohttp.ClientSession", session_factory):
+        resp = test_client.get("/api/privacy-shield/stats", headers=test_client.auth_headers)
+
+    assert resp.status_code == 200
+    assert resp.json() == {"error": "SHIELD_API_KEY not configured", "enabled": False}
+    session_factory.assert_not_called()
+
+
+def test_privacy_shield_stats_empty_shield_api_key(test_client, monkeypatch):
+    """GET /api/privacy-shield/stats when SHIELD_API_KEY is empty string short-circuits before any HTTP call."""
+    monkeypatch.setenv("SHIELD_API_KEY", "")
+    session_factory = MagicMock()
+
+    with patch("routers.privacy.aiohttp.ClientSession", session_factory):
+        resp = test_client.get("/api/privacy-shield/stats", headers=test_client.auth_headers)
+
+    assert resp.status_code == 200
+    assert resp.json() == {"error": "SHIELD_API_KEY not configured", "enabled": False}
+    session_factory.assert_not_called()
