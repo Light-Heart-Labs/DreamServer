@@ -355,7 +355,7 @@ if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "nvidia" ]]; then
         ai "Installing NVIDIA Container Toolkit..."
         if ! $DRY_RUN; then
             # Add NVIDIA GPG key (used by apt and as trust anchor)
-            curl -fsSL --max-time 60 https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg 2>/dev/null || true
+            curl -fsSL --max-time 60 https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor --yes -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg 2>/dev/null || true
 
             # Distro-aware repo setup + install
             case "$PKG_MANAGER" in
