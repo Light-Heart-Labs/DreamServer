@@ -9,7 +9,7 @@ services:
       - FORGE_PORT_HOST=7861
       - FORGE_ARGS=--api --listen
       - AUTO_UPDATE=false
-      - SUPERVISOR_NO_AUTOSTART=syncthing
+      - SUPERVISOR_NO_AUTOSTART=syncthing,quicktunnel,serviceportal,sshd
     volumes:
       - ./data/forge/models:/opt/stable-diffusion-webui-forge/models:rw
       - ./data/forge/outputs:/opt/stable-diffusion-webui-forge/outputs:rw
