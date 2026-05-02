@@ -25,16 +25,27 @@ TIER="${TIER:-1}"             # 1 = nur essentielle Modelle, 2 = +reasoning/code
 # gereicht (siehe extensions/services/llama-server/Dockerfile.amd, ARG LLAMA_CPP_REF).
 # Aktuell gepinnt: b8763 (https://github.com/ggml-org/llama.cpp/releases)
 #
-# WARUM b8763 (und NICHT neuer)?
-#   Ab ~b8800 aktiviert llama.cpp für Qwen3-Family (Qwen3-Next, Qwen3.5/3.6
-#   MoE, Qwen3-VL) "fused Gated Delta Net (autoregressive)". Auf ROCm/gfx1151
-#   führt das beim ersten Prompt-Processing-Batch zu silent Zombie-Prozessen:
-#     • Lemonade liefert HTTP 200, Body: "CURL error: Couldn't connect to server"
-#     • llama-server-Backend auf Port 8001 ist tot, kein Stack-Trace
-#   Reproduziert mit b8994 + den großen Qwen3-Modellen (qwen3-coder-next,
-#   Qwen3.6-35B-A3B, Qwen3.5-122B-A10B, qwen3-vl-30b). qwen3-4b (klassisch,
-#   ohne fused GDN) lief in b8994 noch sauber. Workaround: bei b8763 bleiben
-#   bis Upstream-Fix für ROCm + Hybrid-Attention.
+# bekannter Bug: ROCm/gfx1151 + fused Gated Delta Net (Qwen3-Next/MoE/VL)
+#   Beim ersten Prompt-Processing-Batch crasht der innere llama-server silent
+#   zum Zombie. Lemonade liefert HTTP 200 mit Body
+#     {"error":"Network error: CURL error: Couldn't connect to server"}.
+#   Im Container-Log steht direkt davor:
+#     "sched_reserve: fused Gated Delta Net (autoregressive) enabled"
+#   Betroffen: extra.qwen3-coder-next, extra.Qwen3.6-35B-A3B,
+#   extra.Qwen3.5-122B-A10B, extra.qwen3-vl-30b.
+#   NICHT betroffen: extra.qwen3-4b (klassische Architektur, kein GDN).
+#
+# WICHTIG: b8763 ENTHÄLT die fused-GDN-Implementation BEREITS → derselbe
+# Crash. Verifiziert 2026-05-02 auf sky-net (.110) mit frischem Rebuild aus
+# b8763. Ein Downgrade auf einen Pre-GDN-Ref würde gleichzeitig die
+# Qwen3-Next-Architektur-Erkennung verlieren → Modell würde gar nicht
+# erst laden. Workaround derzeit: nur extra.qwen3-4b als Default verwenden,
+# auf Upstream-Fix für ROCm + Hybrid-Attention warten (oder Vulkan-Build
+# sobald libssl-Link fixed ist).
+#
+# Warum trotzdem b8763 als Pin? Es ist der MMQ-Patch-validierte Ref im
+# Dockerfile.amd → reproduzierbarer Build-Zustand, ohne Risiko, dass ein
+# noch neuerer Master weitere Regressionen einführt.
 #
 # ACHTUNG: Der MMQ-Register-Patch im Dockerfile (sed auf mmq.cu) ist ebenfalls
 # gegen b8763 validiert. Bei einem zukünftigen Bump können die sed-Targets fehlschlagen → Build läuft
