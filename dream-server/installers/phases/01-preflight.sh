@@ -46,6 +46,11 @@ log "curl: $(curl --version 2>/dev/null | sed -n '1p')"
 
 if ! command -v jq &> /dev/null; then
     log "jq not found - attempting auto-install..."
+    # In non-interactive mode, fail fast if sudo requires a password
+    # (otherwise the bare `sudo <pkgmgr>` below hangs on a TTY prompt that never comes).
+    if [[ "${INTERACTIVE:-true}" != "true" ]] && ! sudo -n true 2>/dev/null; then
+        error "Cannot install jq: sudo password required but running in --non-interactive mode. Re-run interactively or configure NOPASSWD sudo for the package manager."
+    fi
     case "$PKG_MANAGER" in
         dnf)    sudo dnf install -y jq ;;
         pacman) sudo pacman -S --noconfirm jq ;;
