@@ -23,7 +23,15 @@ TIER="${TIER:-1}"             # 1 = nur essentielle Modelle, 2 = +reasoning/code
 
 # llama.cpp git ref (Tag oder Commit) – wird als Build-Arg an Dockerfile.amd
 # gereicht (siehe extensions/services/llama-server/Dockerfile.amd, ARG LLAMA_CPP_REF).
-# Aktuell gepinnt: b8763 (https://github.com/ggml-org/llama.cpp/releases)
+# Aktuell gepinnt: b8994 (https://github.com/ggml-org/llama.cpp/releases)
+#
+# Historie zu diesem Pin:
+#   - 2026-05-02 zunächst auf b8763 rückgepinnt (Hypothese: vor fused GDN).
+#     Verifiziert auf sky-net (.110) mit frischem Rebuild → b8763 enthält
+#     den fused-GDN-Code BEREITS, identischer silent-Zombie-Crash bei
+#     Qwen3-Next/MoE/VL-Modellen. b8763 ist also kein Fix.
+#   - Daher zurück auf b8994 (näher am Upstream-Master, mehr Bugfixes
+#     für nicht-GDN-Modelle).
 #
 # bekannter Bug: ROCm/gfx1151 + fused Gated Delta Net (Qwen3-Next/MoE/VL)
 #   Beim ersten Prompt-Processing-Batch crasht der innere llama-server silent
@@ -35,24 +43,17 @@ TIER="${TIER:-1}"             # 1 = nur essentielle Modelle, 2 = +reasoning/code
 #   extra.Qwen3.5-122B-A10B, extra.qwen3-vl-30b.
 #   NICHT betroffen: extra.qwen3-4b (klassische Architektur, kein GDN).
 #
-# WICHTIG: b8763 ENTHÄLT die fused-GDN-Implementation BEREITS → derselbe
-# Crash. Verifiziert 2026-05-02 auf sky-net (.110) mit frischem Rebuild aus
-# b8763. Ein Downgrade auf einen Pre-GDN-Ref würde gleichzeitig die
-# Qwen3-Next-Architektur-Erkennung verlieren → Modell würde gar nicht
-# erst laden. Workaround derzeit: nur extra.qwen3-4b als Default verwenden,
-# auf Upstream-Fix für ROCm + Hybrid-Attention warten (oder Vulkan-Build
-# sobald libssl-Link fixed ist).
-#
-# Warum trotzdem b8763 als Pin? Es ist der MMQ-Patch-validierte Ref im
-# Dockerfile.amd → reproduzierbarer Build-Zustand, ohne Risiko, dass ein
-# noch neuerer Master weitere Regressionen einführt.
+# Workaround bis Upstream-Fix: nur extra.qwen3-4b als OpenClaw-Default
+# verwenden. Echter Fix erfordert entweder einen Upstream-Patch in
+# llama.cpp für ROCm + fused GDN, oder einen Vulkan-Build mit korrekt
+# verlinkter libssl (aktuell: undefined symbol httplib::SSLServer).
 #
 # ACHTUNG: Der MMQ-Register-Patch im Dockerfile (sed auf mmq.cu) ist ebenfalls
 # gegen b8763 validiert. Bei einem zukünftigen Bump können die sed-Targets fehlschlagen → Build läuft
 # trotzdem durch, druckt aber "WARNING: MMQ patch did not apply". Nach dem
 # Build prüfen:
 #   docker logs <build> | grep "MMQ patch"
-LLAMA_CPP_REF="${LLAMA_CPP_REF:-b8763}"
+LLAMA_CPP_REF="${LLAMA_CPP_REF:-b8994}"
 AMDGPU_TARGET="${AMDGPU_TARGET:-gfx1151}"
 
 # Lemonade Base-Image-Tag. Wird in Dockerfile.amd Stage 2 als
@@ -1184,7 +1185,7 @@ summary() {
      }
 
 🔧 Aktive Optimierungen:
-   • llama.cpp gepinnt auf LLAMA_CPP_REF=b8763 (vor fused-GDN-Bug auf ROCm), --pull --no-cache
+   • llama.cpp gepinnt auf LLAMA_CPP_REF=b8994 (b8763-Test ergab: GDN-Bug auch dort), --pull --no-cache
    • Lemonade-Image neu gebaut mit aktueller llama.cpp + rocWMMA
    • FlashAttention-2 (-fa on, rocWMMA-Build aus Dockerfile.amd)
    • KV-Cache Q8_0  (halbiert KV-RAM bei langem Kontext)
