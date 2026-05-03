@@ -22,3 +22,4 @@
 bin/llama/** filter=lfs diff=lfs merge=lfs -text
 src/shaders/** whitespace=-blank-at-eol,-blank-at-eof
 vendor/** whitespace=-blank-at-eol,-blank-at-eof
+vendor/** linguist-vendored=true

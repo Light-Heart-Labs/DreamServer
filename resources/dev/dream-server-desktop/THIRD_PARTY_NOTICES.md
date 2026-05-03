@@ -1,29 +1,69 @@
 # Third Party Notices
 
-This experimental Dream Server Hermes branch vendors Hermes Agent as an
-architecture and implementation reference under `vendor/hermes-agent`.
+This directory is a source-first development tree for Dream Server DESKTOP.
+Packaged desktop artifacts intentionally include only the runtime source needed
+by the app, selected UI assets, and explicitly listed third-party runtime
+dependencies. Development-only reference snapshots remain in `vendor/` for
+provenance and maintainer review, but broad vendor trees are not packaged unless
+the `package.json` build allowlist names them.
 
-Hermes Agent is distributed under the MIT License:
+## Hermes Agent
+
+Dream Server DESKTOP uses Hermes Agent through the stdio bridge under
+`runtime/hermes`. The packaged desktop app includes `vendor/hermes-agent`
+because the runtime imports Hermes' own `AIAgent` and supporting Python modules
+rather than reimplementing the agent loop in Electron.
+
+License: MIT
 
 Copyright (c) 2025 Nous Research
 
-The full license text is available at:
+Full license text: `vendor/hermes-agent/LICENSE`
 
-- `vendor/hermes-agent/LICENSE`
+## Desktop Workbench Reference Snapshot
 
-This branch uses Hermes through a stdio bridge under `runtime/hermes`, which
-launches the vendored Python runtime and imports Hermes' own `AIAgent` rather
-than reimplementing its agent loop inside the Electron renderer.
+The source tree includes `vendor/aperant-upstream` as a development reference
+snapshot for the multiagent workbench visual model: Kanban layout, agent lanes,
+review surfaces, and project-workbench interaction patterns. Dream Server
+DESKTOP does not use that tree as its runtime base; the runtime path is Hermes
+Agent plus the local Dream Server DESKTOP Electron/Node implementation.
 
-The code workbench shader controls are inspired by Ghostty shader projects:
+License: GNU Affero General Public License v3.0
+
+Full license text: `vendor/aperant-upstream/LICENSE`
+
+Packaging note: `vendor/aperant-upstream` is intentionally excluded from
+Electron packaged artifacts by the `build.files` allowlist in `package.json`.
+
+## Browser Harness Reference
+
+The source tree includes browser harness reference snapshots under `vendor/`
+for development comparison with the internal Workbench browser-control runtime.
+The packaged app uses the local runtime implementation under `runtime/` and does
+not package the broad browser-harness vendor snapshots.
+
+Full license texts:
+
+- `vendor/browser-harness/LICENSE`
+- `vendor/browser-harness-upstream/LICENSE`
+
+## Ghostty Shaders
+
+The code workbench shader controls use selected GLSL shader files copied under
+`src/shaders/ghostty`.
+
+Sources:
 
 - `vendor/ghostty-shader-playground` / https://github.com/KroneCorylus/ghostty-shader-playground
 - https://github.com/sahaj-b/ghostty-cursor-shaders
 
-Selected GLSL shader files from those MIT-licensed projects are bundled under
-`src/shaders/ghostty` and are wrapped at runtime for the Electron code
-workbench's WebGL renderer.
+License: MIT, as documented in `src/shaders/ghostty/LICENSES.md`.
 
-The code workbench also bundles JetBrains Mono Regular under `src/fonts` for
-Ghostty-like terminal typography. JetBrains Mono is distributed under the SIL
-Open Font License; the copied license is `src/fonts/OFL-JetBrainsMono.txt`.
+## JetBrains Mono
+
+The code workbench bundles JetBrains Mono Regular under `src/fonts` for
+terminal typography.
+
+License: SIL Open Font License
+
+Full license text: `src/fonts/OFL-JetBrainsMono.txt`

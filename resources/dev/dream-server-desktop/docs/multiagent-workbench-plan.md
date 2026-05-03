@@ -1,6 +1,6 @@
-# Aperant layer over Dream Server Hermes
+# Dream Desktop multiagent workbench layer
 
-Este plano adapta ideias do Aperant sem criar um runtime paralelo. Toda criacao, execucao e validacao deve passar pelo runtime Hermes/Dream ja existente: `task_*`, `agent_*`, `terminal_*`, `git_worktree_*`, `browser_*`, `verify_*` e MCP quando disponivel.
+Este plano adapta o modelo visual de workbench multiagente sem criar um runtime paralelo. Toda criacao, execucao e validacao deve passar pelo runtime Hermes/Dream ja existente: `task_*`, `agent_*`, `terminal_*`, `git_worktree_*`, `browser_*`, `verify_*` e MCP quando disponivel.
 
 ## Fatia 1 - Navegacao principal
 
@@ -40,7 +40,7 @@ Status: implementado como base.
 
 Proximo incremento:
 
-- Mostrar ate 12 lanes de agentes/terminais como no Aperant.
+- Mostrar ate 12 lanes de agentes/terminais no workbench multiagente.
 - Criar presets de agentes: builder, reviewer, verifier, researcher.
 - Adicionar "inject context" para enviar objetivo/card selecionado ao terminal.
 - Permitir dividir um card em subtarefas e spawnar varios agentes em worktrees separadas.
@@ -80,6 +80,6 @@ Status: pendente.
 - Kanban interno pode manipular estado persistente apenas via `task_*`.
 - Terminal e subagente exigem `fullAccessMode`, mantendo o mesmo controle de permissao do Dream Server.
 
-## Referencia analisada
+## Referencia de produto
 
-- Aperant: Kanban, agent terminals, parallel execution, isolated workspaces, QA loop, merge assistido, memory, integrations, roadmap, insights, ideation e changelog.
+- Workbench multiagente: Kanban, agent terminals, parallel execution, isolated workspaces, QA loop, merge assistido, memory, integrations, roadmap, insights, ideation e changelog.

@@ -749,7 +749,7 @@ const TOOL_MANIFESTS = [
   },
   {
     name: "task_recover",
-    description: "Recover a stuck Aperant-style task and optionally restart its Hermes agent.",
+    description: "Recover a stuck Dream Desktop task and optionally restart its Hermes agent.",
     permissionClass: "system-write",
     supportedSurfaces: ["desktop", "cli", "headless"],
     inputSchema: {
@@ -798,7 +798,7 @@ const TOOL_MANIFESTS = [
   },
   {
     name: "task_scheduler_tick",
-    description: "Run one Aperant-style Kanban scheduler tick: recover stale tasks, start queued work, PR and cleanup when enabled.",
+    description: "Run one Dream Desktop Kanban scheduler tick: recover stale tasks, start queued work, PR and cleanup when enabled.",
     permissionClass: "system-write",
     supportedSurfaces: ["desktop", "cli", "headless"],
     inputSchema: {

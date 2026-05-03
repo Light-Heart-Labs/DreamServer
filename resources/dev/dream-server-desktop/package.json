@@ -39,17 +39,20 @@
       "app-main.js",
       "preload.js",
       "pet-preload.js",
+      "README.md",
+      "PROVENANCE.md",
+      "THIRD_PARTY_NOTICES.md",
       "build/**/*",
       "runtime/**/*",
       "bin/**/*",
       "src/**/*",
-      "vendor/**/*",
+      "vendor/hermes-agent/**/*",
       "package.json"
     ],
     "asarUnpack": [
       "bin/**/*",
       "runtime/hermes/**/*.py",
-      "vendor/**/*"
+      "vendor/hermes-agent/**/*"
     ],
     "mac": {
       "target": [
@@ -119,8 +122,13 @@
   "optionalDependencies": {
     "node-pty": "^1.1.0"
   },
+  "overrides": {
+    "@xmldom/xmldom": "^0.8.13",
+    "glob": "^10.5.0",
+    "protobufjs": "^7.5.6"
+  },
   "devDependencies": {
-    "electron": "^37.2.0",
-    "electron-builder": "^26.0.12"
+    "electron": "^41.5.0",
+    "electron-builder": "^26.8.1"
   }
 }

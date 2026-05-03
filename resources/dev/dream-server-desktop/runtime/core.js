@@ -1362,7 +1362,7 @@ class DreamRuntime extends EventEmitter {
       });
       return {
         task: updated,
-        error: "Git do Kanban esta desativado. Ative em Settings > Desktop & Tools > Kanban Aperant para criar PR."
+        error: "Git do Kanban esta desativado. Ative em Settings > Desktop & Tools > Kanban para criar PR."
       };
     }
     const cwd = path.resolve(task.worktreePath || task.workspaceRoot || this.workspaceRoot);
