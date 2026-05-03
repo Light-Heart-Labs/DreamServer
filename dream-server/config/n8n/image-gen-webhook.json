@@ -93,7 +93,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Extract the first generated image from ComfyUI history response.\n// History format: { \"<prompt_id>\": { outputs: { \"9\": { images: [{ filename, subfolder, type }] } }, ... } }\nconst history = $input.first().json;\nconst entry   = Object.values(history)[0];\nif (!entry || !entry.outputs) { throw new Error('ComfyUI returned no outputs'); }\nconst outputs = entry.outputs;\nconst saveNode = Object.values(outputs).find(o => Array.isArray(o.images) && o.images.length);\nif (!saveNode) { throw new Error('No SaveImage output in ComfyUI history'); }\nconst img = saveNode.images[0];\nconst params = new URLSearchParams({ filename: img.filename, subfolder: img.subfolder || '', type: img.type || 'output' });\nconst url = `http://comfyui:8188/view?${params.toString()}`;\nreturn [{ json: { image_url: url, filename: img.filename, subfolder: img.subfolder, type: img.type } }];"
+        "jsCode": "// Extract the first generated image from ComfyUI history response.\n// History format: { \"<prompt_id>\": { outputs: { \"9\": { images: [{ filename, subfolder, type }] } }, ... } }\nconst history = $input.first().json;\nconst entry   = Object.values(history)[0];\nif (!entry || !entry.outputs) { throw new Error('ComfyUI returned no outputs'); }\nconst outputs = entry.outputs;\nconst saveNode = Object.values(outputs).find(o => Array.isArray(o.images) && o.images.length);\nif (!saveNode) { throw new Error('No SaveImage output in ComfyUI history'); }\nconst img = saveNode.images[0];\n// Build query string manually — URLSearchParams is not available in n8n Code node sandbox.\nconst qs = `filename=${encodeURIComponent(img.filename)}&subfolder=${encodeURIComponent(img.subfolder || '')}&type=${encodeURIComponent(img.type || 'output')}`;\n// internal_url: container-to-container, used by the next HTTP node.\n// public_url:   returned to the caller. Adjust this hardcoded host:port if you\n//               move ComfyUI off this machine — n8n Code sandbox blocks env access.\nconst publicBase = 'http://192.168.178.110:8188';\nconst internal_url = `http://comfyui:8188/view?${qs}`;\nconst public_url   = `${publicBase}/view?${qs}`;\nreturn [{ json: { image_url: public_url, internal_url, filename: img.filename, subfolder: img.subfolder, type: img.type } }];"
       },
       "id": "extract-image",
       "name": "Extract Image URL",
@@ -104,7 +104,7 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "={{ $json.image_url }}",
+        "url": "={{ $json.internal_url }}",
         "options": { "response": { "response": { "responseFormat": "file" } } }
       },
       "id": "fetch-image",
@@ -115,7 +115,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Build OpenAI-Images-like response: { created, data: [{ b64_json, url }] }\nconst meta = $('Extract Image URL').first().json;\nconst bin  = $input.first().binary?.data;\nconst b64  = bin?.data ?? '';\nreturn [{ json: { created: Math.floor(Date.now() / 1000), data: [{ b64_json: b64, url: meta.image_url, filename: meta.filename }] } }];"
+        "jsCode": "// Build OpenAI-Images-like response: { created, data: [{ b64_json, url }] }\n// In a Code node, the previous HTTP node (responseFormat: file) leaves the\n// PNG bytes in $binary.data — we read them via the helpers API.\nconst meta = $('Extract Image URL').first().json;\nlet b64 = '';\ntry {\n  const buf = await this.helpers.getBinaryDataBuffer(0, 'data');\n  b64 = Buffer.isBuffer(buf) ? buf.toString('base64') : '';\n} catch (e) {\n  // Fall back silently — the public URL is still returned and usable.\n}\nreturn [{ json: { created: Math.floor(Date.now() / 1000), data: [{ b64_json: b64, url: meta.image_url, filename: meta.filename }] } }];"
       },
       "id": "format-response",
       "name": "Format OpenAI-like Response",
@@ -170,7 +170,7 @@
     "saveExecutionProgress": false,
     "saveDataSuccessExecution": "none",
     "saveDataErrorExecution": "all",
-    "executionTimeout": 120
+    "executionTimeout": 600
   },
   "meta": {
     "templateId": "image-gen-webhook",
