@@ -52,6 +52,7 @@ from agent_monitor import collect_metrics
 from routers import (
     workflows, features, setup, updates, agents, privacy, extensions,
     gpu as gpu_router, resources, voice, models as models_router, templates,
+    projects,
 )
 
 
@@ -99,7 +100,7 @@ _SETTINGS_APPLY_ALLOWED_SERVICES = frozenset({
     "llama-server", "open-webui", "litellm", "langfuse", "n8n",
     "openclaw", "opencode", "perplexica", "searxng", "qdrant",
     "tts", "whisper", "embeddings", "token-spy", "comfyui",
-    "ape", "privacy-shield", "dreamforge",
+    "ape", "privacy-shield", "dreamforge", "vikunja",
 })
 _LLAMA_APPLY_KEYS = {
     "CTX_SIZE", "MAX_CONTEXT", "GGUF_FILE", "GGUF_URL", "GGUF_SHA256",
@@ -909,6 +910,7 @@ app.include_router(resources.router)
 app.include_router(voice.router)
 app.include_router(models_router.router)
 app.include_router(templates.router)
+app.include_router(projects.router)
 
 
 # ================================================================

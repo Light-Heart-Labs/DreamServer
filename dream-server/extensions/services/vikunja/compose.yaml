@@ -1,0 +1,86 @@
+services:
+  vikunja:
+    image: vikunja/vikunja:0.24.6
+    container_name: dream-vikunja
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      VIKUNJA_SERVICE_PUBLICURL: "http://${VIKUNJA_HOST:-localhost}:${VIKUNJA_PORT:-3456}/"
+      VIKUNJA_SERVICE_JWTSECRET: "${VIKUNJA_JWT_SECRET:?VIKUNJA_JWT_SECRET must be set in .env}"
+      VIKUNJA_SERVICE_TIMEZONE: "${TIMEZONE:-UTC}"
+      VIKUNJA_SERVICE_INTERFACE: ":3456"
+      VIKUNJA_DATABASE_TYPE: "postgres"
+      VIKUNJA_DATABASE_HOST: "vikunja-postgres:5432"
+      VIKUNJA_DATABASE_USER: "vikunja"
+      VIKUNJA_DATABASE_PASSWORD: "${VIKUNJA_DB_PASSWORD:?VIKUNJA_DB_PASSWORD must be set in .env}"
+      VIKUNJA_DATABASE_DATABASE: "vikunja"
+      VIKUNJA_DATABASE_SSLMODE: "disable"
+    volumes:
+      - ./data/vikunja/files:/app/vikunja/files
+    networks:
+      - default
+      - vikunja-internal
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${VIKUNJA_PORT:-3456}:3456"
+    depends_on:
+      vikunja-postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512m
+        reservations:
+          cpus: '0.1'
+          memory: 128m
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3456/api/v1/info"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  vikunja-postgres:
+    image: postgres:17.9-alpine
+    container_name: dream-vikunja-postgres
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      POSTGRES_USER: "vikunja"
+      POSTGRES_PASSWORD: "${VIKUNJA_DB_PASSWORD:?VIKUNJA_DB_PASSWORD must be set in .env}"
+      POSTGRES_DB: "vikunja"
+    volumes:
+      - ./data/vikunja/postgres:/var/lib/postgresql/data
+    networks:
+      - vikunja-internal
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "vikunja"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512m
+        reservations:
+          cpus: '0.1'
+          memory: 128m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  vikunja-internal:
+    internal: true
+

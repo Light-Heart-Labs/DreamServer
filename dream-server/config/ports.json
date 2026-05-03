@@ -130,6 +130,13 @@
       "internal_port": 3003,
       "compose_managed": false,
       "manifest_service": "opencode"
+    },
+    {
+      "env_var": "VIKUNJA_PORT",
+      "external_default": 3456,
+      "service_id": "vikunja",
+      "internal_port": 3456,
+      "manifest_service": "vikunja"
     }
   ]
 }

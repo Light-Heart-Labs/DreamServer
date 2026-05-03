@@ -206,6 +206,17 @@ def _default_n8n_url() -> str:
 N8N_URL = os.environ.get("N8N_URL", _default_n8n_url())
 N8N_API_KEY = os.environ.get("N8N_API_KEY", "")
 
+
+def _default_vikunja_url() -> str:
+    cfg = SERVICES.get("vikunja", {})
+    host = cfg.get("host", "vikunja")
+    port = cfg.get("port", 3456)
+    return f"http://{host}:{port}"
+
+
+VIKUNJA_URL = os.environ.get("VIKUNJA_URL", _default_vikunja_url())
+VIKUNJA_API_TOKEN = os.environ.get("VIKUNJA_API_TOKEN", "") or _read_env_from_file("VIKUNJA_API_TOKEN")
+
 # --- Setup / Personas ---
 
 SETUP_CONFIG_DIR = Path(DATA_DIR) / "config"
@@ -239,6 +250,7 @@ SIDEBAR_ICONS = {
     "comfyui": "Image",
     "token-spy": "Terminal",
     "langfuse": "BarChart2",
+    "vikunja": "ListChecks",
 }
 
 # --- Extensions Portal ---

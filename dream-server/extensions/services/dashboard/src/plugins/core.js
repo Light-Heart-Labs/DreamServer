@@ -5,6 +5,7 @@ import {
   Puzzle,
   Activity,
   Box,
+  ListChecks,
 } from 'lucide-react'
 
 const Dashboard = lazy(() => import('../pages/Dashboard'))
@@ -12,6 +13,7 @@ const SettingsPage = lazy(() => import('../pages/Settings'))
 const Extensions = lazy(() => import('../pages/Extensions'))
 const GPUMonitor = lazy(() => import('../pages/GPUMonitor'))
 const Models = lazy(() => import('../pages/Models'))
+const Projects = lazy(() => import('../pages/Projects'))
 
 export const coreRoutes = [
   {
@@ -53,6 +55,21 @@ export const coreRoutes = [
     getProps: () => ({}),
     sidebar: true,
     order: 3,
+  },
+  {
+    id: 'projects',
+    path: '/projects',
+    label: 'Projects',
+    icon: ListChecks,
+    component: Projects,
+    getProps: () => ({}),
+    // Sidebar entry only appears once Vikunja is registered as a service.
+    // Route is always reachable so first-time setup pages still render.
+    sidebar: ({ status }) =>
+      (status?.services || []).some((s) =>
+        (s.name || '').toLowerCase().includes('vikunja')
+      ),
+    order: 4,
   },
   {
     id: 'settings',
