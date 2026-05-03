@@ -19,6 +19,18 @@ Copyright (c) 2025 Nous Research
 
 Full license text: `vendor/hermes-agent/LICENSE`
 
+## Browser Harness
+
+Dream Server DESKTOP includes `vendor/browser-harness-upstream` so Hermes'
+browser tool fallback can retain the same browser-harness-compatible workbench
+skill/runtime material as the current desktop build.
+
+License: MIT
+
+Copyright (c) 2026 Browser Use
+
+Full license text: `vendor/browser-harness-upstream/LICENSE`
+
 ## Ghostty Shaders
 
 The code workbench shader controls use selected GLSL shader files copied under

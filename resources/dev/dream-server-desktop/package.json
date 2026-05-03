@@ -47,12 +47,14 @@
       "runtime/**/*",
       "bin/**/*",
       "src/**/*",
+      "vendor/browser-harness-upstream/**/*",
       "vendor/hermes-agent/**/*",
       "package.json"
     ],
     "asarUnpack": [
       "bin/**/*",
       "runtime/hermes/**/*.py",
+      "vendor/browser-harness-upstream/**/*",
       "vendor/hermes-agent/**/*"
     ],
     "mac": {

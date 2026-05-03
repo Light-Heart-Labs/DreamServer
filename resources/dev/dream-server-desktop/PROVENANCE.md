@@ -6,11 +6,12 @@ third-party material in `resources/dev/dream-server-desktop`.
 ## Packaging Policy
 
 Electron artifacts are built from an explicit allowlist in `package.json`.
-The only vendored source tree kept in this directory is the runtime dependency
-that the desktop app imports directly.
+Vendored source trees are limited to runtime/support material used by the
+desktop app and Hermes browser tooling.
 
 Current packaged vendor allowlist:
 
+- `vendor/browser-harness-upstream/**/*`
 - `vendor/hermes-agent/**/*`
 
 Reference-only upstream trees are not committed here. The multiagent workbench
@@ -34,6 +35,14 @@ separate upstream desktop runtime.
 - Path: `vendor/hermes-agent`
 - License: MIT
 - Role: packaged runtime dependency used by `runtime/hermes`
+- Notice: `THIRD_PARTY_NOTICES.md`
+
+### Browser Harness
+
+- Path: `vendor/browser-harness-upstream`
+- License: MIT
+- Role: packaged browser-harness-compatible support material for Hermes'
+  Workbench browser tooling
 - Notice: `THIRD_PARTY_NOTICES.md`
 
 ### Ghostty Shader References

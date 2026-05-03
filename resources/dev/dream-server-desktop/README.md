@@ -15,6 +15,7 @@ platform-specific llama.cpp binaries.
 - Shared runtime: `runtime/`
 - CLI entrypoint: `bin/dream.js`
 - gRPC entrypoint: `runtime/grpc-server.js`
+- Browser harness support: `vendor/browser-harness-upstream/`
 - Hermes Agent vendor source: `vendor/hermes-agent/`
 - Desktop build scripts: `scripts/`
 
@@ -112,9 +113,10 @@ Expected artifacts:
 the matching standalone Python runtime before invoking `electron-builder`.
 
 The packaged desktop app includes the Dream Server DESKTOP source, runtime, UI
-assets, and Hermes Agent runtime source. Large visual/reference upstream trees
-are intentionally not vendored in this repository; provenance is recorded in
-`PROVENANCE.md` and selected copied assets retain their local notices.
+assets, Hermes Agent runtime source, and the browser-harness support material
+used by Hermes' Workbench browser tooling. Large visual/reference upstream
+trees are intentionally not vendored in this repository; provenance is recorded
+in `PROVENANCE.md` and selected copied assets retain their local notices.
 
 ## Local Models and llama.cpp
 
