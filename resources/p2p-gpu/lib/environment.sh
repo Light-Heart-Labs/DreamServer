@@ -493,6 +493,28 @@ _apply_compatibility_fixes() {
 _apply_env_defaults() {
   local ds_dir="$1" env_file="$2" data_dir="$3"
 
+  # Seed .env from .env.example if missing (fatal if fails — compose cannot start without all required variables)
+  if [[ ! -f "$env_file" ]]; then
+    local env_example="${ds_dir}/.env.example"
+    if [[ -f "$env_example" ]]; then
+      cp "$env_example" "$env_file" || {
+        err ".env.example copy to ${env_file} failed — Docker Compose cannot start"
+        exit 1
+      }
+      chown "${DREAM_USER}:${DREAM_USER}" "$env_file" || {
+        err ".env ownership fix after copy failed — Docker Compose cannot start"
+        exit 1
+      }
+      chmod 0660 "$env_file" || {
+        err ".env chmod to 0660 after copy failed — Docker Compose cannot start"
+        exit 1
+      }
+      log "Seeded .env from .env.example"
+    else
+      log "No .env.example found; will create .env via env_set()"
+    fi
+  fi
+
   # Fix .env ownership and permissions if file exists (fatal if fails — compose cannot start without readable .env)
   if [[ -f "$env_file" ]]; then
     # Check and fix ownership independently
@@ -511,17 +533,30 @@ _apply_env_defaults() {
     fi
   fi
 
-  # WEBUI_SECRET — open-webui crashes without it
-  if [[ -z "$(env_get "$env_file" "WEBUI_SECRET")" ]]; then
-    env_set "$env_file" "WEBUI_SECRET" "$(openssl rand -hex 32)"
-    log "Generated WEBUI_SECRET"
-  fi
+  # Helper: Replace CHANGEME or empty with generated secret/value
+  _replace_changeme() {
+    local key="$1" value="$2"
+    local current="$(env_get "$env_file" "$key")"
+    if [[ -z "$current" || "$current" == "CHANGEME" ]]; then
+      env_set "$env_file" "$key" "$value"
+      log "Set ${key}"
+    fi
+  }
 
-  # SEARXNG_SECRET
-  if [[ -z "$(env_get "$env_file" "SEARXNG_SECRET")" ]]; then
-    env_set "$env_file" "SEARXNG_SECRET" "$(openssl rand -hex 32)"
-    log "Generated SEARXNG_SECRET"
-  fi
+  # Generate or replace hard-required secrets (compose uses ${VAR:?error} syntax)
+  _replace_changeme "WEBUI_SECRET" "$(openssl rand -hex 32)"
+  _replace_changeme "SEARXNG_SECRET" "$(openssl rand -hex 32)"
+  _replace_changeme "LITELLM_KEY" "sk-dream-$(openssl rand -hex 16)"
+  _replace_changeme "N8N_PASS" "$(openssl rand -hex 16)"
+  _replace_changeme "LIVEKIT_API_KEY" "$(openssl rand -hex 16)"
+  _replace_changeme "LIVEKIT_API_SECRET" "$(openssl rand -hex 32)"
+  _replace_changeme "DIFY_SECRET_KEY" "$(openssl rand -hex 32)"
+  _replace_changeme "OPENCODE_SERVER_PASSWORD" "$(openssl rand -hex 16)"
+
+  # Set non-secret required variables (also checked by compose)
+  _replace_changeme "N8N_USER" "admin@dreamserver.local"
+  _replace_changeme "OPENCLAW_TOKEN" "$(openssl rand -hex 24)"
+  _replace_changeme "DASHBOARD_API_KEY" "$(openssl rand -hex 24)"
 
   # GGUF_FILE — detect from data/models if not set
   if [[ -z "$(env_get "$env_file" "GGUF_FILE")" ]]; then
