@@ -8,6 +8,7 @@
 # Reads:
 #   $voiceFlag, $workflowsFlag, $ragFlag, $openClawFlag, $allFlag
 #   $comfyuiFlag, $noComfyuiFlag
+#   $desktopFlag, $noDesktopFlag
 #   $nonInteractive  -- suppress menus (use flag defaults)
 #   $dryRun          -- skip prompts, log only
 #   $selectedTier    -- from phase 02, for tier-appropriate OpenClaw config
@@ -18,6 +19,7 @@
 #   $enableRag        -- bool: enable Qdrant + embeddings (RAG)
 #   $enableOpenClaw   -- bool: enable OpenClaw agent framework
 #   $enableComfyui    -- bool: enable ComfyUI image generation
+#   $enableDesktop    -- bool: enable Dream Server DESKTOP
 #   $openClawConfig   -- string: tier-appropriate OpenClaw config filename
 #
 # Modder notes:
@@ -34,6 +36,7 @@ $enableWorkflows  = $workflowsFlag -or $allFlag
 $enableRag        = $ragFlag -or $allFlag
 $enableOpenClaw   = $openClawFlag -or $allFlag
 $enableComfyui    = -not $noComfyuiFlag
+$enableDesktop    = ($desktopFlag -or $allFlag) -and (-not $noDesktopFlag)
 # Langfuse defaults OFF on all tiers because its clickhouse + postgres + minio
 # stack adds ~500MB baseline memory. Opt in via -Langfuse, -All, the Custom
 # menu, or post-install `dream enable langfuse`. -NoLangfuse is honored as an
@@ -45,9 +48,10 @@ if (-not $nonInteractive -and -not $allFlag -and -not $dryRun) {
     Write-Host ""
     Write-Host "  Choose your Dream Server configuration:" -ForegroundColor White
     Write-Host ""
-    Write-Host "  [1] Full Stack   -- Voice + Workflows + RAG + Agents (everything)" -ForegroundColor Green
+    Write-Host "  [1] Full Stack   -- Voice + Workflows + RAG + Agents" -ForegroundColor Green
     Write-Host "  [2] Core Only    -- Chat + LLM inference (lean, fastest startup)" -ForegroundColor White
     Write-Host "  [3] Custom       -- Choose each feature individually" -ForegroundColor White
+    Write-Host "       Dream Server DESKTOP is opt-in via Custom or -Desktop" -ForegroundColor DarkGray
     Write-Host ""
 
     $choice = Read-Host "  Selection [1/2/3] (default: 1)"
@@ -59,6 +63,7 @@ if (-not $nonInteractive -and -not $allFlag -and -not $dryRun) {
             $enableOpenClaw  = $false
             $enableComfyui   = $false
             $enableLangfuse  = $false
+            $enableDesktop   = $false
         }
         "3" {
             Write-Host ""
@@ -68,6 +73,7 @@ if (-not $nonInteractive -and -not $allFlag -and -not $dryRun) {
             $enableOpenClaw  = (Read-Host "  Enable OpenClaw (autonomous AI agents)?    [y/N]") -match "^[yY]"
             $enableComfyui   = (Read-Host "  Enable image generation (ComfyUI + SDXL Lightning, ~6.5GB)? [y/N]") -match "^[yY]"
             $enableLangfuse  = (Read-Host "  Enable Langfuse (LLM observability, ~500MB)? [y/N]") -match "^[yY]"
+            $enableDesktop   = (Read-Host "  Enable Dream Server DESKTOP (local desktop workspace)? [y/N]") -match "^[yY]"
 
             # Warn on low-tier
             if ($enableComfyui -and ($selectedTier -eq "0" -or $selectedTier -eq "1")) {
@@ -83,6 +89,7 @@ if (-not $nonInteractive -and -not $allFlag -and -not $dryRun) {
             $enableOpenClaw  = $true
             $enableComfyui   = $true
             $enableLangfuse  = $true
+            $enableDesktop   = $desktopFlag -and (-not $noDesktopFlag)
 
             # Disable image generation on low-tier systems (insufficient RAM/VRAM)
             if ($selectedTier -eq "0" -or $selectedTier -eq "1") {
@@ -116,6 +123,7 @@ Write-InfoBox "  RAG (Qdrant + embeddings):" $(if ($enableRag)      { "enabled" 
 Write-InfoBox "  Agents (OpenClaw):"         $(if ($enableOpenClaw) { "enabled" } else { "disabled" })
 Write-InfoBox "  Image gen (ComfyUI):"        $(if ($enableComfyui)  { "enabled" } else { "disabled" })
 Write-InfoBox "  Langfuse (observability):"   $(if ($enableLangfuse) { "enabled" } else { "disabled" })
+Write-InfoBox "  Dream Server DESKTOP:"        $(if ($enableDesktop)  { "enabled" } else { "disabled" })
 
 # ── Tier-appropriate OpenClaw config selection ────────────────────────────────
 # Mirrors bash phase 03 logic (config/openclaw/<profile>.json).

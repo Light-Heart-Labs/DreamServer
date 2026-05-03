@@ -1,10 +1,10 @@
 import { coreRoutes, coreExternalLinks } from './core'
 import {
-  MessageSquare, Network, Bot, Terminal, Search, Image, ExternalLink
+  MessageSquare, Network, Bot, Terminal, Search, Image, ExternalLink, Code
 } from 'lucide-react'
 
 const ICON_MAP = {
-  MessageSquare, Network, Bot, Terminal, Search, Image, ExternalLink,
+  MessageSquare, Network, Bot, Terminal, Search, Image, ExternalLink, Code,
 }
 
 const routeExtensions = []
@@ -39,10 +39,30 @@ export function getSidebarNavItems(context = {}) {
     }))
 }
 
+const LINK_READY_STATUSES = new Set(['healthy', 'degraded'])
+
+function normalize(value) {
+  return (value || '').toString().toLowerCase()
+}
+
+function serviceMatchesNeedle(service, needle) {
+  const normalizedNeedle = normalize(needle)
+  if (!normalizedNeedle) return false
+
+  const serviceId = normalize(service.id)
+  const serviceName = normalize(service.name)
+
+  return (
+    serviceId === normalizedNeedle ||
+    serviceName === normalizedNeedle ||
+    serviceName.includes(normalizedNeedle)
+  )
+}
+
 function isServiceHealthy(status, needles = []) {
   const services = status?.services || []
   return needles.some(needle =>
-    services.some(s => (s.name || '').toLowerCase().includes(needle.toLowerCase()) && s.status === 'healthy')
+    services.some(s => serviceMatchesNeedle(s, needle) && LINK_READY_STATUSES.has(s.status))
   )
 }
 
@@ -60,13 +80,20 @@ export function getSidebarExternalLinks(context = {}) {
     }
   }
   return deduped.map(link => {
-    const healthy = link.alwaysHealthy ? true : isServiceHealthy(status, link.healthNeedles || [])
+    const healthy = link.alwaysHealthy
+      ? true
+      : typeof link.healthy === 'boolean'
+        ? link.healthy
+        : isServiceHealthy(status, link.healthNeedles || [])
+    const baseUrl = link.url || (typeof getExternalUrl === 'function'
+      ? getExternalUrl(link.port)
+      : `http://localhost:${link.port}`)
     return {
       key: link.id,
       label: link.label,
       icon: typeof link.icon === 'string' ? (ICON_MAP[link.icon] || ExternalLink) : (link.icon || ExternalLink),
       healthy,
-      url: (typeof getExternalUrl === 'function' ? getExternalUrl(link.port) : `http://localhost:${link.port}`) + (link.ui_path && link.ui_path !== '/' ? link.ui_path : ''),
+      url: baseUrl + (link.ui_path && link.ui_path !== '/' ? link.ui_path : ''),
     }
   })
 }

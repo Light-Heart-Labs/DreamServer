@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Dreamserver Pet</title>
+  <link rel="stylesheet" href="./pet-overlay.css"/>
+</head>
+<body data-pet-state="idle">
+  <main class="pet-shell" aria-live="polite">
+    <div id="petBubble" class="pet-bubble">Dreamserver online.</div>
+    <section class="pet-drag-surface" aria-label="Dreamserver flutuante">
+      <div id="petSprite" class="pet-sprite" aria-hidden="true"></div>
+      <div class="pet-nameplate">
+        <strong>Dreamserver</strong>
+        <small id="petStatus">online</small>
+      </div>
+    </section>
+  </main>
+  <script src="./pet-overlay.js"></script>
+</body>
+</html>

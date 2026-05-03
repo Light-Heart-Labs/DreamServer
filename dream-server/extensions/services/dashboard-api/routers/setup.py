@@ -5,6 +5,8 @@ import json
 import logging
 import os
 import re
+import shutil
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -19,6 +21,72 @@ from security import verify_api_key
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["setup"])
+
+
+def _windows_bash_path(script_path: Path, *, git_bash: bool) -> str:
+    """Return a POSIX path understood by Git Bash or WSL bash on Windows."""
+    normalized = str(script_path.resolve()).replace("\\", "/")
+    match = re.match(r"^([A-Za-z]):/(.*)$", normalized)
+    if not match:
+        return normalized
+    drive, tail = match.groups()
+    prefix = f"/{drive.lower()}" if git_bash else f"/mnt/{drive.lower()}"
+    return f"{prefix}/{tail}"
+
+
+def _bash_is_usable(candidate: str) -> bool:
+    try:
+        result = subprocess.run(
+            [candidate, "-lc", "exit 0"],
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _resolve_setup_bash(script_path: Path) -> tuple[str, str]:
+    """Choose a bash executable and script path for setup diagnostics.
+
+    On Windows, PATH often resolves `bash` to the WSL shim in System32 or
+    WindowsApps. That shim can reject normal Windows paths and make a valid
+    diagnostic script look missing. Prefer Git Bash when present; otherwise use
+    a WSL-style path only after the bash candidate proves it can execute.
+    """
+    if os.name != "nt":
+        return "bash", str(script_path)
+
+    env_bash = os.environ.get("DREAM_BASH")
+    candidates = [
+        env_bash,
+        r"C:\Program Files\Git\bin\bash.exe",
+        r"C:\Program Files\Git\usr\bin\bash.exe",
+        r"C:\Program Files (x86)\Git\bin\bash.exe",
+        shutil.which("bash"),
+    ]
+
+    seen = set()
+    for candidate in candidates:
+        if not candidate:
+            continue
+        bash_path = str(candidate)
+        key = bash_path.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        is_git_bash = "\\git\\" in key or "/git/" in key
+        if not is_git_bash and ("\\windows\\system32\\" in key or "\\windowsapps\\" in key):
+            continue
+        if _bash_is_usable(bash_path):
+            return bash_path, _windows_bash_path(script_path, git_bash=is_git_bash)
+
+    which_bash = shutil.which("bash") or "bash"
+    if _bash_is_usable(which_bash):
+        return which_bash, _windows_bash_path(script_path, git_bash=False)
+
+    return "bash", str(script_path)
 
 
 def get_active_persona_prompt() -> str:
@@ -149,8 +217,9 @@ async def run_setup_diagnostics(api_key: str = Depends(verify_api_key)):
         return StreamingResponse(error_stream(), media_type="text/plain")
 
     async def run_tests():
+        bash_bin, bash_script_path = _resolve_setup_bash(script_path)
         process = await asyncio.create_subprocess_exec(
-            "bash", str(script_path),
+            bash_bin, bash_script_path,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         )
         try:

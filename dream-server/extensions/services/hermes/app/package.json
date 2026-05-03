@@ -1,0 +1,19 @@
+{
+  "name": "dream-server-hermes-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Dream Server DESKTOP web service",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.14.3",
+    "@grpc/proto-loader": "^0.8.0",
+    "playwright-core": "^1.59.1",
+    "typescript": "^5.9.3"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.1.0"
+  }
+}

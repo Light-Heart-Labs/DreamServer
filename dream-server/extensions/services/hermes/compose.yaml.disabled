@@ -1,0 +1,57 @@
+services:
+  hermes:
+    build:
+      context: ./extensions/services/hermes
+      dockerfile: Dockerfile
+    container_name: dream-hermes
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - PORT=3010
+      - HERMES_DATA_DIR=/data/hermes
+      - HERMES_WORKSPACE_ROOT=/data/hermes/workspace
+      - HERMES_LOCAL_BASE_URL=${HERMES_LOCAL_BASE_URL:-http://litellm:4000/v1}
+      - HERMES_LOCAL_API_KEY=${HERMES_LOCAL_API_KEY:-}
+      - HERMES_LOCAL_MODEL=${HERMES_LOCAL_MODEL:-${LLM_MODEL:-default}}
+      - DREAM_DASHBOARD_API_URL=${DREAM_DASHBOARD_API_URL:-http://dashboard-api:3002/api/status}
+      - DREAM_DASHBOARD_API_TIMEOUT_MS=${DREAM_DASHBOARD_API_TIMEOUT_MS:-1200}
+      - DASHBOARD_API_KEY=${DASHBOARD_API_KEY:-}
+      - LLM_API_URL=${LLM_API_URL:-http://llama-server:8080}
+      - LLM_API_BASE_PATH=${LLM_API_BASE_PATH:-/v1}
+      - LITELLM_KEY=${LITELLM_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
+      - DREAM_DISABLE_PTY=1
+    volumes:
+      - hermes-data:/data/hermes
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${HERMES_PORT:-3011}:3010"
+    depends_on:
+      litellm:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 3G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3010/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  hermes-data:

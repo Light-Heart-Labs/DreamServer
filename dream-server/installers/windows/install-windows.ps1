@@ -30,6 +30,7 @@
 #   .\install-windows.ps1 --Cloud          # Cloud-only (no local GPU)
 #   .\install-windows.ps1 --DryRun         # Validate without installing
 #   .\install-windows.ps1 --All            # Enable all optional services
+#   .\install-windows.ps1 --Desktop        # Enable Dream Server DESKTOP
 #   .\install-windows.ps1 --NonInteractive # Headless install (defaults)
 #
 # ============================================================================
@@ -48,6 +49,8 @@ param(
     [switch]$Cloud,
     [switch]$Comfyui,
     [switch]$NoComfyui,
+    [switch]$Desktop,
+    [switch]$NoDesktop,
     [switch]$Lan,
     [switch]$Langfuse,
     [switch]$NoLangfuse,
@@ -88,6 +91,8 @@ $openClawFlag   = $OpenClaw.IsPresent
 $allFlag        = $All.IsPresent
 $comfyuiFlag    = $Comfyui.IsPresent
 $noComfyuiFlag  = $NoComfyui.IsPresent
+$desktopFlag    = $Desktop.IsPresent
+$noDesktopFlag  = $NoDesktop.IsPresent
 $lanFlag        = $Lan.IsPresent
 $langfuseFlag   = $Langfuse.IsPresent
 $noLangfuseFlag = $NoLangfuse.IsPresent
@@ -504,7 +509,6 @@ if ($dryRun) {
         # and gpu_backends before including a service's compose file.
         $extDir        = Join-Path (Join-Path $installDir "extensions") "services"
         $currentBackend = $(if ($cloudMode) { "none" } else { $gpuInfo.Backend })
-
         if (Test-Path $extDir) {
             $extServices = Get-ChildItem -Path $extDir -Directory | Sort-Object Name
             foreach ($svcDir in $extServices) {

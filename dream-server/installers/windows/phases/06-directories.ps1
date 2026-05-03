@@ -63,11 +63,13 @@ $_dirs = @(
     (Join-Path $_dataDir "models"),
     (Join-Path $_dataDir "comfyui"),
     (Join-Path $_dataDir "perplexica"),
-    (Join-Path $_dataDir "dreamforge")
+    (Join-Path $_dataDir "dreamforge"),
+    (Join-Path $_dataDir "hermes")
 )
 foreach ($_d in $_dirs) {
     New-Item -ItemType Directory -Path $_d -Force | Out-Null
 }
+
 Write-AISuccess "Created directory structure under $installDir"
 
 # ── Copy source tree (skip if running in-place) ───────────────────────────────
@@ -92,6 +94,16 @@ if ($sourceRoot -ne $installDir) {
     Write-AISuccess "Source files installed to $installDir"
 } else {
     Write-AI "Running in-place (source == install directory) -- skipping file copy"
+}
+
+$_hermesCompose = Join-Path (Join-Path (Join-Path $installDir "extensions") "services") "hermes\compose.yaml"
+$_hermesDisabled = "$_hermesCompose.disabled"
+if ($enableDesktop) {
+    if ((-not (Test-Path $_hermesCompose)) -and (Test-Path $_hermesDisabled)) {
+        Move-Item -Path $_hermesDisabled -Destination $_hermesCompose -Force
+    }
+} elseif (Test-Path $_hermesCompose) {
+    Move-Item -Path $_hermesCompose -Destination $_hermesDisabled -Force
 }
 
 # ── Copy dream.ps1 CLI + lib/ ─────────────────────────────────────────────────

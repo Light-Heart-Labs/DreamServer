@@ -96,6 +96,7 @@ ENABLE_RAG=true
 ENABLE_OPENCLAW=true
 ENABLE_COMFYUI=true
 ENABLE_DREAMFORGE=true
+ENABLE_DESKTOP=false
 # Langfuse (LLM observability) defaults OFF on all tiers because its
 # clickhouse + postgres + minio stack adds ~500MB baseline memory that is
 # nontrivial even on Tier 3+ systems. Users opt in via --langfuse, --all,
@@ -132,6 +133,8 @@ Options:
     --no-comfyui      Disable ComfyUI image generation (saves ~34GB)
     --dreamforge      Enable DreamForge agent system (default)
     --no-dreamforge   Disable DreamForge
+    --desktop         Enable Dream Server DESKTOP
+    --no-desktop      Disable Dream Server DESKTOP
     --langfuse        Enable Langfuse LLM observability (off by default)
     --no-langfuse     Explicitly disable Langfuse (for --all overrides)
     --all             Enable all optional services (including Langfuse)
@@ -183,11 +186,13 @@ while [[ $# -gt 0 ]]; do
         --no-comfyui) ENABLE_COMFYUI=false; shift ;;
         --dreamforge) ENABLE_DREAMFORGE=true; shift ;;
         --no-dreamforge) ENABLE_DREAMFORGE=false; shift ;;
+        --desktop) ENABLE_DESKTOP=true; shift ;;
+        --no-desktop) ENABLE_DESKTOP=false; shift ;;
         --langfuse) ENABLE_LANGFUSE=true; shift ;;
         # NOTE: with --all, --no-langfuse must appear AFTER --all on the command
         # line (flag processing is case-loop ordered, matching comfyui/dreamforge).
         --no-langfuse) ENABLE_LANGFUSE=false; shift ;;
-        --all) ENABLE_VOICE=true; ENABLE_WORKFLOWS=true; ENABLE_RAG=true; ENABLE_OPENCLAW=true; ENABLE_COMFYUI=true; ENABLE_DREAMFORGE=true; ENABLE_LANGFUSE=true; shift ;;
+        --all) ENABLE_VOICE=true; ENABLE_WORKFLOWS=true; ENABLE_RAG=true; ENABLE_OPENCLAW=true; ENABLE_COMFYUI=true; ENABLE_DREAMFORGE=true; ENABLE_DESKTOP=true; ENABLE_LANGFUSE=true; shift ;;
         --non-interactive) INTERACTIVE=false; shift ;;
         --offline) OFFLINE_MODE=true; shift ;;
         --lan) BIND_ADDRESS="0.0.0.0"; shift ;;

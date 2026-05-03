@@ -19,6 +19,7 @@ For adding or authoring extensions, see [EXTENSIONS.md](../docs/EXTENSIONS.md) a
 | qdrant          | Qdrant (Vector DB)       | optional   | 6333        | amd, nvidia    | Vector store for RAG. |
 | whisper         | Whisper (STT)            | optional   | 9000        | amd, nvidia    | Speech-to-text. |
 | tts             | Kokoro (TTS)             | optional   | 8880        | amd, nvidia    | Text-to-speech. |
+| hermes          | Dream Server DESKTOP     | optional   | 3011        | amd, nvidia    | Local web desktop agent workspace. |
 | comfyui         | ComfyUI (Image Gen)      | optional   | 8188        | amd, nvidia    | Image generation (SDXL Lightning). |
 | openclaw        | OpenClaw (Agents)        | optional   | 7860        | amd, nvidia    | Agent with tools. |
 | perplexica      | Perplexica (Deep Research) | optional | 3004        | amd, nvidia    | Deep research UI. |
@@ -30,7 +31,7 @@ For adding or authoring extensions, see [EXTENSIONS.md](../docs/EXTENSIONS.md) a
 
 - **core** — Always part of the base stack (llama-server, open-webui, dashboard, dashboard-api).
 - **recommended** — Enabled by default in the installer; can be disabled (litellm, searxng, token-spy).
-- **optional** — User opts in during install or later (n8n, qdrant, whisper, tts, comfyui, openclaw, perplexica, embeddings, privacy-shield, opencode).
+- **optional** — User opts in during install or later (n8n, qdrant, whisper, tts, hermes, comfyui, openclaw, perplexica, embeddings, privacy-shield, opencode).
 
 ## Ports and .env
 
@@ -59,6 +60,7 @@ extensions/services/
   qdrant/manifest.yaml
   whisper/manifest.yaml
   tts/manifest.yaml
+  hermes/manifest.yaml
   comfyui/manifest.yaml
   openclaw/manifest.yaml
   perplexica/manifest.yaml

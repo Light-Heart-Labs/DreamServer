@@ -1,0 +1,157 @@
+:root {
+  color-scheme: dark;
+  --pet-scale:0.7;
+  --tx:#f2edf4;
+  --gold:#ffcf67;
+  --blue:#68b7ff;
+  --pink:#ff7d90;
+}
+
+* {
+  box-sizing:border-box;
+}
+
+html,
+body {
+  width:100%;
+  height:100%;
+  margin:0;
+  overflow:hidden;
+  background:transparent;
+  font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+  user-select:none;
+}
+
+.pet-shell {
+  position:relative;
+  width:100%;
+  height:100%;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:flex-end;
+  gap:8px;
+  padding:8px 12px 14px;
+  filter:drop-shadow(0 8px 14px rgba(0,0,0,0.16));
+  -webkit-app-region:no-drag;
+}
+
+.pet-bubble {
+  max-width:196px;
+  padding:9px 11px;
+  border:1px solid rgba(255,207,103,0.28);
+  border-radius:12px 12px 12px 4px;
+  background:linear-gradient(180deg, rgba(26,22,31,0.94), rgba(10,8,14,0.86));
+  color:var(--tx);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.18), 0 12px 34px rgba(0,0,0,0.34);
+  font-size:12px;
+  line-height:1.35;
+  -webkit-app-region:no-drag;
+  animation:pet-bubble-in 220ms cubic-bezier(.22,1,.36,1);
+}
+
+.pet-bubble[hidden] {
+  display:none;
+}
+
+.pet-drag-surface {
+  position:relative;
+  width:162px;
+  height:166px;
+  display:flex;
+  justify-content:center;
+  align-items:flex-end;
+  cursor:grab;
+  touch-action:none;
+  -webkit-app-region:no-drag;
+  animation:pet-float 2.8s ease-in-out infinite;
+}
+
+.pet-drag-surface.is-grabbing {
+  cursor:grabbing;
+}
+
+.pet-sprite {
+  position:absolute;
+  left:50%;
+  bottom:11px;
+  width:192px;
+  height:208px;
+  background-image:url("./assets/dreamserver-pet/spritesheet.webp");
+  background-repeat:no-repeat;
+  background-size:1536px 1872px;
+  background-position:0 0;
+  image-rendering:pixelated;
+  image-rendering:crisp-edges;
+  transform:translateX(-50%) scale(var(--pet-scale));
+  transform-origin:bottom center;
+  pointer-events:none;
+}
+
+.pet-nameplate {
+  position:absolute;
+  left:50%;
+  bottom:0;
+  min-width:122px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  padding:5px 8px;
+  border:1px solid rgba(255,255,255,0.14);
+  border-radius:999px;
+  background:rgba(9,8,13,0.44);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.13), 0 5px 12px rgba(0,0,0,0.16);
+  color:var(--tx);
+  transform:translateX(-50%);
+}
+
+.pet-nameplate strong {
+  font-size:11px;
+  font-weight:750;
+}
+
+.pet-nameplate small {
+  max-width:58px;
+  overflow:hidden;
+  color:var(--gold);
+  font-size:10px;
+  font-weight:750;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+body[data-pet-state="running"] .pet-nameplate small {
+  color:var(--blue);
+}
+
+body[data-pet-state="review"] .pet-nameplate small {
+  color:#d6b4ff;
+}
+
+body[data-pet-state="failed"] .pet-nameplate small {
+  color:var(--pink);
+}
+
+@keyframes pet-float {
+  0%,100% { transform:translateY(0); }
+  50% { transform:translateY(-5px); }
+}
+
+@keyframes pet-bubble-in {
+  from {
+    opacity:0;
+    transform:translateY(6px) scale(0.96);
+  }
+  to {
+    opacity:1;
+    transform:translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pet-drag-surface,
+  .pet-bubble {
+    animation:none;
+  }
+}

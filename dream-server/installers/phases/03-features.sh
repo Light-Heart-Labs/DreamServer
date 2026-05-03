@@ -6,12 +6,13 @@
 # Purpose: Interactive feature selection menu
 #
 # Expects: INTERACTIVE, DRY_RUN, TIER, ENABLE_VOICE, ENABLE_WORKFLOWS,
-#           ENABLE_RAG, ENABLE_OPENCLAW, GPU_COUNT, GPU_BACKEND,
+#           ENABLE_RAG, ENABLE_OPENCLAW, ENABLE_DESKTOP, GPU_COUNT, GPU_BACKEND,
 #           GPU_TOPOLOGY_JSON, LLM_MODEL_SIZE_MB, SCRIPT_DIR, VERBOSE, DEBUG,
 #           GPU_INDICES, GPU_UUIDS (arrays from topology),
 #           show_phase(), show_install_menu(), chapter(), bootline(),
 #           success(), log(), warn(), error(), signal()
 # Provides: ENABLE_VOICE, ENABLE_WORKFLOWS, ENABLE_RAG, ENABLE_OPENCLAW,
+#           ENABLE_DESKTOP,
 #           OPENCLAW_CONFIG, GPU_ASSIGNMENT_JSON,
 #           LLAMA_SERVER_GPU_UUIDS, WHISPER_GPU_UUID, COMFYUI_GPU_UUID,
 #           EMBEDDINGS_GPU_UUID, LLAMA_ARG_SPLIT_MODE, LLAMA_ARG_TENSOR_SPLIT
@@ -59,6 +60,10 @@ if $INTERACTIVE && ! $DRY_RUN; then
         read -p "  Enable Langfuse (LLM observability + telemetry, ~500MB)? [y/N] " -r < /dev/tty
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then ENABLE_LANGFUSE=true; else ENABLE_LANGFUSE=false; fi
+
+        read -p "  Enable Dream Server DESKTOP (local desktop workspace)? [y/N] " -r < /dev/tty
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then ENABLE_DESKTOP=true; else ENABLE_DESKTOP=false; fi
 
         # Warn if ComfyUI enabled on low-tier hardware
         if [[ "$ENABLE_COMFYUI" == "true" ]]; then
@@ -127,6 +132,7 @@ if ! $DRY_RUN; then
     _sync_extension_compose "${ENABLE_COMFYUI:-}"    comfyui    "ComfyUI"       "image generation not enabled"
     _sync_extension_compose "${ENABLE_DREAMFORGE:-}" dreamforge "DreamForge"    "agent system not enabled"
     _sync_extension_compose "${ENABLE_LANGFUSE:-}"   langfuse   "Langfuse"      "LLM observability not enabled"
+    _sync_extension_compose "${ENABLE_DESKTOP:-}"    hermes     "Dream Server DESKTOP" "desktop workspace not enabled"
 fi
 
 # Re-resolve compose flags now that feature selection may have disabled services.

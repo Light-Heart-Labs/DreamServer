@@ -13,6 +13,7 @@
 #   ./install-macos.sh --tier 3         # Force tier 3
 #   ./install-macos.sh --dry-run        # Validate without installing
 #   ./install-macos.sh --all            # Enable all optional services
+#   ./install-macos.sh --desktop        # Enable Dream Server DESKTOP
 #   ./install-macos.sh --non-interactive # Headless install (defaults)
 #
 # ============================================================================
@@ -65,6 +66,8 @@ ENABLE_VOICE=false
 ENABLE_WORKFLOWS=false
 ENABLE_RAG=false
 ENABLE_OPENCLAW=false
+ENABLE_DESKTOP=false
+DESKTOP_EXPLICIT=false
 # Langfuse defaults OFF because its clickhouse + postgres + minio stack adds
 # ~500MB baseline memory. Enable via --langfuse, --all, or post-install
 # `dream enable langfuse`. --no-langfuse honored as explicit override so a
@@ -84,6 +87,8 @@ while [[ $# -gt 0 ]]; do
         --workflows)     ENABLE_WORKFLOWS=true; shift ;;
         --rag)           ENABLE_RAG=true; shift ;;
         --openclaw)      ENABLE_OPENCLAW=true; shift ;;
+        --desktop)       ENABLE_DESKTOP=true; DESKTOP_EXPLICIT=true; shift ;;
+        --no-desktop)    ENABLE_DESKTOP=false; DESKTOP_EXPLICIT=true; shift ;;
         --langfuse)      ENABLE_LANGFUSE=true; shift ;;
         --no-langfuse)   ENABLE_LANGFUSE=false; NO_LANGFUSE_EXPLICIT=true; shift ;;
         --all)           ALL_FEATURES=true; shift ;;
@@ -97,6 +102,7 @@ if $ALL_FEATURES; then
     ENABLE_WORKFLOWS=true
     ENABLE_RAG=true
     ENABLE_OPENCLAW=true
+    $DESKTOP_EXPLICIT || ENABLE_DESKTOP=true
     # --all enables Langfuse unless the user explicitly passed --no-langfuse.
     $NO_LANGFUSE_EXPLICIT || ENABLE_LANGFUSE=true
 fi
@@ -357,7 +363,8 @@ if ! $NON_INTERACTIVE && ! $ALL_FEATURES && ! $DRY_RUN; then
     chapter "Select Features"
     ai "Choose your Dream Server configuration:"
     echo ""
-    echo -e "  ${BGRN}[1]${NC} Full Stack   -- Everything enabled (voice, workflows, RAG, agents)"
+    echo -e "  ${BGRN}[1]${NC} Full Stack   -- Voice, workflows, RAG, agents"
+    echo "      Dream Server DESKTOP is opt-in from Custom or --desktop"
     echo -e "  ${WHT}[2]${NC} Core Only    -- Chat + LLM inference (lean and fast)"
     echo -e "  ${WHT}[3]${NC} Custom       -- Choose individually"
     echo ""
@@ -367,11 +374,13 @@ if ! $NON_INTERACTIVE && ! $ALL_FEATURES && ! $DRY_RUN; then
         1)
             ENABLE_VOICE=true; ENABLE_WORKFLOWS=true
             ENABLE_RAG=true; ENABLE_OPENCLAW=true
+            $DESKTOP_EXPLICIT || ENABLE_DESKTOP=false
             ENABLE_LANGFUSE=true
             ;;
         2)
             ENABLE_VOICE=false; ENABLE_WORKFLOWS=false
             ENABLE_RAG=false; ENABLE_OPENCLAW=false
+            ENABLE_DESKTOP=false
             ENABLE_LANGFUSE=false
             ;;
         3)
@@ -383,12 +392,15 @@ if ! $NON_INTERACTIVE && ! $ALL_FEATURES && ! $DRY_RUN; then
             [[ "$yn" =~ ^[yY] ]] && ENABLE_RAG=true
             read -r -p "  Enable OpenClaw (AI agents)?      [y/N] " yn < /dev/tty
             [[ "$yn" =~ ^[yY] ]] && ENABLE_OPENCLAW=true
+            read -r -p "  Enable Dream Server DESKTOP (local desktop workspace)? [y/N] " yn < /dev/tty
+            if [[ "$yn" =~ ^[yY] ]]; then ENABLE_DESKTOP=true; else ENABLE_DESKTOP=false; fi
             read -r -p "  Enable Langfuse (LLM observability, ~500MB)? [y/N] " yn < /dev/tty
             [[ "$yn" =~ ^[yY] ]] && ENABLE_LANGFUSE=true
             ;;
         *)
             ENABLE_VOICE=true; ENABLE_WORKFLOWS=true
             ENABLE_RAG=true; ENABLE_OPENCLAW=true
+            $DESKTOP_EXPLICIT || ENABLE_DESKTOP=false
             ENABLE_LANGFUSE=true
             ;;
     esac
@@ -399,6 +411,7 @@ info_box "  Voice:" "$(if $ENABLE_VOICE; then echo enabled; else echo disabled; 
 info_box "  Workflows:" "$(if $ENABLE_WORKFLOWS; then echo enabled; else echo disabled; fi)"
 info_box "  RAG:" "$(if $ENABLE_RAG; then echo enabled; else echo disabled; fi)"
 info_box "  OpenClaw:" "$(if $ENABLE_OPENCLAW; then echo enabled; else echo disabled; fi)"
+info_box "  Dream Server DESKTOP:" "$(if $ENABLE_DESKTOP; then echo enabled; else echo disabled; fi)"
 info_box "  Langfuse:" "$(if $ENABLE_LANGFUSE; then echo enabled; else echo disabled; fi)"
 
 # ============================================================================
@@ -412,6 +425,7 @@ if $DRY_RUN; then
     ai "[DRY RUN] Would generate .env with secrets"
     ai "[DRY RUN] Would generate SearXNG config"
     $ENABLE_OPENCLAW && ai "[DRY RUN] Would configure OpenClaw"
+    $ENABLE_DESKTOP && ai "[DRY RUN] Would enable Dream Server DESKTOP"
     $ENABLE_LANGFUSE && ai "[DRY RUN] Would enable Langfuse (LLM observability)"
 else
     # Create directory structure
@@ -430,6 +444,7 @@ else
     mkdir -p "${INSTALL_DIR}/data/dreamforge"
     mkdir -p "${INSTALL_DIR}/data/ape"
     mkdir -p "${INSTALL_DIR}/data/token-spy"
+    mkdir -p "${INSTALL_DIR}/data/hermes"
     mkdir -p "${INSTALL_DIR}/data/langfuse/postgres"
     mkdir -p "${INSTALL_DIR}/data/langfuse/clickhouse"
     mkdir -p "${INSTALL_DIR}/data/langfuse/redis"
@@ -784,6 +799,24 @@ else
     fi
     unset _langfuse_svc_dir
 
+    _hermes_svc_dir="${EXT_DIR}/hermes"
+    if [[ -d "$_hermes_svc_dir" ]]; then
+        _hermes_compose="${_hermes_svc_dir}/compose.yaml"
+        if $ENABLE_DESKTOP; then
+            if [[ ! -f "$_hermes_compose" && -f "${_hermes_compose}.disabled" ]]; then
+                mv "${_hermes_compose}.disabled" "$_hermes_compose"
+                ai_ok "Dream Server DESKTOP compose re-enabled"
+            fi
+        else
+            if [[ -f "$_hermes_compose" ]]; then
+                mv "$_hermes_compose" "${_hermes_compose}.disabled"
+                log "Dream Server DESKTOP compose disabled (desktop workspace not enabled)"
+            fi
+        fi
+        unset _hermes_compose
+    fi
+    unset _hermes_svc_dir
+
     if [[ -d "$EXT_DIR" ]]; then
         for SVC_DIR in "$EXT_DIR"/*/; do
             [[ ! -d "$SVC_DIR" ]] && continue
@@ -827,6 +860,7 @@ else
                 n8n)           $ENABLE_WORKFLOWS || SKIP=true ;;
                 qdrant|embeddings) $ENABLE_RAG || SKIP=true ;;
                 openclaw)      $ENABLE_OPENCLAW || SKIP=true ;;
+                hermes)        $ENABLE_DESKTOP || SKIP=true ;;
                 langfuse)      $ENABLE_LANGFUSE || SKIP=true ;;
             esac
             $SKIP && continue
@@ -1121,6 +1155,7 @@ HEALTH_URLS=("http://127.0.0.1:8080/health" "http://127.0.0.1:3000")
 HEALTH_CONTAINERS=("" "dream-webui")
 $ENABLE_VOICE && HEALTH_NAMES+=("Whisper (STT)") && HEALTH_URLS+=("http://127.0.0.1:9000/health") && HEALTH_CONTAINERS+=("dream-whisper")
 $ENABLE_WORKFLOWS && HEALTH_NAMES+=("n8n (Workflows)") && HEALTH_URLS+=("http://127.0.0.1:5678/healthz") && HEALTH_CONTAINERS+=("dream-n8n")
+$ENABLE_DESKTOP && HEALTH_NAMES+=("Dream Server DESKTOP") && HEALTH_URLS+=("http://127.0.0.1:3011/health") && HEALTH_CONTAINERS+=("dream-hermes")
 [[ -x "$OPENCODE_BIN" ]] && HEALTH_NAMES+=("OpenCode (IDE)") && HEALTH_URLS+=("http://127.0.0.1:${OPENCODE_PORT}") && HEALTH_CONTAINERS+=("")
 
 for ((idx=0; idx<${#HEALTH_NAMES[@]}; idx++)); do

@@ -110,6 +110,14 @@
       "manifest_service": "dashboard"
     },
     {
+      "env_var": "HERMES_PORT",
+      "external_default": 3011,
+      "service_id": "hermes",
+      "internal_port": 3010,
+      "compose_managed": false,
+      "manifest_service": "hermes"
+    },
+    {
       "env_var": "COMFYUI_PORT",
       "external_default": 8188,
       "service_id": "comfyui",

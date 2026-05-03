@@ -1,0 +1,62 @@
+schema_version: dream.services.v1
+
+compatibility:
+  dream_min: "2.0.0"
+
+service:
+  id: hermes
+  name: Dream Server DESKTOP
+  aliases: [dream-server-desktop, hermes-agent, workbench]
+  container_name: dream-hermes
+  host_env: HERMES_HOST
+  default_host: hermes
+  port: 3010
+  external_port_env: HERMES_PORT
+  external_port_default: 3011
+  health: /health
+  ui_path: /
+  type: docker
+  gpu_backends: [all]
+  compose_file: compose.yaml
+  category: optional
+  depends_on: [litellm]
+  env_vars:
+    - key: HERMES_PORT
+      default: "3011"
+      description: External port for the Dream Server DESKTOP UI.
+    - key: HERMES_LOCAL_BASE_URL
+      default: "http://litellm:4000/v1"
+      description: OpenAI-compatible API base URL used by Dream Server DESKTOP.
+    - key: HERMES_LOCAL_API_KEY
+      required: false
+      secret: true
+      description: API key for the configured Dream Server DESKTOP model gateway.
+    - key: HERMES_LOCAL_MODEL
+      required: false
+      description: Default model Dream Server DESKTOP should use through LiteLLM.
+    - key: DREAM_DASHBOARD_API_URL
+      default: "http://dashboard-api:3002/api/status"
+      required: false
+      description: Dashboard API status endpoint used for Dream Server DESKTOP home telemetry.
+    - key: DREAM_DASHBOARD_API_TIMEOUT_MS
+      default: "1200"
+      required: false
+      description: Timeout in milliseconds for Dashboard API telemetry polling.
+    - key: DASHBOARD_API_KEY
+      required: false
+      secret: true
+      description: Dashboard API bearer token used to read authenticated system metrics.
+
+features:
+  - id: hermes-workbench
+    name: Dream Server DESKTOP
+    description: Local web desktop agent workspace adapted for Dream Server.
+    icon: Bot
+    category: agents
+    requirements:
+      services: [litellm]
+      disk_gb: 1
+    enabled_services_all: [hermes]
+    setup_time: 5-10 minutes
+    priority: 60
+    gpu_backends: [all]

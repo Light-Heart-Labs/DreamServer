@@ -1,0 +1,2874 @@
+const { EventEmitter } = require("events");
+const crypto = require("crypto");
+const path = require("path");
+const {
+  DEFAULT_LOCAL_BASE_URL,
+  DEFAULT_LOCAL_MODEL,
+  bundledLocalLlamaRuntimeAvailable,
+  createDefaultState,
+  getPublicState,
+  normalizeAttachment,
+  normalizeAgent,
+  normalizeLocalEvent,
+  normalizeMessage,
+  normalizeProject,
+  normalizeTask,
+  normalizeTodo,
+  normalizeCodeShaderPreset,
+  normalizeState,
+  normalizeTheme
+} = require("./state");
+const {
+  ensureLocalLlamaServer,
+  getLocalLlamaState,
+  stopLocalLlamaServer
+} = require("./local-llama");
+const {
+  executeTool,
+  getBackgroundProcessSnapshots,
+  getSupportedApps,
+  getSupportedTools,
+  getTerminalSessionSnapshots,
+  stopLocalActivityForChat
+} = require("./tools");
+const { getLspState } = require("./lsp");
+const {
+  ensureGitWorkspace,
+  gitStatus,
+  gitWorktreeAdd,
+  gitWorktreeList
+} = require("./git");
+const { listLocalModels } = require("./providers/local");
+const { resolveHermesRoutingSettings } = require("./providers/hermes");
+const { isRuntimeSlashCommand, runSlashCommand } = require("./commands");
+const { McpManager } = require("./mcp");
+const { describeRoutingCatalog, detectRoute } = require("./router");
+const { AgentRuntime } = require("./agent-runtime");
+const { getHermesCatalog } = require("./hermes/catalog");
+
+const MAX_AUTO_CHAIN_DEPTH = 4;
+const MAX_CHESS_AUTO_CHAIN_DEPTH = 40;
+const TASK_STUCK_AFTER_MS = 60000;
+const TASK_LOG_PHASES = ["planning", "coding", "validation"];
+const DEFAULT_KANBAN_MAX_PARALLEL_AGENTS = 3;
+
+function normalizeHermesProviderName(value = "custom") {
+  const normalized = String(value || "custom").trim().toLowerCase();
+  const aliases = {
+    local: "custom",
+    external: "custom",
+    "openai-compatible": "custom",
+    ollama: "custom",
+    "lm-studio": "custom",
+    lm_studio: "custom",
+    vllm: "custom",
+    llamacpp: "custom",
+    "llama.cpp": "custom",
+    "llama-cpp": "custom",
+    cloud: "auto",
+    manus: "auto",
+    manuscloud: "auto",
+    "manus-cloud": "auto",
+    google: "gemini",
+    "google-gemini": "gemini",
+    "google-ai-studio": "gemini",
+    claude: "anthropic",
+    "claude-code": "anthropic",
+    chatgpt: "openai",
+    gpt: "openai",
+    openai_codex: "openai-codex",
+    kimi: "kimi-coding",
+    moonshot: "kimi-coding",
+    "kimi-for-coding": "kimi-coding",
+    kimi_cn: "kimi-coding-cn",
+    "kimi-cn": "kimi-coding-cn",
+    "moonshot-cn": "kimi-coding-cn",
+    "x-ai": "xai",
+    "x.ai": "xai",
+    grok: "xai",
+    "z-ai": "zai",
+    "z.ai": "zai",
+    zhipu: "zai",
+    nvidia_nim: "nvidia",
+    "nvidia-nim": "nvidia",
+    github: "copilot",
+    copilot_acp: "copilot-acp",
+    "github-copilot": "copilot",
+    "github-models": "copilot",
+    "github-model": "copilot",
+    "github-copilot-acp": "copilot-acp",
+    "copilot-acp-agent": "copilot-acp",
+    hf: "huggingface",
+    "hugging-face": "huggingface",
+    "huggingface-hub": "huggingface",
+    "arcee-ai": "arcee",
+    arceeai: "arcee",
+    "minimax-china": "minimax-cn",
+    minimax_cn: "minimax-cn",
+    glm: "zai",
+    qwen: "qwen-oauth",
+    "qwen-portal": "qwen-oauth",
+    "qwen-cli": "qwen-oauth",
+    "gemini-cli": "google-gemini-cli",
+    "gemini-oauth": "google-gemini-cli",
+    aigateway: "ai-gateway",
+    vercel: "ai-gateway",
+    "vercel-ai-gateway": "ai-gateway",
+    opencode: "opencode-zen",
+    zen: "opencode-zen",
+    go: "opencode-go",
+    "opencode-go-sub": "opencode-go",
+    mimo: "xiaomi",
+    "xiaomi-mimo": "xiaomi",
+    aws: "bedrock",
+    "aws-bedrock": "bedrock",
+    "amazon-bedrock": "bedrock",
+    amazon: "bedrock",
+    kilo: "kilocode",
+    "kilo-code": "kilocode",
+    "kilo-gateway": "kilocode",
+    ollama_cloud: "ollama-cloud"
+  };
+  return aliases[normalized] || normalized || "custom";
+}
+
+function hasOwnPayload(payload, key) {
+  return Object.prototype.hasOwnProperty.call(payload || {}, key);
+}
+
+function executionProviderForSettings(settings = {}) {
+  return "local";
+}
+
+function chatProviderForSettings(providerMode = "local", settings = {}) {
+  return "local";
+}
+
+function defaultTaskShell() {
+  if (process.platform === "win32") {
+    return "cmd";
+  }
+  const envShell = path.basename(String(process.env.SHELL || "")).toLowerCase();
+  return ["bash", "zsh", "sh"].includes(envShell) ? envShell : "sh";
+}
+
+function quotePowerShell(value) {
+  return `'${String(value || "").replace(/'/g, "''")}'`;
+}
+
+function quotePosix(value) {
+  return `'${String(value || "").replace(/'/g, "'\"'\"'")}'`;
+}
+
+function quoteCmd(value) {
+  return `"${String(value || "").replace(/"/g, '""')}"`;
+}
+
+function buildTaskPullRequestCommand(options = {}) {
+  const shell = String(options.shell || defaultTaskShell()).toLowerCase();
+  const title = String(options.title || "Dream Hermes task");
+  const body = String(options.body || "Generated by Dream Hermes Kanban.");
+  const commitMessage = String(options.commitMessage || `kanban: ${title}`).replace(/\s+/g, " ").slice(0, 180);
+  const draftFlag = options.draft === false ? "" : "--draft ";
+
+  if (shell === "powershell" || shell === "pwsh") {
+    return [
+      "$ErrorActionPreference = 'Stop'",
+      "Write-Output '--- git status --short ---'",
+      "git status --short",
+      "$changes = git status --porcelain",
+      `if ($changes) { git add -A; git commit -m ${quotePowerShell(commitMessage)} } else { Write-Output 'Sem alteracoes para commit.' }`,
+      "Write-Output '--- git push ---'",
+      "git push -u origin HEAD",
+      "Write-Output '--- gh pr create ---'",
+      `gh pr create ${draftFlag}${`--title ${quotePowerShell(title)} --body ${quotePowerShell(body)}`}`.trim()
+    ].join("; ");
+  }
+
+  if (shell === "cmd") {
+    return [
+      "git status --short",
+      "git status --porcelain > \"%TEMP%\\dream-hermes-git-status.txt\"",
+      "for %A in (\"%TEMP%\\dream-hermes-git-status.txt\") do if %~zA gtr 0 (git add -A & git commit -m " +
+        quoteCmd(commitMessage) +
+        ") else (echo Sem alteracoes para commit.)",
+      "git push -u origin HEAD",
+      `gh pr create ${draftFlag}--title ${quoteCmd(title)} --body ${quoteCmd(body)}`
+    ].join(" & ");
+  }
+
+  return [
+    "set -e",
+    "echo '--- git status --short ---'",
+    "git status --short",
+    `if [ -n "$(git status --porcelain)" ]; then git add -A; git commit -m ${quotePosix(commitMessage)}; else echo 'Sem alteracoes para commit.'; fi`,
+    "echo '--- git push ---'",
+    "git push -u origin HEAD",
+    "echo '--- gh pr create ---'",
+    `gh pr create ${draftFlag}--title ${quotePosix(title)} --body ${quotePosix(body)}`
+  ].join("; ");
+}
+
+function taskLogPhaseForAgentPhase(phase = "") {
+  const value = String(phase || "").toLowerCase();
+  if (value.includes("plan")) return "planning";
+  if (value.includes("qa") || value.includes("review") || value.includes("valid") || value.includes("pr")) return "validation";
+  return "coding";
+}
+
+function taskProgressFor(status = "backlog", message = "", previous = {}) {
+  const normalized = String(status || "backlog");
+  const defaults = {
+    backlog: ["idle", 0],
+    queue: ["idle", 10],
+    planning: ["planning", 25],
+    plan_review: ["planning", 38],
+    coding: ["coding", 45],
+    in_progress: ["coding", 45],
+    qa_review: ["qa_review", 78],
+    qa_fixing: ["qa_fixing", 74],
+    ai_review: ["qa_review", 82],
+    human_review: ["complete", 92],
+    creating_pr: ["creating_pr", 96],
+    pr_created: ["complete", 98],
+    done: ["complete", 100],
+    archived: ["complete", 100],
+    error: ["failed", 0]
+  };
+  const [phase, overallProgress] = defaults[normalized] || defaults.backlog;
+  const completedPhases = new Set(Array.isArray(previous.completedPhases) ? previous.completedPhases : []);
+  if (["qa_review", "qa_fixing", "ai_review", "human_review", "creating_pr", "pr_created", "done"].includes(normalized)) {
+    completedPhases.add("planning");
+    completedPhases.add("coding");
+  }
+  if (["pr_created", "done", "archived"].includes(normalized)) {
+    completedPhases.add("validation");
+  }
+  return {
+    phase,
+    phaseProgress: overallProgress,
+    overallProgress,
+    currentSubtask: previous.currentSubtask || "",
+    message: String(message || previous.message || ""),
+    startedAt: previous.startedAt || Date.now(),
+    sequenceNumber: Number(previous.sequenceNumber || 0) + 1,
+    completedPhases: [...completedPhases].slice(-12)
+  };
+}
+const MAX_AUTO_BATCHES_PER_TURN = 8;
+const MAX_CHESS_AUTO_BATCHES_PER_TURN = 80;
+const MAX_REPEAT_BATCH_SIGNATURE = 2;
+const MAX_CHESS_REPEAT_BATCH_SIGNATURE = 12;
+const DUPLICATE_SUBMISSION_WINDOW_MS = 5000;
+const DUPLICATE_ACTION_WINDOW_MS = 5000;
+
+class DreamRuntime extends EventEmitter {
+  constructor(options = {}) {
+    super();
+    this.options = options;
+    this.workspaceRoot = path.resolve(options.workspaceRoot || process.cwd());
+    this.previewHarness = typeof options.previewHarness === "function" ? options.previewHarness : null;
+    this.state = normalizeState(options.initialState || createDefaultState());
+    this.mcpManager = new McpManager();
+    void this.mcpManager.ensureLoaded().catch(() => {});
+    this.activeControllers = new Map();
+    this.pendingBatches = new Map();
+    this.stopRequested = new Set();
+    this.loopGuards = new Map();
+    this.executedActionGuards = new Map();
+    this.runCounters = new Map();
+    this.activeRunIds = new Map();
+    this.submissionGuards = new Map();
+    this.recentActionGuards = new Map();
+    this.agentRuntime = new AgentRuntime(this);
+    this.taskSchedulerTimer = null;
+    this.taskSchedulerBusy = false;
+    if (!options.disableTaskScheduler) {
+      this.startTaskScheduler();
+    }
+  }
+
+  getSnapshot() {
+    return normalizeState(this.state);
+  }
+
+  getProfiles() {
+    const settings = this.state.settings || {};
+    const provider = normalizeHermesProviderName(settings.hermesProvider || "custom");
+    const route = resolveHermesRoutingSettings(settings);
+    return [
+      {
+        id: "hermes-agent",
+        profileName: "Hermes Agent",
+        providerId: provider,
+        baseUrl: route.baseUrl,
+        model: route.model,
+        authMode: provider === "auto"
+          ? "hermes-config"
+          : "provider-api-key-or-env"
+      }
+    ];
+  }
+
+  getPublicState(extras = {}) {
+    const selectedChat = this.state.chats.find((entry) => entry.id === this.state.selectedChatId) || this.state.chats[0] || null;
+    const activeWorkspaceRoot = this._getChatWorkspaceRoot(selectedChat);
+    let lspState = extras.lspState;
+    if (!lspState) {
+      try {
+        lspState = getLspState(activeWorkspaceRoot);
+      } catch (error) {
+        lspState = {
+          available: false,
+          engine: "none",
+          projects: [],
+          externalServers: [],
+          activeClients: [],
+          lastError: error.message || "Falha ao inicializar o motor de linguagem."
+        };
+      }
+    }
+
+    return getPublicState(this.state, {
+      ...extras,
+      supportedApps: getSupportedApps(),
+      supportedTools: getSupportedTools(this.state.settings.fullAccessMode, {
+        surface: "desktop",
+        mcpManager: this.mcpManager
+      }),
+      profiles: this.getProfiles(),
+      hermesCatalog: getHermesCatalog(),
+      terminalSessions: getTerminalSessionSnapshots(),
+      backgroundProcesses: getBackgroundProcessSnapshots(),
+      routingCatalog: describeRoutingCatalog(),
+      mcpState: this.mcpManager.getState(),
+      lspState,
+      localLlamaState: getLocalLlamaState()
+    });
+  }
+
+  updateSettings(payload = {}) {
+    const settings = this.state.settings;
+    const managedLocalLlamaAvailable = bundledLocalLlamaRuntimeAvailable();
+    const nextHermesProvider = normalizeHermesProviderName(
+      payload.hermesProvider ?? settings.hermesProvider ?? "custom"
+    );
+    const normalized = {
+      providerMode: chatProviderForSettings(payload.providerMode || settings.providerMode || "local", {
+        ...settings,
+        hermesProvider: nextHermesProvider
+      }),
+      agentProfile: String(payload.agentProfile || settings.agentProfile || "default"),
+      locale: String(payload.locale || settings.locale || Intl.DateTimeFormat().resolvedOptions().locale || "en-US"),
+      localBaseUrl: String(hasOwnPayload(payload, "localBaseUrl") ? payload.localBaseUrl : settings.localBaseUrl ?? DEFAULT_LOCAL_BASE_URL),
+      localModel: String(hasOwnPayload(payload, "localModel") ? payload.localModel : settings.localModel ?? DEFAULT_LOCAL_MODEL),
+      localApiKey: String(hasOwnPayload(payload, "localApiKey") ? payload.localApiKey : settings.localApiKey ?? "not-needed"),
+      hermesProvider: nextHermesProvider,
+      hermesApiMode: ["auto", "chat_completions", "codex_responses", "anthropic_messages", "bedrock_converse"].includes(
+        String(payload.hermesApiMode || settings.hermesApiMode || "auto").toLowerCase()
+      )
+        ? String(payload.hermesApiMode || settings.hermesApiMode || "auto").toLowerCase()
+        : "auto",
+      hermesProvidersAllowed: Array.isArray(payload.hermesProvidersAllowed)
+        ? payload.hermesProvidersAllowed.map(String)
+        : Array.isArray(settings.hermesProvidersAllowed)
+          ? settings.hermesProvidersAllowed
+          : [],
+      hermesProvidersIgnored: Array.isArray(payload.hermesProvidersIgnored)
+        ? payload.hermesProvidersIgnored.map(String)
+        : Array.isArray(settings.hermesProvidersIgnored)
+          ? settings.hermesProvidersIgnored
+          : [],
+      hermesProvidersOrder: Array.isArray(payload.hermesProvidersOrder)
+        ? payload.hermesProvidersOrder.map(String)
+        : Array.isArray(settings.hermesProvidersOrder)
+          ? settings.hermesProvidersOrder
+          : [],
+      hermesProviderSort: ["", "price", "throughput", "latency"].includes(
+        String(payload.hermesProviderSort ?? settings.hermesProviderSort ?? "").toLowerCase()
+      )
+        ? String(payload.hermesProviderSort ?? settings.hermesProviderSort ?? "").toLowerCase()
+        : "",
+      hermesProviderRequireParameters: typeof payload.hermesProviderRequireParameters === "boolean"
+        ? payload.hermesProviderRequireParameters
+        : Boolean(settings.hermesProviderRequireParameters),
+      hermesProviderDataCollection: String(
+        payload.hermesProviderDataCollection ?? settings.hermesProviderDataCollection ?? ""
+      ).trim(),
+      localThinkingEnabled: typeof payload.localThinkingEnabled === "boolean"
+        ? payload.localThinkingEnabled
+        : Boolean(settings.localThinkingEnabled),
+      localLlamaEnabled: managedLocalLlamaAvailable && (typeof payload.localLlamaEnabled === "boolean"
+        ? payload.localLlamaEnabled
+        : Boolean(settings.localLlamaEnabled)),
+      localLlamaAutoStart: managedLocalLlamaAvailable && (typeof payload.localLlamaAutoStart === "boolean"
+        ? payload.localLlamaAutoStart
+        : Boolean(settings.localLlamaAutoStart)),
+      localLlamaHost: String(payload.localLlamaHost || settings.localLlamaHost || "127.0.0.1"),
+      localLlamaPort: Number.isFinite(Number(payload.localLlamaPort || settings.localLlamaPort))
+        ? Math.max(1024, Math.min(65535, Number(payload.localLlamaPort || settings.localLlamaPort)))
+        : 11435,
+      localLlamaModelDir: String(payload.localLlamaModelDir || settings.localLlamaModelDir || ""),
+      localLlamaModelPath: String(payload.localLlamaModelPath || settings.localLlamaModelPath || ""),
+      localLlamaContextSize: Number.isFinite(Number(payload.localLlamaContextSize || settings.localLlamaContextSize))
+        ? Math.max(512, Math.min(262144, Number(payload.localLlamaContextSize || settings.localLlamaContextSize)))
+        : 16384,
+      localLlamaGpuLayers: Number.isFinite(Number(payload.localLlamaGpuLayers || settings.localLlamaGpuLayers))
+        ? Math.max(0, Math.min(999, Number(payload.localLlamaGpuLayers || settings.localLlamaGpuLayers)))
+        : 999,
+      localLlamaBatchSize: Number.isFinite(Number(payload.localLlamaBatchSize || settings.localLlamaBatchSize))
+        ? Math.max(1, Math.min(8192, Number(payload.localLlamaBatchSize || settings.localLlamaBatchSize)))
+        : 1024,
+      localMaxTokens: Number.isFinite(Number(payload.localMaxTokens || settings.localMaxTokens))
+        ? Math.max(128, Math.min(65536, Number(payload.localMaxTokens || settings.localMaxTokens)))
+        : 4096,
+      agentBackend: "hermes",
+      hermesMaxTokens: Number.isFinite(Number(payload.hermesMaxTokens || settings.hermesMaxTokens))
+        ? Math.max(4096, Math.min(65536, Number(payload.hermesMaxTokens || settings.hermesMaxTokens)))
+        : 8192,
+      hermesMaxIterations: Number.isFinite(Number(payload.hermesMaxIterations || settings.hermesMaxIterations))
+        ? Math.max(1, Math.min(90, Number(payload.hermesMaxIterations || settings.hermesMaxIterations)))
+        : 16,
+      hermesToolsets: Array.isArray(payload.hermesToolsets) ? payload.hermesToolsets.map(String) : settings.hermesToolsets,
+      hermesDesktopIntegrationEnabled: typeof payload.hermesDesktopIntegrationEnabled === "boolean"
+        ? payload.hermesDesktopIntegrationEnabled
+        : Boolean(settings.hermesDesktopIntegrationEnabled),
+      kanbanGitEnabled: typeof payload.kanbanGitEnabled === "boolean"
+        ? payload.kanbanGitEnabled
+        : Boolean(settings.kanbanGitEnabled),
+      kanbanAutoSchedulerEnabled: typeof payload.kanbanAutoSchedulerEnabled === "boolean"
+        ? payload.kanbanAutoSchedulerEnabled
+        : settings.kanbanAutoSchedulerEnabled !== false,
+      kanbanAutoRecoverEnabled: typeof payload.kanbanAutoRecoverEnabled === "boolean"
+        ? payload.kanbanAutoRecoverEnabled
+        : settings.kanbanAutoRecoverEnabled !== false,
+      kanbanAutoCleanupEnabled: typeof payload.kanbanAutoCleanupEnabled === "boolean"
+        ? payload.kanbanAutoCleanupEnabled
+        : settings.kanbanAutoCleanupEnabled !== false,
+      kanbanAutoPrEnabled: typeof payload.kanbanAutoPrEnabled === "boolean"
+        ? payload.kanbanAutoPrEnabled
+        : Boolean(settings.kanbanAutoPrEnabled),
+      kanbanMultiAgentOrchestrationEnabled: typeof payload.kanbanMultiAgentOrchestrationEnabled === "boolean"
+        ? payload.kanbanMultiAgentOrchestrationEnabled
+        : Boolean(settings.kanbanMultiAgentOrchestrationEnabled),
+      kanbanMaxParallelAgents: Number.isFinite(Number(payload.kanbanMaxParallelAgents ?? settings.kanbanMaxParallelAgents))
+        ? Math.max(1, Math.min(12, Number(payload.kanbanMaxParallelAgents ?? settings.kanbanMaxParallelAgents)))
+        : DEFAULT_KANBAN_MAX_PARALLEL_AGENTS,
+      kanbanSchedulerIntervalMs: Number.isFinite(Number(payload.kanbanSchedulerIntervalMs ?? settings.kanbanSchedulerIntervalMs))
+        ? Math.max(900, Math.min(30000, Number(payload.kanbanSchedulerIntervalMs ?? settings.kanbanSchedulerIntervalMs)))
+        : 2500,
+      interactiveMode: typeof payload.interactiveMode === "boolean"
+        ? payload.interactiveMode
+        : Boolean(settings.interactiveMode),
+      desktopBridgeEnabled: typeof payload.desktopBridgeEnabled === "boolean"
+        ? payload.desktopBridgeEnabled
+        : Boolean(settings.desktopBridgeEnabled),
+      fullAccessMode: typeof payload.fullAccessMode === "boolean"
+        ? payload.fullAccessMode
+        : Boolean(settings.fullAccessMode),
+      autoRunLocalActions: typeof payload.autoRunLocalActions === "boolean"
+        ? payload.autoRunLocalActions
+        : Boolean(settings.autoRunLocalActions),
+      backgroundMediaPath: typeof payload.backgroundMediaPath === "string"
+        ? payload.backgroundMediaPath.trim()
+        : String(settings.backgroundMediaPath || ""),
+      dreamPetEnabled: typeof payload.dreamPetEnabled === "boolean"
+        ? payload.dreamPetEnabled
+        : settings.dreamPetEnabled !== false,
+      dreamPetBubbleEnabled: typeof payload.dreamPetBubbleEnabled === "boolean"
+        ? payload.dreamPetBubbleEnabled
+        : settings.dreamPetBubbleEnabled !== false,
+      dreamPetVoiceEnabled: typeof payload.dreamPetVoiceEnabled === "boolean"
+        ? payload.dreamPetVoiceEnabled
+        : settings.dreamPetVoiceEnabled === true,
+      dreamPetVoiceName: typeof payload.dreamPetVoiceName === "string"
+        ? payload.dreamPetVoiceName.trim()
+        : String(settings.dreamPetVoiceName || ""),
+      dreamPetWindowBounds: payload.dreamPetWindowBounds && typeof payload.dreamPetWindowBounds === "object"
+        ? payload.dreamPetWindowBounds
+        : settings.dreamPetWindowBounds || null,
+      theme: normalizeTheme(payload.theme || settings.theme),
+      codeShaderEnabled: typeof payload.codeShaderEnabled === "boolean"
+        ? payload.codeShaderEnabled
+        : settings.codeShaderEnabled !== false,
+      codeShaderPreset: normalizeCodeShaderPreset(payload.codeShaderPreset || settings.codeShaderPreset),
+      codeCursorShader: [
+        "blaze",
+        "frozen",
+        "rainbow",
+        "lastletter",
+        "sparks",
+        "zoom",
+        "shake",
+        "border"
+      ].includes(
+        String(payload.codeCursorShader || settings.codeCursorShader || "").toLowerCase()
+      )
+        ? String(payload.codeCursorShader || settings.codeCursorShader).toLowerCase()
+        : "blaze",
+      codeShaderIntensity: Number.isFinite(Number(payload.codeShaderIntensity ?? settings.codeShaderIntensity))
+        ? Math.max(0, Math.min(100, Number(payload.codeShaderIntensity ?? settings.codeShaderIntensity)))
+        : 100,
+      connectorIds: Array.isArray(payload.connectorIds) ? payload.connectorIds.map(String) : settings.connectorIds,
+      enableSkillIds: Array.isArray(payload.enableSkillIds) ? payload.enableSkillIds.map(String) : settings.enableSkillIds,
+      forceSkillIds: Array.isArray(payload.forceSkillIds) ? payload.forceSkillIds.map(String) : settings.forceSkillIds,
+      trustMode: ["ask", "session", "always"].includes(String(payload.trustMode || settings.trustMode).toLowerCase())
+        ? String(payload.trustMode || settings.trustMode).toLowerCase()
+        : settings.trustMode,
+      allowedPermissionClasses: Array.isArray(payload.allowedPermissionClasses)
+        ? payload.allowedPermissionClasses.map(String)
+        : settings.allowedPermissionClasses
+    };
+    const effectiveRouting = resolveHermesRoutingSettings(normalized);
+    if (effectiveRouting.baseUrl || normalized.hermesProvider !== "custom") {
+      normalized.localBaseUrl = effectiveRouting.baseUrl || "";
+    }
+    if (effectiveRouting.model) {
+      normalized.localModel = effectiveRouting.model;
+    }
+
+    this.state.settings = {
+      ...settings,
+      ...normalized
+    };
+
+    this.emit("state_changed", {
+      type: "settings_updated",
+      settings: this.state.settings
+    });
+
+    return this.getSnapshot();
+  }
+
+  startTaskScheduler() {
+    if (this.taskSchedulerTimer) {
+      return;
+    }
+    const intervalMs = Math.max(
+      900,
+      Math.min(30000, Number(this.state.settings.kanbanSchedulerIntervalMs || 2500))
+    );
+    this.taskSchedulerTimer = setInterval(() => {
+      void this.runTaskSchedulerTick().catch((error) => {
+        this.emit("state_changed", {
+          type: "task_scheduler_error",
+          message: error?.message || String(error)
+        });
+      });
+    }, intervalMs);
+    this.taskSchedulerTimer.unref?.();
+  }
+
+  stopTaskScheduler() {
+    if (!this.taskSchedulerTimer) {
+      return;
+    }
+    clearInterval(this.taskSchedulerTimer);
+    this.taskSchedulerTimer = null;
+  }
+
+  _kanbanMaxParallelAgents() {
+    return Math.max(
+      1,
+      Math.min(12, Number(this.state.settings.kanbanMaxParallelAgents || DEFAULT_KANBAN_MAX_PARALLEL_AGENTS))
+    );
+  }
+
+  _getCloudApiKey() {
+    return typeof this.options.getCloudApiKey === "function" ? String(this.options.getCloudApiKey() || "") : "";
+  }
+
+  shouldUseKanbanGit(payload = {}) {
+    if (typeof payload.useGit === "boolean") {
+      return payload.useGit;
+    }
+    if (!payload.taskId && typeof payload.useWorktree === "boolean") {
+      return Boolean(payload.useWorktree);
+    }
+    if (typeof payload.useWorktree === "boolean" && payload.useWorktree === false) {
+      return false;
+    }
+    return Boolean(this.state.settings.kanbanGitEnabled);
+  }
+
+  _runningKanbanAgentCount() {
+    let count = 0;
+    const activeAgentTaskIds = new Set();
+    for (const agent of this.state.agents) {
+      if (agent.taskId && ["pending", "running"].includes(String(agent.status || ""))) {
+        count += 1;
+        activeAgentTaskIds.add(agent.taskId);
+      }
+    }
+    for (const task of this.state.tasks) {
+      if (
+        ["in_progress", "creating_pr"].includes(String(task.status || "")) &&
+        !activeAgentTaskIds.has(task.id)
+      ) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  async runTaskSchedulerTick(options = {}) {
+    const settings = this.state.settings || {};
+    if (!options.force && settings.kanbanAutoSchedulerEnabled === false) {
+      return { skipped: true, reason: "disabled" };
+    }
+    if (this.taskSchedulerBusy) {
+      return { skipped: true, reason: "busy" };
+    }
+    this.taskSchedulerBusy = true;
+    const summary = {
+      recovered: 0,
+      started: 0,
+      prCreated: 0,
+      cleaned: 0,
+      blocked: 0
+    };
+    try {
+      for (const task of [...this.state.tasks]) {
+        if (!["in_progress", "creating_pr"].includes(String(task.status || ""))) {
+          continue;
+        }
+        const liveness = this.refreshTaskLiveness(task.id);
+        if (liveness.stale && settings.kanbanAutoRecoverEnabled !== false) {
+          await this.recoverTask(task.id, {
+            force: true,
+            autoRestart: true,
+            provider: executionProviderForSettings(settings),
+            cloudApiKey: this._getCloudApiKey()
+          });
+          summary.recovered += 1;
+        }
+      }
+
+      const maxParallel = this._kanbanMaxParallelAgents();
+      let capacity = Math.max(0, maxParallel - this._runningKanbanAgentCount());
+      const queuedTasks = [...this.state.tasks]
+        .filter((task) => String(task.status || "") === "queue")
+        .sort((left, right) => Number(left.updatedAt || 0) - Number(right.updatedAt || 0));
+      for (const task of queuedTasks) {
+        if (capacity <= 0) break;
+        await this.spawnAgent({
+          taskId: task.id,
+          name: task.title || "Queued task",
+          objective: task.objective || task.title,
+          routeId: task.routeId || undefined,
+          provider: executionProviderForSettings(settings),
+          useGit: settings.kanbanGitEnabled,
+          useWorktree: Boolean(settings.kanbanGitEnabled),
+          orchestrate: Boolean(settings.kanbanMultiAgentOrchestrationEnabled),
+          cloudApiKey: this._getCloudApiKey()
+        });
+        summary.started += 1;
+        capacity = Math.max(0, maxParallel - this._runningKanbanAgentCount());
+      }
+
+      if (settings.kanbanAutoPrEnabled) {
+        for (const task of [...this.state.tasks]) {
+          if (String(task.status || "") !== "ai_review" || task.prUrl || task.prState === "running") {
+            continue;
+          }
+          const result = await this.createTaskPullRequest(task.id, {
+            draft: true,
+            timeoutMs: 180000
+          });
+          if (result?.prUrl) {
+            summary.prCreated += 1;
+          } else if (result?.error) {
+            summary.blocked += 1;
+          }
+        }
+      }
+
+      if (settings.kanbanAutoCleanupEnabled !== false) {
+        for (const task of [...this.state.tasks]) {
+          if (!["done", "pr_created", "archived"].includes(String(task.status || "")) || !task.worktreePath) {
+            continue;
+          }
+          if (["removed", "not_needed", "dirty", "running"].includes(String(task.cleanupState || ""))) {
+            continue;
+          }
+          const result = await this.cleanupTaskWorktree(task.id, { force: false, auto: true });
+          if (!result?.error) {
+            summary.cleaned += 1;
+          } else {
+            summary.blocked += 1;
+          }
+        }
+      }
+
+      return summary;
+    } finally {
+      this.taskSchedulerBusy = false;
+    }
+  }
+
+  _createChatRecord(provider = executionProviderForSettings(this.state.settings), options = {}) {
+    return {
+      id: crypto.randomUUID(),
+      title: String(options.title || "Nova sessao"),
+      provider: chatProviderForSettings(provider, this.state.settings),
+      workspaceRoot: options.workspaceRoot ? path.resolve(String(options.workspaceRoot)) : this.workspaceRoot,
+      taskId: null,
+      taskUrl: null,
+      hiddenInSidebar: Boolean(options.hiddenInSidebar),
+      status: "idle",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      messages: [],
+      localEvents: []
+    };
+  }
+
+  createChat(provider = executionProviderForSettings(this.state.settings), options = {}) {
+    const chat = this._createChatRecord(provider, options);
+    this.state.chats.unshift(chat);
+    if (!options.hiddenInSidebar) {
+      this.state.selectedChatId = chat.id;
+    }
+    this.emit("state_changed", {
+      type: "chat_created",
+      chatId: chat.id
+    });
+    return this.getSnapshot();
+  }
+
+  selectChat(chatId) {
+    if (this.state.chats.some((chat) => chat.id === chatId)) {
+      this.state.selectedChatId = chatId;
+      this.emit("state_changed", {
+        type: "chat_selected",
+        chatId
+      });
+    }
+    return this.getSnapshot();
+  }
+
+  async deleteChat(chatId) {
+    await this.stopChat(chatId);
+    this.state.chats = this.state.chats.filter((chat) => chat.id !== chatId);
+    if (this.state.selectedChatId === chatId) {
+      this.state.selectedChatId = this.state.chats[0]?.id || null;
+    }
+    for (const [messageId, batch] of this.pendingBatches.entries()) {
+      if (batch.chatId === chatId) {
+        this.pendingBatches.delete(messageId);
+      }
+    }
+    this.emit("state_changed", {
+      type: "chat_deleted",
+      chatId
+    });
+    return this.getSnapshot();
+  }
+
+  setChatProvider(chatId, providerMode) {
+    const chat = this.getChat(chatId);
+    chat.provider = chatProviderForSettings(providerMode, this.state.settings);
+    chat.updatedAt = Date.now();
+    this.emit("state_changed", {
+      type: "provider_attached",
+      chatId,
+      provider: chat.provider
+    });
+    return this.getSnapshot();
+  }
+
+  getChat(chatId) {
+    const chat = this.state.chats.find((entry) => entry.id === chatId);
+    if (!chat) {
+      throw new Error("Sessao nao encontrada.");
+    }
+    return chat;
+  }
+
+  _getChatWorkspaceRoot(chatOrId = null) {
+    const chat =
+      typeof chatOrId === "string"
+        ? this.state.chats.find((entry) => entry.id === chatOrId) || null
+        : chatOrId;
+    return path.resolve(chat?.workspaceRoot || this.workspaceRoot);
+  }
+
+  getWorkspaceRoot(chatOrId = null) {
+    return this._getChatWorkspaceRoot(chatOrId);
+  }
+
+  _sanitizeBranchFragment(value, fallback = "agent") {
+    const normalized = String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 48);
+    return normalized || fallback;
+  }
+
+  async _prepareAgentWorkspace(payload = {}, name = "Agent") {
+    const useGit = this.shouldUseKanbanGit(payload);
+    const explicitUseWorktree = typeof payload.useWorktree === "boolean";
+    const wantsWorktree = useGit && (explicitUseWorktree ? Boolean(payload.useWorktree) : true);
+    const baseWorkspaceRoot = this.workspaceRoot;
+
+    if (!wantsWorktree) {
+      return {
+        workspaceRoot: baseWorkspaceRoot,
+        worktreePath: null,
+        worktreeBranch: null,
+        warning: useGit ? "" : "Kanban git desativado; o subagente vai usar o workspace principal do PC."
+      };
+    }
+
+    let repoRoot = null;
+    try {
+      repoRoot = await ensureGitWorkspace(baseWorkspaceRoot);
+    } catch (error) {
+      if (payload.requireGit === true) {
+        throw new Error(error.message || "Nao consegui criar a worktree dedicada do subagente.");
+      }
+      return {
+        workspaceRoot: baseWorkspaceRoot,
+        worktreePath: null,
+        worktreeBranch: null,
+        warning: "Repositorio git nao detectado; o subagente caiu para o workspace principal."
+      };
+    }
+
+    const slug = this._sanitizeBranchFragment(name, "agent");
+    const suffix = crypto.randomUUID().slice(0, 8);
+    const branchName = String(payload.branchName || `codex/${slug}-${suffix}`).trim();
+    const defaultWorktreeRoot = path.join(path.dirname(repoRoot), `${path.basename(repoRoot)}-worktrees`);
+    const targetPath = payload.worktreePath
+      ? path.resolve(baseWorkspaceRoot, String(payload.worktreePath))
+      : path.join(defaultWorktreeRoot, `${slug}-${suffix}`);
+
+    const existingWorktrees = await gitWorktreeList(repoRoot).catch(() => []);
+    const existing = existingWorktrees.find((entry) => path.resolve(entry.path) === path.resolve(targetPath));
+    if (!existing) {
+      try {
+        await gitWorktreeAdd(repoRoot, targetPath, branchName, {
+          createBranch: true,
+          fromRef: "HEAD"
+        });
+      } catch (error) {
+        const message = String(error?.message || "");
+        if (/invalid reference:\s*HEAD/i.test(message) || /not a valid object name/i.test(message)) {
+          return {
+            workspaceRoot: baseWorkspaceRoot,
+            worktreePath: null,
+            worktreeBranch: null,
+            warning: "Repositorio git sem commit inicial; o subagente caiu para o workspace principal."
+          };
+        }
+        throw error;
+      }
+    }
+
+    return {
+      workspaceRoot: targetPath,
+      worktreePath: targetPath,
+      worktreeBranch: branchName,
+      warning: ""
+    };
+  }
+
+  listTodos(status = null) {
+    const filter = String(status || "").trim().toLowerCase();
+    return this.state.todos.filter((todo) => !filter || todo.status === filter);
+  }
+
+  writeTodos(payload = {}) {
+    const mode = String(payload.mode || "append").trim().toLowerCase();
+    const incoming = Array.isArray(payload.todos) ? payload.todos.map(normalizeTodo) : [];
+    if (mode === "replace") {
+      this.state.todos = incoming;
+    } else {
+      const current = new Map(this.state.todos.map((todo) => [todo.id, todo]));
+      incoming.forEach((todo) => {
+        const previous = current.get(todo.id);
+        current.set(
+          todo.id,
+          normalizeTodo({
+            ...previous,
+            ...todo,
+            createdAt: previous?.createdAt || todo.createdAt,
+            updatedAt: Date.now()
+          })
+        );
+      });
+      this.state.todos = [...current.values()];
+    }
+    this.state.todos.sort((left, right) => right.updatedAt - left.updatedAt);
+    this.emit("state_changed", {
+      type: "todos_updated"
+    });
+    return this.state.todos;
+  }
+
+  createTaskRecord(payload = {}) {
+    const task = normalizeTask({
+      title: payload.title,
+      objective: payload.objective,
+      routeId: payload.routeId,
+      agentId: payload.agentId,
+      terminalSessionId: payload.terminalSessionId,
+      workspaceRoot: payload.workspaceRoot || this.workspaceRoot,
+      worktreePath: payload.worktreePath,
+      worktreeBranch: payload.worktreeBranch,
+      status: payload.status || "backlog",
+      lastActivityAt: Date.now(),
+      executionProgress: taskProgressFor(payload.status || "backlog", "Task criada no Kanban Hermes."),
+      logs: {
+        planning: [
+          {
+            timestamp: Date.now(),
+            type: "created",
+            content: "Task criada no Kanban Hermes.",
+            phase: "planning"
+          }
+        ],
+        coding: [],
+        validation: []
+      }
+    });
+    this.state.tasks.unshift(task);
+    this.emit("state_changed", {
+      type: "tasks_updated"
+    });
+    return task;
+  }
+
+  listTaskRecords(status = null) {
+    const filter = String(status || "").trim().toLowerCase();
+    return this.state.tasks.filter((task) => !filter || task.status === filter);
+  }
+
+  getTaskRecord(taskId) {
+    return this.state.tasks.find((task) => task.id === String(taskId || "").trim()) || null;
+  }
+
+  updateTaskRecord(taskId, patch = {}) {
+    const index = this.state.tasks.findIndex((task) => task.id === String(taskId || "").trim());
+    if (index < 0) {
+      throw new Error(`Tarefa nao encontrada: ${taskId}`);
+    }
+    const next = normalizeTask({
+      ...this.state.tasks[index],
+      ...patch,
+      updatedAt: Date.now()
+    });
+    this.state.tasks[index] = next;
+    this.state.tasks.sort((left, right) => right.updatedAt - left.updatedAt);
+    this.emit("state_changed", {
+      type: "tasks_updated"
+    });
+    return next;
+  }
+
+  async deleteTaskRecord(taskId, options = {}) {
+    const task = this.getTaskRecord(taskId);
+    if (!task) {
+      throw new Error(`Tarefa nao encontrada: ${taskId}`);
+    }
+    if (["in_progress", "creating_pr"].includes(String(task.status || "")) && !options.force) {
+      throw new Error("Tarefa ativa nao pode ser deletada sem force=true.");
+    }
+    if (options.stopAgents !== false) {
+      await this.stopTaskAgents(task.id).catch(() => []);
+    }
+    this.state.tasks = this.state.tasks.filter((entry) => entry.id !== task.id);
+    this.state.agents = this.state.agents.map((agent) =>
+      agent.taskId === task.id
+        ? normalizeAgent({ ...agent, taskId: null, updatedAt: Date.now() })
+        : agent
+    );
+    for (const chat of this.state.chats) {
+      if (chat.taskId === task.id) {
+        chat.taskId = null;
+        chat.updatedAt = Date.now();
+      }
+    }
+    this.emit("state_changed", {
+      type: "tasks_updated"
+    });
+    return task;
+  }
+
+  _taskTerminalSessionId(taskId = "") {
+    const suffix = String(taskId || "")
+      .replace(/^task-/, "")
+      .replace(/[^a-z0-9_-]/gi, "")
+      .slice(0, 18) || crypto.randomUUID().slice(0, 8);
+    return `task-${suffix}`;
+  }
+
+  _taskLogsWithEntry(task, phase = "coding", type = "info", content = "", extra = {}) {
+    const normalizedPhase = TASK_LOG_PHASES.includes(String(phase)) ? String(phase) : "coding";
+    const logs = {};
+    for (const entryPhase of TASK_LOG_PHASES) {
+      logs[entryPhase] = Array.isArray(task?.logs?.[entryPhase]) ? [...task.logs[entryPhase]] : [];
+    }
+    if (String(content || "").trim()) {
+      logs[normalizedPhase].push({
+        timestamp: Date.now(),
+        type: String(type || "info"),
+        content: String(content),
+        phase: normalizedPhase,
+        detail: extra?.detail ? String(extra.detail).slice(0, 4000) : "",
+        tool: extra?.tool ? String(extra.tool) : ""
+      });
+      logs[normalizedPhase] = logs[normalizedPhase].slice(-120);
+    }
+    return logs;
+  }
+
+  appendTaskLog(taskId, phase = "coding", type = "info", content = "", extra = {}) {
+    const task = this.getTaskRecord(taskId);
+    if (!task) {
+      throw new Error(`Tarefa nao encontrada: ${taskId}`);
+    }
+    return this.updateTaskRecord(task.id, {
+      logs: this._taskLogsWithEntry(task, phase, type, content, extra),
+      lastActivityAt: Date.now(),
+      stuckAt: null
+    });
+  }
+
+  markTaskActivity(taskId, message = "", phase = "coding", type = "info", extra = {}) {
+    const task = this.getTaskRecord(taskId);
+    if (!task) {
+      return null;
+    }
+    const status = extra?.status || task.status || "in_progress";
+    const patch = {
+      logs: this._taskLogsWithEntry(task, phase, type, message, extra),
+      lastActivityAt: Date.now(),
+      stuckAt: null,
+      executionProgress: taskProgressFor(status, message, task.executionProgress)
+    };
+    if (extra?.terminalSessionId) {
+      patch.terminalSessionId = String(extra.terminalSessionId);
+    }
+    if (extra?.result) {
+      patch.result = String(extra.result);
+    }
+    if (extra?.status) {
+      patch.status = String(extra.status);
+    }
+    return this.updateTaskRecord(task.id, patch);
+  }
+
+  transitionTaskRecord(taskId, event = "", payload = {}) {
+    const task = this.getTaskRecord(taskId);
+    if (!task) {
+      throw new Error(`Tarefa nao encontrada: ${taskId}`);
+    }
+    const normalizedEvent = String(event || payload.event || "").trim().toUpperCase();
+    const previousStatus = task.status || "backlog";
+    const transitions = {
+      QUEUED: ["queue", "planning", "queued", "Task enviada para a fila."],
+      STARTED: ["in_progress", "planning", "started", "Task iniciada pelo Hermes."],
+      PLANNING_STARTED: ["in_progress", "planning", "phase", "Planejamento iniciado."],
+      PLANNING_COMPLETE: ["in_progress", "planning", "phase", "Planejamento concluido."],
+      PLAN_APPROVED: ["in_progress", "coding", "phase", "Plano aprovado; iniciando implementacao."],
+      CODING_STARTED: ["in_progress", "coding", "phase", "Implementacao iniciada."],
+      SUBTASK_COMPLETED: ["in_progress", "coding", "phase", "Subtarefa concluida."],
+      ALL_SUBTASKS_DONE: ["ai_review", "validation", "phase", "Subtarefas concluidas; iniciando QA."],
+      TERMINAL_LINKED: ["in_progress", "coding", "terminal", "Terminal vinculado a task."],
+      QA_STARTED: ["ai_review", "validation", "phase", "Validacao iniciada."],
+      AI_REVIEW: ["ai_review", "validation", "phase", "Saida pronta para revisao."],
+      QA_FAILED: ["in_progress", "validation", "error", "Validacao falhou; retornando para correcao."],
+      QA_FIXING_STARTED: ["ai_review", "validation", "phase", "Correcao de QA iniciada."],
+      QA_FIXING_COMPLETE: ["ai_review", "validation", "phase", "Correcao de QA concluida."],
+      QA_PASSED: ["ai_review", "validation", "done", "Validacao concluida."],
+      QA_MAX_ITERATIONS: ["human_review", "validation", "error", "QA atingiu o limite de iteracoes."],
+      QA_AGENT_ERROR: ["human_review", "validation", "error", "Agente de QA falhou."],
+      PLANNING_FAILED: ["human_review", "planning", "error", "Planejamento falhou."],
+      CODING_FAILED: ["human_review", "coding", "error", "Implementacao falhou."],
+      HUMAN_REVIEW: ["human_review", "validation", "review", "Aguardando revisao humana."],
+      USER_STOPPED: ["human_review", "coding", "stopped", "Execucao interrompida."],
+      USER_RESUMED: ["in_progress", "coding", "started", "Task retomada pelo usuario."],
+      PROCESS_EXITED: ["human_review", "coding", "stopped", "Processo da task parou."],
+      CREATE_PR: ["creating_pr", "validation", "pr", "Criando pull request."],
+      PR_CREATED: ["pr_created", "validation", "pr", "Pull request criada."],
+      MARK_DONE: ["done", "validation", "done", "Task marcada como concluida."],
+      ARCHIVED: ["archived", "validation", "archive", "Task arquivada."],
+      ERROR: ["error", "coding", "error", "Task entrou em erro."]
+    };
+    const transition = transitions[normalizedEvent] || [previousStatus, "coding", "info", normalizedEvent || "Task atualizada."];
+    let status = payload.status || transition[0];
+    const phase = payload.phase || transition[1];
+    const type = payload.type || transition[2];
+    const message = payload.message || transition[3];
+    let reviewReason = payload.reviewReason ?? task.reviewReason;
+    if (normalizedEvent === "PLANNING_COMPLETE" && payload.requireReviewBeforeCoding === true) {
+      status = "human_review";
+      reviewReason = "plan_review";
+    }
+    if (["QA_MAX_ITERATIONS", "QA_AGENT_ERROR", "PLANNING_FAILED", "CODING_FAILED"].includes(normalizedEvent)) {
+      reviewReason = payload.reviewReason ?? "errors";
+    }
+    if (normalizedEvent === "QA_FAILED" && payload.issueCount && Number(payload.issueCount) > 0) {
+      reviewReason = payload.reviewReason ?? "qa_rejected";
+    }
+    return this.updateTaskRecord(task.id, {
+      status,
+      result: payload.result ?? task.result,
+      reviewReason,
+      prUrl: payload.prUrl ?? task.prUrl,
+      prState: payload.prState ?? task.prState,
+      cleanupState: payload.cleanupState ?? task.cleanupState,
+      terminalSessionId: payload.terminalSessionId ?? task.terminalSessionId,
+      stuckAt: null,
+      lastActivityAt: Date.now(),
+      executionProgress: taskProgressFor(status, message, task.executionProgress),
+      logs: this._taskLogsWithEntry(task, phase, type, message, payload)
+    });
+  }
+
+  _taskRuntimeSnapshot(task) {
+    const agents = this.state.agents.filter((agent) => agent.taskId === task.id);
+    const runningAgents = agents.filter((agent) => ["pending", "running"].includes(agent.status));
+    const terminals = getTerminalSessionSnapshots().filter((session) =>
+      session.taskId === task.id || (task.terminalSessionId && session.id === task.terminalSessionId)
+    );
+    const runningTerminals = terminals.filter((session) =>
+      session.alive && (session.currentCommand || session.promptState === "running")
+    );
+    return {
+      agents,
+      terminals,
+      runningAgents,
+      runningTerminals,
+      active: runningAgents.length > 0 || runningTerminals.length > 0
+    };
+  }
+
+  refreshTaskLiveness(taskId) {
+    const task = this.getTaskRecord(taskId);
+    if (!task) {
+      throw new Error(`Tarefa nao encontrada: ${taskId}`);
+    }
+    const snapshot = this._taskRuntimeSnapshot(task);
+    const status = String(task.status || "");
+    const lastActivityAt = Number(task.lastActivityAt || task.updatedAt || task.createdAt || Date.now());
+    const stale = ["in_progress", "creating_pr"].includes(status) &&
+      !snapshot.active &&
+      Date.now() - lastActivityAt > TASK_STUCK_AFTER_MS;
+    if (!stale) {
+      return { task, ...snapshot, stale: false };
+    }
+    const next = this.updateTaskRecord(task.id, {
+      status: "human_review",
+      reviewReason: "stuck",
+      stuckAt: Date.now(),
+      executionProgress: taskProgressFor("human_review", "Task sem agente/terminal ativo; precisa recuperar.", task.executionProgress),
+      logs: this._taskLogsWithEntry(task, "validation", "stuck", "Task sem agente/terminal ativo; precisa recuperar.")
+    });
+    return { task: next, ...this._taskRuntimeSnapshot(next), stale: true };
+  }
+
+  _taskTerminalShell(sessionId = "") {
+    const session = getTerminalSessionSnapshots().find((entry) => entry.id === String(sessionId || ""));
+    return session?.shell || "";
+  }
+
+  async ensureTaskTerminal(taskId, options = {}) {
+    const task = this.getTaskRecord(taskId);
+    if (!task) {
+      throw new Error(`Tarefa nao encontrada: ${taskId}`);
+    }
+    const terminalSessionId = options.session || task.terminalSessionId || this._taskTerminalSessionId(task.id);
+    const cwd = options.cwd || task.worktreePath || task.workspaceRoot || this.workspaceRoot;
+    const result = await executeTool(
+      {
+        type: "terminal_open",
+        session: terminalSessionId,
+        shell: options.shell || defaultTaskShell(),
+        cwd,
+        taskId: task.id
+      },
+      {
+        workspaceRoot: task.workspaceRoot || this.workspaceRoot,
+        fullAccessMode: true,
+        runtime: this,
+        mcpManager: this.mcpManager
+      }
+    );
+    const latest = this.getTaskRecord(task.id) || task;
+    this.updateTaskRecord(task.id, {
+      terminalSessionId,
+      lastActivityAt: Date.now(),
+      executionProgress: taskProgressFor(latest.status || "in_progress", "Terminal vinculado a task.", latest.executionProgress),
+      logs: this._taskLogsWithEntry(latest, "coding", "terminal", `Terminal vinculado: ${terminalSessionId}`, {
+        terminalSessionId,
+        detail: result
+      })
+    });
+    return terminalSessionId;
+  }
+
+  async recoverTask(taskId, options = {}) {
+    let task = this.getTaskRecord(taskId);
+    if (!task) {
+      throw new Error(`Tarefa nao encontrada: ${taskId}`);
+    }
+    const liveness = this.refreshTaskLiveness(task.id);
+    task = liveness.task;
+    if (liveness.active && !options.force) {
+      this.markTaskActivity(task.id, "Task ainda possui agente ou terminal ativo.", "validation", "info");
+      return {
+        task: this.getTaskRecord(task.id),
+        restarted: false,
+        reason: "active"
+      };
+    }
+    const autoRestart = options.autoRestart !== false;
+    if (!autoRestart) {
+      const updated = this.transitionTaskRecord(task.id, "HUMAN_REVIEW", {
+        reviewReason: "recover_requested",
+        message: "Recuperacao solicitada; aguardando decisao humana."
+      });
+      return { task: updated, restarted: false, reason: "manual_review" };
+    }
+    this.transitionTaskRecord(task.id, "STARTED", {
+      message: "Recuperando task travada e reiniciando subagente."
+    });
+    const agent = await this.spawnAgent({
+      taskId: task.id,
+      name: task.title || "Recovered task",
+      objective: task.objective || task.title,
+      routeId: task.routeId || undefined,
+      provider: options.provider || executionProviderForSettings(this.state.settings),
+      useWorktree: Boolean(task.worktreePath),
+      worktreePath: task.worktreePath || undefined,
+      branchName: task.worktreeBranch || undefined,
+      cloudApiKey: options.cloudApiKey || ""
+    });
+    return {
+      task: this.getTaskRecord(task.id),
+      restarted: true,
+      agent
+    };
+  }
+
+  async _gitDirtyStatus(cwd) {
+    const statusText = await gitStatus(cwd);
+    const dirtyLines = String(statusText || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .filter((line) => !line.startsWith("##") && line !== "(sem alteracoes)");
+    return {
+      dirty: dirtyLines.length > 0,
+      statusText,
+      dirtyLines
+    };
+  }
+
+  async cleanupTaskWorktree(taskId, options = {}) {
+    const task = this.getTaskRecord(taskId);
+    if (!task) {
+      throw new Error(`Tarefa nao encontrada: ${taskId}`);
+    }
+    if (!task.worktreePath) {
+      const updated = this.updateTaskRecord(task.id, {
+        cleanupState: "not_needed",
+        logs: this._taskLogsWithEntry(task, "validation", "cleanup", "Task sem worktree para limpar.")
+      });
+      return { task: updated, result: "Task sem worktree para limpar." };
+    }
+    if (!options.force) {
+      try {
+        const status = await this._gitDirtyStatus(task.worktreePath);
+        if (status.dirty) {
+          const updated = this.updateTaskRecord(task.id, {
+            cleanupState: "dirty",
+            reviewReason: "cleanup_dirty",
+            status: "human_review",
+            result: "Worktree possui arquivos modificados; cleanup automatico bloqueado.",
+            logs: this._taskLogsWithEntry(
+              task,
+              "validation",
+              "cleanup_blocked",
+              "Worktree possui arquivos modificados; cleanup automatico bloqueado.",
+              { detail: status.statusText }
+            )
+          });
+          return {
+            task: updated,
+            error: "Worktree possui arquivos modificados; cleanup bloqueado.",
+            dirty: true,
+            status: status.statusText
+          };
+        }
+      } catch (error) {
+        const updated = this.updateTaskRecord(task.id, {
+          cleanupState: "error",
+          reviewReason: "cleanup_status_failed",
+          status: "human_review",
+          result: error?.message || "Falha ao validar status da worktree antes do cleanup.",
+          logs: this._taskLogsWithEntry(
+            task,
+            "validation",
+            "error",
+            error?.message || "Falha ao validar status da worktree antes do cleanup."
+          )
+        });
+        return { task: updated, error: error?.message || String(error) };
+      }
+    }
+    this.updateTaskRecord(task.id, {
+      cleanupState: "running",
+      logs: this._taskLogsWithEntry(task, "validation", "cleanup", `Removendo worktree: ${task.worktreePath}`)
+    });
+    try {
+      const result = await executeTool(
+        {
+          type: "git_worktree_remove",
+          cwd: task.workspaceRoot || this.workspaceRoot,
+          path: task.worktreePath,
+          force: Boolean(options.force)
+        },
+        {
+          workspaceRoot: task.workspaceRoot || this.workspaceRoot,
+          fullAccessMode: true,
+          runtime: this,
+          mcpManager: this.mcpManager
+        }
+      );
+      const latest = this.getTaskRecord(task.id) || task;
+      const updated = this.updateTaskRecord(task.id, {
+        worktreePath: null,
+        worktreeBranch: null,
+        cleanupState: "removed",
+        lastActivityAt: Date.now(),
+        logs: this._taskLogsWithEntry(latest, "validation", "cleanup", "Worktree removida.", {
+          detail: result
+        })
+      });
+      return { task: updated, result };
+    } catch (error) {
+      const latest = this.getTaskRecord(task.id) || task;
+      const updated = this.updateTaskRecord(task.id, {
+        cleanupState: "error",
+        reviewReason: "cleanup_failed",
+        status: "human_review",
+        result: error?.message || "Falha ao limpar worktree.",
+        logs: this._taskLogsWithEntry(latest, "validation", "error", error?.message || "Falha ao limpar worktree.")
+      });
+      return { task: updated, error: error?.message || String(error) };
+    }
+  }
+
+  async createTaskPullRequest(taskId, options = {}) {
+    let task = this.getTaskRecord(taskId);
+    if (!task) {
+      throw new Error(`Tarefa nao encontrada: ${taskId}`);
+    }
+    if (options.prUrl) {
+      const updated = this.transitionTaskRecord(task.id, "PR_CREATED", {
+        prUrl: options.prUrl,
+        prState: "created",
+        message: `PR registrada: ${options.prUrl}`
+      });
+      return { task: updated, prUrl: options.prUrl };
+    }
+    if (this.state.settings.kanbanGitEnabled === false && options.allowGitWhenDisabled !== true) {
+      const updated = this.transitionTaskRecord(task.id, "HUMAN_REVIEW", {
+        reviewReason: "git_disabled",
+        prState: "blocked",
+        message: "Fluxo de PR bloqueado: git do Kanban esta desativado nas configuracoes."
+      });
+      return {
+        task: updated,
+        error: "Git do Kanban esta desativado. Ative em Settings > Desktop & Tools > Kanban Aperant para criar PR."
+      };
+    }
+    const cwd = path.resolve(task.worktreePath || task.workspaceRoot || this.workspaceRoot);
+    try {
+      await ensureGitWorkspace(cwd);
+    } catch (error) {
+      const updated = this.transitionTaskRecord(task.id, "HUMAN_REVIEW", {
+        reviewReason: "git_unavailable",
+        prState: "blocked",
+        message: error?.message || "Fluxo de PR exige um repositorio git."
+      });
+      return { task: updated, error: error?.message || "Fluxo de PR exige um repositorio git." };
+    }
+    task = this.transitionTaskRecord(task.id, "CREATE_PR", {
+      prState: "running",
+      message: "Criando pull request via GitHub CLI: status, commit, push e gh pr create."
+    });
+    const terminalSessionId = task.terminalSessionId || await this.ensureTaskTerminal(task.id, { cwd });
+    const terminalShell = this._taskTerminalShell(terminalSessionId) || defaultTaskShell();
+    const title = String(options.title || task.title || "Dream Hermes task");
+    const body = String(options.body || task.result || task.objective || "Generated by Dream Hermes Kanban.");
+    const commitMessage = String(options.commitMessage || `kanban: ${title}`).replace(/\s+/g, " ").slice(0, 180);
+    const command = options.command || buildTaskPullRequestCommand({
+      shell: terminalShell,
+      title,
+      body,
+      commitMessage,
+      draft: options.draft
+    });
+    try {
+      const result = await executeTool(
+        {
+          type: "terminal_exec",
+          session: terminalSessionId,
+          command,
+          cwd,
+          taskId: task.id,
+          timeoutMs: options.timeoutMs || 180000
+        },
+        {
+          workspaceRoot: cwd,
+          fullAccessMode: true,
+          runtime: this,
+          mcpManager: this.mcpManager
+        }
+      );
+      const prUrl = String(result || "").match(/https?:\/\/\S+/)?.[0]?.replace(/[),.]+$/, "") || "";
+      const latest = this.getTaskRecord(task.id) || task;
+      const updated = this.transitionTaskRecord(task.id, "PR_CREATED", {
+        prUrl,
+        prState: prUrl ? "created" : "created_no_url",
+        result,
+        message: prUrl ? `PR criada: ${prUrl}` : "PR criada, mas a URL nao foi detectada.",
+        detail: result
+      });
+      return { task: updated || latest, prUrl, result };
+    } catch (error) {
+      const latest = this.getTaskRecord(task.id) || task;
+      const updated = this.updateTaskRecord(task.id, {
+        status: "human_review",
+        prState: "error",
+        reviewReason: "pr_failed",
+        result: error?.message || "Falha ao criar PR.",
+        executionProgress: taskProgressFor("human_review", "Falha ao criar PR.", latest.executionProgress),
+        logs: this._taskLogsWithEntry(latest, "validation", "error", error?.message || "Falha ao criar PR.")
+      });
+      return { task: updated, error: error?.message || String(error) };
+    }
+  }
+
+  listAgents() {
+    return [...this.state.agents].sort((left, right) => right.updatedAt - left.updatedAt);
+  }
+
+  upsertProjectRecord(payload = {}) {
+    const incoming = normalizeProject(payload);
+    const key = incoming.path || incoming.slug || incoming.id;
+    const index = this.state.projects.findIndex((project) =>
+      [project.path, project.slug, project.id].filter(Boolean).includes(key)
+    );
+    let saved;
+    if (index >= 0) {
+      const previous = this.state.projects[index];
+      saved = normalizeProject({
+        ...previous,
+        ...incoming,
+        id: previous.id,
+        createdAt: previous.createdAt,
+        updatedAt: Date.now()
+      });
+      this.state.projects[index] = saved;
+    } else {
+      saved = incoming;
+      this.state.projects.unshift(saved);
+    }
+    this.state.projects.sort((left, right) => right.updatedAt - left.updatedAt);
+    if (saved.chatId && saved.path) {
+      const chat = this.state.chats.find((entry) => entry.id === saved.chatId);
+      if (chat) {
+        chat.workspaceRoot = saved.path;
+        chat.updatedAt = Date.now();
+      }
+    }
+    this.emit("state_changed", {
+      type: "projects_updated"
+    });
+    return saved;
+  }
+
+  findRecentProject(text = "") {
+    const source = String(text || "").toLowerCase();
+    const normalized = (value) => String(value || "").toLowerCase();
+    return (
+      this.state.projects.find((project) =>
+        [project.name, project.slug, project.path].some((value) => value && source.includes(normalized(value)))
+      ) ||
+      this.state.projects[0] ||
+      null
+    );
+  }
+
+  resolveContextualPath(payload = {}) {
+    const source = [
+      payload.rawPath,
+      payload.objective,
+      payload.workspaceRoot
+    ].filter(Boolean).join("\n");
+    const projects = Array.isArray(this.state.projects) ? this.state.projects : [];
+    const sameRun = projects.find((project) =>
+      project.path && payload.runId && project.runId === payload.runId
+    );
+    const sameChat = projects.find((project) =>
+      project.path && payload.chatId && project.chatId === payload.chatId
+    );
+    const normalizedSource = String(source || "").toLowerCase();
+    const matched = projects.find((project) =>
+      project.path &&
+      [project.name, project.slug, project.path]
+        .filter(Boolean)
+        .some((value) => normalizedSource.includes(String(value).toLowerCase()))
+    );
+    const fallbackWorkspace = payload.workspaceRoot &&
+      path.resolve(payload.workspaceRoot) !== path.resolve(this.workspaceRoot)
+      ? path.resolve(payload.workspaceRoot)
+      : "";
+    return (
+      sameRun?.path ||
+      sameChat?.path ||
+      matched?.path ||
+      fallbackWorkspace ||
+      ""
+    );
+  }
+
+  formatProjectMemory(text = "") {
+    const selected = this.findRecentProject(text);
+    const projects = [];
+    const seen = new Set();
+    for (const project of [selected, ...(this.state.projects || [])]) {
+      if (!project) continue;
+      const key = project.path || project.id || project.slug;
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      projects.push(project);
+      if (projects.length >= 5) break;
+    }
+    if (!projects.length) {
+      return "";
+    }
+    return [
+      "Runtime project memory:",
+      ...projects.map((project) =>
+        [
+          `- ${project.name || project.slug || "Projeto"} [${project.status || "created"}]`,
+          project.path ? `  path: ${project.path}` : null,
+          project.url ? `  url: ${project.url}` : null,
+          project.job ? `  job: ${project.job}` : null,
+          project.lastObjective ? `  objective: ${String(project.lastObjective).slice(0, 220)}` : null,
+          project.lastError ? `  lastError: ${String(project.lastError).slice(0, 300)}` : null
+        ].filter(Boolean).join("\n")
+      ),
+      "Use these records as authoritative project context for later file, terminal, preview, URL and open-path actions. Prefer a same-chat or matching project record over creating an unrelated project."
+    ].join("\n");
+  }
+
+  markProjectVerification(action = {}, ok = false, result = "") {
+    const url = String(action?.url || "").trim();
+    const expectedFiles = Array.isArray(action?.expectedFiles) ? action.expectedFiles.map(String).filter(Boolean) : [];
+    const candidatePath = expectedFiles.length ? path.dirname(expectedFiles[0]) : null;
+    const index = this.state.projects.findIndex((project) =>
+      (url && project.url === url) ||
+      (candidatePath && path.resolve(project.path || "") === path.resolve(candidatePath))
+    );
+    if (index < 0) {
+      return null;
+    }
+    const previous = this.state.projects[index];
+    this.state.projects[index] = normalizeProject({
+      ...previous,
+      status: ok ? "verified" : "blocked",
+      lastVerifiedAt: ok ? Date.now() : previous.lastVerifiedAt,
+      lastError: ok ? "" : String(result || "").slice(0, 2000),
+      updatedAt: Date.now()
+    });
+    this.emit("state_changed", {
+      type: "projects_updated"
+    });
+    return this.state.projects[index];
+  }
+
+  getAgentRecord(agentId) {
+    return this.state.agents.find((agent) => agent.id === String(agentId || "").trim()) || null;
+  }
+
+  _agentPreview(chat) {
+    const entries = [...(chat.messages || []), ...(chat.localEvents || [])]
+      .filter((entry) => !entry.hidden)
+      .sort((left, right) => left.timestamp - right.timestamp)
+      .reverse();
+    for (const entry of entries) {
+      if (entry.kind === "assistant" && String(entry.content || "").trim()) {
+        return String(entry.content || "").trim();
+      }
+      if (entry.kind === "local_action" && String(entry.content || "").trim()) {
+        return String(entry.content || "").trim();
+      }
+      if (entry.kind === "status" && (entry.brief || entry.description)) {
+        return String(entry.brief || entry.description || "").trim();
+      }
+    }
+    return "";
+  }
+
+  _syncAgentFromChat(chatId) {
+    const index = this.state.agents.findIndex((agent) => agent.chatId === chatId);
+    if (index < 0) {
+      return null;
+    }
+    const chat = this.getChat(chatId);
+    const current = this.state.agents[index];
+    const mappedStatus =
+      chat.status === "running"
+        ? "running"
+        : chat.status === "error"
+          ? "error"
+          : current.status === "stopped"
+            ? "stopped"
+            : "done";
+    const next = normalizeAgent({
+      ...current,
+      status: mappedStatus,
+      summary: this._agentPreview(chat),
+      updatedAt: Date.now()
+    });
+    this.state.agents[index] = next;
+    if (next.taskId) {
+      const taskIndex = this.state.tasks.findIndex((task) => task.id === next.taskId);
+      if (taskIndex >= 0) {
+        const currentTask = this.state.tasks[taskIndex];
+        const siblingAgents = this.state.agents.filter((agent) => agent.taskId === next.taskId && agent.id !== next.id);
+        const activeSiblings = siblingAgents.some((agent) => ["pending", "running"].includes(String(agent.status || "")));
+        const summaries = [next, ...siblingAgents]
+          .filter((agent) => String(agent.summary || "").trim() && ["done", "error", "stopped"].includes(String(agent.status || "")))
+          .map((agent) => `${agent.name || agent.id}: ${agent.summary}`)
+          .slice(-8)
+          .join("\n\n");
+        const taskStatus =
+          mappedStatus === "running"
+            ? "in_progress"
+            : mappedStatus === "error"
+              ? "human_review"
+              : mappedStatus === "stopped"
+                ? "human_review"
+                : activeSiblings
+                  ? "in_progress"
+                : "ai_review";
+        const message =
+          mappedStatus === "running"
+            ? "Subagente em execucao."
+            : mappedStatus === "error"
+              ? next.summary || "Subagente falhou."
+              : mappedStatus === "stopped"
+                ? next.summary || "Subagente interrompido."
+                : activeSiblings
+                  ? "Subagente concluiu; aguardando outros subagentes da task."
+                : next.summary || "Subagente concluiu; aguardando review.";
+        const shouldLog =
+          currentTask.status !== taskStatus ||
+          (mappedStatus !== "running" && summaries && currentTask.result !== summaries);
+        this.state.tasks[taskIndex] = normalizeTask({
+          ...currentTask,
+          status: taskStatus,
+          reviewReason:
+            mappedStatus === "error"
+              ? "agent_error"
+              : mappedStatus === "stopped"
+                ? "agent_stopped"
+                : currentTask.reviewReason,
+          result: summaries || next.summary || currentTask.result,
+          lastActivityAt: mappedStatus === "running" ? Date.now() : currentTask.lastActivityAt,
+          executionProgress: taskProgressFor(taskStatus, message, currentTask.executionProgress),
+          logs: shouldLog
+            ? this._taskLogsWithEntry(
+                currentTask,
+                mappedStatus === "running" ? "coding" : "validation",
+                mappedStatus === "error" ? "error" : mappedStatus,
+                message
+              )
+            : currentTask.logs,
+          updatedAt: Date.now()
+        });
+      }
+    }
+    return next;
+  }
+
+  _buildTaskAgentRoles(task, maxRoles = 3) {
+    const objective = String(task?.objective || task?.title || "").trim();
+    const title = String(task?.title || "Task").trim();
+    return [
+      {
+        id: "planner",
+        label: "Planner",
+        objective: [
+          `Voce e o agente Planner da task "${title}".`,
+          "Use somente a base Dream/Hermes e atualize a task com task_update/task_logs quando encontrar plano, dependencias ou bloqueios.",
+          "Quebre o objetivo em passos executaveis e registre riscos antes do Builder alterar arquivos.",
+          `Objetivo original: ${objective}`
+        ].join("\n")
+      },
+      {
+        id: "builder",
+        label: "Builder",
+        objective: [
+          `Voce e o agente Builder da task "${title}".`,
+          "Implemente a menor mudanca funcional, usando terminal/file tools do Hermes e respeitando logs/estado do Kanban.",
+          "Se precisar delegar, use agent_spawn com taskId da task. Nao finalize sem validar o que mudou.",
+          `Objetivo original: ${objective}`
+        ].join("\n")
+      },
+      {
+        id: "qa",
+        label: "QA",
+        objective: [
+          `Voce e o agente QA da task "${title}".`,
+          "Observe o trabalho dos outros subagentes, rode verificacoes possiveis e mova a task para ai_review/human_review com evidencias.",
+          "Registre logs de validacao e bloqueios. Se tudo estiver pronto, agregue o resultado final.",
+          `Objetivo original: ${objective}`
+        ].join("\n")
+      }
+    ].slice(0, Math.max(1, Math.min(3, Number(maxRoles || 3))));
+  }
+
+  async spawnAgent(payload = {}) {
+    const linkedTaskId = String(payload.taskId || "").trim();
+    const linkedTask = linkedTaskId ? this.getTaskRecord(linkedTaskId) : null;
+    const shouldOrchestrate = Boolean(payload.orchestrate) && linkedTask && !payload.orchestrationRole;
+    if (!shouldOrchestrate) {
+      return await this._spawnSingleAgent(payload);
+    }
+
+    const maxParallel = this._kanbanMaxParallelAgents();
+    const availableSlots = Math.max(1, maxParallel - this._runningKanbanAgentCount());
+    const roles = this._buildTaskAgentRoles(linkedTask, availableSlots);
+    this.transitionTaskRecord(linkedTask.id, "STARTED", {
+      message: `Orquestracao multiagente iniciada com ${roles.length} subagente(s).`
+    });
+    const spawned = [];
+    for (const role of roles) {
+      const agent = await this._spawnSingleAgent({
+        ...payload,
+        name: `${linkedTask.title || payload.name || "Task"} · ${role.label}`,
+        objective: role.objective,
+        orchestrationRole: role.id,
+        openTerminal: payload.openTerminal !== false
+      });
+      spawned.push(agent);
+    }
+    return {
+      ...spawned[0],
+      orchestrationAgents: spawned.map((agent) => agent.id)
+    };
+  }
+
+  async _spawnSingleAgent(payload = {}) {
+    const defaultProvider = executionProviderForSettings(this.state.settings);
+    const provider =
+      String(payload.provider || defaultProvider || "local").toLowerCase() === "cloud"
+        ? "cloud"
+        : "local";
+    const name = String(payload.name || `Agent ${this.state.agents.length + 1}`).trim();
+    const objective = String(payload.objective || "").trim();
+    if (!objective) {
+      throw new Error("agent_spawn exige um objetivo.");
+    }
+
+    const linkedTaskId = String(payload.taskId || "").trim();
+    const linkedTask = linkedTaskId ? this.getTaskRecord(linkedTaskId) : null;
+    if (linkedTaskId && !linkedTask) {
+      throw new Error(`Tarefa nao encontrada para agent_spawn: ${linkedTaskId}`);
+    }
+
+    const cloudApiKey = payload.cloudApiKey || this._getCloudApiKey();
+    const workspaceInfo = await this._prepareAgentWorkspace(payload, name);
+    const chat = this._createChatRecord(provider, {
+      title: name,
+      hiddenInSidebar: true,
+      workspaceRoot: workspaceInfo.workspaceRoot
+    });
+    if (payload.routeId) {
+      chat.activeRoute = {
+        id: String(payload.routeId),
+        label: String(payload.routeId),
+        prompt: null
+      };
+    }
+    this.state.chats.unshift(chat);
+
+    const task = linkedTask
+      ? this.updateTaskRecord(linkedTask.id, {
+          title: linkedTask.title || name,
+          objective: linkedTask.objective || objective,
+          routeId: chat.activeRoute?.id || payload.routeId || linkedTask.routeId || detectRoute(objective).id,
+          status: "in_progress",
+          workspaceRoot: workspaceInfo.workspaceRoot,
+          worktreePath: workspaceInfo.worktreePath,
+          worktreeBranch: workspaceInfo.worktreeBranch,
+          result: workspaceInfo.warning || linkedTask.result || ""
+        })
+      : this.createTaskRecord({
+          title: name,
+          objective,
+          routeId: chat.activeRoute?.id || payload.routeId || detectRoute(objective).id,
+          status: "in_progress",
+          workspaceRoot: workspaceInfo.workspaceRoot,
+          worktreePath: workspaceInfo.worktreePath,
+          worktreeBranch: workspaceInfo.worktreeBranch
+        });
+    chat.taskId = task.id;
+    chat.updatedAt = Date.now();
+
+    const agent = normalizeAgent({
+      name,
+      objective,
+      provider,
+      routeId: chat.activeRoute?.id || null,
+      chatId: chat.id,
+      taskId: task.id,
+      status: "running",
+      workspaceRoot: workspaceInfo.workspaceRoot,
+      worktreePath: workspaceInfo.worktreePath,
+      worktreeBranch: workspaceInfo.worktreeBranch,
+      summary: workspaceInfo.warning || (payload.orchestrationRole ? `role:${payload.orchestrationRole}` : "")
+    });
+    this.state.agents.unshift(agent);
+    if (payload.openTerminal !== false && !this.options.disableTaskTerminals) {
+      try {
+        await this.ensureTaskTerminal(task.id, {
+          cwd: workspaceInfo.workspaceRoot
+        });
+      } catch (error) {
+        this.markTaskActivity(
+          task.id,
+          error?.message || "Falha ao abrir terminal vinculado a task.",
+          "coding",
+          "error",
+          {
+            status: "in_progress"
+          }
+        );
+      }
+    }
+    try {
+      this.updateTaskRecord(task.id, {
+        agentId: agent.id,
+        status: "in_progress",
+        workspaceRoot: workspaceInfo.workspaceRoot,
+        worktreePath: workspaceInfo.worktreePath,
+        worktreeBranch: workspaceInfo.worktreeBranch,
+        executionProgress: taskProgressFor("in_progress", "Subagente iniciado pelo Hermes.", task.executionProgress),
+        logs: this._taskLogsWithEntry(
+          this.getTaskRecord(task.id) || task,
+          "coding",
+          "agent_spawn",
+          `Subagente iniciado: ${agent.name}`,
+          {
+            detail: workspaceInfo.warning || "",
+            tool: "agent_spawn"
+          }
+        )
+      });
+    } catch {}
+    this.emit("state_changed", {
+      type: "agent_spawned",
+      agentId: agent.id,
+      chatId: chat.id
+    });
+
+    void this.sendMessage({
+      chatId: chat.id,
+      text: objective,
+      cloudApiKey
+    }).catch((error) => {
+      const current = this.getAgentRecord(agent.id);
+      if (!current) {
+        return;
+      }
+      const currentIndex = this.state.agents.findIndex((entry) => entry.id === agent.id);
+      if (currentIndex >= 0) {
+        this.state.agents[currentIndex] = normalizeAgent({
+          ...current,
+          status: "error",
+          summary: error.message || "Falha ao iniciar subagente.",
+          updatedAt: Date.now()
+        });
+        if (current.taskId) {
+          try {
+            this.updateTaskRecord(current.taskId, {
+              status: "human_review",
+              reviewReason: "agent_spawn_failed",
+              result: error.message || "Falha ao iniciar subagente.",
+              executionProgress: taskProgressFor("human_review", "Falha ao iniciar subagente.", this.getTaskRecord(current.taskId)?.executionProgress),
+              logs: this._taskLogsWithEntry(
+                this.getTaskRecord(current.taskId),
+                "coding",
+                "error",
+                error.message || "Falha ao iniciar subagente."
+              )
+            });
+          } catch {}
+        }
+        this.emit("state_changed", {
+          type: "agent_finished",
+          agentId: agent.id,
+          chatId: chat.id
+        });
+      }
+    });
+
+    return agent;
+  }
+
+  async waitForAgent(agentId, timeoutMs = 300000) {
+    const timeout = Math.max(1000, Math.min(Number(timeoutMs || 300000), 3600000));
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeout) {
+      const agent = this.getAgentRecord(agentId);
+      if (!agent) {
+        throw new Error(`Subagente nao encontrado: ${agentId}`);
+      }
+      if (!["pending", "running"].includes(agent.status)) {
+        return agent;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+    throw new Error(`O subagente ${agentId} nao terminou dentro de ${Math.round(timeout / 1000)}s.`);
+  }
+
+  async stopAgent(agentId) {
+    const agent = this.getAgentRecord(agentId);
+    if (!agent) {
+      throw new Error(`Subagente nao encontrado: ${agentId}`);
+    }
+    if (agent.chatId) {
+      await this.stopChat(agent.chatId);
+    }
+    const index = this.state.agents.findIndex((entry) => entry.id === agent.id);
+    const next = normalizeAgent({
+      ...agent,
+      status: "stopped",
+      updatedAt: Date.now()
+    });
+    this.state.agents[index] = next;
+    if (next.taskId) {
+      try {
+        this.updateTaskRecord(next.taskId, {
+          status: "human_review",
+          reviewReason: "agent_stopped",
+          result: next.summary || "Subagente interrompido.",
+          executionProgress: taskProgressFor("human_review", "Subagente interrompido.", this.getTaskRecord(next.taskId)?.executionProgress),
+          logs: this._taskLogsWithEntry(
+            this.getTaskRecord(next.taskId),
+            "coding",
+            "stopped",
+            next.summary || "Subagente interrompido."
+          )
+        });
+      } catch {}
+    }
+    this.emit("state_changed", {
+      type: "agent_finished",
+      agentId: agent.id,
+      chatId: agent.chatId
+    });
+    return next;
+  }
+
+  async stopTaskAgents(taskId) {
+    const agents = this.state.agents.filter((agent) =>
+      agent.taskId === String(taskId || "") && ["pending", "running"].includes(String(agent.status || ""))
+    );
+    const stopped = [];
+    for (const agent of agents) {
+      stopped.push(await this.stopAgent(agent.id).catch(() => null));
+    }
+    return stopped.filter(Boolean);
+  }
+
+  _emitLocalLlamaEvent(event = {}) {
+    this.emit("state_changed", {
+      type: "local_llama_status",
+      localLlamaState: getLocalLlamaState(),
+      ...event
+    });
+  }
+
+  async ensureManagedLocalLlama(options = {}) {
+    if (!this.state.settings.localLlamaEnabled) {
+      return getLocalLlamaState();
+    }
+    const snapshot = await ensureLocalLlamaServer(this.state.settings, {
+      ...options,
+      onEvent: (event) => this._emitLocalLlamaEvent(event)
+    });
+    this.emit("state_changed", {
+      type: "settings_updated",
+      settings: this.state.settings,
+      localLlamaState: snapshot
+    });
+    return snapshot;
+  }
+
+  async stopManagedLocalLlama() {
+    const snapshot = await stopLocalLlamaServer();
+    this._emitLocalLlamaEvent({ summary: "llama.cpp local parado." });
+    return snapshot;
+  }
+
+  getLocalLlamaState() {
+    return getLocalLlamaState();
+  }
+
+  async listLocalModels() {
+    if (this.state.settings.localLlamaEnabled && this.state.settings.localLlamaAutoStart) {
+      await this.ensureManagedLocalLlama({ reason: "list_models" });
+    }
+    return await listLocalModels(this.state.settings);
+  }
+
+  async stopAllLocalActivity() {
+    for (const chat of this.state.chats) {
+      if (String(chat.status || "").toLowerCase() === "running") {
+        await this.stopChat(chat.id);
+      }
+    }
+
+    const result = await executeTool(
+      { type: "stop_all_local_activity" },
+      {
+        workspaceRoot: this.workspaceRoot,
+        fullAccessMode: true,
+        runtime: this,
+        mcpManager: this.mcpManager
+      }
+    );
+
+    this.state.projects = this.state.projects.map((project) =>
+      normalizeProject({
+        ...project,
+        status: ["starting", "running"].includes(project.status) ? "stopped" : project.status,
+        updatedAt: Date.now()
+      })
+    );
+
+    this.emit("state_changed", {
+      type: "local_activity_stopped"
+    });
+
+    return {
+      result,
+      state: this.getSnapshot()
+    };
+  }
+
+  async stopBackgroundJob(jobId) {
+    const result = await executeTool(
+      { type: "background_command_stop", job: jobId, reason: "manual_panel" },
+      {
+        workspaceRoot: this.workspaceRoot,
+        fullAccessMode: true,
+        runtime: this,
+        mcpManager: this.mcpManager
+      }
+    );
+    this.emit("state_changed", {
+      type: "background_job_stopped",
+      jobId
+    });
+    return {
+      result,
+      state: this.getSnapshot()
+    };
+  }
+
+  async closeTerminalSession(sessionId) {
+    const result = await executeTool(
+      { type: "terminal_close", session: sessionId, reason: "manual_panel" },
+      {
+        workspaceRoot: this.workspaceRoot,
+        fullAccessMode: true,
+        runtime: this,
+        mcpManager: this.mcpManager
+      }
+    );
+    this.emit("state_changed", {
+      type: "terminal_session_closed",
+      sessionId
+    });
+    return {
+      result,
+      state: this.getSnapshot()
+    };
+  }
+
+  subscribe(listener) {
+    this.on("runtime_event", listener);
+    return () => this.off("runtime_event", listener);
+  }
+
+  _emitRuntimeEvent(chatId, event) {
+    this.emit("runtime_event", {
+      chatId,
+      event
+    });
+    this.emit("state_changed", {
+      type: "runtime_event",
+      chatId,
+      event
+    });
+  }
+
+  _setChatStatus(chat, status, detail = {}) {
+    chat.status = status;
+    chat.updatedAt = Date.now();
+    const agent = this._syncAgentFromChat(chat.id);
+    this._emitRuntimeEvent(chat.id, {
+      type: "task_state_changed",
+      status,
+      ...detail
+    });
+    if (agent && status !== "running") {
+      this.emit("state_changed", {
+        type: "agent_finished",
+        agentId: agent.id,
+        chatId: chat.id
+      });
+    }
+  }
+
+  _createDraftAssistant(chat) {
+    const draft = normalizeMessage({
+      id: `draft-${crypto.randomUUID()}`,
+      kind: "assistant",
+      content: "",
+      pending: true,
+      timestamp: Date.now(),
+      actions: []
+    });
+    chat.messages.push(draft);
+    return draft;
+  }
+
+  _appendAssistantDelta(chat, delta, draft = null) {
+    const target = draft || chat.messages.find((message) => message.pending && message.kind === "assistant");
+    if (!target) {
+      return null;
+    }
+
+    target.content += String(delta || "");
+    target.timestamp = Date.now();
+    chat.updatedAt = Date.now();
+    this._emitRuntimeEvent(chat.id, {
+      type: "text_delta",
+      messageId: target.id,
+      delta: String(delta || "")
+    });
+    return target;
+  }
+
+  _finalizeAssistantMessage(chat, draft, content, actions = []) {
+    const target = draft || this._createDraftAssistant(chat);
+    target.pending = false;
+    target.content = String(content || "");
+    target.actions = Array.isArray(actions) ? actions : [];
+    target.timestamp = Date.now();
+    chat.updatedAt = Date.now();
+    this._emitRuntimeEvent(chat.id, {
+      type: "message_final",
+      messageId: target.id,
+      actions: target.actions,
+      content: target.content
+    });
+    this._syncAgentFromChat(chat.id);
+    return target;
+  }
+
+  _upsertHiddenUserMessage(chat, content, attachments = []) {
+    chat.messages.push(
+      normalizeMessage({
+        kind: "user",
+        content,
+        hidden: true,
+        timestamp: Date.now(),
+        attachments
+      })
+    );
+    chat.updatedAt = Date.now();
+  }
+
+  _upsertVisibleUserMessage(chat, content, attachments = [], pending = false) {
+    const userMessage = normalizeMessage({
+      kind: "user",
+      content,
+      timestamp: Date.now(),
+      pending,
+      attachments
+    });
+    chat.messages.push(userMessage);
+    chat.updatedAt = Date.now();
+    return userMessage;
+  }
+
+  _clearTurnGuards(chatId) {
+    this.stopRequested.delete(chatId);
+    this.loopGuards.delete(chatId);
+    this.executedActionGuards.delete(chatId);
+  }
+
+  _bumpRunId(chatId) {
+    const next = (this.runCounters.get(chatId) || 0) + 1;
+    this.runCounters.set(chatId, next);
+    this.activeRunIds.set(chatId, next);
+    return next;
+  }
+
+  _getRunId(chatId) {
+    return this.activeRunIds.get(chatId) || 0;
+  }
+
+  _isCurrentRun(chatId, runId) {
+    return Number(runId || 0) > 0 && this._getRunId(chatId) === Number(runId);
+  }
+
+  _attachController(chatId, controller, runId) {
+    const active = this.activeControllers.get(chatId);
+    if (active?.controller && active.runId !== runId) {
+      try {
+        active.controller.abort();
+      } catch {}
+    }
+    this.activeControllers.set(chatId, {
+      controller,
+      runId
+    });
+  }
+
+  _finishRun(chatId, runId) {
+    const active = this.activeControllers.get(chatId);
+    if (active?.runId === runId) {
+      this.activeControllers.delete(chatId);
+    }
+  }
+
+  _quietDraft(chat, draft) {
+    if (!draft) {
+      return;
+    }
+    draft.pending = false;
+    if (!String(draft.content || "").trim()) {
+      chat.messages = chat.messages.filter((message) => message.id !== draft.id);
+    }
+  }
+
+  _isStopped(chatId) {
+    return this.stopRequested.has(chatId);
+  }
+
+  _markStopped(chatId) {
+    this.stopRequested.add(chatId);
+  }
+
+  _submissionSignature(provider, text, attachmentPaths = []) {
+    const normalizedProvider = String(provider || "cloud").toLowerCase() === "local" ? "local" : "cloud";
+    const normalizedText = String(text || "").trim();
+    const normalizedAttachments = Array.isArray(attachmentPaths)
+      ? attachmentPaths
+          .map((entry) => String(entry || "").trim())
+          .filter(Boolean)
+          .map((entry) => path.resolve(entry))
+          .sort()
+      : [];
+    return JSON.stringify({
+      provider: normalizedProvider,
+      text: normalizedText,
+      attachmentPaths: normalizedAttachments
+    });
+  }
+
+  _isDuplicateSubmission(chatId, signature) {
+    const current = this.submissionGuards.get(chatId);
+    if (!current) {
+      return false;
+    }
+    if (current.signature !== signature) {
+      return false;
+    }
+    return current.inFlight || Date.now() - current.timestamp < DUPLICATE_SUBMISSION_WINDOW_MS;
+  }
+
+  _startSubmission(chatId, signature) {
+    this.submissionGuards.set(chatId, {
+      signature,
+      timestamp: Date.now(),
+      inFlight: true
+    });
+  }
+
+  _finishSubmission(chatId, signature) {
+    const current = this.submissionGuards.get(chatId);
+    if (!current || current.signature !== signature) {
+      return;
+    }
+    current.inFlight = false;
+    current.timestamp = Date.now();
+    setTimeout(() => {
+      const latest = this.submissionGuards.get(chatId);
+      if (latest === current && !latest.inFlight && Date.now() - latest.timestamp >= DUPLICATE_SUBMISSION_WINDOW_MS - 200) {
+        this.submissionGuards.delete(chatId);
+      }
+    }, DUPLICATE_SUBMISSION_WINDOW_MS);
+  }
+
+  _getRecentActionState(chatId) {
+    let current = this.recentActionGuards.get(chatId);
+    if (!current) {
+      current = new Map();
+      this.recentActionGuards.set(chatId, current);
+    }
+    return current;
+  }
+
+  _rememberRecentAction(chatId, action, ok, result) {
+    if (!ok || this._isReadOnlyAction(action)) {
+      return;
+    }
+    const current = this._getRecentActionState(chatId);
+    const signature = this._batchSignature([action]);
+    current.set(signature, {
+      at: Date.now(),
+      result: String(result || "")
+    });
+    setTimeout(() => {
+      const latest = current.get(signature);
+      if (latest && Date.now() - latest.at >= DUPLICATE_ACTION_WINDOW_MS - 200) {
+        current.delete(signature);
+      }
+      if (!current.size) {
+        this.recentActionGuards.delete(chatId);
+      }
+    }, DUPLICATE_ACTION_WINDOW_MS);
+  }
+
+  _wasRecentlyExecuted(chatId, action) {
+    if (this._isReadOnlyAction(action)) {
+      return null;
+    }
+    const current = this.recentActionGuards.get(chatId);
+    if (!current) {
+      return null;
+    }
+    const signature = this._batchSignature([action]);
+    const previous = current.get(signature);
+    if (!previous) {
+      return null;
+    }
+    if (Date.now() - previous.at > DUPLICATE_ACTION_WINDOW_MS) {
+      current.delete(signature);
+      if (!current.size) {
+        this.recentActionGuards.delete(chatId);
+      }
+      return null;
+    }
+    return previous;
+  }
+
+  _upsertLocalEvent(chat, event) {
+    const normalized = normalizeLocalEvent(event);
+    if (normalized.actionKey) {
+      const existingIndex = chat.localEvents.findIndex((entry) => entry.actionKey === normalized.actionKey);
+      if (existingIndex >= 0) {
+        const previous = chat.localEvents[existingIndex];
+        chat.localEvents[existingIndex] = normalizeLocalEvent({
+          ...previous,
+          ...normalized,
+          id: previous.id,
+          timestamp: Date.now()
+        });
+        chat.updatedAt = Date.now();
+        return chat.localEvents[existingIndex];
+      }
+    }
+    chat.localEvents.push(normalized);
+    chat.updatedAt = Date.now();
+    return normalized;
+  }
+
+  _batchSignature(actions = []) {
+    return JSON.stringify(actions.map((action) => this._actionSignaturePayload(action)));
+  }
+
+  _actionSignaturePayload(action = {}) {
+    const normalizeText = (value) => String(value || "").trim();
+    const normalizeLower = (value) => normalizeText(value).toLowerCase();
+    const normalizeNumber = (value) => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : null;
+    };
+    const normalizeBoolean = (value) => (typeof value === "boolean" ? value : null);
+    const normalizePath = (value) => normalizeLower(value).replace(/\//g, "\\");
+    const contentHash = (value) => {
+      const content = String(value || "");
+      return content
+        ? crypto.createHash("sha1").update(content).digest("hex").slice(0, 16)
+        : "";
+    };
+    const normalizeApp = (value) =>
+      normalizeLower(value)
+        .replace(/\.exe$/i, "")
+        .replace(/^(app|aplicativo|programa|browser|navegador)\s+/i, "")
+        .replace(/[^a-z0-9]+/g, "");
+
+    return {
+      type: normalizeLower(action?.type),
+      app: normalizeApp(action?.app),
+      path: normalizePath(action?.path),
+      command: normalizeText(action?.command),
+      runner: normalizeLower(action?.runner),
+      url: normalizeLower(action?.url),
+      level: normalizeNumber(action?.level),
+      delta: normalizeNumber(action?.delta),
+      muted: normalizeBoolean(action?.muted),
+      preset: normalizeLower(action?.preset),
+      action: normalizeLower(action?.action),
+      kind: normalizeLower(action?.kind),
+      contentHash: ["write_file", "append_file"].includes(normalizeLower(action?.type))
+        ? contentHash(action?.content)
+        : "",
+      editsHash: normalizeLower(action?.type) === "file_edit" ? contentHash(JSON.stringify(action?.edits || [])) : "",
+      patchHash: normalizeLower(action?.type) === "apply_patch" ? contentHash(action?.patch || "") : "",
+      session: normalizeLower(action?.session),
+      job: normalizeLower(action?.job),
+      shell: normalizeBoolean(action?.shell),
+      args: Array.isArray(action?.args) ? action.args.map((entry) => normalizeText(entry)) : []
+    };
+  }
+
+  _sanitizeBatchActions(actions = []) {
+    const unique = [];
+    const seen = new Set();
+    const singularTypes = new Set();
+
+    for (const action of actions) {
+      const signature = JSON.stringify(this._actionSignaturePayload(action));
+      if (seen.has(signature)) {
+        continue;
+      }
+      seen.add(signature);
+
+      const type = String(action?.type || "").trim().toLowerCase();
+      if (["set_volume", "set_preview_device"].includes(type)) {
+        if (singularTypes.has(type)) {
+          continue;
+        }
+        singularTypes.add(type);
+      }
+
+      unique.push(action);
+    }
+
+    return unique;
+  }
+
+  _getLatestVisibleUserText(chat) {
+    const messages = Array.isArray(chat?.messages) ? chat.messages : [];
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message?.kind === "user" && !message.hidden) {
+        return String(message.content || "");
+      }
+    }
+    return "";
+  }
+
+  _isReadOnlyAction(action) {
+    const type = String(action?.type || "").trim();
+    return [
+      "read_file",
+      "list_directory",
+      "glob_files",
+      "grep_files",
+      "background_command_logs",
+      "verify_file",
+      "verify_url",
+      "verify_site",
+      "browser_check",
+      "verify_browser_console",
+      "mcp_list_tools",
+      "web_fetch",
+      "web_search"
+    ].includes(type);
+  }
+
+  _isSelfContainedAction(action) {
+    const type = String(action?.type || "").trim();
+    return [
+      "launch_app",
+      "open_url",
+      "open_path",
+      "reveal_path",
+      "system_query",
+      "set_volume",
+      "set_preview_device",
+      "media_control",
+      "run_command",
+      "terminal_close"
+    ].includes(type);
+  }
+
+  _looksLikeNoOpResult(action, result) {
+    const type = String(action?.type || "").trim();
+    const text = String(result || "");
+    if (type === "set_volume") {
+      return /Volume atualizado:\s*(\d+)\s*->\s*\1\b/i.test(text);
+    }
+    if (type === "background_command_start") {
+      return /ja esta rodando/i.test(text);
+    }
+    if (type === "terminal_open") {
+      return /Sessao de terminal pronta/i.test(text);
+    }
+    return false;
+  }
+
+  _getExecutedActionState(chatId, runId) {
+    const current = this.executedActionGuards.get(chatId);
+    if (current?.runId === runId) {
+      return current;
+    }
+    const next = {
+      runId,
+      actions: new Map()
+    };
+    this.executedActionGuards.set(chatId, next);
+    return next;
+  }
+
+  _recordExecutedAction(chatId, runId, action, ok, result) {
+    if (!this._isCurrentRun(chatId, runId) || this._isReadOnlyAction(action)) {
+      return;
+    }
+    const state = this._getExecutedActionState(chatId, runId);
+    const signature = this._batchSignature([action]);
+    const previous = state.actions.get(signature) || {
+      okCount: 0,
+      failCount: 0,
+      lastResult: "",
+      lastAt: 0
+    };
+    state.actions.set(signature, {
+      okCount: previous.okCount + (ok ? 1 : 0),
+      failCount: previous.failCount + (ok ? 0 : 1),
+      lastResult: String(result || ""),
+      lastAt: Date.now()
+    });
+  }
+
+  _hasSuccessfulActionAlready(chatId, runId, action) {
+    if (this._isReadOnlyAction(action)) {
+      return false;
+    }
+    const state = this.executedActionGuards.get(chatId);
+    if (!state || state.runId !== runId) {
+      return false;
+    }
+    const signature = this._batchSignature([action]);
+    const previous = state.actions.get(signature);
+    return Boolean(previous?.okCount);
+  }
+
+  _hasFailedActionAlready(chatId, runId, action) {
+    if (this._isReadOnlyAction(action)) {
+      return null;
+    }
+    const state = this.executedActionGuards.get(chatId);
+    if (!state || state.runId !== runId) {
+      return null;
+    }
+    const signature = this._batchSignature([action]);
+    const previous = state.actions.get(signature);
+    if (!previous?.failCount || previous.okCount) {
+      return null;
+    }
+    return previous;
+  }
+
+  _shouldContinueAfterBatch(batch, results) {
+    if (!batch.continueAfterExecution) {
+      return false;
+    }
+    if (!results.length) {
+      return false;
+    }
+    if (results.some((entry) => entry.duplicateIgnored)) {
+      return false;
+    }
+    if (results.some((entry) => /Repeticao bloqueada para evitar loop/i.test(String(entry.result || "")))) {
+      return false;
+    }
+    if (batch.continueAfterExecution === "on_problem") {
+      return results.some((entry) => !entry.ok);
+    }
+    if (batch.actions.every((action) => this._isSelfContainedAction(action))) {
+      return false;
+    }
+    if (results.every((entry) => entry.ok && this._looksLikeNoOpResult(entry.action, entry.result))) {
+      return false;
+    }
+    return true;
+  }
+
+  _registerLoopGuard(chatId, signature, chainDepth) {
+    const signatureText = String(signature || "");
+    const isChessChain = /"type"\s*:\s*"browser_harness"[\s\S]{0,240}"command"\s*:\s*"(?:chess_|wait_chess_turn|click_square)/i.test(signatureText) ||
+      /\bbrowser_chess_(?:state|move|wait_turn)\b/i.test(signatureText);
+    const maxChainDepth = isChessChain ? MAX_CHESS_AUTO_CHAIN_DEPTH : MAX_AUTO_CHAIN_DEPTH;
+    const maxBatches = isChessChain ? MAX_CHESS_AUTO_BATCHES_PER_TURN : MAX_AUTO_BATCHES_PER_TURN;
+    const maxRepeats = isChessChain ? MAX_CHESS_REPEAT_BATCH_SIGNATURE : MAX_REPEAT_BATCH_SIGNATURE;
+    const previous = this.loopGuards.get(chatId) || {
+      lastSignature: null,
+      repeatCount: 0,
+      total: 0
+    };
+    const next = {
+      lastSignature: signature,
+      repeatCount: previous.lastSignature === signature ? previous.repeatCount + 1 : 1,
+      total: previous.total + 1
+    };
+    this.loopGuards.set(chatId, next);
+
+    if (chainDepth >= maxChainDepth) {
+      return {
+        ok: false,
+        reason: `O agente atingiu o limite de ${maxChainDepth} continuacoes automaticas nesta tarefa.`
+      };
+    }
+
+    if (next.total > maxBatches) {
+      return {
+        ok: false,
+        reason: "O agente tentou executar ferramentas demais no mesmo turno e foi interrompido por seguranca."
+      };
+    }
+
+    if (next.repeatCount > maxRepeats) {
+      return {
+        ok: false,
+        reason: "O agente repetiu a mesma acao varias vezes seguidas. A execucao foi interrompida para evitar loop."
+      };
+    }
+
+    return {
+      ok: true
+    };
+  }
+
+  async sendMessage(options = {}) {
+    const chat = this.getChat(options.chatId);
+    const text = String(options.text || "").trim();
+    const attachmentPaths = Array.isArray(options.attachmentPaths)
+      ? options.attachmentPaths.map(String).filter(Boolean)
+      : [];
+
+    if (!text && !attachmentPaths.length) {
+      throw new Error("Digite uma mensagem ou anexe um arquivo antes de enviar.");
+    }
+
+    const provider = executionProviderForSettings(this.state.settings);
+    const submissionSignature = this._submissionSignature(provider, text, attachmentPaths);
+    if (this._isDuplicateSubmission(chat.id, submissionSignature)) {
+      return this.getPublicState({ hasCloudApiKey: Boolean(options.cloudApiKey) });
+    }
+    this._startSubmission(chat.id, submissionSignature);
+
+    try {
+      this._clearTurnGuards(chat.id);
+      const runId = this._bumpRunId(chat.id);
+
+      const active = this.activeControllers.get(chat.id);
+      if (active?.controller) {
+        try {
+          active.controller.abort();
+        } catch {}
+        this.activeControllers.delete(chat.id);
+      }
+      for (const [messageId, batch] of this.pendingBatches.entries()) {
+        if (batch.chatId === chat.id) {
+          this.pendingBatches.delete(messageId);
+        }
+      }
+
+      if (String(text).startsWith("/") && isRuntimeSlashCommand(text)) {
+        const response = await runSlashCommand(this, chat, text);
+        chat.messages.push(
+          normalizeMessage({
+            kind: "assistant",
+            content: response,
+            timestamp: Date.now()
+          })
+        );
+        chat.updatedAt = Date.now();
+        this._emitRuntimeEvent(chat.id, {
+          type: "message_final",
+          content: response
+        });
+        return this.getPublicState({ hasCloudApiKey: Boolean(options.cloudApiKey) });
+      }
+
+      if (chat.title === "Nova sessao") {
+        const titleSeed = text || path.basename(attachmentPaths[0] || "") || "Nova sessao";
+        chat.title = titleSeed.slice(0, 56);
+      }
+
+      chat.provider = provider;
+      chat.activeRoute = detectRoute(text);
+      const chatWorkspaceRoot = this._getChatWorkspaceRoot(chat);
+      const optimisticAttachments = attachmentPaths.map((entry) =>
+        normalizeAttachment({
+          type: "file",
+          filename: path.basename(entry),
+          path: entry
+        })
+      );
+      const userMessage = this._upsertVisibleUserMessage(
+        chat,
+        text || "(anexo enviado)",
+        optimisticAttachments,
+        chat.provider === "cloud"
+      );
+
+      this._setChatStatus(chat, "running", {
+        provider: chat.provider
+      });
+
+      const controller = new AbortController();
+      this._attachController(chat.id, controller, runId);
+
+      void this.agentRuntime.run({
+        chat,
+        userText: text,
+        attachmentPaths,
+        userMessageId: userMessage.id,
+        provider: chat.provider,
+        cloudApiKey: options.cloudApiKey,
+        route: chat.activeRoute,
+        signal: controller.signal,
+        chainDepth: 0,
+        runId
+      });
+
+      return this.getPublicState({ hasCloudApiKey: Boolean(options.cloudApiKey) });
+    } finally {
+      this._finishSubmission(chat.id, submissionSignature);
+    }
+  }
+
+  async _runTurn(chat, context) {
+    try {
+      return await this.agentRuntime.runProviderTurn(chat, context);
+    } finally {
+      this._finishRun(chat.id, context.runId);
+    }
+  }
+
+  async _registerOrRunBatch(chat, message, context) {
+    return await this.agentRuntime.registerOrRunBatch(chat, message, context);
+  }
+
+  async runSuggestedAction(options = {}) {
+    return await this.agentRuntime.runSuggestedAction(options);
+  }
+
+  async _executeBatch(batch) {
+    return await this.agentRuntime.executeBatch(batch);
+  }
+
+  _buildBatchSummary(results, chat = null) {
+    return this.agentRuntime.buildBatchSummary(results, chat);
+  }
+
+  async _continueAfterBatch(chat, batch, results) {
+    return await this.agentRuntime.continueAfterBatch(chat, batch, results);
+  }
+
+  async stopChat(chatId) {
+    const chat = this.state.chats.find((entry) => entry.id === chatId);
+    if (!chat) {
+      return this.getSnapshot();
+    }
+
+    this._markStopped(chatId);
+    this._bumpRunId(chatId);
+    const active = this.activeControllers.get(chatId);
+    if (active?.controller) {
+      active.controller.abort();
+      this.activeControllers.delete(chatId);
+    }
+    for (const [messageId, batch] of this.pendingBatches.entries()) {
+      if (batch.chatId === chatId) {
+        this.pendingBatches.delete(messageId);
+      }
+    }
+
+    let localStopSummary = "";
+    try {
+      const localStop = await stopLocalActivityForChat(chatId, "chat_stop");
+      localStopSummary = localStop.summary;
+      if (localStop.stoppedJobs.length || localStop.closedTerminals.length) {
+        this._emitRuntimeEvent(chatId, {
+          type: "tool_call_finished",
+          action: { type: "stop_all_local_activity" },
+          ok: true,
+          result: localStop.summary
+        });
+        this.emit("state_changed", {
+          type: "local_activity_stopped",
+          chatId
+        });
+      }
+    } catch (error) {
+      localStopSummary = error.message || "Falha ao interromper atividade local do chat.";
+      this._emitRuntimeEvent(chatId, {
+        type: "error",
+        message: localStopSummary
+      });
+    }
+
+    chat.status = "stopped";
+    chat.updatedAt = Date.now();
+    const agent = this._syncAgentFromChat(chatId);
+    this._emitRuntimeEvent(chatId, {
+      type: "stopped",
+      reason: "user",
+      localStopSummary
+    });
+    if (agent) {
+      const index = this.state.agents.findIndex((entry) => entry.id === agent.id);
+      if (index >= 0) {
+        this.state.agents[index] = normalizeAgent({
+          ...this.state.agents[index],
+          status: "stopped",
+          updatedAt: Date.now()
+        });
+      }
+      this.emit("state_changed", {
+        type: "agent_finished",
+        agentId: agent.id,
+        chatId
+      });
+    }
+    return this.getSnapshot();
+  }
+}
+
+module.exports = {
+  DreamRuntime
+};

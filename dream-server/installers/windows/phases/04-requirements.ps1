@@ -10,6 +10,7 @@
 #   $selectedTier, $tierConfig    -- from phase 02
 #   $gpuInfo, $systemRamGB        -- from phase 02
 #   $enableVoice, $enableWorkflows, $enableRag  -- from phase 03
+#   $enableDesktop                -- from phase 03
 #   $installDir                   -- from orchestrator context
 #   $force, $nonInteractive, $dryRun
 #
@@ -149,6 +150,9 @@ if ($enableRag) {
 }
 if ($enableOpenClaw) {
     $_portsToCheck["OpenClaw (agents)"] = 7860
+}
+if ($enableDesktop) {
+    $_portsToCheck["Dream Server DESKTOP"] = 3011
 }
 
 $_portConflicts = @()
