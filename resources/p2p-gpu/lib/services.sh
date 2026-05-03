@@ -91,6 +91,37 @@ _ensure_opencode_web_running() {
   fi
 }
 
+_normalize_dashboard_api_port_envs() {
+  local env_file="$1"
+
+  [[ -f "$env_file" ]] || return 0
+
+  python3 - "$env_file" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+pattern = re.compile(r'^([A-Z0-9_]+_PORT)=(\d+)\s+#.*$')
+changed = []
+lines = []
+
+for line in text.splitlines():
+    match = pattern.match(line)
+    if match:
+      line = f"{match.group(1)}={match.group(2)}"
+      changed.append(match.group(1))
+    lines.append(line)
+
+new_text = "\n".join(lines) + ("\n" if text.endswith("\n") else "")
+if new_text != text:
+    path.write_text(new_text)
+    if changed:
+        print("\n".join(changed))
+PY
+}
+
 # Read a field from a manifest.yaml service: block
 read_manifest_field() {
   local manifest="$1" field="$2"
@@ -446,6 +477,14 @@ start_services() {
         "control-plane services" dashboard-api dashboard open-webui \
         || warn "control-plane compose up also failed (non-fatal)"
     fi
+  fi
+
+  local normalized_ports
+  normalized_ports=$(_normalize_dashboard_api_port_envs "$env_file")
+  if [[ -n "$normalized_ports" ]]; then
+    log "Normalized commented port env values in .env: ${normalized_ports//$'\n'/, }"
+    docker restart dream-dashboard-api >/dev/null 2>&1 || warn "dashboard-api restart failed (non-fatal)"
+    docker restart dream-dashboard >/dev/null 2>&1 || warn "dashboard restart failed (non-fatal)"
   fi
 
   # If compose exited early, some containers may be left in Created state.
