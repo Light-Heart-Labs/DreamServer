@@ -27,6 +27,25 @@ done
 # ss is part of iproute2
 command -v ss &>/dev/null || pkgs_needed+=("iproute2")
 
+# Vast.ai instances often ship with stale PPAs (e.g. graphics-drivers) that
+# timeout during apt-get update and cause hard failures under set -e.
+# The GPU driver is already installed — these PPAs are not needed.
+for stale_ppa in graphics-drivers; do
+  if ls /etc/apt/sources.list.d/${stale_ppa}* &>/dev/null; then
+    rm -f /etc/apt/sources.list.d/${stale_ppa}*
+    log "Removed stale PPA: ${stale_ppa} (not needed — driver already installed)"
+  fi
+done
+
+# unattended-upgrades can hold the dpkg lock for minutes on fresh Vast.ai
+# instances. Kill it rather than waiting 300s — these are ephemeral boxes.
+if fuser /var/lib/dpkg/lock-frontend &>/dev/null; then
+  log "dpkg lock held by another process — killing unattended-upgrades"
+  killall -9 unattended-upgrades apt-get dpkg 2>>"$LOGFILE" || warn "killall did not find target processes (expected)"
+  sleep 2
+  dpkg --configure -a 2>>"$LOGFILE" || warn "dpkg --configure -a failed (non-fatal)"
+fi
+
 if [[ ${#pkgs_needed[@]} -gt 0 ]]; then
   # unattended-upgrades may briefly hold dpkg lock on fresh hosts.
   apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT:-300}" update -qq 2>>"$LOGFILE"
