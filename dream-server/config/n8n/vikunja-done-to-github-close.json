@@ -1,0 +1,132 @@
+{
+  "name": "Vikunja Task Done → GitHub Issue Close",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vikunja-task-done",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Webhook /vikunja-task-done",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "vikunja-task-done"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Vikunja outgoing webhook payload (event=task.updated):\n// { event_name, time, data: { task: { id, title, description, done, ... } } }\nconst body = $input.first().json.body || $input.first().json;\nconst event = body.event_name || body.event || '';\nconst task = (body.data && body.data.task) || body.task;\nif (!task) { throw new Error('Vikunja webhook payload has no `task`'); }\nif (event !== 'task.updated' && event !== 'task.created') {\n  return [{ json: { skipped: true, reason: `event=${event}` } }];\n}\nif (!task.done) {\n  return [{ json: { skipped: true, reason: 'task not done' } }];\n}\n\n// Pull the GitHub issue URL out of the description (placed there by the\n// `GitHub Issue → Vikunja Task` workflow).\nconst desc = task.description || '';\nconst m = desc.match(/(https?:\\/\\/github\\.com\\/([^/\\s]+)\\/([^/\\s]+)\\/issues\\/(\\d+))/);\nif (!m) {\n  return [{ json: { skipped: true, reason: 'no GitHub issue URL in description' } }];\n}\nreturn [{ json: { issue_url: m[1], owner: m[2], repo: m[3], number: parseInt(m[4], 10), task_id: task.id } }];"
+      },
+      "id": "extract",
+      "name": "Extract GitHub URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "skip",
+              "leftValue": "={{ $json.skipped }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notEqual" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "should",
+      "name": "Should close?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.github.com/repos/{{ $json.owner }}/{{ $json.repo }}/issues/{{ $json.number }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.GITHUB_TOKEN }}" },
+            { "name": "Accept",        "value": "application/vnd.github+json" },
+            { "name": "X-GitHub-Api-Version", "value": "2022-11-28" },
+            { "name": "User-Agent",    "value": "dream-server-n8n" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ state: 'closed', state_reason: 'completed' }) }}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "close-issue",
+      "name": "GitHub: close issue",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 220]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, closed: $json.html_url }) }}",
+        "options": { "responseCode": 200 }
+      },
+      "id": "respond-ok",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 220]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, skipped: true, reason: $json.reason || 'no action' }) }}",
+        "options": { "responseCode": 200 }
+      },
+      "id": "respond-skip",
+      "name": "Respond Skipped",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 420]
+    },
+    {
+      "parameters": {
+        "content": "## Vikunja Task Done → GitHub Issue Close\n\n**Webhook URL:** `http://<host>:5678/webhook/vikunja-task-done`\n\n**Vikunja setup:**\n1. In Vikunja UI → Project → Settings → Webhooks → Add\n2. URL: the webhook URL above (use the docker-internal one if Vikunja can reach n8n: `http://n8n:5678/webhook/vikunja-task-done`)\n3. Events: **Task updated** (and optionally Task created)\n\n**Required env (passed into n8n container):**\n- `GITHUB_TOKEN` — fine-grained PAT with `Issues: Write` on the relevant repos\n\nFinds the GitHub issue URL in the task description (placed there by the create-flow) and closes the issue with `state_reason: completed`.",
+        "height": 320,
+        "width": 480
+      },
+      "id": "doc",
+      "name": "Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, 540]
+    }
+  ],
+  "connections": {
+    "Webhook /vikunja-task-done": { "main": [[{ "node": "Extract GitHub URL", "type": "main", "index": 0 }]] },
+    "Extract GitHub URL":         { "main": [[{ "node": "Should close?",      "type": "main", "index": 0 }]] },
+    "Should close?": {
+      "main": [
+        [{ "node": "GitHub: close issue", "type": "main", "index": 0 }],
+        [{ "node": "Respond Skipped",     "type": "main", "index": 0 }]
+      ]
+    },
+    "GitHub: close issue": { "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]] }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "executionTimeout": 60
+  },
+  "meta": {
+    "templateId": "vikunja-done-to-github-close",
+    "description": "Reverse-direction sync: when a Vikunja task is marked done and its description contains a GitHub issue URL, close that issue."
+  },
+  "tags": [{ "name": "github" }, { "name": "vikunja" }, { "name": "sync" }]
+}
+

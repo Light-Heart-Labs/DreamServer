@@ -14,7 +14,7 @@ services:
       - GGUF_FILE=${GGUF_FILE:-}
       - OLLAMA_URL=${LLM_API_URL:-http://llama-server:8080}
       - OPENCLAW_LLM_URL=${OPENCLAW_LLM_URL:-}
-      - OPENCLAW_HTTP_API=${OPENCLAW_HTTP_API:-}
+      - OPENCLAW_HTTP_API=${OPENCLAW_HTTP_API:-true}
       - LITELLM_KEY=${LITELLM_KEY:-}
       - SEARXNG_BASE_URL=http://searxng:8080
       - OPENCLAW_EXTERNAL_PORT=${OPENCLAW_PORT:-7860}

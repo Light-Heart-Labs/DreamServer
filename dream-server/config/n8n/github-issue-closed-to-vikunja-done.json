@@ -1,0 +1,194 @@
+{
+  "name": "GitHub Issue Closed → Vikunja Done",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "github-vikunja-close",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Webhook /github-vikunja-close",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "github-vikunja-close"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract closure event from a GitHub Issues webhook payload.\nconst body = $input.first().json.body || $input.first().json;\nconst action = body.action;\nconst issue = body.issue;\nif (!issue) { throw new Error('No `issue` field in payload'); }\n\nif (action !== 'closed') {\n  return [{ json: { skipped: true, reason: `action=${action}` } }];\n}\nreturn [{ json: { issue_url: issue.html_url, issue_number: issue.number } }];"
+      },
+      "id": "filter",
+      "name": "Filter: closed only",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "skip",
+              "leftValue": "={{ $json.skipped }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notEqual" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "is-close",
+      "name": "Is close event?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=http://vikunja:3456/api/v1/tasks/all",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "s", "value": "={{ $json.issue_url }}" },
+            { "name": "page", "value": "1" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.VIKUNJA_API_TOKEN }}" }
+          ]
+        },
+        "options": { "timeout": 15000 }
+      },
+      "id": "search",
+      "name": "Vikunja: search by issue URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Vikunja /tasks/all returns an array of matching tasks. We pick the first\n// task whose description contains the issue URL (defensive: search may match\n// loosely).\nconst issueUrl = $('Filter: closed only').first().json.issue_url;\nconst tasks = $input.first().json;\nif (!Array.isArray(tasks) || tasks.length === 0) {\n  return [{ json: { not_found: true, issue_url: issueUrl } }];\n}\nconst match = tasks.find(t => (t.description || '').includes(issueUrl)) || tasks[0];\nreturn [{ json: { task_id: match.id, title: match.title } }];"
+      },
+      "id": "extract-task",
+      "name": "Pick matching task",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 220]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "found",
+              "leftValue": "={{ $json.task_id }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "found",
+      "name": "Found task?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1340, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://vikunja:3456/api/v1/tasks/{{ $json.task_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.VIKUNJA_API_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ done: true }) }}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "mark-done",
+      "name": "Vikunja: mark done",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 140]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, vikunja_task_id: $json.id, done: true }) }}",
+        "options": { "responseCode": 200 }
+      },
+      "id": "respond-ok",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1780, 140]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, skipped: true, reason: $json.reason || 'no matching task' }) }}",
+        "options": { "responseCode": 200 }
+      },
+      "id": "respond-skip",
+      "name": "Respond Skipped",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1340, 460]
+    },
+    {
+      "parameters": {
+        "content": "## GitHub Issue Closed → Vikunja Done\n\n**Webhook URL:** `http://<host>:5678/webhook/github-vikunja-close`\n\nFinds the Vikunja task that was created from this GitHub issue (matched by issue URL embedded in the task description by the companion `GitHub Issue → Vikunja Task` workflow) and toggles `done: true`.\n\nUse the same GitHub webhook config as the create-flow (Issues events, JSON payload). You can point both URLs to the same GitHub webhook — each n8n flow filters by `action`.",
+        "height": 280,
+        "width": 480
+      },
+      "id": "doc",
+      "name": "Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, 540]
+    }
+  ],
+  "connections": {
+    "Webhook /github-vikunja-close": { "main": [[{ "node": "Filter: closed only",        "type": "main", "index": 0 }]] },
+    "Filter: closed only":           { "main": [[{ "node": "Is close event?",            "type": "main", "index": 0 }]] },
+    "Is close event?": {
+      "main": [
+        [{ "node": "Vikunja: search by issue URL", "type": "main", "index": 0 }],
+        [{ "node": "Respond Skipped",              "type": "main", "index": 0 }]
+      ]
+    },
+    "Vikunja: search by issue URL":  { "main": [[{ "node": "Pick matching task",         "type": "main", "index": 0 }]] },
+    "Pick matching task":            { "main": [[{ "node": "Found task?",                "type": "main", "index": 0 }]] },
+    "Found task?": {
+      "main": [
+        [{ "node": "Vikunja: mark done", "type": "main", "index": 0 }],
+        [{ "node": "Respond Skipped",    "type": "main", "index": 0 }]
+      ]
+    },
+    "Vikunja: mark done":            { "main": [[{ "node": "Respond OK",                 "type": "main", "index": 0 }]] }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "executionTimeout": 60
+  },
+  "meta": {
+    "templateId": "github-issue-closed-to-vikunja-done",
+    "description": "Closes the matching Vikunja task when a GitHub issue is closed. Pairs with `GitHub Issue → Vikunja Task`."
+  },
+  "tags": [{ "name": "github" }, { "name": "vikunja" }, { "name": "sync" }]
+}
+

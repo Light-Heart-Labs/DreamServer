@@ -1,0 +1,130 @@
+{
+  "name": "GitHub Issue → Vikunja Task",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "github-vikunja-issue",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Webhook /github-vikunja-issue",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "github-vikunja-issue"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Map a GitHub Issue payload to a Vikunja task creation request.\n//\n// Configure the repo→project map below. Keys are GitHub `full_name`\n// (org/repo). Values are Vikunja project IDs.\n//\n// You can also pass `?project=<id>` as a query string on the webhook URL\n// to override the mapping per-hook.\nconst REPO_TO_PROJECT = {\n  // 'CodeDredd/DreamServer': 1,\n  // 'CodeDredd/openclaw': 2,\n};\nconst DEFAULT_PROJECT_ID = parseInt($env.VIKUNJA_DEFAULT_PROJECT_ID || '1', 10);\n\nconst body = $input.first().json.body || $input.first().json;\nconst query = $input.first().json.query || {};\nconst issue = body.issue;\nconst action = body.action;\nif (!issue) { throw new Error('Payload has no `issue` — is this a GitHub issue webhook?'); }\nif (action !== 'opened' && action !== 'reopened') {\n  // Skip — only react to new/reopened issues. Other workflows handle close.\n  return [{ json: { skipped: true, action } }];\n}\n\nconst repo = (body.repository && body.repository.full_name) || '';\nconst projectId = parseInt(query.project || REPO_TO_PROJECT[repo] || DEFAULT_PROJECT_ID, 10);\n\nconst labels = (issue.labels || []).map(l => l.name).filter(Boolean);\nconst description = [\n  `**GitHub Issue:** ${issue.html_url}`,\n  '',\n  `**Repo:** ${repo}`,\n  `**Author:** @${(issue.user && issue.user.login) || 'unknown'}`,\n  labels.length ? `**Labels:** ${labels.map(l => `\\`${l}\\``).join(', ')}` : '',\n  '',\n  '---',\n  '',\n  issue.body || '_(no description)_',\n].filter(Boolean).join('\\n');\n\nreturn [{\n  json: {\n    project_id: projectId,\n    task: {\n      title: `[${repo.split('/').pop() || 'issue'}] ${issue.title}`,\n      description,\n    },\n    _meta: { issue_url: issue.html_url, issue_number: issue.number, repo },\n  },\n}];"
+      },
+      "id": "build-task",
+      "name": "Build Vikunja Task",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "skip",
+              "leftValue": "={{ $json.skipped }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notEqual" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "should-create",
+      "name": "Should create task?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=http://vikunja:3456/api/v1/projects/{{ $json.project_id }}/tasks",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.VIKUNJA_API_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.task) }}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "create-task",
+      "name": "Vikunja: PUT /tasks",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 220]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, vikunja_task_id: $json.id, title: $json.title }) }}",
+        "options": { "responseCode": 200 }
+      },
+      "id": "respond-ok",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 220]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, skipped: true, reason: $json.action || 'not opened/reopened' }) }}",
+        "options": { "responseCode": 200 }
+      },
+      "id": "respond-skip",
+      "name": "Respond Skipped",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 420]
+    },
+    {
+      "parameters": {
+        "content": "## GitHub Issue → Vikunja Task\n\n**Webhook URL:** `http://<host>:5678/webhook/github-vikunja-issue`\n\n**GitHub setup:**\n1. Repo → Settings → Webhooks → Add webhook\n2. Payload URL: the webhook URL above (LAN-reachable from GitHub if public, or use a tunnel)\n3. Content type: `application/json`\n4. Events: `Issues` only\n\n**Repo → Project mapping:** edit the `REPO_TO_PROJECT` object in the Code node.\n\n**Override per-hook:** add `?project=42` to the webhook URL.\n\n**Required env (passed into n8n container):**\n- `VIKUNJA_API_TOKEN` — Vikunja Bearer token (write scope on tasks/projects)\n- `VIKUNJA_DEFAULT_PROJECT_ID` — fallback project id (default: 1)\n\nReacts only to `opened`/`reopened`. Closing issues is handled by the\n`GitHub Issue Closed → Vikunja Done` workflow.",
+        "height": 420,
+        "width": 480
+      },
+      "id": "doc",
+      "name": "Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, 540]
+    }
+  ],
+  "connections": {
+    "Webhook /github-vikunja-issue": { "main": [[{ "node": "Build Vikunja Task", "type": "main", "index": 0 }]] },
+    "Build Vikunja Task":            { "main": [[{ "node": "Should create task?", "type": "main", "index": 0 }]] },
+    "Should create task?": {
+      "main": [
+        [{ "node": "Vikunja: PUT /tasks", "type": "main", "index": 0 }],
+        [{ "node": "Respond Skipped",     "type": "main", "index": 0 }]
+      ]
+    },
+    "Vikunja: PUT /tasks": { "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]] }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "executionTimeout": 60
+  },
+  "meta": {
+    "templateId": "github-issue-to-vikunja-task",
+    "description": "Receives GitHub Issue webhooks and creates corresponding tasks in Vikunja. Repo→Project mapping is configurable inside the Code node."
+  },
+  "tags": [{ "name": "github" }, { "name": "vikunja" }, { "name": "sync" }]
+}
+

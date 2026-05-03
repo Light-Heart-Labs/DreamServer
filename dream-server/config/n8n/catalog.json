@@ -636,6 +636,50 @@
           }
         ]
       }
+    },
+    {
+      "id": "github-issue-to-vikunja-task",
+      "file": "github-issue-to-vikunja-task.json",
+      "name": "GitHub Issue → Vikunja Task",
+      "description": "Receives GitHub Issue webhooks and creates corresponding tasks in a Vikunja project. Repo→Project mapping is configurable.",
+      "icon": "GitPullRequest",
+      "category": "sync",
+      "dependencies": ["vikunja", "n8n"],
+      "setupTime": "5 minutes",
+      "featured": true
+    },
+    {
+      "id": "github-issue-closed-to-vikunja-done",
+      "file": "github-issue-closed-to-vikunja-done.json",
+      "name": "GitHub Issue Closed → Vikunja Done",
+      "description": "Closes the matching Vikunja task when its source GitHub issue is closed. Pairs with the create-flow.",
+      "icon": "CheckCircle",
+      "category": "sync",
+      "dependencies": ["vikunja", "n8n"],
+      "setupTime": "2 minutes",
+      "featured": false
+    },
+    {
+      "id": "vikunja-done-to-github-close",
+      "file": "vikunja-done-to-github-close.json",
+      "name": "Vikunja Task Done → GitHub Issue Close",
+      "description": "Reverse-direction sync: Vikunja outgoing webhook closes the linked GitHub issue when a task is marked done.",
+      "icon": "GitMerge",
+      "category": "sync",
+      "dependencies": ["vikunja", "n8n"],
+      "setupTime": "3 minutes",
+      "featured": false
+    },
+    {
+      "id": "vikunja-task-to-coding-agent",
+      "file": "vikunja-task-to-coding-agent.json",
+      "name": "Vikunja Task → Coding Agent (Open Claw)",
+      "description": "Dispatches Vikunja tasks tagged with the `agent` label to Open Claw's OpenAI-compatible API and posts the response back as a task comment.",
+      "icon": "Bot",
+      "category": "agents",
+      "dependencies": ["vikunja", "openclaw", "n8n"],
+      "setupTime": "5 minutes",
+      "featured": true
     }
   ],
   "categories": {
@@ -666,6 +710,10 @@
     "agents": {
       "name": "Agents",
       "description": "Autonomous AI agents and multi-step reasoning workflows"
+    },
+    "sync": {
+      "name": "Sync",
+      "description": "Two-way synchronization between external services and Dream Server"
     }
   }
 }

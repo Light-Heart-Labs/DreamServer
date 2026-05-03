@@ -1,0 +1,164 @@
+{
+  "name": "Vikunja Task → Coding Agent (Open Claw)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vikunja-to-agent",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Webhook /vikunja-to-agent",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "vikunja-to-agent"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Vikunja outgoing webhook payload (event=task.updated|task.created):\n// { event_name, time, data: { task: { id, title, description, labels, done, ... } } }\n//\n// Trigger condition: task has a label called `agent` (case-insensitive) AND\n// is not already done. The `agent` label is consumed (we set done:false +\n// post a comment) — but we leave the label on the task so you can re-trigger\n// by toggling done back to false.\nconst body = $input.first().json.body || $input.first().json;\nconst event = body.event_name || body.event || '';\nconst task = (body.data && body.data.task) || body.task;\nif (!task) { throw new Error('No `task` in webhook payload'); }\nif (event !== 'task.created' && event !== 'task.updated') {\n  return [{ json: { skipped: true, reason: `event=${event}` } }];\n}\nif (task.done) {\n  return [{ json: { skipped: true, reason: 'task already done' } }];\n}\n\nconst labels = (task.labels || []).map(l => (l.title || l.name || '').toLowerCase());\nconst TRIGGER = ($env.AGENT_TRIGGER_LABEL || 'agent').toLowerCase();\nif (!labels.includes(TRIGGER)) {\n  return [{ json: { skipped: true, reason: `no '${TRIGGER}' label` } }];\n}\n\nconst systemPrompt = $env.AGENT_SYSTEM_PROMPT ||\n  'You are a senior software engineer assistant. The user will give you a coding task. ' +\n  'Respond with: 1) a short plan, 2) the concrete code changes (use diffs or full file contents with paths), ' +\n  '3) any commands the user should run. Be precise and minimal.';\n\nreturn [{\n  json: {\n    task_id: task.id,\n    task_title: task.title,\n    chat: {\n      model: $env.AGENT_MODEL || 'openclaw',\n      messages: [\n        { role: 'system', content: systemPrompt },\n        { role: 'user',   content: `# ${task.title}\\n\\n${task.description || '(no description)'}` },\n      ],\n      temperature: 0.2,\n      stream: false,\n    },\n  },\n}];"
+      },
+      "id": "build",
+      "name": "Build agent request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "skip",
+              "leftValue": "={{ $json.skipped }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notEqual" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "should",
+      "name": "Should dispatch?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AGENT_BASE_URL || 'http://openclaw:18790' }}/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.OPENCLAW_TOKEN }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.chat) }}",
+        "options": { "timeout": 600000 }
+      },
+      "id": "agent",
+      "name": "Open Claw: chat/completions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pull the assistant message out of an OpenAI chat completion response.\nconst body = $input.first().json;\nconst content = body && body.choices && body.choices[0] && body.choices[0].message && body.choices[0].message.content;\nif (!content) { throw new Error('Agent returned no content. Body=' + JSON.stringify(body).slice(0, 500)); }\nconst meta = $('Build agent request').first().json;\nreturn [{ json: { task_id: meta.task_id, comment: `🤖 **Agent response** (model: ${meta.chat.model}):\\n\\n${content}` } }];"
+      },
+      "id": "format",
+      "name": "Format comment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 220]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=http://vikunja:3456/api/v1/tasks/{{ $json.task_id }}/comments",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.VIKUNJA_API_TOKEN }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ comment: $json.comment }) }}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "comment",
+      "name": "Vikunja: post comment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 220]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, comment_id: $json.id }) }}",
+        "options": { "responseCode": 200 }
+      },
+      "id": "respond-ok",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1560, 220]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, skipped: true, reason: $json.reason || 'skipped' }) }}",
+        "options": { "responseCode": 200 }
+      },
+      "id": "respond-skip",
+      "name": "Respond Skipped",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 460]
+    },
+    {
+      "parameters": {
+        "content": "## Vikunja Task → Coding Agent\n\nDispatches Vikunja tasks to **Open Claw** (your local coding agent) and posts the response back as a task comment.\n\n**Webhook URL:** `http://<host>:5678/webhook/vikunja-to-agent`\n\n**How to trigger from Vikunja:**\n1. Create a label called `agent` in your Vikunja project (or any name set via `AGENT_TRIGGER_LABEL`).\n2. In Vikunja → Project → Settings → Webhooks → Add:\n   - URL: `http://n8n:5678/webhook/vikunja-to-agent` (docker-internal) or the LAN URL\n   - Events: **Task created**, **Task updated**\n3. Create a new task with a clear description, attach the `agent` label, save.\n4. Within seconds the agent reply appears as a comment on the task.\n\n**Required env (passed into n8n container):**\n- `OPENCLAW_TOKEN` — Open Claw gateway token\n- `VIKUNJA_API_TOKEN` — Vikunja Bearer token\n- (optional) `AGENT_BASE_URL` — default `http://openclaw:18790`\n- (optional) `AGENT_MODEL` — default `openclaw`\n- (optional) `AGENT_TRIGGER_LABEL` — default `agent`\n- (optional) `AGENT_SYSTEM_PROMPT` — overrides the built-in coding-assistant prompt\n\n**Open Claw must expose its OpenAI-compat shim.** Set in `.env`:\n```\nOPENCLAW_HTTP_API=true\n```\nthen `dream restart openclaw`. The shim listens on container port 18790.",
+        "height": 540,
+        "width": 480
+      },
+      "id": "doc",
+      "name": "Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, 540]
+    }
+  ],
+  "connections": {
+    "Webhook /vikunja-to-agent": { "main": [[{ "node": "Build agent request", "type": "main", "index": 0 }]] },
+    "Build agent request":       { "main": [[{ "node": "Should dispatch?",    "type": "main", "index": 0 }]] },
+    "Should dispatch?": {
+      "main": [
+        [{ "node": "Open Claw: chat/completions", "type": "main", "index": 0 }],
+        [{ "node": "Respond Skipped",             "type": "main", "index": 0 }]
+      ]
+    },
+    "Open Claw: chat/completions": { "main": [[{ "node": "Format comment",        "type": "main", "index": 0 }]] },
+    "Format comment":              { "main": [[{ "node": "Vikunja: post comment", "type": "main", "index": 0 }]] },
+    "Vikunja: post comment":       { "main": [[{ "node": "Respond OK",            "type": "main", "index": 0 }]] }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "executionTimeout": 700
+  },
+  "meta": {
+    "templateId": "vikunja-task-to-coding-agent",
+    "description": "Sends Vikunja tasks (filtered by label) to Open Claw's OpenAI-compatible API and posts the agent's response back as a task comment."
+  },
+  "tags": [{ "name": "vikunja" }, { "name": "openclaw" }, { "name": "agent" }, { "name": "coding" }]
+}
+

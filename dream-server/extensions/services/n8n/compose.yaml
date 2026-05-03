@@ -15,6 +15,15 @@ services:
       - N8N_SECURE_COOKIE=${N8N_SECURE_COOKIE:-false}
       - WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://localhost:5678}
       - GENERIC_TIMEZONE=${TIMEZONE:-UTC}
+      # Tokens consumed by built-in workflows (see config/n8n/*.json).
+      # n8n exposes process env to Code/HTTP nodes via {{ $env.NAME }}.
+      - VIKUNJA_API_TOKEN=${VIKUNJA_API_TOKEN:-}
+      - VIKUNJA_DEFAULT_PROJECT_ID=${VIKUNJA_DEFAULT_PROJECT_ID:-1}
+      - OPENCLAW_TOKEN=${OPENCLAW_TOKEN:-}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - AGENT_BASE_URL=${AGENT_BASE_URL:-http://openclaw:18790}
+      - AGENT_MODEL=${AGENT_MODEL:-openclaw}
+      - AGENT_TRIGGER_LABEL=${AGENT_TRIGGER_LABEL:-agent}
     volumes:
       - ./data/n8n:/home/node/.n8n
       - ./config/n8n:/home/node/workflows
