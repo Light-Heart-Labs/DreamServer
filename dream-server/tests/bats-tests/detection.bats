@@ -289,10 +289,10 @@ _setup_amd_sysfs() {
 }
 
 @test "detect_gpu: does not misidentify discrete AMD GPU as APU" {
-    # Future discrete card: 32 GB VRAM, 16 GB GTT — should NOT be an APU
+    # Future discrete card: 32 GB VRAM, 16 GB GTT — should be classified as
+    # a discrete AMD GPU, NOT as an APU/unified-memory device.
     _setup_amd_sysfs $(( 32 * 1073741824 )) $(( 16 * 1073741824 ))
-    run detect_gpu
-    # Falls through to CPU-only (returns failure) — GPU_BACKEND never set to amd
-    assert_failure
-    [[ "${GPU_BACKEND:-cpu}" != "amd" ]]
+    detect_gpu
+    assert_equal "$GPU_BACKEND"     "amd"
+    assert_equal "$GPU_MEMORY_TYPE" "discrete"
 }
