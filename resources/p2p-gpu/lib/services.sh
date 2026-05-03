@@ -433,6 +433,21 @@ start_services() {
   cd "$ds_dir"
   [[ "$gpu_backend" == "auto" ]] && gpu_backend=$(detect_gpu_backend)
 
+  # Last-resort .env permission guard (fatal if fails — compose cannot start without readable .env)
+  if [[ -f "$env_file" ]]; then
+    if [[ "$(stat -c '%U' "$env_file" 2>/dev/null || echo root)" == "root" ]] || \
+       [[ "$(stat -c '%a' "$env_file" 2>/dev/null)" != "660" ]]; then
+      chown "${DREAM_USER}:${DREAM_USER}" "$env_file" || {
+        err ".env is not readable by ${DREAM_USER} (chown in start_services failed) — Docker Compose cannot start"
+        exit 1
+      }
+      chmod 0660 "$env_file" || {
+        err ".env chmod in start_services failed — Docker Compose cannot start"
+        exit 1
+      }
+    fi
+  fi
+
   local gpu_overlay="docker-compose.${gpu_backend}.yml"
   if [[ ! -f "$gpu_overlay" && "$gpu_backend" != "cpu" ]]; then
     warn "GPU overlay ${gpu_overlay} not found — falling back to nvidia"

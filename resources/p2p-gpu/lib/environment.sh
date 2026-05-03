@@ -28,11 +28,11 @@ set -euo pipefail
 # ── [FIX: env-perms] .env management with proper file permissions ───────────
 
 # Set a key in .env idempotently (no duplicates, preserves inode)
-# Creates with 0600 to protect secrets (WEBUI_SECRET, API keys, etc.)
+# Creates with 0660 to protect secrets (WEBUI_SECRET, API keys, etc.) and allow dream user
 env_set() {
   local file="$1" key="$2" value="$3"
   if [[ ! -f "$file" ]]; then
-    install -m 0600 /dev/null "$file"
+    install -m 0660 -o "${DREAM_USER:-root}" -g "${DREAM_USER:-root}" /dev/null "$file"
   fi
   if grep -q "^${key}=" "$file"; then
     # Escape sed delimiter in value to prevent breakage
@@ -200,16 +200,13 @@ compute_safe_cpu_cap() {
   fi
 }
 
-# Fix ownership recursively, only if needed
+# Fix ownership recursively (unconditional to catch nested root-owned files)
 fix_ownership() {
   local dir="$1" user="$2" group="${3:-$2}"
   [[ ! -d "$dir" ]] && return 0
-  local current_owner
-  current_owner=$(stat -c '%U' "$dir" || echo "unknown")
-  if [[ "$current_owner" != "$user" ]]; then
-    # chown may fail on NFS mounts or in containers without CAP_CHOWN
-    chown -R "${user}:${group}" "$dir" || warn "chown failed on ${dir} (non-fatal)"
-  fi
+  # Always apply chown recursively to fix root-owned files inside target-owned directories
+  # chown may fail on NFS mounts or in containers without CAP_CHOWN
+  chown -R "${user}:${group}" "$dir" || warn "chown failed on ${dir} (non-fatal)"
 }
 
 # Wait for a URL to return HTTP 200
@@ -496,6 +493,20 @@ _apply_compatibility_fixes() {
 _apply_env_defaults() {
   local ds_dir="$1" env_file="$2" data_dir="$3"
   [[ ! -f "$env_file" ]] && return 0
+
+  # Fix .env ownership and permissions (fatal if fails — compose cannot start without readable .env)
+  if [[ -O "$env_file" ]] || [[ "$(stat -c '%U' "$env_file" 2>/dev/null || echo root)" != "root" ]]; then
+    if [[ "$(stat -c '%a' "$env_file" 2>/dev/null)" != "660" ]]; then
+      chown "${DREAM_USER}:${DREAM_USER}" "$env_file" || {
+        err ".env is not readable by ${DREAM_USER} and chown failed — Docker Compose cannot start"
+        exit 1
+      }
+      chmod 0660 "$env_file" || {
+        err ".env chmod to 0660 failed — Docker Compose cannot start"
+        exit 1
+      }
+    fi
+  fi
 
   # WEBUI_SECRET — open-webui crashes without it
   if [[ -z "$(env_get "$env_file" "WEBUI_SECRET")" ]]; then
