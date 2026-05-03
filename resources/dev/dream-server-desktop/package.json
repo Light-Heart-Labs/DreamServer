@@ -1,0 +1,126 @@
+{
+  "name": "dream-server-desktop",
+  "version": "0.1.0",
+  "description": "Dream Server DESKTOP local-first Electron shell with Hermes Agent support",
+  "author": "Light Heart Labs",
+  "productName": "Dream Server DESKTOP",
+  "main": "app-main.js",
+  "scripts": {
+    "start": "node ./scripts/start-electron.js",
+    "download:python": "node ./scripts/download-python.js",
+    "download:python:all": "node ./scripts/download-python.js --all",
+    "download:python:mac": "node ./scripts/download-python.js --platform=darwin --arch=arm64,x64",
+    "download:python:win": "node ./scripts/download-python.js --platform=win32 --arch=x64",
+    "download:python:linux": "node ./scripts/download-python.js --platform=linux --arch=x64",
+    "setup:hermes": "node ./scripts/setup-hermes-venv.js",
+    "start:cli": "node ./bin/dream.js",
+    "start:grpc": "node ./runtime/grpc-server.js",
+    "test:runtime": "node ./runtime/agent-runtime-policy.test.js && node ./runtime/agent-runtime-regression.test.js && node ./runtime/tools-apply-patch.test.js && node ./runtime/tools-terminal-state.test.js && node ./runtime/tools-command-exit.test.js && node ./runtime/tools-path-normalization.test.js && node ./runtime/tools-browser-control.test.js && node ./runtime/tool-registry.test.js && node ./runtime/platform/tool-runtime.test.js && node ./runtime/platform/runtime-resolver.test.js && node ./runtime/hermes/backend.test.js",
+    "prepack": "npm run download:python",
+    "pack": "electron-builder --dir",
+    "predist": "node ./scripts/prepare-dist-python.js",
+    "dist": "electron-builder",
+    "predist:win": "npm run download:python:win",
+    "dist:win": "electron-builder --win portable --x64",
+    "predist:linux": "npm run download:python:linux",
+    "dist:linux": "electron-builder --linux",
+    "predist:mac": "npm run download:python:mac",
+    "dist:mac": "electron-builder --mac",
+    "predist:mac-arm64": "node ./scripts/download-python.js --platform=darwin --arch=arm64",
+    "dist:mac-arm64": "electron-builder --mac --arm64",
+    "predist:mac-x64": "node ./scripts/download-python.js --platform=darwin --arch=x64",
+    "dist:mac-x64": "electron-builder --mac --x64"
+  },
+  "build": {
+    "appId": "com.lightheartlabs.dreamserver.desktop",
+    "productName": "Dream Server DESKTOP",
+    "npmRebuild": false,
+    "files": [
+      "app-main.js",
+      "preload.js",
+      "pet-preload.js",
+      "build/**/*",
+      "runtime/**/*",
+      "bin/**/*",
+      "src/**/*",
+      "vendor/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "bin/**/*",
+      "runtime/hermes/**/*.py",
+      "vendor/**/*"
+    ],
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["arm64", "x64"] },
+        { "target": "zip", "arch": ["arm64", "x64"] }
+      ],
+      "artifactName": "Dream-Server-DESKTOP-${version}-${arch}.${ext}",
+      "files": [
+        "!bin/llama/cuda-12.4/**/*",
+        "!bin/llama/win32-x64/**/*",
+        "!bin/llama/linux-x64/**/*",
+        "!bin/llama/linux-x86_64/**/*",
+        "resources/python/darwin-arm64/**/*",
+        "resources/python/darwin-x64/**/*"
+      ],
+      "asarUnpack": [
+        "resources/python/darwin-arm64/**/*",
+        "resources/python/darwin-x64/**/*"
+      ]
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "portable"
+      ],
+      "artifactName": "Dream-Server-DESKTOP-${version}.exe",
+      "files": [
+        "!bin/llama/mac-arm64/**/*",
+        "!bin/llama/mac-x86_64/**/*",
+        "!bin/llama/darwin-arm64/**/*",
+        "!bin/llama/darwin-x64/**/*",
+        "!bin/llama/linux-x64/**/*",
+        "!bin/llama/linux-x86_64/**/*",
+        "resources/python/win32-x64/**/*"
+      ],
+      "asarUnpack": [
+        "resources/python/win32-x64/**/*"
+      ]
+    },
+    "linux": {
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] },
+        { "target": "deb", "arch": ["x64"] }
+      ],
+      "maintainer": "Dream Server Maintainers <gabsprogrammer@users.noreply.github.com>",
+      "artifactName": "Dream-Server-DESKTOP-${version}-${arch}.${ext}",
+      "files": [
+        "!bin/llama/mac-arm64/**/*",
+        "!bin/llama/mac-x86_64/**/*",
+        "!bin/llama/darwin-arm64/**/*",
+        "!bin/llama/darwin-x64/**/*",
+        "!bin/llama/cuda-12.4/**/*",
+        "!bin/llama/win32-x64/**/*",
+        "resources/python/linux-x64/**/*"
+      ],
+      "asarUnpack": [
+        "resources/python/linux-x64/**/*"
+      ]
+    }
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.14.3",
+    "@grpc/proto-loader": "^0.8.0",
+    "playwright-core": "^1.59.1",
+    "typescript": "^5.9.3"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.1.0"
+  },
+  "devDependencies": {
+    "electron": "^37.2.0",
+    "electron-builder": "^26.0.12"
+  }
+}

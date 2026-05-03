@@ -4,6 +4,8 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+!resources/dev/dream-server-desktop/build/
+!resources/dev/dream-server-desktop/build/**
 
 # Logs
 *.log

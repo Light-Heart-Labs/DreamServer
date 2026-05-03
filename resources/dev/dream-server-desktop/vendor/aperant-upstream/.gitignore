@@ -1,0 +1,141 @@
+# ===========================
+# OS Files
+# ===========================
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+nul
+
+# ===========================
+# Security - Environment & Secrets
+# ===========================
+.env
+.env.*
+!.env.example
+/config.json
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+.secrets
+secrets/
+credentials/
+
+# ===========================
+# IDE & Editors
+# ===========================
+.idea/
+.vscode/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+.project
+.classpath
+.settings/
+
+# ===========================
+# Logs
+# ===========================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# ===========================
+# Git Worktrees (parallel builds)
+# ===========================
+.worktrees/
+
+# ===========================
+# Auto Claude Generated
+# ===========================
+.auto-claude/
+.aperant/
+.planning/
+.planning-archive/
+.auto-build-security.json
+.auto-claude-security.json
+.auto-claude-status
+.claude_settings.json
+.update-metadata.json
+
+# ===========================
+# Node.js (apps/desktop)
+# ===========================
+node_modules
+apps/desktop/node_modules
+.npm
+.yarn/
+.pnp.*
+
+# Build output
+dist/
+out/
+*.tsbuildinfo
+
+# Cache
+.cache/
+.parcel-cache/
+.turbo/
+.eslintcache
+.prettiercache
+
+# ===========================
+# Electron
+# ===========================
+apps/desktop/dist/
+apps/desktop/out/
+*.asar
+*.blockmap
+*.snap
+*.deb
+*.rpm
+*.AppImage
+*.dmg
+*.exe
+*.msi
+
+# ===========================
+# Testing
+# ===========================
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+playwright/.cache/
+
+# ===========================
+# Python
+# ===========================
+__pycache__/
+*.pyc
+
+# ===========================
+# Misc
+# ===========================
+*.local
+*.bak
+*.tmp
+*.temp
+
+# Development
+dev/
+_bmad/
+_bmad-output/
+.claude/
+/docs
+OPUS_ANALYSIS_AND_IDEAS.md
+/.github/agents
+
+# Auto Claude generated files
+.security-key
+/shared_docs
+logs/security/
+Agents.md

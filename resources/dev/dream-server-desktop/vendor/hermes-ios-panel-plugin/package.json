@@ -1,0 +1,17 @@
+{
+  "name": "hermes-ios-panel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cross-platform Codex side-panel bridge with an iPhone-style Safari shell, scenario recorder, replay, snapshots, and bundles.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check public/app.js"
+  },
+  "optionalDependencies": {
+    "playwright": "^1.58.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,162 @@
+{
+  "terminal": {
+    "openTerminal": "Ouvrir le terminal",
+    "openInbuilt": "Ouvrir dans le terminal intégré",
+    "openExternal": "Ouvrir dans le terminal externe"
+  },
+  "merge": {
+    "branchHasNewCommits": "La branche {{branch}} a {{count}} nouveau commit.",
+    "branchHasNewCommits_other": "La branche {{branch}} a {{count}} nouveaux commits.",
+    "branchHasNewCommitsSinceWorktree": "La branche {{branch}} a {{count}} nouveau commit depuis la création de ce worktree.",
+    "branchHasNewCommitsSinceWorktree_other": "La branche {{branch}} a {{count}} nouveaux commits depuis la création de ce worktree.",
+    "filesNeedMerging": "{{count}} fichier nécessite une fusion.",
+    "filesNeedMerging_other": "{{count}} fichiers nécessitent une fusion.",
+    "filesNeedIntelligentMerging": "{{count}} fichier nécessitera une fusion intelligente :",
+    "filesNeedIntelligentMerging_other": "{{count}} fichiers nécessiteront une fusion intelligente :",
+    "branchHasNewCommitsSinceBuild": "La branche {{branch}} a {{count}} nouveau commit depuis le début de ce build.",
+    "branchHasNewCommitsSinceBuild_other": "La branche {{branch}} a {{count}} nouveaux commits depuis le début de ce build.",
+    "filesNeedAIMergeDueToRenames": "{{count}} fichier nécessite une fusion IA en raison de {{renameCount}} renommage de fichier.",
+    "filesNeedAIMergeDueToRenames_other": "{{count}} fichiers nécessitent une fusion IA en raison de {{renameCount}} renommage de fichier.",
+    "filesNeedAIMergeDueToRenamesPlural": "{{count}} fichier nécessite une fusion IA en raison de {{renameCount}} renommages de fichiers.",
+    "filesNeedAIMergeDueToRenamesPlural_other": "{{count}} fichiers nécessitent une fusion IA en raison de {{renameCount}} renommages de fichiers.",
+    "fileRenamesDetected": "{{count}} renommage de fichier détecté - l'IA gérera la fusion.",
+    "fileRenamesDetected_other": "{{count}} renommages de fichiers détectés - l'IA gérera la fusion.",
+    "filesRenamedOrMoved": "Des fichiers ont peut-être été renommés ou déplacés - l'IA gérera la fusion.",
+    "alreadyMergedTitle": "Modifications déjà dans votre branche",
+    "alreadyMergedDescription": "Ces modifications semblent déjà exister dans votre branche actuelle. Vous pouvez marquer cette tâche comme terminée en toute sécurité.",
+    "alreadyMergedTooltip": "Les modifications de la tâche sont déjà présentes dans votre branche. Marquer comme terminé nettoiera le worktree sans fusionner.",
+    "matchingFiles": "Fichiers correspondants",
+    "supersededTitle": "Modifications remplacées",
+    "supersededDescription": "Votre branche actuelle a une version plus récente de ces modifications. Envisagez de supprimer cette tâche ou de voir la comparaison.",
+    "supersededCompareTooltip": "Voir une comparaison détaillée pour voir comment la branche actuelle diffère des modifications de cette tâche.",
+    "supersededDiscardTooltip": "Supprimer le worktree de cette tâche puisque les modifications ne sont plus nécessaires.",
+    "status": {
+      "branchDiverged": "Branche divergée",
+      "aiWillResolve": "L'IA résoudra",
+      "filesRenamed": "Fichiers renommés",
+      "branchBehind": "Branche en retard",
+      "readyToMerge": "Prêt à fusionner",
+      "files": "fichiers",
+      "file": "fichier",
+      "conflict": "conflit",
+      "conflicts": "conflits",
+      "details": "Détails",
+      "refresh": "Actualiser",
+      "stageOnly": "Préparer seulement (réviser dans l'IDE avant de commiter)",
+      "discardBuild": "Supprimer le build"
+    },
+    "buttons": {
+      "stageWithAIMerge": "Préparer avec fusion IA",
+      "mergeWithAI": "Fusionner avec IA",
+      "stageTo": "Préparer vers {{branch}}",
+      "mergeTo": "Fusionner vers {{branch}}",
+      "resolving": "Résolution...",
+      "staging": "Préparation...",
+      "merging": "Fusion...",
+      "completing": "Finalisation..."
+    },
+    "actions": {
+      "markAsDone": "Marquer comme terminé",
+      "discardTask": "Supprimer la tâche",
+      "viewComparison": "Voir la comparaison"
+    }
+  },
+  "pr": {
+    "title": "Créer une Pull Request",
+    "description": "Pousser la branche et créer une pull request pour \"{{taskTitle}}\"",
+    "errors": {
+      "unknown": "Une erreur inconnue s'est produite lors de la création de la pull request",
+      "invalidBranchName": "Le nom de branche contient des caractères invalides. Utilisez uniquement des lettres, chiffres, tirets (-), underscores (_) et barres obliques (/).",
+      "emptyTitle": "Le titre de la pull request ne peut pas être vide."
+    },
+    "success": {
+      "created": "Pull request créée avec succès !",
+      "alreadyExists": "Une pull request existe déjà pour cette branche"
+    },
+    "actions": {
+      "retry": "Réessayer",
+      "creating": "Création en cours...",
+      "create": "Créer la Pull Request"
+    },
+    "labels": {
+      "sourceBranch": "Branche source",
+      "targetBranch": "Branche cible",
+      "commits": "Commits",
+      "changes": "Modifications",
+      "prTitle": "Titre de la PR (optionnel)",
+      "draftPR": "Créer comme brouillon",
+      "unknown": "Inconnu"
+    },
+    "hints": {
+      "targetBranch": "Laissez vide pour utiliser la branche par défaut",
+      "prTitle": "Laissez vide pour utiliser le titre de la tâche"
+    }
+  },
+  "mergeProgress": {
+    "stages": {
+      "analyzing": "Analyse des modifications",
+      "detectingConflicts": "Détection des conflits",
+      "resolving": "Résolution des conflits",
+      "validating": "Validation de la fusion",
+      "complete": "Fusion terminée",
+      "error": "Échec de la fusion",
+      "stalled": "Fusion bloquée"
+    },
+    "conflictCounter": "{{found}} trouvés, {{resolved}} résolus",
+    "currentFile": "Fichier actuel",
+    "viewLogs": "Voir les logs",
+    "hideLogs": "Masquer les logs",
+    "logTypes": {
+      "info": "Info",
+      "warning": "Avertissement",
+      "error": "Erreur",
+      "conflict": "Conflit",
+      "resolution": "Résolution"
+    },
+    "completionMessage": "Toutes les modifications ont été fusionnées avec succès.",
+    "errorMessage": "Une erreur s'est produite pendant le processus de fusion."
+  },
+  "stagedSuccess": {
+    "title": "Modifications préparées avec succès",
+    "aiCommitMessage": "Message de commit généré par l'IA",
+    "copied": "Copié !",
+    "copy": "Copier",
+    "editHint": "Modifiez si nécessaire, puis copiez et utilisez avec",
+    "nextSteps": "Étapes suivantes :",
+    "reviewChanges": "Vérifiez les modifications préparées avec",
+    "commitWhenReady": "Commitez quand vous êtes prêt :",
+    "pushToRemote": "Poussez vers le dépôt distant quand vous êtes satisfait",
+    "cleaningUp": "Nettoyage en cours...",
+    "markingDone": "Marquage en cours...",
+    "resetting": "Réinitialisation...",
+    "deleteWorktreeAndMarkDone": "Supprimer le Worktree & Marquer Terminé",
+    "markDoneOnly": "Marquer Terminé Seulement",
+    "markAsDone": "Marquer comme terminé",
+    "reviewAgain": "Réviser à nouveau",
+    "commitMessagePlaceholder": "Message de commit...",
+    "worktreeExplanation": "\"Supprimer le Worktree & Marquer Terminé\" nettoie l'espace de travail isolé. \"Marquer Terminé Seulement\" le conserve pour référence.",
+    "errors": {
+      "failedToDeleteWorktree": "Échec de la suppression du worktree",
+      "worktreeDeletedButStatusFailed": "Worktree supprimé mais échec de la mise à jour du statut : {{error}}",
+      "failedToMarkAsDone": "Échec du marquage comme terminé",
+      "failedToResetStagedState": "Échec de la réinitialisation de l'état préparé"
+    }
+  },
+  "bulkPR": {
+    "title": "Créer des Pull Requests",
+    "description": "Créer des pull requests pour {{count}} tâches sélectionnées",
+    "creating": "Création de la PR {{current}} sur {{total}}...",
+    "creatingPR": "Création de la PR {{current}} sur {{total}}",
+    "resultsDescription": "{{success}} réussies, {{failed}} échouées",
+    "tasksToProcess": "Tâches à traiter",
+    "targetBranchHint": "Laissez vide pour utiliser la branche par défaut de chaque tâche. Ceci sera appliqué à toutes les PRs.",
+    "createAll": "Créer {{count}} PRs",
+    "completed": "terminées",
+    "succeeded": "réussies",
+    "failed": "échouées",
+    "skipped": "ignorées",
+    "alreadyExisted": "existait déjà",
+    "noWorktree": "Aucun worktree trouvé pour cette tâche",
+    "resultsDescriptionWithSkipped": "{{success}} réussies, {{skipped}} ignorées, {{failed}} échouées"
+  }
+}

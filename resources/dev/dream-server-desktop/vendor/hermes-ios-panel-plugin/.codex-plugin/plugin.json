@@ -1,0 +1,44 @@
+{
+  "name": "hermes-ios-panel",
+  "version": "0.1.0",
+  "description": "Cross-platform iPhone side-panel simulator shell for Codex with Safari proxy, scenario recording, replay, UI hierarchy snapshots, logs, and optional real-iOS driver handoff.",
+  "author": {
+    "name": "Gabriel",
+    "email": "gabriel@example.local",
+    "url": "https://localhost"
+  },
+  "homepage": "https://localhost/hermes-ios-panel",
+  "repository": "https://localhost/hermes-ios-panel",
+  "license": "MIT",
+  "keywords": [
+    "ios",
+    "simulator",
+    "debugging",
+    "codex",
+    "safari",
+    "scenario-replay"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Hermes iOS Panel",
+    "shortDescription": "Run an iPhone-style side panel with scenario replay.",
+    "longDescription": "Portable Node.js web-shell driver for macOS, Linux, and Windows. Provides an iPhone-style Codex side panel, Safari-like app shell, external-site proxy, Google Search fallback, scenario recorder/replayer, DOM hierarchy snapshots, console/network event capture, and bundle export. Includes an optional XcodeBuildMCP config for real iOS Simulator work on macOS.",
+    "developerName": "Gabriel",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Write",
+      "Debugging",
+      "Automation"
+    ],
+    "websiteURL": "https://localhost/hermes-ios-panel",
+    "privacyPolicyURL": "https://localhost/hermes-ios-panel/privacy",
+    "termsOfServiceURL": "https://localhost/hermes-ios-panel/terms",
+    "defaultPrompt": [
+      "Start the Hermes iOS Panel.",
+      "Record and replay this UI bug.",
+      "Export a scenario bundle."
+    ],
+    "brandColor": "#7C3AED"
+  }
+}

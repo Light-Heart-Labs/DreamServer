@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1290" height="2796" viewBox="0 0 1290 2796" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="base" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f7a982"/>
+      <stop offset="0.28" stop-color="#dce9ff"/>
+      <stop offset="0.54" stop-color="#79b9f2"/>
+      <stop offset="0.78" stop-color="#9ee4c1"/>
+      <stop offset="1" stop-color="#f6f2df"/>
+    </linearGradient>
+    <linearGradient id="ribbonA" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#fff6ec" stop-opacity="0"/>
+      <stop offset="0.24" stop-color="#fff6ec" stop-opacity="0.84"/>
+      <stop offset="0.6" stop-color="#d2e8ff" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="ribbonB" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2466e8" stop-opacity="0"/>
+      <stop offset="0.3" stop-color="#2466e8" stop-opacity="0.36"/>
+      <stop offset="0.68" stop-color="#f4ffed" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#f4ffed" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="soften" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="26"/>
+    </filter>
+    <filter id="grain" x="0" y="0" width="100%" height="100%">
+      <feTurbulence baseFrequency="0.78" numOctaves="2" seed="17" type="fractalNoise"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer>
+        <feFuncA type="table" tableValues="0 0.045"/>
+      </feComponentTransfer>
+    </filter>
+  </defs>
+  <rect width="1290" height="2796" fill="url(#base)"/>
+  <path d="M-170 414C154 208 442 216 693 446c218 199 432 236 766 65v563c-336 142-626 88-868-160-210-214-434-254-761-70Z" fill="url(#ribbonA)" filter="url(#soften)"/>
+  <path d="M-188 1390c324-238 678-231 944 15 193 178 384 196 724 42v620c-316 143-652 82-901-165-220-219-454-236-767-23Z" fill="url(#ribbonB)" filter="url(#soften)"/>
+  <path d="M1000-120c-72 371-15 658 171 861 120 132 161 287 67 526-121-143-242-242-364-297-201-91-263-269-188-535C739 244 822 63 1000-120Z" fill="#ffffff" opacity="0.18" filter="url(#soften)"/>
+  <path d="M146 2150c311-143 575-114 793 88 148 137 285 179 469 108v316c-256 85-493 27-713-175-194-179-401-204-621-74Z" fill="#fff9ef" opacity="0.44" filter="url(#soften)"/>
+  <path d="M-58 0h1406v2796H-58z" fill="#fff" opacity="0.05"/>
+  <rect width="1290" height="2796" filter="url(#grain)" opacity="0.55"/>
+</svg>

@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package dreamserver.v1;
+
+service DreamAgentService {
+  rpc Chat(stream ClientMessage) returns (stream ServerMessage);
+}
+
+message ChatRequest {
+  string session_id = 1;
+  string message = 2;
+  string provider = 3;
+  string model = 4;
+}
+
+message PermissionReply {
+  string request_id = 1;
+  string reply = 2;
+}
+
+message CancelRequest {
+  string session_id = 1;
+}
+
+message ClientMessage {
+  oneof payload {
+    ChatRequest request = 1;
+    PermissionReply permission = 2;
+    CancelRequest cancel = 3;
+  }
+}
+
+message TextDelta {
+  string session_id = 1;
+  string message_id = 2;
+  string delta = 3;
+}
+
+message MessageFinal {
+  string session_id = 1;
+  string message_id = 2;
+  string content = 3;
+}
+
+message ToolEvent {
+  string session_id = 1;
+  string action_key = 2;
+  string action_json = 3;
+  string permission_class = 4;
+  bool ok = 5;
+  string result = 6;
+}
+
+message PermissionRequestEvent {
+  string session_id = 1;
+  string request_id = 2;
+  string action_json = 3;
+  string permission_class = 4;
+}
+
+message StateEvent {
+  string session_id = 1;
+  string status = 2;
+  string detail = 3;
+}
+
+message ErrorEvent {
+  string session_id = 1;
+  string message = 2;
+}
+
+message ServerMessage {
+  oneof payload {
+    TextDelta text_delta = 1;
+    MessageFinal message_final = 2;
+    ToolEvent tool_started = 3;
+    ToolEvent tool_finished = 4;
+    PermissionRequestEvent permission_request = 5;
+    StateEvent state_changed = 6;
+    ErrorEvent error = 7;
+  }
+}

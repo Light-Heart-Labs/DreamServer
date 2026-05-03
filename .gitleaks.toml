@@ -16,4 +16,5 @@
     '''dream-server/installers/phases/06-directories\.sh''',
     '''dream-server/installers/macos/lib/env-generator\.sh''',
     '''dream-server/installers/windows/lib/env-generator\.ps1''',
+    '''resources/dev/dream-server-desktop/vendor/hermes-agent/tests/hermes_cli/test_plugins_cmd\.py''',
   ]

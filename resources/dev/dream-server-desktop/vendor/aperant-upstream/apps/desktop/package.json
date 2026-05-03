@@ -1,0 +1,259 @@
+{
+  "name": "aperant",
+  "version": "2.8.0-beta.6",
+  "type": "module",
+  "description": "Autonomous multi-agent coding framework",
+  "homepage": "https://github.com/AndyMik90/Aperant",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AndyMik90/Aperant.git"
+  },
+  "main": "./out/main/index.js",
+  "author": {
+    "name": "Aperant Team",
+    "email": "119136210+AndyMik90@users.noreply.github.com"
+  },
+  "license": "AGPL-3.0",
+  "engines": {
+    "node": ">=24.0.0",
+    "npm": ">=10.0.0"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.cjs",
+    "dev": "electron-vite dev",
+    "dev:debug": "cross-env DEBUG=true electron-vite dev",
+    "dev:mcp": "electron-vite dev -- --remote-debugging-port=9222",
+    "build": "electron-vite build",
+    "start": "electron .",
+    "start:mcp": "electron . --remote-debugging-port=9222",
+    "preview": "electron-vite preview",
+    "rebuild": "electron-rebuild",
+    "package": "electron-builder",
+    "package:mac": "electron-builder --mac",
+    "package:win": "electron-builder --win",
+    "package:linux": "electron-builder --linux",
+    "package:flatpak": "electron-builder --linux flatpak",
+    "verify:linux": "node scripts/verify-linux-packages.cjs dist",
+    "test:verify-linux": "node --test scripts/verify-linux-packages.test.mjs",
+    "start:packaged:mac": "open dist/mac-arm64/Aperant.app || open dist/mac/Aperant.app",
+    "start:packaged:win": "start \"\" \"dist\\win-unpacked\\Aperant.exe\"",
+    "start:packaged:linux": "./dist/linux-unpacked/aperant",
+    "test": "vitest run",
+    "test:unit": "vitest run --exclude src/__tests__/integration/ --exclude src/__tests__/e2e/",
+    "test:integration": "vitest run src/__tests__/integration/",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "npx playwright test --config=e2e/playwright.config.ts",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "typecheck": "tsc --noEmit --incremental"
+  },
+  "dependencies": {
+    "@ai-sdk/amazon-bedrock": "^4.0.77",
+    "@ai-sdk/anthropic": "^3.0.58",
+    "@ai-sdk/azure": "^3.0.42",
+    "@ai-sdk/google": "^3.0.43",
+    "@ai-sdk/groq": "^3.0.29",
+    "@ai-sdk/mcp": "^1.0.25",
+    "@ai-sdk/mistral": "^3.0.24",
+    "@ai-sdk/openai": "^3.0.41",
+    "@ai-sdk/openai-compatible": "^2.0.35",
+    "@ai-sdk/xai": "^3.0.67",
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@libsql/client": "^0.17.0",
+    "@lydell/node-pty": "^1.1.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@openrouter/ai-sdk-provider": "^2.3.1",
+    "@radix-ui/react-alert-dialog": "^1.1.15",
+    "@radix-ui/react-checkbox": "^1.3.3",
+    "@radix-ui/react-collapsible": "^1.1.12",
+    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-dropdown-menu": "^2.1.16",
+    "@radix-ui/react-popover": "^1.1.15",
+    "@radix-ui/react-progress": "^1.1.8",
+    "@radix-ui/react-radio-group": "^1.3.8",
+    "@radix-ui/react-scroll-area": "^1.2.10",
+    "@radix-ui/react-select": "^2.2.6",
+    "@radix-ui/react-separator": "^1.1.8",
+    "@radix-ui/react-slot": "^1.2.4",
+    "@radix-ui/react-switch": "^1.2.6",
+    "@radix-ui/react-tabs": "^1.1.13",
+    "@radix-ui/react-toast": "^1.2.15",
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "@sentry/electron": "^7.10.0",
+    "@tailwindcss/typography": "^0.5.19",
+    "@tanstack/react-virtual": "^3.13.22",
+    "@tavily/core": "^0.7.2",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-serialize": "^0.14.0",
+    "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/addon-webgl": "^0.19.0",
+    "@xterm/xterm": "^6.0.0",
+    "ai": "^6.0.116",
+    "chokidar": "^5.0.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "dotenv": "^17.3.1",
+    "electron-log": "^5.4.3",
+    "electron-updater": "^6.8.3",
+    "i18next": "^25.8.18",
+    "lucide-react": "^0.577.0",
+    "minimatch": "^10.2.4",
+    "motion": "^12.36.0",
+    "proper-lockfile": "^4.1.2",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-i18next": "^16.5.8",
+    "react-markdown": "^10.1.0",
+    "rehype-raw": "^7.0.0",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.1",
+    "semver": "^7.7.4",
+    "tailwind-merge": "^3.5.0",
+    "uuid": "^13.0.0",
+    "web-tree-sitter": "^0.26.7",
+    "xstate": "^5.28.0",
+    "zod": "^4.3.6",
+    "zustand": "^5.0.11"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.7",
+    "@electron-toolkit/preload": "^3.0.2",
+    "@electron-toolkit/utils": "^4.0.0",
+    "@electron/rebuild": "^4.0.3",
+    "@playwright/test": "^1.58.2",
+    "@tailwindcss/postcss": "^4.2.1",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/minimatch": "^6.0.0",
+    "@types/node": "^25.5.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/semver": "^7.7.1",
+    "@types/uuid": "^11.0.0",
+    "@vitejs/plugin-react": "^5.1.2",
+    "@vitest/coverage-v8": "^4.1.0",
+    "autoprefixer": "^10.4.27",
+    "cross-env": "^10.1.0",
+    "electron": "40.0.0",
+    "electron-builder": "^26.8.1",
+    "electron-vite": "^5.0.0",
+    "husky": "^9.1.7",
+    "jsdom": "^27.3.0",
+    "lint-staged": "^16.4.0",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^4.2.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.7",
+    "vitest": "^4.1.0"
+  },
+  "overrides": {
+    "electron-builder-squirrel-windows": "^26.0.12",
+    "dmg-builder": "^26.0.12",
+    "@electron/rebuild": "4.0.3"
+  },
+  "build": {
+    "appId": "com.aperant.app",
+    "productName": "Aperant",
+    "npmRebuild": false,
+    "artifactName": "${productName}-${version}-${platform}-${arch}.${ext}",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "AndyMik90",
+        "repo": "Aperant"
+      }
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "resources"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "out/main/node_modules/@lydell/node-pty-*/**"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/icon.ico",
+        "to": "icon.ico"
+      },
+      {
+        "from": "prompts",
+        "to": "prompts"
+      },
+      {
+        "from": "../../node_modules/@libsql",
+        "to": "node_modules/@libsql"
+      },
+      {
+        "from": "../../node_modules/libsql",
+        "to": "node_modules/libsql"
+      },
+      {
+        "from": "../../node_modules/@neon-rs",
+        "to": "node_modules/@neon-rs"
+      },
+      {
+        "from": "../../node_modules/detect-libc",
+        "to": "node_modules/detect-libc"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "resources/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "resources/entitlements.mac.plist",
+      "entitlementsInherit": "resources/entitlements.mac.plist",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "icon": "resources/icon.ico",
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "linux": {
+      "icon": "resources/icons",
+      "target": [
+        "AppImage",
+        "deb",
+        "flatpak"
+      ],
+      "category": "Development"
+    },
+    "flatpak": {
+      "runtime": "org.freedesktop.Platform",
+      "runtimeVersion": "25.08",
+      "sdk": "org.freedesktop.Sdk",
+      "base": "org.electronjs.Electron2.BaseApp",
+      "baseVersion": "25.08",
+      "finishArgs": [
+        "--socket=wayland",
+        "--socket=x11",
+        "--share=ipc",
+        "--share=network",
+        "--device=dri",
+        "--filesystem=home",
+        "--talk-name=org.freedesktop.Notifications"
+      ]
+    }
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx,json}": [
+      "biome check --write --no-errors-on-unmatched"
+    ]
+  }
+}

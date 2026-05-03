@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Codex iOS Panel</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <main class="simulator">
+      <header class="toolbar">
+        <button class="back-button" type="button" aria-label="Voltar">&#8249; Back to List</button>
+        <div class="device-meta">
+          <strong id="device-name">iPhone 17 Pro Max</strong>
+          <span><b id="device-fps">60</b> fps</span>
+          <span class="runtime-pill" id="device-runtime">Windows Bridge</span>
+          <span class="runtime-pill">SpringBoard</span>
+        </div>
+        <div class="toolbar-actions">
+          <label class="check-control"><input id="with-frame" type="checkbox" checked /> With Frame</label>
+          <a class="ghost-link" href="/api/sim/browser" target="_blank" rel="noreferrer">Browser View</a>
+          <button id="rotate" type="button">Rotate</button>
+          <button id="capture" class="primary" type="button">Capture</button>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <section class="device-zone">
+          <div class="phone portrait with-frame" id="phone" data-mode="app" data-theme="light">
+            <div class="hardware">
+              <span class="side-button action"></span>
+              <span class="side-button volume-up"></span>
+              <span class="side-button volume-down"></span>
+              <span class="side-button power"></span>
+              <div class="screen">
+                <div class="wallpaper"></div>
+                <div class="safe-area" id="safe-area"></div>
+                <div class="screen-reflection"></div>
+                <div class="touch-ripple" id="touch-ripple"></div>
+                <div class="statusbar">
+                  <span id="status-time">4:46</span>
+                  <span class="dynamic-island"></span>
+                  <span class="status-icons" aria-hidden="true">
+                    <span class="signal"><i></i><i></i><i></i></span>
+                    <span class="wifi"></span>
+                    <span class="battery"><i></i></span>
+                  </span>
+                </div>
+                <button class="top-gesture-zone top-left-zone" type="button" data-top-gesture="notifications" aria-label="Open Notification Center"></button>
+                <button class="top-gesture-zone top-right-zone" type="button" data-top-gesture="control" aria-label="Open Control Center"></button>
+
+                <section class="layer lock-screen" id="lock-screen" aria-label="Tela bloqueada">
+                  <div class="lock-date" id="lock-date">Monday, April 20</div>
+                  <div class="lock-time" id="lock-time">4:46</div>
+                  <div class="lock-widgets">
+                    <article>
+                      <span>Weather</span>
+                      <strong>24°</strong>
+                    </article>
+                    <article>
+                      <span>Battery</span>
+                      <strong id="lock-battery">82%</strong>
+                    </article>
+                  </div>
+                  <div class="notification-stack">
+                    <article>
+                      <strong>Codex</strong>
+                      <span>Simulator bridge connected on localhost:8420</span>
+                    </article>
+                    <article>
+                      <strong>Calendar</strong>
+                      <span>Design pass ready for review</span>
+                    </article>
+                  </div>
+                  <div class="lock-actions">
+                    <button type="button" data-screen-action="torch" aria-label="Flashlight"></button>
+                    <button type="button" data-screen-action="camera" aria-label="Camera"></button>
+                  </div>
+                  <button class="unlock-pill" type="button" data-open-mode="home">Explore</button>
+                </section>
+
+                <section class="layer notification-center" id="notification-center" aria-label="Notification Center">
+                  <div class="shade-grabber"></div>
+                  <div class="shade-date" id="shade-date">Monday, April 20</div>
+                  <div class="shade-time" id="shade-time">4:46</div>
+                  <div class="focus-strip">
+                    <span>Focus</span>
+                    <strong>Personal</strong>
+                  </div>
+                  <div class="notification-stack shade-notifications">
+                    <article>
+                      <strong>Codex</strong>
+                      <span>Browser panel is live on localhost:8420</span>
+                    </article>
+                    <article>
+                      <strong>Simulator</strong>
+                      <span>Top-right pull opens Control Center</span>
+                    </article>
+                    <article>
+                      <strong>Design</strong>
+                      <span>SpringBoard icons and wallpaper updated</span>
+                    </article>
+                  </div>
+                </section>
+
+                <section class="layer home-screen" id="home-screen" aria-label="Tela inicial">
+                  <div class="spotlight">Search</div>
+                  <div class="smart-stack">
+                    <article class="weather-widget">
+                      <span>Sao Paulo</span>
+                      <strong>24°</strong>
+                      <small>Partly cloudy</small>
+                    </article>
+                    <article class="calendar-widget">
+                      <span>Today</span>
+                      <strong>Hermes Agent</strong>
+                      <small>17:00 review</small>
+                    </article>
+                  </div>
+                  <div class="home-pages" id="home-pages">
+                    <button class="app-icon messages" type="button" data-app="Messages">
+                      <span><img src="/assets/icons/apple/Messages.svg" alt="" /></span><b>Messages</b>
+                    </button>
+                    <button class="app-icon calendar" type="button" data-app="Calendar">
+                      <span><img src="/assets/icons/apple/Calendar.svg" alt="" /></span><b>Calendar</b>
+                    </button>
+                    <button class="app-icon photos" type="button" data-app="Photos">
+                      <span><img src="/assets/icons/apple/Photos.svg" alt="" /></span><b>Photos</b>
+                    </button>
+                    <button class="app-icon camera" type="button" data-app="Camera">
+                      <span><img src="/assets/icons/apple/Camera.svg" alt="" /></span><b>Camera</b>
+                    </button>
+                    <button class="app-icon maps" type="button" data-app="Maps">
+                      <span><img src="/assets/icons/apple/Maps.svg" alt="" /></span><b>Maps</b>
+                    </button>
+                    <button class="app-icon weather" type="button" data-app="Weather">
+                      <span><img src="/assets/icons/apple/Weather.svg" alt="" /></span><b>Weather</b>
+                    </button>
+                    <button class="app-icon notes" type="button" data-app="Notes">
+                      <span><img src="/assets/icons/apple/Notes.svg" alt="" /></span><b>Notes</b>
+                    </button>
+                    <button class="app-icon settings" type="button" data-app="Settings">
+                      <span><img src="/assets/icons/apple/Settings.svg" alt="" /></span><b>Settings</b>
+                    </button>
+                    <button class="app-icon safari" type="button" data-open-mode="app" data-app-kind="safari" data-url="http://localhost:8420/api/sim/demo-app">
+                      <span><img src="/assets/icons/apple/Safari.svg" alt="" /></span><b>Safari</b>
+                    </button>
+                    <button class="app-icon bakery" type="button" data-open-mode="app" data-app-kind="native" data-url="http://localhost:8420/api/sim/demo-app">
+                      <span></span><b>Bakery</b>
+                    </button>
+                    <button class="app-icon files" type="button" data-app="Files">
+                      <span><img src="/assets/icons/apple/Files.svg" alt="" /></span><b>Files</b>
+                    </button>
+                    <button class="app-icon store" type="button" data-app="Store">
+                      <span><img src="/assets/icons/apple/AppStore.svg" alt="" /></span><b>App Store</b>
+                    </button>
+                  </div>
+                  <div class="page-dots" aria-hidden="true"><i></i><i></i></div>
+                  <div class="dock">
+                    <button class="app-icon phone-app" type="button" data-app="Phone"><span><img src="/assets/icons/apple/Phone.svg" alt="" /></span></button>
+                    <button class="app-icon mail" type="button" data-app="Mail"><span><img src="/assets/icons/apple/Mail.svg" alt="" /></span></button>
+                    <button class="app-icon safari" type="button" data-open-mode="app" data-app-kind="safari" data-url="http://localhost:8420/api/sim/demo-app"><span><img src="/assets/icons/apple/Safari.svg" alt="" /></span></button>
+                    <button class="app-icon music" type="button" data-app="Music"><span><img src="/assets/icons/apple/Music.svg" alt="" /></span></button>
+                  </div>
+                </section>
+
+                <section class="layer app-view" id="app-view" data-app-kind="native" aria-label="App aberto">
+                  <div class="safari-shell">
+                    <div class="safari-page">
+                      <iframe id="preview" title="Mobile Safari preview" src="/api/sim/demo-app"></iframe>
+                    </div>
+                    <div class="safari-status" id="safari-status">Private Relay ready</div>
+                    <div class="safari-bottom">
+                      <div class="safari-address">
+                        <button type="button" class="safari-page-settings" id="safari-page-settings" aria-label="Page settings">AA</button>
+                        <input id="safari-url" type="text" value="localhost:8420/api/sim/demo-app" spellcheck="false" autocomplete="off" aria-label="Safari address" />
+                        <button type="button" id="reload-app" aria-label="Reload page">&#8635;</button>
+                      </div>
+                      <div class="safari-toolbar" aria-label="Safari toolbar">
+                        <button type="button" id="safari-back" aria-label="Back">&#8249;</button>
+                        <button type="button" id="safari-forward" aria-label="Forward">&#8250;</button>
+                        <button type="button" id="safari-share" aria-label="Share"></button>
+                        <button type="button" id="safari-bookmarks" aria-label="Bookmarks"></button>
+                        <button type="button" id="safari-tabs" aria-label="Tabs"><span id="safari-tab-count">1</span></button>
+                      </div>
+                    </div>
+                    <div class="safari-tabs-sheet" id="safari-tabs-sheet" aria-label="Safari tabs">
+                      <div class="safari-sheet-bar">
+                        <strong>Tabs</strong>
+                        <button type="button" id="safari-new-tab">New Tab</button>
+                      </div>
+                      <div class="safari-tab-card active">
+                        <span id="safari-tab-title">Hi Dream server preview</span>
+                        <small id="safari-tab-url">localhost:8420</small>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="layer switcher" id="switcher" aria-label="App switcher">
+                  <div class="switcher-card" data-open-mode="app">
+                    <span>Bakery</span>
+                    <div class="mini-page bakery-mini"></div>
+                  </div>
+                  <div class="switcher-card" data-open-mode="home">
+                    <span>Home</span>
+                    <div class="mini-page home-mini"></div>
+                  </div>
+                </section>
+
+                <section class="layer control-center" id="control-center" aria-label="Central de controle">
+                  <div class="cc-topbar">
+                    <button type="button" class="cc-edit" aria-label="Edit controls"></button>
+                    <button type="button" class="cc-power" data-open-mode="lock" aria-label="Power"></button>
+                  </div>
+                  <div class="cc-grid">
+                    <div class="cc-tile cc-connectivity">
+                      <button type="button" class="cc-connect cc-airplane"><i></i><span>Airplane</span></button>
+                      <button type="button" class="cc-connect cc-cellular on"><i></i><span>Cellular</span></button>
+                      <button type="button" class="cc-connect cc-wifi on"><i></i><span>Wi-Fi</span></button>
+                      <button type="button" class="cc-connect cc-bluetooth on"><i></i><span>Bluetooth</span></button>
+                      <button type="button" class="cc-connect cc-airdrop"><i></i><span>AirDrop</span></button>
+                      <button type="button" class="cc-connect cc-hotspot"><i></i><span>Hotspot</span></button>
+                    </div>
+                    <div class="cc-tile cc-media">
+                      <div class="media-art"></div>
+                      <div>
+                        <span>Not Playing</span>
+                        <strong>Hi Dream server</strong>
+                      </div>
+                      <button type="button" aria-label="Play"></button>
+                    </div>
+                    <button type="button" class="cc-tile cc-portrait"><i></i><span>Portrait</span></button>
+                    <button type="button" class="cc-tile cc-mirror"><i></i><span>Screen</span></button>
+                    <label class="cc-tile cc-vertical cc-brightness">
+                      <span>Brightness</span>
+                      <input id="brightness" type="range" min="70" max="120" value="100" orient="vertical" />
+                    </label>
+                    <label class="cc-tile cc-vertical cc-volume">
+                      <span>Volume</span>
+                      <input id="volume" type="range" min="0" max="100" value="54" orient="vertical" />
+                    </label>
+                    <button type="button" class="cc-tile cc-focus"><i></i><span>Focus</span></button>
+                    <button type="button" class="cc-tile cc-action cc-flashlight"><i></i><span>Flashlight</span></button>
+                    <button type="button" class="cc-tile cc-action cc-timer"><i></i><span>Timer</span></button>
+                    <button type="button" class="cc-tile cc-action cc-calculator"><i></i><span>Calculator</span></button>
+                    <button type="button" class="cc-tile cc-action cc-camera"><i></i><span>Camera</span></button>
+                  </div>
+                  <div class="cc-page-rail" aria-hidden="true">
+                    <i class="active"></i><i></i><i></i>
+                  </div>
+                </section>
+
+                <section class="siri-sheet" id="siri-sheet" aria-label="Siri">
+                  <div class="siri-orb"></div>
+                  <p>How can I help?</p>
+                </section>
+                <div class="system-toast" id="system-toast">Ready</div>
+
+                <button class="home-indicator" type="button" data-open-mode="home" aria-label="Home"></button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="side">
+          <section class="panel device-panel">
+            <div class="panel-head">
+              <h2>Device</h2>
+              <span class="online-dot">Booted</span>
+            </div>
+            <div class="runtime-grid">
+              <div><span>Runtime</span><strong>iOS 26.2</strong></div>
+              <div><span>Bundle</span><strong>web.bridge</strong></div>
+              <div><span>Scale</span><strong id="scale-readout">100%</strong></div>
+            </div>
+            <div class="device-list">
+              <button class="device-row active" type="button">
+                <strong>iPhone 17 Pro Max</strong>
+                <span>430 x 932 &middot; 60 fps</span>
+              </button>
+              <button class="device-row" type="button">
+                <strong>iPhone SE</strong>
+                <span>375 x 667 &middot; standby</span>
+              </button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head"><h2>Hardware</h2></div>
+            <div class="button-grid three">
+              <button type="button" data-open-mode="home">Home</button>
+              <button type="button" data-open-mode="lock">Lock</button>
+              <button type="button" id="siri-button">Siri</button>
+              <button type="button" data-control="volume-up">Vol +</button>
+              <button type="button" data-control="volume-down">Vol -</button>
+              <button type="button" id="control-center-button">Control</button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head"><h2>Display</h2></div>
+            <div class="segmented" role="group" aria-label="Tema">
+              <button class="active" type="button" data-theme="light">Light</button>
+              <button type="button" data-theme="dark">Dark</button>
+            </div>
+            <label class="field-line">Scale<input id="scale" type="range" min="72" max="112" value="100" /></label>
+            <label class="check-control inline"><input id="safe-toggle" type="checkbox" /> Safe Area</label>
+            <div class="button-grid two">
+              <button type="button" data-open-mode="home">SpringBoard</button>
+              <button type="button" data-open-mode="switcher">Switcher</button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head"><h2>Gestures</h2></div>
+            <div class="dpad">
+              <button type="button" data-gesture="up">&uarr;</button>
+              <button type="button" data-gesture="left">&larr;</button>
+              <span>scroll</span>
+              <button type="button" data-gesture="right">&rarr;</button>
+              <button type="button" data-gesture="down">&darr;</button>
+            </div>
+            <div class="button-grid two">
+              <button type="button" data-gesture="edge">Edge</button>
+              <button type="button" data-gesture="swipe-home">Swipe Home</button>
+              <button type="button" data-gesture="pull-notifications">Pull Down</button>
+              <button type="button" data-gesture="pull-control">Top Right</button>
+            </div>
+          </section>
+
+          <section class="panel wide scenario-panel">
+            <div class="panel-head">
+              <h2>Scenario Lab</h2>
+              <span id="scenario-state" class="muted-chip">Idle</span>
+            </div>
+            <div class="scenario-row">
+              <input id="scenario-name" type="text" value="Hermes reproduce path" aria-label="Scenario name" />
+              <button id="record-scenario" class="primary-lite" type="button">Record</button>
+              <button id="stop-scenario" type="button" disabled>Stop</button>
+            </div>
+            <div class="button-grid three scenario-actions">
+              <button id="replay-scenario" type="button">Replay</button>
+              <button id="snapshot-ui" type="button">Snapshot</button>
+              <button id="export-bundle" class="primary" type="button">Bundle</button>
+              <button id="clear-scenario" type="button">Clear</button>
+              <button id="driver-status" type="button">Driver</button>
+              <button id="copy-scenario" type="button">Copy JSON</button>
+            </div>
+            <div class="scenario-metrics">
+              <div><span>Actions</span><strong id="scenario-count">0</strong></div>
+              <div><span>Runtime events</span><strong id="event-count">0</strong></div>
+              <div><span>Driver</span><strong id="driver-kind">web-shell</strong></div>
+            </div>
+          </section>
+
+          <section class="panel wide">
+            <div class="panel-head"><h2>Open URL</h2></div>
+            <div class="url-row">
+              <input id="target-url" type="url" value="http://localhost:8420/api/sim/demo-app" spellcheck="false" />
+              <button id="open-url" class="primary-lite" type="button">Open</button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head"><h2>Text Input</h2></div>
+            <div class="inspect-row">
+              <input id="text-input" type="text" placeholder="Type text..." />
+              <button id="send-text" type="button">Send</button>
+            </div>
+            <div class="button-grid four keyboard-row">
+              <button type="button" data-key="return">Return</button>
+              <button type="button" data-key="space">Space</button>
+              <button type="button" data-key="tab">Tab</button>
+              <button type="button" data-key="esc">Esc</button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head"><h2>Sensors</h2></div>
+            <div class="sensor-grid">
+              <label>Battery<input id="battery" type="range" min="1" max="100" value="82" /></label>
+              <label>Network<select id="network"><option>Wi-Fi</option><option>5G</option><option>Offline</option></select></label>
+              <label>Location<select id="location"><option>Sao Paulo</option><option>New York</option><option>London</option></select></label>
+            </div>
+          </section>
+
+          <section class="panel wide">
+            <div class="panel-head">
+              <h2>Captures</h2>
+              <span id="capture-count" class="muted-chip">0 shots</span>
+            </div>
+            <div class="capture-tray" id="capture-tray">
+              <div class="capture-empty">No captures yet</div>
+            </div>
+          </section>
+
+          <section class="panel wide">
+            <div class="panel-head"><h2>Inspect</h2></div>
+            <div class="inspect-row">
+              <input id="inspect-query" type="text" placeholder="ID or label..." />
+              <button id="describe" type="button">Describe UI</button>
+            </div>
+            <pre id="log">ready</pre>
+          </section>
+        </aside>
+      </section>
+    </main>
+
+    <script src="/assets/app.js"></script>
+  </body>
+</html>

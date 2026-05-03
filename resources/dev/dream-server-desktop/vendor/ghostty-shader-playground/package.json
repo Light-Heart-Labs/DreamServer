@@ -1,0 +1,16 @@
+{
+  "name": "ghostty-shader-playground",
+  "version": "1.2.0",
+  "description": "A web-based playground for creating and testing cursor shaders for the Ghostty terminal",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js --open",
+    "serve": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.14.2"
+  },
+  "keywords": ["shader", "glsl", "ghostty", "cursor", "terminal"],
+  "author": "",
+  "license": "MIT"
+}

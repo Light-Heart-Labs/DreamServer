@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Ghostty cursor shaders playground</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="icon" href="/favicon.png" type="image/png" />
+    <script type="module" src="js/app.js"></script>
+    <script>
+      const ws = new WebSocket("ws://localhost:3000");
+      ws.onmessage = (msg) => {
+        if (msg.data === "reload") {
+          location.reload();
+        }
+        if (msg.data.endsWith(".glsl")) {
+          reloadShader(msg.data);
+        }
+      };
+    </script>
+  </head>
+  <body class="d-flex flex-column h-100 bg-primary gap-1 p-1">
+    <div id="playground"></div>
+    <div class="_toolbox gap-1 d-flex">
+      <button
+        class="_button"
+        data-tooltip="Change Cursor Type"
+        onclick="changeCursorType(10,20)"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="121.667 143.333 10 20"
+          width="10px"
+          height="20px"
+        >
+          <rect
+            x="121.667"
+            y="143.333"
+            width="10"
+            height="20"
+            style="stroke: rgb(0, 0, 0)"
+          />
+        </svg>
+      </button>
+      <button
+        data-tooltip="Change Cursor Type"
+        class="_button"
+        onclick="changeCursorType(1,20)"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="143.334 143.333 1 20"
+          width="2px"
+          height="20px"
+        >
+          <rect
+            x="143.334"
+            y="143.333"
+            width="2"
+            height="20"
+            style="stroke: rgb(0, 0, 0)"
+          />
+        </svg>
+      </button>
+      <button
+        data-tooltip="Change Cursor Type"
+        class="_button"
+        onclick="changeCursorType(10,1)"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="168.61 153.333 10 1"
+          width="10px"
+          height="2px"
+        >
+          <rect
+            x="168.61"
+            y="153.333"
+            width="10"
+            height="2"
+            style="stroke: rgb(0, 0, 0); stroke-width: 1px"
+            transform="matrix(1, 0, 0, 1, 2.842170943040401e-14, 0)"
+          />
+        </svg>
+      </button>
+      <button
+        data-tooltip="Automatically changes the cursor position in a predefined manner at each tick"
+        class="_button"
+        onclick="changeMode('auto')"
+      >
+        AUTO
+      </button>
+      <button
+        class="_button"
+        data-tooltip="Randomly alters the cursor position at each tick"
+        onclick="changeMode('rnd')"
+      >
+        RND
+      </button>
+      <button
+        class="_button"
+        data-tooltip="Set the cursor position by clicking at your desired location on the screen."
+        onclick="changeMode('click')"
+      >
+        CLICK
+      </button>
+
+      <div data-tooltip="Set cursor color">
+        <input type="color" id="cursorColor" name="cursor" value="#ff0000" />
+      </div>
+      <div data-tooltip="Set background color">
+        <input
+          type="color"
+          id="backgroundColor"
+          name="background"
+          value="#0b0e15"
+        />
+      </div>
+      <div data-tooltip="Change tick rate">
+        <input
+          type="number"
+          id="tickRate"
+          name="tickRate"
+          value="500"
+          min="50"
+        />
+      </div>
+      <button
+        class="_button"
+        data-tooltip="Creates a new player"
+        onclick="addPlayer()"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          height="24px"
+          viewBox="0 -960 960 960"
+          width="24px"
+          fill="#333"
+        >
+          <path d="M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z" />
+        </svg>
+      </button>
+    </div>
+  </body>
+</html>

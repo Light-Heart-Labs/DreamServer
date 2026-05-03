@@ -1,0 +1,162 @@
+{
+  "terminal": {
+    "openTerminal": "Open terminal",
+    "openInbuilt": "Open in Inbuilt Terminal",
+    "openExternal": "Open in External Terminal"
+  },
+  "merge": {
+    "branchHasNewCommits": "{{branch}} branch has {{count}} new commit.",
+    "branchHasNewCommits_other": "{{branch}} branch has {{count}} new commits.",
+    "branchHasNewCommitsSinceWorktree": "The {{branch}} branch has {{count}} new commit since this worktree was created.",
+    "branchHasNewCommitsSinceWorktree_other": "The {{branch}} branch has {{count}} new commits since this worktree was created.",
+    "filesNeedMerging": "{{count}} file needs merging.",
+    "filesNeedMerging_other": "{{count}} files need merging.",
+    "filesNeedIntelligentMerging": "{{count}} file will need intelligent merging:",
+    "filesNeedIntelligentMerging_other": "{{count}} files will need intelligent merging:",
+    "branchHasNewCommitsSinceBuild": "{{branch}} branch has {{count}} new commit since this build started.",
+    "branchHasNewCommitsSinceBuild_other": "{{branch}} branch has {{count}} new commits since this build started.",
+    "filesNeedAIMergeDueToRenames": "{{count}} file needs AI merge due to {{renameCount}} file rename.",
+    "filesNeedAIMergeDueToRenames_other": "{{count}} files need AI merge due to {{renameCount}} file renames.",
+    "filesNeedAIMergeDueToRenamesPlural": "{{count}} file needs AI merge due to {{renameCount}} file renames.",
+    "filesNeedAIMergeDueToRenamesPlural_other": "{{count}} files need AI merge due to {{renameCount}} file renames.",
+    "fileRenamesDetected": "{{count}} file rename detected - AI will handle the merge.",
+    "fileRenamesDetected_other": "{{count}} file renames detected - AI will handle the merge.",
+    "filesRenamedOrMoved": "Files may have been renamed or moved - AI will handle the merge.",
+    "alreadyMergedTitle": "Changes already in your branch",
+    "alreadyMergedDescription": "These changes appear to already exist in your current branch. You can safely mark this task as done.",
+    "alreadyMergedTooltip": "The task's changes are already present in your branch. Marking as done will clean up the worktree without merging.",
+    "matchingFiles": "Matching files",
+    "supersededTitle": "Changes superseded",
+    "supersededDescription": "Your current branch has a newer version of these changes. Consider discarding this task or viewing the comparison.",
+    "supersededCompareTooltip": "View a detailed comparison to see how the current branch differs from this task's changes.",
+    "supersededDiscardTooltip": "Remove this task's worktree since the changes are no longer needed.",
+    "status": {
+      "branchDiverged": "Branch Diverged",
+      "aiWillResolve": "AI will resolve",
+      "filesRenamed": "Files Renamed",
+      "branchBehind": "Branch Behind",
+      "readyToMerge": "Ready to merge",
+      "files": "files",
+      "file": "file",
+      "conflict": "conflict",
+      "conflicts": "conflicts",
+      "details": "Details",
+      "refresh": "Refresh",
+      "stageOnly": "Stage only (review in IDE before committing)",
+      "discardBuild": "Discard build"
+    },
+    "buttons": {
+      "stageWithAIMerge": "Stage with AI Merge",
+      "mergeWithAI": "Merge with AI",
+      "stageTo": "Stage to {{branch}}",
+      "mergeTo": "Merge to {{branch}}",
+      "resolving": "Resolving...",
+      "staging": "Staging...",
+      "merging": "Merging...",
+      "completing": "Completing..."
+    },
+    "actions": {
+      "markAsDone": "Mark as Done",
+      "discardTask": "Discard Task",
+      "viewComparison": "View Comparison"
+    }
+  },
+  "pr": {
+    "title": "Create Pull Request",
+    "description": "Push branch and create a pull request for \"{{taskTitle}}\"",
+    "errors": {
+      "unknown": "An unknown error occurred while creating the pull request",
+      "invalidBranchName": "Branch name contains invalid characters. Use only letters, numbers, hyphens (-), underscores (_), and forward slashes (/).",
+      "emptyTitle": "Pull request title cannot be empty."
+    },
+    "success": {
+      "created": "Pull request created successfully!",
+      "alreadyExists": "A pull request already exists for this branch"
+    },
+    "actions": {
+      "retry": "Retry",
+      "creating": "Creating PR...",
+      "create": "Create Pull Request"
+    },
+    "labels": {
+      "sourceBranch": "Source branch",
+      "targetBranch": "Target branch",
+      "commits": "Commits",
+      "changes": "Changes",
+      "prTitle": "PR Title (optional)",
+      "draftPR": "Create as draft PR",
+      "unknown": "Unknown"
+    },
+    "hints": {
+      "targetBranch": "Leave empty to use the default branch",
+      "prTitle": "Leave empty to use the task title"
+    }
+  },
+  "mergeProgress": {
+    "stages": {
+      "analyzing": "Analyzing changes",
+      "detectingConflicts": "Detecting conflicts",
+      "resolving": "Resolving conflicts",
+      "validating": "Validating merge",
+      "complete": "Merge complete",
+      "error": "Merge failed",
+      "stalled": "Merge stalled"
+    },
+    "conflictCounter": "{{found}} found, {{resolved}} resolved",
+    "currentFile": "Current file",
+    "viewLogs": "View logs",
+    "hideLogs": "Hide logs",
+    "logTypes": {
+      "info": "Info",
+      "warning": "Warning",
+      "error": "Error",
+      "conflict": "Conflict",
+      "resolution": "Resolution"
+    },
+    "completionMessage": "All changes have been merged successfully.",
+    "errorMessage": "An error occurred during the merge process."
+  },
+  "stagedSuccess": {
+    "title": "Changes Staged Successfully",
+    "aiCommitMessage": "AI-generated commit message",
+    "copied": "Copied!",
+    "copy": "Copy",
+    "editHint": "Edit as needed, then copy and use with",
+    "nextSteps": "Next steps:",
+    "reviewChanges": "Review staged changes with",
+    "commitWhenReady": "Commit when ready:",
+    "pushToRemote": "Push to remote when satisfied",
+    "cleaningUp": "Cleaning up...",
+    "markingDone": "Marking done...",
+    "resetting": "Resetting...",
+    "deleteWorktreeAndMarkDone": "Delete Worktree & Mark Done",
+    "markDoneOnly": "Mark Done Only",
+    "markAsDone": "Mark as Done",
+    "reviewAgain": "Review Again",
+    "commitMessagePlaceholder": "Commit message...",
+    "worktreeExplanation": "\"Delete Worktree & Mark Done\" cleans up the isolated workspace. \"Mark Done Only\" keeps it for reference.",
+    "errors": {
+      "failedToDeleteWorktree": "Failed to delete worktree",
+      "worktreeDeletedButStatusFailed": "Worktree deleted but failed to update task status: {{error}}",
+      "failedToMarkAsDone": "Failed to mark as done",
+      "failedToResetStagedState": "Failed to reset staged state"
+    }
+  },
+  "bulkPR": {
+    "title": "Create Pull Requests",
+    "description": "Create pull requests for {{count}} selected tasks",
+    "creating": "Creating PR {{current}} of {{total}}...",
+    "creatingPR": "Creating PR {{current}} of {{total}}",
+    "resultsDescription": "{{success}} succeeded, {{failed}} failed",
+    "tasksToProcess": "Tasks to process",
+    "targetBranchHint": "Leave empty to use each task's default branch. This will be applied to all PRs.",
+    "createAll": "Create {{count}} PRs",
+    "completed": "completed",
+    "succeeded": "succeeded",
+    "failed": "failed",
+    "skipped": "skipped",
+    "alreadyExisted": "already existed",
+    "noWorktree": "No worktree found for this task",
+    "resultsDescriptionWithSkipped": "{{success}} succeeded, {{skipped}} skipped, {{failed}} failed"
+  }
+}

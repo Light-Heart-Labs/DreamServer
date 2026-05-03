@@ -1,0 +1,1188 @@
+{
+  "title": "Paramètres",
+  "tabs": {
+    "app": "Paramètres de l'app",
+    "project": "Paramètres du projet"
+  },
+  "sections": {
+    "appearance": {
+      "title": "Apparence",
+      "description": "Personnalisez l'apparence de Aperant"
+    },
+    "display": {
+      "title": "Affichage",
+      "description": "Ajustez la taille des éléments de l'interface"
+    },
+    "language": {
+      "title": "Langue",
+      "description": "Choisissez votre langue préférée"
+    },
+    "devtools": {
+      "title": "Outils de développement",
+      "description": "Préférences IDE et terminal"
+    },
+    "agent": {
+      "title": "Paramètres de l'agent",
+      "description": "Modèle par défaut et framework"
+    },
+    "paths": {
+      "title": "Chemins",
+      "description": "Outils CLI et chemins framework"
+    },
+    "accounts": {
+      "title": "Comptes",
+      "description": "Comptes Claude & endpoints API"
+    },
+    "updates": {
+      "title": "Mises à jour",
+      "description": "Mises à jour Aperant"
+    },
+    "notifications": {
+      "title": "Notifications",
+      "description": "Préférences d'alertes"
+    },
+    "debug": {
+      "title": "Debug & Logs",
+      "description": "Outils de dépannage"
+    },
+    "terminal-fonts": {
+      "title": "Polices de terminal",
+      "description": "Personnaliser l'apparence des polices de terminal"
+    }
+  },
+  "apiProfiles": {
+    "title": "Profils API",
+    "description": "Configurez des endpoints API compatibles Anthropic personnalisés",
+    "addButton": "Ajouter un profil",
+    "presets": {
+      "anthropic": "Anthropic",
+      "openrouter": "OpenRouter",
+      "groq": "Groq",
+      "zaiGlobal": "z.AI (Mondial)",
+      "zaiChina": "z.AI (Chine)"
+    },
+    "fields": {
+      "name": "Nom",
+      "preset": "Préréglage",
+      "baseUrl": "URL de base",
+      "apiKey": "Clé API"
+    },
+    "placeholders": {
+      "name": "Mon API personnalisée",
+      "preset": "Choisir un préréglage de fournisseur",
+      "baseUrl": "https://api.anthropic.com",
+      "apiKey": "sk-ant-..."
+    },
+    "hints": {
+      "preset": "Les préréglages remplissent l'URL de base ; vous devez toujours coller votre clé API.",
+      "baseUrl": "Exemple : https://api.anthropic.com ou http://localhost:8080"
+    },
+    "validation": {
+      "nameRequired": "Le nom est requis",
+      "baseUrlRequired": "L'URL de base est requise",
+      "baseUrlInvalid": "Format d'URL invalide (doit être http:// ou https://)",
+      "apiKeyRequired": "La clé API est requise",
+      "apiKeyInvalid": "Format de clé API invalide"
+    },
+    "actions": {
+      "save": "Enregistrer le profil",
+      "saving": "Enregistrement...",
+      "cancel": "Annuler",
+      "changeKey": "Modifier",
+      "cancelKeyChange": "Annuler"
+    },
+    "testConnection": {
+      "label": "Tester la connexion",
+      "testing": "Test en cours...",
+      "success": "Connexion réussie",
+      "failure": "Échec de la connexion"
+    },
+    "models": {
+      "title": "Optionnel : correspondance des noms de modèles",
+      "description": "Sélectionnez des modèles auprès de votre fournisseur d'API. Laissez vide pour utiliser les valeurs par défaut.",
+      "defaultLabel": "Modèle par défaut (optionnel)",
+      "haikuLabel": "Modèle Haiku (optionnel)",
+      "sonnetLabel": "Modèle Sonnet (optionnel)",
+      "opusLabel": "Modèle Opus (optionnel)",
+      "defaultPlaceholder": "ex. : claude-sonnet-4-6",
+      "haikuPlaceholder": "ex. : claude-haiku-4-5-20251001",
+      "sonnetPlaceholder": "ex. : claude-sonnet-4-6",
+      "opusPlaceholder": "ex. : claude-opus-4-6",
+      "opus1mPlaceholder": "ex. : claude-opus-4-6 (contexte 1M)"
+    },
+    "empty": {
+      "title": "Aucun profil API configuré",
+      "description": "Créez un profil pour configurer des endpoints API personnalisés pour vos builds.",
+      "action": "Créer le premier profil"
+    },
+    "switchToOauth": {
+      "label": "Passer à OAuth",
+      "loading": "Basculement..."
+    },
+    "activeBadge": "Actif",
+    "customModels": "Modèles personnalisés : {{models}}",
+    "setActive": {
+      "label": "Définir comme actif",
+      "loading": "Activation..."
+    },
+    "tooltips": {
+      "edit": "Modifier le profil",
+      "deleteActive": "Passez à OAuth avant de supprimer",
+      "deleteInactive": "Supprimer le profil"
+    },
+    "deleteAriaLabel": "Supprimer le profil {{name}}",
+    "toast": {
+      "create": {
+        "title": "Profil créé",
+        "description": "\"{{name}}\" a été ajouté avec succès."
+      },
+      "update": {
+        "title": "Profil mis à jour",
+        "description": "\"{{name}}\" a été mis à jour avec succès."
+      },
+      "delete": {
+        "title": "Profil supprimé",
+        "description": "\"{{name}}\" a été supprimé.",
+        "errorTitle": "Échec de la suppression du profil",
+        "errorFallback": "Une erreur s'est produite lors de la suppression du profil."
+      },
+      "switch": {
+        "oauthTitle": "Passé à OAuth",
+        "oauthDescription": "Authentification OAuth utilisée",
+        "profileTitle": "Profil activé",
+        "profileDescription": "Utilisation de {{name}}",
+        "errorTitle": "Échec du changement d'authentification",
+        "errorFallback": "Une erreur s'est produite lors du changement de méthode d'authentification."
+      }
+    },
+    "dialog": {
+      "createTitle": "Ajouter un profil API",
+      "editTitle": "Modifier le profil",
+      "description": "Configurez un endpoint API compatible Anthropic personnalisé pour vos builds.",
+      "deleteTitle": "Supprimer le profil ?",
+      "deleteDescription": "Êtes-vous sûr de vouloir supprimer \"{{name}}\" ? Cette action est irréversible.",
+      "cancel": "Annuler",
+      "delete": "Supprimer",
+      "deleting": "Suppression..."
+    }
+  },
+  "modelSelect": {
+    "placeholder": "Sélectionner un modèle ou saisir manuellement",
+    "placeholderManual": "Saisir le nom du modèle (ex. : claude-sonnet-4-6)",
+    "searchPlaceholder": "Rechercher des modèles...",
+    "noResults": "Aucun modèle ne correspond à votre recherche",
+    "discoveryNotAvailable": "Découverte de modèles indisponible. Saisissez le nom du modèle manuellement.",
+    "ollamaLoading": "Chargement des modèles Ollama...",
+    "ollamaNoModels": "Aucun modèle Ollama installé",
+    "ollamaNoModelsHint": "Installez des modèles dans Paramètres agent → onglet Ollama",
+    "apiKeyOnly": "Clé API"
+  },
+  "language": {
+    "label": "Langue de l'interface",
+    "description": "Sélectionnez la langue de l'interface de l'application"
+  },
+  "scale": {
+    "presets": "Préréglages d'échelle",
+    "presetsDescription": "Options d'échelle rapides pour les préférences courantes",
+    "fineTune": "Ajustement fin",
+    "fineTuneDescription": "Ajustez de 75% à 200% par incréments de 5%",
+    "default": "Par défaut",
+    "comfortable": "Confortable",
+    "large": "Grand"
+  },
+  "logOrder": {
+    "label": "Ordre des journaux",
+    "description": "Choisir comment les journaux sont affichés dans la vue détaillée des tâches",
+    "chronological": "Chronologique (plus ancien en premier)",
+    "reverseChronological": "Chronologique inverse (plus récent en premier)"
+  },
+  "gpuAcceleration": {
+    "label": "Accélération GPU",
+    "description": "Utiliser WebGL pour le rendu des terminaux (expérimental, plus rapide avec plusieurs terminaux)",
+    "auto": "Auto (utiliser WebGL si supporté)",
+    "on": "Toujours activé",
+    "off": "Désactivé (par défaut)",
+    "helperText": "Les modifications s'appliquent uniquement aux nouveaux terminaux"
+  },
+  "general": {
+    "otherAgentSettings": "Autres paramètres de l'agent",
+    "otherAgentSettingsDescription": "Options de configuration supplémentaires de l'agent",
+    "agentFramework": "Framework de l'agent",
+    "agentFrameworkDescription": "Le framework de codage utilisé pour les tâches autonomes",
+    "agentFrameworkAutoClaude": "Aperant",
+    "aiTerminalNaming": "Nommage IA des terminaux",
+    "aiTerminalNamingDescription": "Nommer automatiquement les terminaux en fonction des commandes (utilise le modèle de nommage IA)",
+    "featureModelSettings": "Paramètres du modèle de fonctionnalité",
+    "featureModelSettingsDescription": "Modèle et niveau de réflexion pour Insights, Idéation et Roadmap",
+    "model": "Modèle",
+    "thinkingLevel": "Niveau de réflexion",
+    "paths": "Chemins",
+    "pathsDescription": "Configurer les chemins des exécutables et du framework",
+    "pythonPath": "Chemin Python",
+    "pythonPathDescription": "Chemin vers l'exécutable Python (laisser vide pour détection automatique)",
+    "pythonPathPlaceholder": "python3 (par défaut)",
+    "gitPath": "Chemin Git",
+    "gitPathDescription": "Chemin vers l'exécutable Git (laisser vide pour détection automatique)",
+    "gitPathPlaceholder": "git (par défaut)",
+    "githubCLIPath": "Chemin GitHub CLI",
+    "githubCLIPathDescription": "Chemin vers l'exécutable GitHub CLI (gh) (laisser vide pour détection automatique)",
+    "githubCLIPathPlaceholder": "gh (par défaut)",
+    "gitlabCLIPath": "Chemin GitLab CLI",
+    "gitlabCLIPathDescription": "Chemin vers l'exécutable GitLab CLI (glab) (laisser vide pour détection automatique)",
+    "gitlabCLIPathPlaceholder": "glab (par défaut)",
+    "claudePath": "Chemin Claude CLI",
+    "claudePathDescription": "Chemin vers l'exécutable Claude CLI (laisser vide pour détection automatique)",
+    "claudePathPlaceholder": "claude (par défaut)",
+    "detectedPath": "Détecté automatiquement",
+    "detectedVersion": "Version",
+    "detectedSource": "Source",
+    "sourceUserConfig": "Configuration utilisateur",
+    "sourceVenv": "Environnement virtuel",
+    "sourceHomebrew": "Homebrew",
+    "sourceNvm": "NVM",
+    "sourceSystemPath": "PATH système",
+    "sourceBundled": "Intégré",
+    "sourceFallback": "Valeur par défaut",
+    "notDetected": "Non détecté",
+    "autoClaudePath": "Chemin Aperant",
+    "autoClaudePathDescription": "Chemin relatif vers le répertoire auto-claude dans les projets",
+    "autoClaudePathPlaceholder": "auto-claude (par défaut)",
+    "autoNameTerminals": "Nommer automatiquement les terminaux",
+    "autoNameTerminalsDescription": "Utiliser l'IA pour générer des noms descriptifs pour les onglets de terminal en fonction de leur activité"
+  },
+  "theme": {
+    "title": "Apparence",
+    "description": "Personnalisez l'apparence de Aperant",
+    "mode": "Mode",
+    "modeDescription": "Choisir entre les thèmes clair et sombre",
+    "light": "Clair",
+    "dark": "Sombre",
+    "system": "Système",
+    "colorTheme": "Thème de couleur",
+    "colorThemeDescription": "Choisissez votre palette de couleurs préférée"
+  },
+  "devtools": {
+    "title": "Outils de développement",
+    "description": "Configurez votre IDE, terminal et paramètres de police de terminal préférés",
+    "detecting": "Détection des outils installés...",
+    "detectAgain": "Détecter à nouveau",
+    "tabTools": "Outils",
+    "tabTerminalFonts": "Polices de terminal",
+    "ide": {
+      "label": "IDE préféré",
+      "description": "Aperant ouvrira les worktrees dans cet éditeur",
+      "placeholder": "Sélectionner un IDE...",
+      "customPath": "Chemin IDE personnalisé",
+      "customPathPlaceholder": "/chemin/vers/votre/ide"
+    },
+    "terminal": {
+      "label": "Terminal préféré",
+      "description": "Aperant ouvrira les sessions terminal ici",
+      "placeholder": "Sélectionner un terminal...",
+      "customPath": "Chemin terminal personnalisé",
+      "customPathPlaceholder": "/chemin/vers/votre/terminal"
+    },
+    "cli": {
+      "label": "CLI préféré",
+      "description": "Outil CLI utilisé pour les sessions terminal assistées par IA",
+      "placeholder": "Sélectionner un CLI...",
+      "customPath": "Chemin CLI personnalisé",
+      "customPathPlaceholder": "/chemin/vers/votre/cli"
+    },
+    "detected": "Détecté",
+    "notInstalled": "Non installé",
+    "detectedSummary": "Détecté sur votre système :",
+    "noToolsDetected": "Aucun outil supplémentaire détecté (VS Code et le terminal système seront utilisés)",
+    "autoNameClaude": {
+      "label": "Nommer automatiquement les terminaux Claude",
+      "description": "Utiliser l'IA pour générer un nom descriptif pour les terminaux Claude basé sur votre premier message"
+    },
+    "yoloMode": {
+      "label": "Mode YOLO",
+      "description": "Démarrer Claude avec le flag --dangerously-skip-permissions, contournant toutes les invites de sécurité. À utiliser avec une extrême prudence.",
+      "warning": "Ce mode contourne le système de permissions de Claude. N'activez que si vous faites entièrement confiance au code exécuté."
+    }
+  },
+  "updates": {
+    "title": "Mises à jour",
+    "description": "Gérer les mises à jour de Aperant",
+    "appUpdateReady": "Mise à jour de l'app prête",
+    "newVersion": "Nouvelle version",
+    "released": "Publiée le",
+    "downloading": "Téléchargement...",
+    "updateDownloaded": "Mise à jour téléchargée ! Cliquez sur Installer pour redémarrer et appliquer la mise à jour.",
+    "installAndRestart": "Installer et redémarrer",
+    "downloadUpdate": "Télécharger la mise à jour",
+    "version": "Version",
+    "loading": "Chargement...",
+    "checkingForUpdates": "Vérification des mises à jour...",
+    "newVersionAvailable": "Nouvelle version disponible :",
+    "latestVersion": "Vous utilisez la dernière version.",
+    "viewRelease": "Voir la version complète sur GitHub",
+    "unableToCheck": "Impossible de vérifier les mises à jour",
+    "checkForUpdates": "Vérifier les mises à jour",
+    "autoUpdateProjects": "Mise à jour automatique des projets",
+    "autoUpdateProjectsDescription": "Mettre à jour automatiquement Aperant dans les projets quand une nouvelle version est disponible",
+    "betaUpdates": "Mises à jour bêta",
+    "betaUpdatesDescription": "Recevoir les versions bêta pré-release avec de nouvelles fonctionnalités (peut être moins stable)",
+    "stableDowngradeAvailable": "Version stable disponible",
+    "stableDowngradeDescription": "Vous êtes actuellement sur une version bêta. Comme vous avez désactivé les mises à jour bêta, vous pouvez passer à la dernière version stable.",
+    "stableVersion": "Version stable",
+    "downloadStableVersion": "Télécharger la version stable",
+    "readOnlyVolumeTitle": "Impossible d'installer depuis l'image disque",
+    "readOnlyVolumeDescription": "Aperant s'exécute depuis une image disque en lecture seule (DMG). Veuillez glisser l'application dans votre dossier Applications et la relancer depuis cet emplacement pour installer les mises à jour.",
+    "downloadError": "Échec du téléchargement de la mise à jour"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "description": "Configurer les préférences de notification par défaut",
+    "onTaskComplete": "À la fin d'une tâche",
+    "onTaskCompleteDescription": "Notifier quand une tâche se termine avec succès",
+    "onTaskFailed": "En cas d'échec",
+    "onTaskFailedDescription": "Notifier quand une tâche rencontre une erreur",
+    "onReviewNeeded": "Révision requise",
+    "onReviewNeededDescription": "Notifier quand le QA nécessite votre révision",
+    "sound": "Son",
+    "soundDescription": "Jouer un son avec les notifications"
+  },
+  "actions": {
+    "save": "Enregistrer les paramètres",
+    "rerunWizard": "Relancer l'assistant",
+    "rerunWizardDescription": "Redémarrer l'assistant de configuration"
+  },
+  "projectSections": {
+    "general": {
+      "title": "Général",
+      "description": "Auto-Build et configuration de l'agent",
+      "useClaudeMd": "Utiliser CLAUDE.md",
+      "useClaudeMdDescription": "Inclure les instructions CLAUDE.md dans le contexte de l'agent"
+    },
+    "claude": {
+      "title": "Auth Claude",
+      "description": "Authentification Claude"
+    },
+    "linear": {
+      "title": "Linear",
+      "description": "Intégration Linear",
+      "integrationTitle": "Intégration Linear",
+      "integrationDescription": "Se connecter à Linear pour le suivi des issues et l'import de tâches",
+      "syncDescription": "Synchroniser avec Linear pour le suivi des issues"
+    },
+    "github": {
+      "title": "GitHub",
+      "description": "Synchronisation issues GitHub",
+      "integrationTitle": "Intégration GitHub",
+      "integrationDescription": "Se connecter à GitHub pour le suivi des issues",
+      "syncDescription": "Synchroniser avec GitHub Issues",
+      "defaultBranch": {
+        "label": "Branche par défaut",
+        "description": "Branche de base pour créer les worktrees de tâches",
+        "autoDetect": "Détection automatique (main/master)",
+        "searchPlaceholder": "Rechercher des branches...",
+        "noBranchesFound": "Aucune branche trouvée",
+        "selectedBranchHelp": "Toutes les nouvelles tâches partiront de {{branch}}"
+      },
+      "pushNewBranches": {
+        "label": "Pousser automatiquement les nouvelles branches",
+        "description": "Pousser automatiquement les nouvelles branches de tâche et de worktree vers GitHub et configurer le suivi"
+      }
+    },
+    "gitlab": {
+      "title": "GitLab",
+      "description": "Synchronisation issues GitLab",
+      "integrationTitle": "Intégration GitLab",
+      "integrationDescription": "Se connecter à GitLab pour le suivi des issues",
+      "syncDescription": "Synchroniser avec GitLab Issues"
+    },
+    "memory": {
+      "title": "Mémoire",
+      "description": "Backend mémoire Graphiti",
+      "integrationTitle": "Mémoire",
+      "integrationDescription": "Configurer la mémoire persistante inter-sessions pour les agents",
+      "syncDescription": "Configurer la mémoire persistante"
+    }
+  },
+  "agentProfile": {
+    "label": "Profil d'agent",
+    "title": "Profil d'agent par défaut",
+    "sectionDescription": "Sélectionnez une configuration prédéfinie pour le modèle et le niveau de réflexion",
+    "profilesInfo": "Les profils d'agent fournissent des configurations prédéfinies pour le modèle Claude et le niveau de réflexion. Quand vous créez une nouvelle tâche, ces paramètres seront utilisés par défaut. Vous pouvez toujours les modifier dans l'assistant de création de tâche.",
+    "custom": "Personnalisé",
+    "customConfiguration": "Configuration personnalisée",
+    "customDescription": "Choisir le modèle et le niveau de réflexion",
+    "phaseConfiguration": "Configuration par phase",
+    "phaseConfigurationDescription": "Personnaliser le modèle et le niveau de réflexion pour chaque phase",
+    "clickToCustomize": "Cliquer pour personnaliser",
+    "model": "Modèle",
+    "thinking": "Réflexion",
+    "thinkingLevel": "Niveau de réflexion",
+    "selectModel": "Sélectionner un modèle",
+    "selectThinkingLevel": "Sélectionner un niveau de réflexion",
+    "perPhaseOptimization": "(optimisation par phase)",
+    "resetToDefaults": "Réinitialiser par défaut",
+    "resetToProfileDefaults": "Réinitialiser aux défauts de {{profile}}",
+    "customized": "Personnalisé",
+    "ollamaNotConfigured": "Sélectionnez les modèles ci-dessous",
+    "phaseConfigNote": "Ces paramètres seront utilisés par défaut lors de la création de nouvelles tâches avec ce profil. Vous pouvez les modifier par tâche dans l'assistant de création.",
+    "adaptiveThinking": {
+      "badge": "Adaptatif",
+      "tooltip": "Opus utilise la réflexion adaptative — il décide dynamiquement de la profondeur de réflexion dans la limite du budget défini par le niveau de réflexion."
+    },
+    "reasoning": {
+      "adaptive": "Adaptatif",
+      "budget": "Budget",
+      "reasoning": "Raisonnement",
+      "thinking": "Réflexion",
+      "noThinking": "(Pas de réflexion)",
+      "toggle": {
+        "off": "Désactivé",
+        "on": "Activé"
+      },
+      "badgeTooltip": {
+        "adaptive_effort": "Décide dynamiquement de l'intensité de réflexion dans le cadre du budget",
+        "thinking_tokens": "Réflexion basée sur un budget de tokens configurable",
+        "reasoning_effort": "Niveaux d'effort de raisonnement (faible/moyen/élevé)",
+        "thinking_toggle": "Activation/désactivation de la réflexion",
+        "none": "Pas de réflexion étendue supportée"
+      }
+    },
+    "phases": {
+      "spec": {
+        "label": "Création de spec",
+        "description": "Découverte, exigences, collecte de contexte"
+      },
+      "planning": {
+        "label": "Planification",
+        "description": "Planification de l'implémentation et architecture"
+      },
+      "coding": {
+        "label": "Codage",
+        "description": "Implémentation du code"
+      },
+      "qa": {
+        "label": "Révision QA",
+        "description": "Assurance qualité et validation"
+      }
+    },
+    "providerOverrides": {
+      "title": "Correspondance des modèles par fournisseur",
+      "description": "Personnalisez quel modèle chaque fournisseur utilise pour chaque raccourci",
+      "defaultMapping": "Par défaut",
+      "yourOverride": "Votre choix",
+      "shorthand": "Raccourci",
+      "useDefault": "Par défaut",
+      "resetAll": "Tout réinitialiser",
+      "noConnectedProviders": "Aucun fournisseur connecté. Ajoutez des comptes dans les paramètres des comptes pour configurer les correspondances de modèles.",
+      "equivalentNote": "Lorsqu'un fournisseur non-Anthropic est actif, ces correspondances déterminent quel modèle est utilisé pour chaque phase."
+    },
+    "providerTabs": {
+      "moreProviders": "Plus",
+      "noProviders": "Aucun fournisseur connecté. Ajoutez des comptes dans les paramètres Comptes pour configurer les paramètres d'agent par fournisseur.",
+      "configureFor": "Configurer les paramètres d'agent pour {{provider}}",
+      "crossProvider": "Multi-fournisseur",
+      "crossProviderDisabledTooltip": "Connectez deux comptes fournisseurs ou plus pour activer les capacités multi-fournisseur",
+      "needsSetup": "Configuration requise"
+    },
+    "crossProviderTab": {
+      "title": "Configuration multi-fournisseur",
+      "description": "Attribuez un fournisseur et un modèle différents à chaque phase du pipeline pour une flexibilité maximale.",
+      "activateInfo": "Les tâches créées avec cette configuration active utiliseront la configuration multi-fournisseur.",
+      "featureModelsTitle": "Modèles de fonctionnalités",
+      "featureModelsDescription": "Configurer les modèles pour les fonctionnalités hors pipeline (Insights, Idéation, etc.)"
+    },
+    "customProfile": {
+      "name": "Personnalisé (Multi-fournisseur)",
+      "description": "Mélanger différents fournisseurs et modèles pour chaque phase",
+      "phaseAssignment": "Assigner un fournisseur et un modèle pour chaque phase"
+    },
+    "ollamaModels": {
+      "title": "Modèles Ollama",
+      "description": "Gérez les modèles installés localement pour les tâches d'agent IA",
+      "installed": "Modèles installés",
+      "installedCount": "{{count}} modèle(s)",
+      "noModels": "Aucun modèle LLM installé",
+      "recommended": "Recommandés pour le code",
+      "recommendedDescription": "Modèles populaires optimisés pour la génération de code et le raisonnement",
+      "download": "Télécharger",
+      "downloading": "Téléchargement...",
+      "refresh": "Actualiser",
+      "loading": "Chargement des modèles...",
+      "ollamaNotAvailable": "Connectez Ollama dans les paramètres de compte pour gérer les modèles"
+    }
+  },
+  "workspace": {
+    "roles": {
+      "backend": "Backend",
+      "frontend": "Frontend",
+      "mobile": "Mobile",
+      "shared": "Partagé",
+      "apiGateway": "Passerelle API",
+      "worker": "Worker",
+      "other": "Autre"
+    }
+  },
+  "integrations": {
+    "title": "Intégrations",
+    "description": "Gérer les comptes Claude et les clés API",
+    "claudeAccounts": "Comptes Claude",
+    "claudeAccountsDescription": "Ajoutez plusieurs abonnements Claude pour basculer automatiquement entre eux quand vous atteignez les limites.",
+    "claudeAccountsWarning": "Lors de l'authentification, assurez-vous d'être connecté au bon compte Claude dans votre navigateur. Chaque profil doit utiliser un abonnement différent.",
+    "noAccountsYet": "Aucun compte configuré",
+    "default": "Par défaut",
+    "active": "Actif",
+    "authenticated": "Authentifié",
+    "needsAuth": "Auth requise",
+    "authenticate": "Authentifier",
+    "authenticating": "Authentification...",
+    "setActive": "Définir actif",
+    "manualTokenEntry": "Saisie manuelle du token",
+    "runSetupToken": "Exécutez claude et tapez /login pour vous authentifier",
+    "tokenPlaceholder": "sk-ant-oat01-...",
+    "emailPlaceholder": "Email (optionnel, pour l'affichage)",
+    "saveToken": "Enregistrer le token",
+    "accountNamePlaceholder": "Nom du compte (ex: Travail, Personnel)",
+    "autoSwitching": "Basculement automatique de compte",
+    "autoSwitchingDescription": "Basculer automatiquement entre les comptes Claude pour éviter les interruptions. Configurez la surveillance proactive pour changer avant d'atteindre les limites.",
+    "enableAutoSwitching": "Activer le basculement automatique",
+    "masterSwitch": "Interrupteur principal pour toutes les fonctionnalités auto-swap",
+    "proactiveMonitoring": "Surveillance proactive",
+    "proactiveDescription": "Vérifier l'utilisation régulièrement et changer avant d'atteindre les limites",
+    "checkUsageEvery": "Vérifier l'utilisation toutes les",
+    "seconds15": "15 secondes",
+    "seconds30": "30 secondes (recommandé)",
+    "minute1": "1 minute",
+    "disabled": "Désactivé",
+    "sessionThreshold": "Seuil d'utilisation de session",
+    "sessionThresholdDescription": "Changer quand l'utilisation de session atteint ce niveau (recommandé: 95%)",
+    "weeklyThreshold": "Seuil d'utilisation hebdomadaire",
+    "weeklyThresholdDescription": "Changer quand l'utilisation hebdomadaire atteint ce niveau (recommandé: 99%)",
+    "reactiveRecovery": "Récupération réactive",
+    "reactiveDescription": "Basculer automatiquement quand une limite inattendue est atteinte",
+    "autoSwitchOnAuthFailure": "Changement auto en cas d'échec d'auth",
+    "autoSwitchOnAuthFailureDescription": "Basculer automatiquement vers un autre compte authentifié en cas d'échec d'authentification",
+    "apiKeys": "Clés API",
+    "apiKeysInfo": "Les clés définies ici sont utilisées par défaut. Les projets individuels peuvent les remplacer dans leurs paramètres.",
+    "openaiKey": "Clé API OpenAI",
+    "openaiKeyDescription": "Requise pour le backend mémoire Graphiti (embeddings)",
+    "toast": {
+      "authSuccess": "Profil authentifié",
+      "authSuccessWithEmail": "Connecté en tant que {{email}}",
+      "authSuccessGeneric": "Authentification terminée. Vous pouvez maintenant utiliser ce profil.",
+      "authStartFailed": "Échec de l'authentification",
+      "addProfileFailed": "Échec de l'ajout du profil",
+      "loadProfilesFailed": "Échec du chargement des profils",
+      "deleteProfileFailed": "Échec de la suppression du profil",
+      "renameProfileFailed": "Échec du renommage du profil",
+      "setActiveProfileFailed": "Échec de l'activation du profil",
+      "profileCreatedAuthFailed": "Profil créé - Authentification requise",
+      "profileCreatedAuthFailedDescription": "Le profil a été ajouté mais l'authentification n'a pas pu démarrer. Cliquez sur le bouton de connexion pour vous authentifier.",
+      "tokenSaved": "Token enregistré",
+      "tokenSavedDescription": "Votre token a été enregistré avec succès.",
+      "tokenSaveFailed": "Échec de l'enregistrement du token",
+      "settingsUpdateFailed": "Échec de la mise à jour des paramètres",
+      "tryAgain": "Veuillez réessayer.",
+      "terminalCreationFailed": "Échec de la création du terminal d'authentification",
+      "terminalCreationFailedDescription": "Impossible de démarrer le processus d'authentification. {{error}}",
+      "maxTerminalsReached": "Nombre maximum de terminaux atteint",
+      "maxTerminalsReachedDescription": "Veuillez fermer certains terminaux et réessayer. Vous pouvez avoir jusqu'à 12 terminaux ouverts.",
+      "terminalError": "Erreur de terminal",
+      "terminalErrorDescription": "Échec de la création du terminal : {{error}}",
+      "authProcessFailed": "Le processus d'authentification n'a pas pu démarrer",
+      "authProcessFailedDescription": "Le terminal d'authentification n'a pas pu être créé. Veuillez réessayer ou consulter les logs pour plus de détails."
+    },
+    "alerts": {
+      "profileCreatedAuthFailed": "Profil créé mais échec de la préparation de l'authentification : {{error}}",
+      "authPrepareFailed": "Échec de la préparation de l'authentification : {{error}}",
+      "authStartFailedMessage": "Échec du démarrage de l'authentification. Veuillez réessayer."
+    }
+  },
+  "accounts": {
+    "title": "Comptes",
+    "description": "Gérer les comptes Claude et les endpoints API",
+    "tabs": {
+      "claudeCode": "Claude Code",
+      "customEndpoints": "Endpoints personnalisés"
+    },
+    "claudeCode": {
+      "description": "Ajoutez plusieurs abonnements Claude pour basculer automatiquement entre eux lorsque vous atteignez les limites de taux.",
+      "noAccountsYet": "Aucun compte configuré",
+      "default": "Par défaut",
+      "active": "Actif",
+      "authenticated": "Authentifié",
+      "needsAuth": "Auth requise",
+      "authenticate": "Authentifier",
+      "authenticating": "Authentification...",
+      "setActive": "Définir actif",
+      "manualTokenEntry": "Saisie manuelle du token",
+      "runSetupToken": "Exécutez claude et tapez /login pour vous authentifier",
+      "tokenPlaceholder": "sk-ant-oat01-...",
+      "emailPlaceholder": "Email (optionnel, pour l'affichage)",
+      "saveToken": "Enregistrer le token",
+      "accountNamePlaceholder": "Nom du compte (ex: Travail, Personnel)"
+    },
+    "customEndpoints": {
+      "description": "Configurez des endpoints API compatibles Anthropic personnalisés",
+      "addButton": "Ajouter un profil",
+      "activeBadge": "Actif",
+      "customModels": "Modèles personnalisés: {{models}}",
+      "setActive": {
+        "label": "Définir actif",
+        "loading": "Configuration..."
+      },
+      "switchToOauth": {
+        "label": "Utiliser Claude Code",
+        "loading": "Basculement..."
+      },
+      "tooltips": {
+        "edit": "Modifier le profil",
+        "deleteActive": "Impossible de supprimer le profil actif",
+        "deleteInactive": "Supprimer le profil"
+      },
+      "empty": {
+        "title": "Aucun endpoint personnalisé",
+        "description": "Configurez des endpoints API compatibles Anthropic personnalisés pour utiliser des fournisseurs alternatifs.",
+        "action": "Ajouter un profil"
+      },
+      "dialog": {
+        "deleteTitle": "Supprimer le profil",
+        "deleteDescription": "Êtes-vous sûr de vouloir supprimer \"{{name}}\" ? Cette action est irréversible.",
+        "cancel": "Annuler",
+        "delete": "Supprimer",
+        "deleting": "Suppression..."
+      }
+    },
+    "autoSwitching": {
+      "title": "Basculement automatique de compte",
+      "description": "Basculez automatiquement entre les comptes pour éviter les interruptions. Configurez la surveillance proactive pour basculer avant d'atteindre les limites.",
+      "enableAutoSwitching": "Activer le basculement automatique",
+      "masterSwitch": "Interrupteur principal pour toutes les fonctionnalités d'auto-basculement",
+      "proactiveMonitoring": "Surveillance proactive",
+      "proactiveDescription": "Vérifier l'utilisation régulièrement et basculer avant d'atteindre les limites",
+      "sessionThreshold": "Seuil d'utilisation de session",
+      "sessionThresholdDescription": "Basculer lorsque l'utilisation de session atteint ce niveau (recommandé: 95%)",
+      "weeklyThreshold": "Seuil d'utilisation hebdomadaire",
+      "weeklyThresholdDescription": "Basculer lorsque l'utilisation hebdomadaire atteint ce niveau (recommandé: 99%)",
+      "reactiveRecovery": "Récupération réactive",
+      "reactiveDescription": "Auto-basculement en cas de limite de taux inattendue",
+      "autoSwitchOnAuthFailure": "Changement auto en cas d'échec d'auth",
+      "autoSwitchOnAuthFailureDescription": "Basculer automatiquement vers un autre compte authentifié en cas d'échec d'authentification"
+    },
+    "priority": {
+      "title": "Ordre de priorité des comptes",
+      "description": "Glissez pour réorganiser. Le système basculera vers le prochain compte disponible dans l'ordre.",
+      "tabs": {
+        "default": "Par défaut",
+        "crossProvider": "Multi-fournisseur"
+      },
+      "crossProviderDescription": "Cet ordre de priorité est utilisé lorsque le mode multi-fournisseur est actif. Lorsque plusieurs comptes partagent un fournisseur, le système sélectionne le meilleur disponible selon cet ordre.",
+      "setActive": "Définir comme actif",
+      "setActiveTooltip": "Faire de ce compte le compte principal",
+      "noAccounts": "Aucun compte configuré. Ajoutez des comptes ci-dessus pour définir la priorité.",
+      "noEmail": "Pas d'email",
+      "active": "Actif",
+      "inUse": "En cours",
+      "next": "Suivant",
+      "unlimited": "Illimité",
+      "unavailable": "Indisponible",
+      "typeOAuth": "OAuth",
+      "typeAPI": "API",
+      "payPerUse": "Paiement à l'usage",
+      "needsAuth": "Non authentifié",
+      "duplicateUsage": "Doublon d\u2019utilisation",
+      "duplicateUsageHint": "Ces profils OAuth partagent des valeurs d\u2019utilisation identiques. Vérifiez qu\u2019ils correspondent bien à des comptes différents si ce n\u2019est pas attendu.",
+      "needsReauth": "Réauth requise",
+      "needsReauthHint": "Le token de rafraîchissement de ce profil est invalide. Cliquez pour vous réauthentifier.",
+      "sessionUsage": "Utilisation de session (fenêtre de 5 heures)",
+      "weeklyUsage": "Utilisation hebdomadaire (fenêtre de 7 jours)",
+      "oauthSection": "Comptes Claude (utilisés en premier)",
+      "apiSection": "Points de terminaison de secours (quand tous les comptes sont épuisés)",
+      "tipTitle": "Comment fonctionne la priorité",
+      "tipDescription": "Les comptes Claude sont inclus dans votre abonnement et seront utilisés en premier. Les endpoints API facturent par requête et sont utilisés comme solutions de secours lorsque tous les comptes Claude atteignent leurs limites.",
+      "status": {
+        "healthy": "Sain",
+        "moderate": "Modéré",
+        "highUsage": "Utilisation élevée",
+        "nearLimit": "Proche de la limite",
+        "rateLimited": "Limité"
+      }
+    },
+    "toast": {
+      "loadProfilesFailed": "Échec du chargement des profils",
+      "addProfileFailed": "Échec de l'ajout du profil",
+      "deleteProfileFailed": "Échec de la suppression du profil",
+      "renameProfileFailed": "Échec du renommage du profil",
+      "setActiveProfileFailed": "Échec de la définition du profil actif",
+      "tokenSaved": "Token enregistré",
+      "tokenSavedDescription": "Votre token a été enregistré avec succès.",
+      "tokenSaveFailed": "Échec de l'enregistrement du token",
+      "settingsUpdateFailed": "Échec de la mise à jour des paramètres",
+      "tryAgain": "Veuillez réessayer."
+    },
+    "alerts": {
+      "profileCreatedAuthFailed": "Profil créé mais échec de la préparation de l'authentification: {{error}}",
+      "authPrepareFailed": "Échec de la préparation de l'authentification: {{error}}",
+      "authStartFailedMessage": "Échec du démarrage de l'authentification. Veuillez réessayer."
+    }
+  },
+  "providers": {
+    "card": {
+      "oauth": "OAuth",
+      "codex": "Codex",
+      "codexSubscription": "Abonnement Codex",
+      "claudeCode": "Claude Code",
+      "claudeCodeSubscription": "Abonnement Claude Code",
+      "zaiCodingPlan": "Coding Plan",
+      "zaiUsageBased": "À l'utilisation",
+      "zaiCodingPlanSubscription": "Z.AI Coding Plan",
+      "apiKey": "Clé API",
+      "active": "Actif",
+      "setDefault": "Définir actif",
+      "edit": "Modifier le compte",
+      "reauth": "Ré-authentifier",
+      "delete": "Supprimer le compte",
+      "showKey": "Afficher la clé API",
+      "hideKey": "Masquer la clé API",
+      "oauthAccount": "Compte OAuth",
+      "oauthLinked": "Compte lié",
+      "noEndpoint": "Pas de point de terminaison",
+      "customModels": "{{count}} modèle(s) configuré(s)"
+    },
+    "section": {
+      "envDetected": "Depuis env",
+      "envCredentialDetected": "Identifiants détectés depuis la variable d'environnement {{envVar}}",
+      "noAccounts": "Aucun compte configuré",
+      "addOAuth": "Ajouter un compte OAuth",
+      "addClaudeCode": "Ajouter un compte Claude Code",
+      "addCodexSubscription": "Ajouter abonnement Codex",
+      "addCodingPlan": "Ajouter Coding Plan",
+      "addUsageBased": "Ajouter clé API à l'utilisation",
+      "addApiKey": "Ajouter une clé API",
+      "addEndpoint": "Ajouter un point de terminaison"
+    },
+    "dialog": {
+      "addTitle": "Ajouter un compte",
+      "editTitle": "Modifier le compte",
+      "deleteTitle": "Supprimer le compte ?",
+      "deleteDescription": "Êtes-vous sûr de vouloir supprimer ce compte ? Cette action est irréversible.",
+      "cancel": "Annuler",
+      "close": "Fermer",
+      "delete": "Supprimer",
+      "deleting": "Suppression...",
+      "save": "Enregistrer les modifications",
+      "add": "Ajouter le compte",
+      "optional": "(optionnel)",
+      "oauthDescription": "Se connecter avec l'authentification OAuth",
+      "apiKeyDescription": "Ajoutez votre clé API et votre configuration",
+      "zaiCodingPlanDescription": "Ajoutez votre clé API Z.AI Coding Plan pour utiliser les modèles GLM avec votre abonnement",
+      "zaiUsageBasedDescription": "Ajoutez votre clé API Z.AI à l'utilisation pour accéder aux modèles GLM en paiement à l'usage",
+      "codexOAuthDescription": "Connectez-vous avec votre abonnement ChatGPT Plus ou Pro pour utiliser les modèles Codex",
+      "codexAuthenticating": "Ouverture de la connexion OpenAI dans votre navigateur...",
+      "codexWaiting": "En attente de l'authentification dans le navigateur...",
+      "codexSuccess": "Authentifié avec OpenAI Codex",
+      "codexError": "L'authentification OpenAI a échoué : {{error}}",
+      "codexAuthenticate": "S'authentifier avec OpenAI",
+      "codexReauthenticate": "Se ré-authentifier avec OpenAI",
+      "oauthInstructions": "Pour ajouter un compte OAuth, utilisez le flux d'authentification Claude Code depuis l'onglet Claude Code ci-dessus.",
+      "oauthAuthenticate": "S'authentifier avec Anthropic",
+      "oauthReauthenticate": "Se ré-authentifier avec Anthropic",
+      "oauthAuthenticating": "Ouverture du navigateur...",
+      "oauthWaiting": "En attente d'autorisation...",
+      "oauthSuccess": "Authentifié en tant que {{email}}",
+      "oauthError": "Échec de l'authentification : {{error}}",
+      "oauthFallback": "Utiliser le terminal (secours)",
+      "oauthFallbackDescription": "Si la connexion par navigateur ne fonctionne pas, utilisez le terminal intégré",
+      "oauthNameRequired": "Entrez un nom de compte avant de vous authentifier",
+      "modelsDescription": "Ajoutez les identifiants de modèles disponibles sur cet endpoint. Ils apparaîtront dans le sélecteur de modèles.",
+      "fields": {
+        "name": "Nom du compte",
+        "apiKey": "Clé API",
+        "baseUrl": "URL de base",
+        "region": "Région AWS",
+        "models": "Modèles"
+      },
+      "placeholders": {
+        "name": "Mon compte",
+        "apiKey": "sk-...",
+        "baseUrl": "https://...",
+        "modelId": "ID du modèle (ex. llama-3.1-70b)",
+        "modelLabel": "Nom d'affichage"
+      },
+      "toast": {
+        "added": "Compte ajouté",
+        "updated": "Compte mis à jour",
+        "error": "Échec de l'enregistrement du compte",
+        "duplicateEmail": "Cet e-mail est déjà enregistré sous \"{{existingName}}\"",
+        "createProfileFailed": "Échec de la création du profil",
+        "authPrepareFailed": "Échec de la préparation du terminal",
+        "unexpectedError": "Erreur inattendue"
+      }
+    },
+    "toast": {
+      "deleted": "Compte supprimé",
+      "deleteFailed": "Échec de la suppression du compte",
+      "reauthStarted": "Ouverture de l'authentification...",
+      "reauthSuccess": "Ré-authentification réussie",
+      "reauthFailed": "Échec de la ré-authentification"
+    },
+    "categories": {
+      "popular": "Populaires",
+      "infrastructure": "Infrastructure",
+      "local": "Local et personnalisé"
+    },
+    "ollama": {
+      "connection": {
+        "checking": "Vérification de la connexion Ollama...",
+        "connected": "Connecté",
+        "connectedDescription": "Ollama est en cours d'exécution et prêt à l'emploi",
+        "modelsAvailable": "{{count}} modèle(s) LLM installé(s)",
+        "noModels": "Aucun modèle LLM installé",
+        "customUrl": "URL personnalisée",
+        "customUrlPlaceholder": "http://localhost:11434",
+        "notInstalled": "Ollama non installé",
+        "notInstalledDescription": "Installez Ollama pour exécuter des modèles IA open source localement",
+        "notRunning": "Ollama n'est pas en cours d'exécution",
+        "notRunningDescription": "Démarrez le service Ollama pour vous connecter",
+        "install": "Installer Ollama",
+        "retry": "Réessayer",
+        "learnMore": "En savoir plus",
+        "autoConnected": "Connecté automatiquement en tant que fournisseur local",
+        "startCommand": "Exécutez 'ollama serve' dans votre terminal"
+      }
+    }
+  },
+  "debug": {
+    "title": "Debug & Logs",
+    "description": "Accédez aux logs et informations de débogage pour le dépannage",
+    "errorReporting": {
+      "label": "Rapports d'erreurs anonymes",
+      "description": "Envoyer des rapports de crash pour améliorer Aperant. Aucune donnée personnelle ni code n'est collecté."
+    },
+    "openLogsFolder": "Ouvrir le dossier des logs",
+    "copyDebugInfo": "Copier les infos de débogage",
+    "copied": "Copié !",
+    "loadInfo": "Charger les infos de débogage",
+    "systemInfo": "Informations système",
+    "logsLocation": "Emplacement des logs",
+    "recentErrors": "Erreurs récentes",
+    "noRecentErrors": "Aucune erreur récente",
+    "helpTitle": "Signaler des problèmes",
+    "helpText": "Lors du signalement de bugs, cliquez sur \"Copier les infos de débogage\" pour obtenir les informations système et les erreurs récentes qui nous aident à diagnostiquer le problème."
+  },
+  "projectSettings": {
+    "noProjectSelected": {
+      "title": "Aucun projet sélectionné",
+      "description": "Sélectionnez un projet dans la barre latérale pour configurer ses paramètres."
+    }
+  },
+  "mcp": {
+    "title": "Aperçu des serveurs MCP",
+    "titleWithProject": "Aperçu des serveurs MCP pour {{projectName}}",
+    "description": "Configurez quels serveurs MCP sont disponibles pour les agents dans ce projet",
+    "descriptionNoProject": "Sélectionnez un projet pour configurer les serveurs MCP",
+    "serversEnabled": "{{count}} serveurs activés",
+    "configuration": "Configuration des serveurs MCP",
+    "configurationHint": "Les serveurs désactivés réduisent l'utilisation du contexte et le temps de démarrage",
+    "noProjectSelected": "Aucun projet sélectionné",
+    "noProjectSelectedDescription": "Sélectionnez un projet dans le menu déroulant pour voir et configurer les serveurs MCP.",
+    "projectNotInitialized": "Projet non initialisé",
+    "projectNotInitializedDescription": "Initialisez Aperant pour ce projet pour configurer les serveurs MCP.",
+    "browserAutomation": "Automatisation du navigateur (agents QA uniquement)",
+    "alwaysEnabled": "toujours activé",
+    "addServer": "Ajouter un serveur",
+    "addMcpTo": "Ajouter un serveur MCP à {{agent}}",
+    "addMcpDescription": "Sélectionnez un serveur MCP à ajouter à cet agent",
+    "allMcpsAdded": "Tous les serveurs MCP disponibles sont déjà ajoutés",
+    "added": "ajouté",
+    "removed": "supprimé",
+    "remove": "Supprimer",
+    "restore": "Restaurer",
+    "noMcpServers": "Aucun serveur MCP",
+    "cannotRemove": "Impossible à supprimer (requis)",
+    "servers": {
+      "context7": {
+        "name": "Context7",
+        "description": "Recherche de documentation pour les bibliothèques"
+      },
+      "graphiti": {
+        "name": "Graphiti Memory",
+        "description": "Graphe de connaissances pour le contexte inter-sessions",
+        "notConfigured": "Nécessite la configuration mémoire (voir paramètres Mémoire)"
+      },
+      "linear": {
+        "name": "Linear",
+        "description": "Intégration gestion de projet",
+        "notConfigured": "Nécessite l'intégration Linear (voir paramètres Linear)"
+      },
+      "electron": {
+        "name": "Electron",
+        "description": "Automatisation d'applications desktop via Chrome DevTools"
+      },
+      "puppeteer": {
+        "name": "Puppeteer",
+        "description": "Automatisation du navigateur web pour les tests"
+      },
+      "autoClaude": {
+        "name": "Outils Aperant",
+        "description": "Suivi de la progression du build"
+      }
+    },
+    "customServers": "Serveurs personnalisés",
+    "addCustomServer": "Ajouter un serveur personnalisé",
+    "editCustomServer": "Modifier le serveur personnalisé",
+    "customServerDescription": "Ajouter un serveur MCP basé sur une commande ou HTTP",
+    "serverType": "Type de serveur",
+    "typeCommand": "Commande (npx/npm)",
+    "typeHttp": "HTTP",
+    "serverName": "Nom",
+    "serverNamePlaceholder": "Mon serveur MCP",
+    "serverDescription": "Description",
+    "serverDescriptionPlaceholder": "Ce que fait ce serveur",
+    "command": "Commande",
+    "args": "Arguments",
+    "argsHint": "Arguments séparés par des espaces",
+    "url": "URL",
+    "headers": "En-têtes",
+    "headerName": "Nom de l'en-tête",
+    "headerValue": "Valeur de l'en-tête",
+    "noCustomServers": "Aucun serveur personnalisé configuré. Ajoutez-en un pour l'utiliser avec vos agents.",
+    "errorNameRequired": "Le nom du serveur est requis",
+    "errorIdExists": "Un serveur avec cet ID existe déjà",
+    "errorCommandRequired": "La commande est requise pour les serveurs basés sur commande",
+    "errorUrlRequired": "L'URL est requise pour les serveurs basés sur HTTP",
+    "testConnection": "Test",
+    "testing": "Test en cours...",
+    "authToken": "Jeton d'authentification",
+    "authTokenPlaceholder": "Collez votre jeton API ou PAT ici",
+    "authTokenHint": "Utilisé comme jeton Bearer dans l'en-tête Authorization",
+    "advancedHeaders": "En-têtes supplémentaires",
+    "status": {
+      "healthy": "Le serveur répond",
+      "unhealthy": "Le serveur ne répond pas",
+      "needsAuth": "Authentification requise",
+      "checking": "Vérification...",
+      "unknown": "Statut inconnu"
+    },
+    "hints": {
+      "github": "Ceci ressemble à un serveur MCP GitHub. Vous aurez besoin d'un Personal Access Token avec les scopes appropriés.",
+      "createGithubPat": "Créer un PAT GitHub",
+      "google": "Ceci ressemble à une API Google. Vous aurez besoin d'un jeton OAuth ou d'une clé API.",
+      "createGoogleToken": "Créer des identifiants Google",
+      "anthropic": "Ceci ressemble à une API Anthropic. Vous aurez besoin d'une clé API.",
+      "createAnthropicKey": "Créer une clé API Anthropic",
+      "openai": "Ceci ressemble à une API OpenAI. Vous aurez besoin d'une clé API.",
+      "createOpenaiKey": "Créer une clé API OpenAI"
+    }
+  },
+  "terminalFonts": {
+    "title": "Polices de Terminal",
+    "description": "Personnaliser l'apparence et le comportement des polices de terminal",
+    "configActions": "Configuration :",
+    "export": "Exporter JSON",
+    "import": "Importer JSON",
+    "copy": "Copier dans le presse-papier",
+    "fontConfig": {
+      "title": "Configuration des Polices",
+      "description": "Personnaliser la famille, la taille, la graisse, la hauteur de ligne et l'espacement des lettres",
+      "fontFamily": "Famille de Police",
+      "fontFamilyDescription": "Police monospace principale pour le texte du terminal",
+      "selectFont": "Sélectionner une police...",
+      "searchFont": "Rechercher des polices...",
+      "noFonts": "Aucune police trouvée",
+      "fontChain": "Chaîne de polices :",
+      "fontSize": "Taille de Police",
+      "fontSizeDescription": "Taille de police de base en pixels (10-24px)",
+      "decreaseFontSize": "Diminuer la taille de police de {{step}}px",
+      "increaseFontSize": "Augmenter la taille de police de {{step}}px",
+      "pixels": "pixels",
+      "fontWeight": "Graisse de Police",
+      "fontWeightDescription": "Graisse de police de 100 (maigre) à 900 (noir), par incréments de 100",
+      "commonWeights": "Courantes : 400 (normal), 600 (semi-gras), 700 (gras)",
+      "decreaseFontWeight": "Diminuer la graisse de police de {{step}}",
+      "increaseFontWeight": "Augmenter la graisse de police de {{step}}",
+      "lineHeight": "Hauteur de Ligne",
+      "lineHeightDescription": "Hauteur de ligne comme multiple de la taille de police (1.0-2.0)",
+      "letterSpacing": "Espacement des Lettres",
+      "letterSpacingDescription": "Espacement horizontal entre les caractères (-2 à 5px)"
+    },
+    "cursorConfig": {
+      "title": "Configuration du Curseur",
+      "description": "Personnaliser le style, le clignotement et la couleur d'accent du curseur",
+      "cursorStyle": "Style de Curseur",
+      "cursorStyleDescription": "Choisir l'apparence du curseur de terminal",
+      "selectStyle": "Sélectionner le style de curseur...",
+      "currentStyle": "Actuel :",
+      "styleBlock": "Bloc",
+      "styleBlockDescription": "Curseur bloc complet",
+      "styleUnderline": "Soulignement",
+      "styleUnderlineDescription": "Curseur souligné",
+      "styleBar": "Barre",
+      "styleBarDescription": "Barre verticale",
+      "cursorBlink": "Clignotement du Curseur",
+      "cursorBlinkDescription": "Activer ou désactiver l'animation de clignotement du curseur",
+      "blinkStatus": "État :",
+      "enabled": "Activé",
+      "disabled": "Désactivé",
+      "cursorAccentColor": "Couleur d'Accent du Curseur",
+      "cursorAccentColorDescription": "Choisir la couleur du curseur de terminal",
+      "cursorColorLabel": "Couleur d'accent du curseur",
+      "cursorColorDescription": "Couleur actuelle : {{color}}",
+      "pickColor": "Cliquer pour choisir une couleur",
+      "resetColor": "Réinitialiser en noir",
+      "reset": "Réinitialiser",
+      "preview": "Aperçu :"
+    },
+    "performanceConfig": {
+      "title": "Paramètres de Performance",
+      "description": "Ajuster la limite de défilement et autres paramètres liés aux performances",
+      "presets": "Préréglages Rapides",
+      "presetsDescription": "Limites de défilement courantes pour différents cas d'usage",
+      "scrollback": "Limite de Défilement",
+      "scrollbackDescription": "Nombre maximum de lignes à conserver dans l'historique du terminal",
+      "scrollbackPresets": "Préréglages Rapides",
+      "presetMinimal": "Minimal",
+      "presetMinimalDescription": "Historique minimal (1 000 lignes)",
+      "presetStandard": "Standard",
+      "presetStandardDescription": "Historique standard (10 000 lignes)",
+      "presetExtended": "Étendu",
+      "presetExtendedDescription": "Historique étendu (50 000 lignes)",
+      "presetMaximum": "Maximum",
+      "presetMaximumDescription": "Historique maximum (100 000 lignes)",
+      "decreaseScrollback": "Diminuer le défilement de {{step}}",
+      "increaseScrollback": "Augmenter le défilement de {{step}}",
+      "lines": "lignes",
+      "kValue": "{{value}}K",
+      "scrollbackValue": "{{value}} lignes"
+    },
+    "presets": {
+      "title": "Préréglages Rapides",
+      "description": "Appliquer des paramètres de police prédéfinis ou sauvegarder les vôtres",
+      "builtin": "Préréglages Intégrés",
+      "builtinDescription": "Cliquer pour appliquer un préréglage prédéfini",
+      "vscode": "Consolas 14px, curseur bloc",
+      "vscodeName": "VS Code",
+      "intellij": "JetBrains Mono 13px, curseur bloc",
+      "intellijName": "IntelliJ IDEA",
+      "macos": "SF Mono 13px, curseur bloc",
+      "macosName": "Terminal macOS",
+      "ubuntu": "Ubuntu Mono 13px, curseur bloc",
+      "ubuntuName": "Terminal Ubuntu",
+      "reset": "Réinitialiser aux Valeurs par Défaut",
+      "resetDescription": "Restaurer les paramètres par défaut de votre système d'exploitation",
+      "resetToOS": "Réinitialiser aux valeurs par défaut {{os}}",
+      "resetButton": "Réinitialiser aux Valeurs par Défaut de l'OS",
+      "custom": "Préréglages Personnalisés",
+      "customDescription": "Sauvegarder votre configuration actuelle comme un préréglage personnalisé",
+      "presetNamePlaceholder": "Nom du préréglage...",
+      "savePreset": "Sauvegarder la configuration actuelle comme un préréglage",
+      "applyPreset": "Appliquer ce préréglage",
+      "deletePreset": "Supprimer ce préréglage",
+      "noCustomPresets": "Aucun préréglage personnalisé pour le moment. Sauvegardez votre configuration actuelle pour commencer.",
+      "duplicateName": "Un préréglage avec ce nom existe déjà",
+      "saved": "Préréglage « {{name}} » sauvegardé",
+      "deleted": "Préréglage « {{name}} » supprimé",
+      "unknownFont": "Inconnu",
+      "applyFailed": "Échec de l'application du préréglage « {{name}} »",
+      "presetNameLabel": "Nom du préréglage",
+      "summary": "{{font}}, {{size}}px, curseur {{cursor}}"
+    },
+    "preview": {
+      "title": "Aperçu en Direct",
+      "description": "Prévisualiser vos paramètres de terminal en temps réel (mises à jour dans les 300ms)",
+      "ariaLabel": "Aperçu des polices de terminal",
+      "infoText": "Cet aperçu se met à jour dans les 300ms suivant tout changement pour montrer l'apparence de vos paramètres dans les terminaux réels."
+    },
+    "importExport": {
+      "exportSuccess": "Paramètres exportés avec succès",
+      "exportFailed": "Échec de l'export des paramètres",
+      "importSuccess": "Paramètres importés avec succès",
+      "importFailed": "Échec de l'import : format JSON invalide",
+      "importFailedRange": "Échec de l'import : valeurs hors plage valide",
+      "copySuccess": "Paramètres copiés dans le presse-papier",
+      "copyFailed": "Échec de la copie dans le presse-papier",
+      "fileTooLarge": "Fichier d'import trop volumineux (max 10 Ko)",
+      "readError": "Échec de la lecture du fichier"
+    },
+    "slider": {
+      "decrease": "Diminuer {{label}} de {{step}}",
+      "increase": "Augmenter {{label}} de {{step}}",
+      "currentValue": "Valeur actuelle : {{value}}"
+    }
+  },
+  "agents": {
+    "pr_template_filler": {
+      "label": "Remplisseur de modèle PR",
+      "description": "Remplit intelligemment les modèles de PR GitHub à partir des changements de code"
+    }
+  },
+  "provider": {
+    "title": "Fournisseur IA",
+    "description": "Configurez votre fournisseur IA et vos préférences de modèle",
+    "selection": {
+      "label": "Fournisseur",
+      "description": "Sélectionnez le fournisseur IA à utiliser pour les tâches d'agent",
+      "anthropic": "Anthropic",
+      "openai": "OpenAI",
+      "ollama": "Ollama (Local)",
+      "openrouter": "OpenRouter"
+    },
+    "apiKey": {
+      "label": "Clé API",
+      "description": "Votre clé API pour le fournisseur sélectionné",
+      "placeholder": "Entrez votre clé API",
+      "anthropicPlaceholder": "sk-ant-...",
+      "openaiPlaceholder": "sk-...",
+      "openrouterPlaceholder": "sk-or-...",
+      "validation": {
+        "required": "La clé API est requise pour ce fournisseur",
+        "invalid": "Format de clé API invalide"
+      }
+    },
+    "ollama": {
+      "endpointUrl": "URL de l'endpoint Ollama",
+      "endpointDescription": "L'URL où votre instance Ollama est en cours d'exécution",
+      "endpointPlaceholder": "http://localhost:11434",
+      "validation": {
+        "urlRequired": "L'URL de l'endpoint est requise pour Ollama",
+        "urlInvalid": "Format d'URL invalide (doit être http:// ou https://)"
+      }
+    },
+    "phaseModels": {
+      "title": "Préférences de modèle par phase",
+      "description": "Configurez le modèle à utiliser pour chaque phase du pipeline",
+      "spec": {
+        "label": "Modèle de création de spec",
+        "description": "Modèle utilisé pour la découverte, les exigences et la collecte de contexte"
+      },
+      "planning": {
+        "label": "Modèle de planification",
+        "description": "Modèle utilisé pour la planification de l'implémentation et l'architecture"
+      },
+      "coding": {
+        "label": "Modèle de codage",
+        "description": "Modèle utilisé pour l'implémentation du code"
+      },
+      "qa": {
+        "label": "Modèle de révision QA",
+        "description": "Modèle utilisé pour l'assurance qualité et la validation"
+      },
+      "placeholder": "Sélectionner un modèle",
+      "useDefault": "Utiliser le modèle par défaut"
+    },
+    "testConnection": {
+      "label": "Tester la connexion",
+      "testing": "Test en cours...",
+      "success": "Connexion réussie",
+      "failure": "Échec de la connexion"
+    },
+    "toast": {
+      "saved": {
+        "title": "Paramètres du fournisseur enregistrés",
+        "description": "La configuration de votre fournisseur IA a été mise à jour."
+      },
+      "error": {
+        "title": "Échec de l'enregistrement des paramètres du fournisseur",
+        "description": "Une erreur s'est produite lors de l'enregistrement de la configuration du fournisseur."
+      }
+    }
+  }
+}

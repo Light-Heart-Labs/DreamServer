@@ -1,0 +1,90 @@
+name: Quality Security
+
+# CodeQL runs on all PRs, pushes to main, and weekly schedule
+# Note: CodeQL takes 20-30 min
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/desktop/**'
+      - 'package.json'
+      - '.github/workflows/quality-security.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'apps/desktop/**'
+      - 'package.json'
+      - '.github/workflows/quality-security.yml'
+  schedule:
+    - cron: '0 0 * * 1' # Weekly on Monday at midnight UTC
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: +security-extended,security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  # --------------------------------------------------------------------------
+  # Gate Job - Single check for branch protection
+  # --------------------------------------------------------------------------
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [codeql]
+    if: always()
+    timeout-minutes: 5
+    steps:
+      - name: Check security results
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const codeql = '${{ needs.codeql.result }}';
+
+            console.log('Security Check Results:');
+            console.log(`  CodeQL:        ${codeql}`);
+
+            // Only 'failure' is a real failure; 'skipped' is acceptable (e.g., path filters, PR skipping CodeQL)
+            const acceptable = ['success', 'skipped'];
+            const codeqlOk = acceptable.includes(codeql);
+
+            if (codeqlOk) {
+              console.log('\n✅ All security checks passed');
+              core.summary.addRaw('## ✅ Security Checks Passed\n\nAll security scans completed successfully.');
+            } else {
+              console.log('\n❌ Some security checks failed');
+              core.summary.addRaw('## ❌ Security Checks Failed\n\nOne or more security scans found issues.');
+              core.setFailed('Security checks failed');
+            }
+
+            await core.summary.write();

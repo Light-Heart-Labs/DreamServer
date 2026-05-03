@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024px" height="1024px" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <!-- Generator: Sketch 63.1 (92452) - https://sketch.com -->
+    <title>App Icon / Apple / Calendar /@SVG</title>
+    <desc>Created with Sketch.</desc>
+    <g id="App-Icon-/-Apple-/-Calendar-/" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <rect id="Origin-Color" fill="#FFFFFF" x="0" y="0" width="1024" height="1024"></rect>
+        <g id="Calendar" transform="translate(128.000000, 90.000000)">
+            <text id="29" font-family="SFProDisplay-Thin, SF Pro Display" font-size="678" font-weight="300" fill="#000000">
+                <tspan x="0.311035156" y="754">29</tspan>
+            </text>
+            <text id="Friday" font-family="SFProDisplay-Medium, SF Pro Display" font-size="186" font-weight="400" fill="#FF3B30">
+                <tspan x="135.333984" y="177">Friday</tspan>
+            </text>
+        </g>
+    </g>
+</svg>

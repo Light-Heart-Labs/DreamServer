@@ -1,0 +1,1267 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Dream Server DESKTOP</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="./styles.css"/>
+</head>
+<body>
+
+<!-- SVG liquid-glass distortion filter -->
+<svg aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">
+  <defs>
+    <filter id="glass-distort" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.008 0.008" numOctaves="2" seed="92" result="noise"/>
+      <feGaussianBlur in="noise" stdDeviation="2" result="blurred"/>
+      <feDisplacementMap in="SourceGraphic" in2="blurred" scale="22" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </defs>
+</svg>
+
+<div class="ambient-video-stage" aria-hidden="true">
+  <video id="ambientVideo" class="ambient-video ambient-video-fill" autoplay muted loop playsinline preload="auto">
+    <source src="./assets/dream-ambient.mp4" type="video/mp4"/>
+  </video>
+  <img id="ambientImage" class="ambient-video ambient-video-fill ambient-image" alt="" hidden/>
+</div>
+
+<section id="homeScreen" class="home-screen is-visible" aria-label="Tela inicial Dream Server">
+  <div class="home-drag-strip window-drag" aria-hidden="true"></div>
+  <div id="homeOpsDashboard" class="home-ops-dashboard no-drag" aria-label="Monitoramento em tempo real">
+    <div class="home-ops-grain" aria-hidden="true"></div>
+
+    <div class="ops-top-hud" aria-label="HUD superior">
+      <section class="ops-hud-section ops-signal" data-ops-id="signal" aria-label="Signal LLM">
+        <div class="ops-titlebar">
+          <span class="ops-status-dot" aria-hidden="true"></span>
+          <svg class="ops-title-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 20h.01M7 20a5 5 0 0 1 5-5M7 15a10 10 0 0 1 10-10M7 10a15 15 0 0 1 15-15" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.7"/></svg>
+          <strong>SIGNAL / LLM</strong>
+        </div>
+        <div class="ops-body ops-hud-body ops-signal-body">
+          <canvas class="ops-scope" id="opsSignalCanvas" width="248" height="56"></canvas>
+          <div class="ops-hud-mini">
+            <span>PING</span>
+            <strong id="opsLlamaPing">--</strong>
+          </div>
+          <div class="ops-hud-stack">
+            <span>STATUS</span>
+            <strong id="opsLlamaStatus">--</strong>
+            <span>BASE</span>
+            <small id="opsLlamaBase">--</small>
+          </div>
+        </div>
+      </section>
+
+      <section class="ops-hud-section ops-network" data-ops-id="tokens" aria-label="Tokens per second">
+        <div class="ops-titlebar">
+          <span class="ops-status-dot" aria-hidden="true"></span>
+          <svg class="ops-title-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 16 0M12 4v3m5.7 2-2.6 1.5M6.3 9l2.6 1.5M12 12l3-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"/></svg>
+          <strong>TOKENS / TPS</strong>
+        </div>
+        <div class="ops-body ops-hud-body ops-token-body">
+          <div class="ops-radial-wrap">
+            <svg class="ops-radial" viewBox="0 0 112 112" role="img" aria-label="Tokens por segundo">
+              <circle cx="56" cy="56" r="42"></circle>
+              <circle id="opsTpsArc" class="ops-radial-arc" cx="56" cy="56" r="42"></circle>
+              <text id="opsTpsVal" x="56" y="53" text-anchor="middle">--</text>
+              <text x="56" y="70" text-anchor="middle">TOK/S</text>
+            </svg>
+          </div>
+          <div class="ops-hud-stack">
+            <span>MODEL</span>
+            <strong id="opsTokenModel">--</strong>
+            <span>PICO TPS</span>
+            <small id="opsTokenTotal">--</small>
+          </div>
+        </div>
+      </section>
+
+      <section class="ops-hud-section ops-throughput" data-ops-id="throughput" aria-label="CPU and GPU load chart">
+        <div class="ops-titlebar">
+          <span class="ops-status-dot" aria-hidden="true"></span>
+          <svg class="ops-title-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5m0 14h16M7 15l3-4 3 2 4-7 3 3" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"/></svg>
+          <strong>CPU / GPU LOAD</strong>
+        </div>
+        <div class="ops-body ops-hud-body ops-throughput-body">
+          <canvas class="ops-line-canvas" id="opsThroughputCanvas" width="314" height="66"></canvas>
+          <div class="ops-chart-legend">
+            <span><i class="ops-pill ops-pill-cpu"></i>CPU</span><strong id="opsCpuLineVal">--</strong>
+            <span><i class="ops-pill ops-pill-gpu"></i>GPU</span><strong id="opsGpuLineVal">INDISP.</strong>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <section class="ops-window ops-terminal" data-ops-id="terminal" aria-label="Terminal status">
+      <div class="ops-titlebar">
+        <svg class="ops-title-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m4 7 5 5-5 5m8 0h8" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"/></svg>
+        <strong>TERMINAL</strong>
+        <span class="ops-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+      </div>
+      <div class="ops-body">
+        <div class="ops-terminal-body" id="opsTerminalBody"></div>
+      </div>
+    </section>
+
+    <section class="ops-window ops-vitals" data-ops-id="vitals" aria-label="System vitals">
+      <div class="ops-titlebar">
+        <svg class="ops-title-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3v3m6-3v3M9 18v3m6-3v3M3 9h3m-3 6h3m12-6h3m-3 6h3M7 7h10v10H7z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"/></svg>
+        <strong>SYSTEM VITALS</strong>
+        <span class="ops-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+      </div>
+      <div class="ops-body">
+        <div class="ops-vital-grid">
+          <div class="ops-vital-cell">
+            <span class="ops-value" id="opsCpuVal">--</span>
+            <span class="ops-label">CPU LOAD</span>
+            <div class="ops-bars" id="opsCpuBars" aria-hidden="true"></div>
+            <div class="ops-micro-row"><span>CORES</span><span id="opsCpuCores">--</span></div>
+            <div class="ops-micro-row"><span>TEMP</span><span id="opsCpuTemp">INDISP.</span></div>
+          </div>
+          <div class="ops-vital-cell">
+            <span class="ops-value" id="opsVramVal">--</span>
+            <span class="ops-label">VRAM</span>
+            <div class="ops-bars" id="opsVramBars" aria-hidden="true"></div>
+            <div class="ops-micro-row"><span>MEM</span><span id="opsRamGb">RAM</span></div>
+          </div>
+          <div class="ops-vital-cell">
+            <span class="ops-value" id="opsGpuLoadVal">--</span>
+            <span class="ops-label">GPU LOAD</span>
+            <div class="ops-bars" id="opsGpuBars" aria-hidden="true"></div>
+            <div class="ops-micro-row"><span>GPU</span><span id="opsGpuName">INDISP.</span></div>
+            <div class="ops-micro-row"><span>TEMP</span><span id="opsGpuTemp">INDISP.</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+  <nav id="dock-container" class="home-dock no-drag" aria-label="Abrir area do Dream Server">
+    <div id="dock-backdrop" class="glass-morphism" aria-hidden="true"></div>
+    <button type="button" class="home-dock-app" id="homeDockChat" data-home-target="chat" aria-label="Abrir Chat" title="Chat">
+      <img src="./assets/home-chat.png" alt=""/>
+    </button>
+    <button type="button" class="home-dock-app" id="homeDockKanban" data-home-target="kanban" aria-label="Abrir Kanban" title="Kanban">
+      <img src="./assets/home-kanban.png" alt=""/>
+    </button>
+    <button type="button" class="home-dock-app" id="homeDockSettings" data-home-target="settings" aria-label="Abrir Settings" title="Settings">
+      <img src="./assets/home-settings.png" alt=""/>
+    </button>
+    <div class="home-dock-name" aria-hidden="true"><i></i><span>DREAMSERVER</span><i></i></div>
+  </nav>
+</section>
+
+<div id="appShell" class="app-shell home-mode">
+
+  <!-- ═══════════════════════ SIDEBAR ═══════════════════════ -->
+  <aside class="sidebar">
+    <!-- glass layers (pointer-events:none — decorative only) -->
+    <div class="gl-blur"     aria-hidden="true"></div>
+    <div class="gl-tint"     aria-hidden="true"></div>
+    <div class="gl-specular" aria-hidden="true"></div>
+
+    <!-- traffic lights drag zone -->
+    <div class="titlebar window-drag">
+      <div class="trafficlights no-drag">
+        <button class="tl tl-close" id="tlClose" title="Fechar"    onclick="window.dreamDesktop?.closeWindow()"></button>
+        <button class="tl tl-min"   id="tlMin"   title="Minimizar" onclick="window.dreamDesktop?.minimizeWindow()"></button>
+        <button class="tl tl-max"   id="tlMax"   title="Maximizar" onclick="window.dreamDesktop?.maximizeWindow()"></button>
+      </div>
+    </div>
+
+    <!-- new chat -->
+    <div class="sidebar-top">
+      <button id="newChatButton" class="new-chat-btn">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        Novo tópico
+        <span class="kbd">⌘N</span>
+      </button>
+    </div>
+
+    <div id="aperantSidebar" class="aperant-sidebar" hidden>
+      <button type="button" class="aperant-project-select" data-aperant-mode="kanban">
+        <span class="aperant-project-icon" aria-hidden="true">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+            <path d="M2.2 4.3h4l1.1 1.3h5.5v6.5H2.2V4.3z" stroke="currentColor" stroke-width="1.15" stroke-linejoin="round"/>
+            <path d="M2.2 4.3V2.9h3.4l1 1.4" stroke="currentColor" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span class="aperant-project-copy">
+          <strong id="aperantProjectName">autonomous-coding</strong>
+          <small id="aperantProjectPath">C:\Users\Gabriel\Documents\Playground</small>
+        </span>
+        <span class="aperant-chevron" aria-hidden="true">⌄</span>
+      </button>
+
+      <details class="aperant-new-task-shell">
+        <summary>
+          <span>New Task</span>
+          <strong id="aperantTaskCount">0</strong>
+        </summary>
+        <form id="kanbanTaskForm" class="aperant-new-task-form">
+          <label class="aperant-task-field">
+            <span>Title</span>
+            <input id="kanbanTaskTitleInput" type="text" placeholder="What should Hermes build?"/>
+          </label>
+          <label class="aperant-task-field">
+            <span>Prompt</span>
+            <textarea id="kanbanTaskObjectiveInput" rows="4" placeholder="Describe the task, files, behavior, and acceptance criteria."></textarea>
+          </label>
+          <div class="aperant-task-row">
+            <label class="aperant-task-field">
+              <span>Route</span>
+              <select id="kanbanRouteInput">
+                <option value="">auto</option>
+                <option value="frontend">frontend</option>
+                <option value="bugfix">bugfix</option>
+                <option value="research">research</option>
+                <option value="ios">ios</option>
+              </select>
+            </label>
+            <label class="aperant-task-field">
+              <span>Provider</span>
+              <select id="kanbanProviderInput">
+                <option value="local">Hermes atual</option>
+                <option value="cloud">Manus provider</option>
+              </select>
+            </label>
+          </div>
+          <button type="submit" class="aperant-new-task-btn">Create Task</button>
+        </form>
+      </details>
+
+      <nav class="aperant-side-nav" aria-label="Aperant project navigation">
+        <span class="aperant-nav-label">PROJECT</span>
+        <button type="button" class="aperant-nav-item" data-aperant-mode="kanban">
+          <span class="aperant-nav-icon" aria-hidden="true">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 3h3v3H3V3zm6 0h3v3H9V3zM3 9h3v3H3V9zm6 0h3v3H9V9z" stroke="currentColor" stroke-width="1.15"/></svg>
+          </span>
+          <span>Kanban Board</span>
+          <kbd>K</kbd>
+        </button>
+        <button type="button" class="aperant-nav-item" data-aperant-mode="terminals">
+          <span class="aperant-nav-icon" aria-hidden="true">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3.1 4.4l2.2 2-2.2 2M6.8 9h4.1" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <span>Agent Terminals</span>
+          <kbd>A</kbd>
+        </button>
+        <button type="button" class="aperant-nav-item" data-aperant-mode="insights">
+          <span class="aperant-nav-icon" aria-hidden="true">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 2.2v10.6M3.4 5.3l8.2 4.4M11.6 5.3L3.4 9.7" stroke="currentColor" stroke-width="1.15" stroke-linecap="round"/></svg>
+          </span>
+          <span>Insights</span>
+          <kbd>N</kbd>
+        </button>
+        <button type="button" class="aperant-nav-item" data-aperant-mode="roadmap">
+          <span class="aperant-nav-icon" aria-hidden="true">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3.2 3.5h8.6M3.2 7.5h8.6M3.2 11.5h8.6M4.4 3.5v8M10.6 3.5v8" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+          </span>
+          <span>Roadmap</span>
+          <kbd>D</kbd>
+        </button>
+        <button type="button" class="aperant-nav-item" data-aperant-mode="ideation">
+          <span class="aperant-nav-icon" aria-hidden="true">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M5.1 10.8h4.8M5.7 12.5h3.6M10.8 6.4A3.3 3.3 0 114.2 6.4c0 1 .5 1.6 1.1 2.3.3.3.5.7.5 1.1h3.4c0-.4.2-.8.5-1.1.6-.7 1.1-1.3 1.1-2.3z" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <span>Ideation</span>
+          <kbd>I</kbd>
+        </button>
+        <button type="button" class="aperant-nav-item" data-aperant-mode="changelog">
+          <span class="aperant-nav-icon" aria-hidden="true">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M4.1 2.5h5.1l1.7 1.8v8.2H4.1v-10zM9.2 2.5v2h1.7M5.7 7h3.6M5.7 9.4h3.6" stroke="currentColor" stroke-width="1.05" stroke-linejoin="round"/></svg>
+          </span>
+          <span>Changelog</span>
+          <kbd>L</kbd>
+        </button>
+        <button type="button" class="aperant-nav-item" data-aperant-mode="context">
+          <span class="aperant-nav-icon" aria-hidden="true">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 3.3h4.1v8.4H3V3.3zm4.9 0H12v8.4H7.9V3.3z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/></svg>
+          </span>
+          <span>Context</span>
+          <kbd>C</kbd>
+        </button>
+      </nav>
+
+      <nav class="aperant-side-nav aperant-tools-nav" aria-label="Aperant tools navigation">
+        <span class="aperant-nav-label">TOOLS</span>
+        <button type="button" class="aperant-nav-item" data-aperant-mode="github">
+          <span class="aperant-nav-icon" aria-hidden="true">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M5.4 12.2c-2.2.7-2.2-1-3.1-1.3m6.2 2.2v-1.8c0-.5-.2-.8-.4-1.1 1.4-.2 2.9-.7 2.9-3.2 0-.7-.2-1.3-.7-1.8.1-.2.3-.9-.1-1.8 0 0-.6-.2-1.9.7-.6-.2-1.2-.2-1.8 0-1.3-.9-1.9-.7-1.9-.7-.4.9-.2 1.6-.1 1.8-.5.5-.7 1.1-.7 1.8 0 2.5 1.5 3 2.9 3.2-.2.2-.3.5-.4.8v2.1" stroke="currentColor" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <span>GitHub Issues</span>
+          <kbd>G</kbd>
+        </button>
+        <button type="button" class="aperant-nav-item" data-aperant-mode="worktrees">
+          <span class="aperant-nav-icon" aria-hidden="true">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M4.3 3.1a1.3 1.3 0 11-2.6 0 1.3 1.3 0 012.6 0zm0 8.8a1.3 1.3 0 11-2.6 0 1.3 1.3 0 012.6 0zm9-4.4a1.3 1.3 0 11-2.6 0 1.3 1.3 0 012.6 0zM3 4.4v6.2M4.1 11.4c3.2-.2 5.8-1.5 7.1-2.9M4.1 3.6c3.2.2 5.8 1.5 7.1 2.9" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+          </span>
+          <span>Worktrees</span>
+          <kbd>W</kbd>
+        </button>
+      </nav>
+
+      <div class="aperant-sidebar-meter">
+        <span id="aperantProviderState">Hermes</span>
+        <strong id="aperantAgentState">0/3 agents</strong>
+        <small id="aperantPendingState">0 pending</small>
+      </div>
+
+      <button type="button" class="aperant-settings-row" data-open-settings="true">
+        <span class="aperant-nav-icon" aria-hidden="true">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 5.3a2.2 2.2 0 110 4.4 2.2 2.2 0 010-4.4zM12.2 8.3V6.7l-1.3-.4a4 4 0 00-.4-1l.6-1.2L10 3 8.8 3.6a4 4 0 00-1-.4L7.4 1.9H5.8l-.4 1.3a4 4 0 00-1 .4L3.2 3 2.1 4.1l.6 1.2a4 4 0 00-.4 1L1 6.7v1.6l1.3.4a4 4 0 00.4 1l-.6 1.2L3.2 12l1.2-.6a4 4 0 001 .4l.4 1.3h1.6l.4-1.3a4 4 0 001-.4l1.2.6 1.1-1.1-.6-1.2a4 4 0 00.4-1l1.3-.4z" stroke="currentColor" stroke-width="1.05" stroke-linejoin="round"/></svg>
+        </span>
+        <span>Settings</span>
+      </button>
+    </div>
+
+    <!-- conversations -->
+    <div class="sidebar-nav">
+      <div class="nav-label-row">
+        <span class="nav-label">Conversas</span>
+        <span id="chatCount" class="nav-badge">0</span>
+      </div>
+      <div id="chatList" class="chat-list"></div>
+    </div>
+
+    <!-- foot: state + user row -->
+    <div class="sidebar-foot">
+      <!-- These are kept for renderer.js but hidden visually -->
+      <p id="apiKeyState"     class="foot-note" style="display:none"></p>
+      <p id="providerSummary" class="foot-note" style="display:none"></p>
+      <div class="user-row">
+        <div class="user-avatar">D</div>
+        <div class="user-info">
+          <span class="user-name">Dream Server</span>
+          <span class="user-sub">desktop shell</span>
+        </div>
+        <button id="togglePanelButton" class="icon-btn" title="Configurações">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <circle cx="7" cy="2.5"  r="1.2" fill="currentColor"/>
+            <circle cx="7" cy="7"    r="1.2" fill="currentColor"/>
+            <circle cx="7" cy="11.5" r="1.2" fill="currentColor"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ═══════════════════════ CHAT STAGE ═══════════════════════ -->
+  <main class="chat-stage">
+
+    <!-- header — drag zone at the very top only -->
+    <header class="thread-header">
+      <!-- thin invisible drag strip across the top -->
+      <div class="header-drag-strip window-drag"></div>
+
+      <div class="thread-copy">
+        <p id="threadEyebrow" class="thread-eyebrow">Dream Server Desktop</p>
+        <h2 id="chatTitle">Crie um tópico para começar</h2>
+        <p id="chatSubtitle" class="thread-subtitle">Runtime compartilhado · Manus ou Hermes · tools de desktop</p>
+      </div>
+
+      <div class="thread-meta">
+        <span class="chip"><strong id="providerMeta">Manus</strong></span>
+            <span class="chip"><strong id="profileMeta">Manus Cloud</strong></span>
+        <span class="chip"><strong id="localeMeta">pt-BR</strong></span>
+        <span class="chip"><strong id="interactiveMeta">best effort</strong></span>
+      </div>
+
+      <div class="thread-chips">
+        <span id="statusBadge"    class="chip chip-green">● Pronto</span>
+        <span id="providerBadge"  class="chip chip-accent">Manus</span>
+        <span id="bridgeModePill" class="chip">Bridge ativa</span>
+        <span id="accessModePill" class="chip chip-warn">Modo limitado</span>
+        <button id="openTaskButton" class="chip-btn" disabled>Ver tarefa</button>
+      </div>
+
+      <div class="app-mode-switch no-drag" role="tablist" aria-label="Modo principal">
+        <button id="appModeChatButton" type="button" class="app-mode-btn is-active" data-app-mode="chat" role="tab" aria-selected="true">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+            <path d="M2 3.5A2 2 0 014 1.5h5a2 2 0 012 2v2.7a2 2 0 01-2 2H6.7L4 10.8V8.2H4a2 2 0 01-2-2V3.5z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>
+          </svg>
+          Chat
+        </button>
+        <button id="appModeKanbanButton" type="button" class="app-mode-btn" data-app-mode="kanban" role="tab" aria-selected="false">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+            <rect x="1.5" y="2" width="2.6" height="8.8" rx="1" stroke="currentColor" stroke-width="1.05"/>
+            <rect x="5.2" y="2" width="2.6" height="8.8" rx="1" stroke="currentColor" stroke-width="1.05"/>
+            <rect x="8.9" y="2" width="2.6" height="8.8" rx="1" stroke="currentColor" stroke-width="1.05"/>
+          </svg>
+          Kanban
+        </button>
+        <button id="appModeTerminalsButton" type="button" class="app-mode-btn" data-app-mode="terminals" role="tab" aria-selected="false">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+            <path d="M2.2 3.25l2.35 2.1-2.35 2.1M5.7 8.25h4.1" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+            <rect x="1.35" y="1.85" width="10.3" height="9.3" rx="1.7" stroke="currentColor" stroke-width="1.05"/>
+          </svg>
+          Multiagente
+        </button>
+      </div>
+
+      <div class="top-toolstrip no-drag" aria-label="Atalhos do workspace">
+        <button id="headerTerminalButton" type="button" class="top-tool-btn" title="Terminais e jobs">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+            <path d="M2.2 3.25l2.35 2.1-2.35 2.1M5.7 8.25h4.1" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+            <rect x="1.35" y="1.85" width="10.3" height="9.3" rx="1.7" stroke="currentColor" stroke-width="1.05"/>
+          </svg>
+        </button>
+        <button id="headerNewChatButton" type="button" class="top-tool-btn is-primary" title="Novo tópico">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+            <path d="M6.5 3.1v6.8M3.1 6.5h6.8" stroke="currentColor" stroke-width="1.45" stroke-linecap="round"/>
+            <rect x="1.55" y="1.55" width="9.9" height="9.9" rx="2.05" stroke="currentColor" stroke-width="1.05"/>
+          </svg>
+        </button>
+        <button id="headerPanelButton" type="button" class="top-tool-btn" title="Mostrar painel direito">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+            <rect x="1.4" y="2" width="7.9" height="8.8" rx="1.45" stroke="currentColor" stroke-width="1.05"/>
+            <path d="M4.1 4.25h7.5a.7.7 0 01.7.7v5.2a.7.7 0 01-.7.7H4.1" stroke="currentColor" stroke-width="1.05" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- hero (empty state) -->
+    <section id="heroState" class="hero-state">
+      <div class="hero-inner">
+        <p class="hero-eyebrow"><span class="dot-live"></span>Dream Server Desktop</p>
+        <h1 class="hero-title">Hermes Agent<br>no mesmo <em>shell.</em></h1>
+        <p class="hero-body">
+          Escolha o provider dentro do Hermes: Manus, OpenAI, Claude, Gemini, Kimi, NVIDIA ou endpoint local.
+          O Hermes Agent conecta o roteamento local/externo
+          — com tools de shell, arquivos, web e Android/ADB.
+        </p>
+        <div class="hero-chips">
+          <button class="hero-chip" data-example="abra meu discord e depois abra o WhatsApp Web">apps e links</button>
+          <button class="hero-chip" data-example="crie um app em vite, instale as dependencias, rode e abra o localhost">agente local</button>
+          <button class="hero-chip" data-example="liste meus dispositivos adb e abra um shell no Android">adb e shell</button>
+          <button class="hero-chip" data-example="resuma para mim os pontos principais deste arquivo">conversa com anexo</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- transcript -->
+    <section id="transcript" class="transcript" hidden></section>
+
+    <section id="kanbanBoard" class="kanban-board-view" hidden>
+      <div class="kanban-command-row">
+        <div>
+          <h3>Kanban Hermes</h3>
+        </div>
+        <div class="aperant-toolbar-actions">
+          <label class="archive-toggle" title="Mantem a fila rodando enquanto houver capacidade livre">
+            <input id="kanbanQueueActiveInput" type="checkbox"/> Auto queue
+          </label>
+          <button id="kanbanQueueAllButton" type="button" class="terminal-toolbar-btn" title="Inicia os proximos cards respeitando o limite de agentes">
+            Queue all
+          </button>
+          <label class="archive-toggle"><input id="kanbanShowArchivedInput" type="checkbox"/> Show archived</label>
+          <button id="kanbanRefreshButton" type="button" class="view-icon-btn" title="Refresh tasks">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+              <path d="M12.1 6.2a4.7 4.7 0 00-8.5-2.1L2.3 5.5M2.9 8.8a4.7 4.7 0 008.5 2.1l1.3-1.4M2.3 5.5h3.2M12.7 9.5H9.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div id="kanbanRuntimeBanner" class="kanban-runtime-banner" hidden></div>
+      <div id="kanbanColumns" class="kanban-columns"></div>
+
+    </section>
+
+    <section id="multiAgentDeck" class="multiagent-view" hidden>
+      <div class="kanban-command-row multiagent-toolbar-row">
+        <div class="multiagent-terminal-summary">
+          <strong>Terminals</strong>
+          <span id="multiTerminalCount">0 / 12</span>
+        </div>
+        <div class="aperant-toolbar-actions">
+          <select id="multiAgentProviderSelect" class="terminal-toolbar-select" title="Provider">
+            <option value="local">Hermes atual</option>
+            <option value="cloud">Manus provider</option>
+          </select>
+          <button id="multiAgentNewTerminalButton" type="button" class="terminal-toolbar-btn" title="New terminal">+ New Terminal</button>
+          <button id="multiAgentSettingsButton" type="button" class="terminal-toolbar-btn" title="Settings">Settings</button>
+        </div>
+      </div>
+
+      <div class="multiagent-live-grid">
+        <section class="multiagent-subagent-pane">
+          <form id="agentSpawnForm" class="agent-control-card agent-control-card-compact">
+            <div class="agent-control-head">
+              <strong>New subagent</strong>
+            </div>
+            <div class="view-row">
+              <label class="view-field"><span>Name</span><input id="agentNameInput" type="text" placeholder="Builder 01"/></label>
+              <label class="view-field"><span>Provider</span>
+                <select id="agentProviderInput">
+                  <option value="local">Hermes atual</option>
+                  <option value="cloud">Manus provider</option>
+                </select>
+              </label>
+            </div>
+            <label class="view-field"><span>Prompt</span><textarea id="agentObjectiveInput" rows="2" placeholder="Objective for Hermes."></textarea></label>
+            <div class="view-row">
+              <label class="view-field"><span>Route</span>
+                <select id="agentRouteInput">
+                  <option value="">auto</option>
+                  <option value="frontend">frontend</option>
+                  <option value="bugfix">bugfix</option>
+                  <option value="research">research</option>
+                  <option value="ios">ios</option>
+                </select>
+              </label>
+              <label class="view-field"><span>Branch</span><input id="agentBranchInput" type="text" placeholder="dream/feature-x"/></label>
+            </div>
+            <div class="agent-compact-actions">
+              <label class="view-check">
+                <input id="agentWorktreeInput" type="checkbox" checked/>
+                <span>Worktree</span>
+              </label>
+              <button type="submit" class="view-primary-btn">Spawn</button>
+            </div>
+          </form>
+          <div class="multiagent-pane-divider"></div>
+          <div class="view-list-head"><strong>Subagents</strong><span id="multiAgentCount">0</span></div>
+          <div id="multiAgentList" class="multiagent-list"></div>
+        </section>
+        <section class="multiagent-terminal-pane">
+          <div id="multiTerminalList" class="multiagent-list terminal-grid-list"></div>
+        </section>
+      </div>
+    </section>
+
+    <section id="aperantUtilityView" class="aperant-utility-view" hidden></section>
+
+    <!-- composer — stretched to bottom, no gap -->
+    <form id="composer" class="composer">
+      <div id="attachmentList" class="attachment-list" hidden></div>
+      <div class="composer-box">
+        <textarea id="promptInput" rows="1" placeholder="Peça algo ao Dream Server…"></textarea>
+        <div id="slashCommandMenu" class="slash-command-menu" hidden></div>
+        <div class="composer-bar">
+          <div class="composer-bar-left">
+            <button id="attachButton" type="button" class="cmp-btn">
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M11 5.5L5.5 11A3 3 0 011.5 7l4.5-4.5A1.8 1.8 0 018.5 5L5 8.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+              Anexar
+            </button>
+            <span id="composerProviderHint" class="cmp-meta">Manus</span>
+            <span class="cmp-dot">·</span>
+            <span id="composerAttachmentHint" class="cmp-meta">Imagens, PDF e arquivos</span>
+          </div>
+          <div class="composer-bar-right">
+            <button id="stopButton" type="button" class="btn-stop" hidden>■ Parar</button>
+            <button id="sendButton" type="submit" class="btn-send">Enviar →</button>
+          </div>
+        </div>
+      </div>
+    </form>
+  </main>
+
+  <!-- ═══════════════════════ UTILITY PANEL ═══════════════════════ -->
+  <aside id="utilityPanel" class="utility-panel">
+    <!-- glass layers -->
+    <div class="gl-blur"     aria-hidden="true"></div>
+    <div class="gl-tint"     aria-hidden="true"></div>
+    <div class="gl-specular" aria-hidden="true"></div>
+
+    <div class="panel-head">
+      <div class="panel-head-main">
+        <span class="nav-label">Workbench</span>
+        <div class="workbench-tabs">
+          <button id="workbenchPreviewTab" type="button" class="workbench-tab is-active">Preview</button>
+          <button id="workbenchFilesTab" type="button" class="workbench-tab">Files</button>
+          <button id="workbenchCodeTab" type="button" class="workbench-tab">Código</button>
+          <button id="workbenchChangesTab" type="button" class="workbench-tab">Alterações</button>
+          <button id="workbenchTerminalTab" type="button" class="workbench-tab">Terminal</button>
+        </div>
+      </div>
+      <button id="closePanelButton" type="button" class="icon-btn">✕</button>
+    </div>
+
+    <div class="panel-body">
+      <section id="previewPanelSection" class="panel-section workbench-section">
+        <div class="section-hd">
+          <h4>Visualização</h4>
+          <span id="workbenchState" class="nano-badge">Sem preview</span>
+        </div>
+        <div class="preview-card">
+          <div class="preview-chrome">
+            <div class="preview-lights" aria-hidden="true"><span></span><span></span><span></span></div>
+            <span id="previewUrlLabel" class="preview-url-label">Nenhum localhost detectado</span>
+          <div class="preview-actions">
+            <div class="preview-mode-toggle" aria-label="Modo de visualização">
+              <button id="previewDesktopButton" type="button" class="toolbar-button preview-mode-button is-active">Desktop</button>
+              <button id="previewMobileButton" type="button" class="toolbar-button preview-mode-button">Mobile</button>
+            </div>
+            <button id="previewRefreshButton" type="button" class="toolbar-button">Atualizar</button>
+            <button id="previewOpenButton" type="button" class="toolbar-button">Abrir</button>
+          </div>
+          </div>
+          <div id="previewSurface" class="preview-surface">
+            <div class="preview-empty">
+              <strong>Preview aparece aqui</strong>
+              <span>Quando o agente criar ou verificar um site local, a URL abre neste painel.</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="filesPanelSection" class="panel-section files-section" hidden>
+        <div class="section-hd">
+          <h4>Files</h4>
+          <span id="filesSummary" class="nano-badge">0 arquivos</span>
+        </div>
+        <div id="filesSurface" class="files-surface">
+          <div class="workbench-empty">
+            <strong>Nenhum arquivo ainda</strong>
+            <span>Arquivos criados, lidos ou editados pelo agente aparecem aqui.</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="codePanelSection" class="panel-section code-section" hidden>
+        <div class="section-hd">
+          <h4>Código</h4>
+          <span id="codeFileLabel" class="nano-badge">sem arquivo</span>
+        </div>
+        <div id="codeSurface" class="code-surface">
+          <div class="code-empty">Quando o agente escrever ou editar código, o arquivo aparece aqui.</div>
+        </div>
+      </section>
+
+      <section id="changesPanelSection" class="panel-section changes-section" hidden>
+        <div class="section-hd">
+          <h4>Alterações</h4>
+          <span id="changeSummary" class="nano-badge">0 arquivos</span>
+        </div>
+        <div id="changeFeed" class="change-feed"></div>
+        <div class="section-hd section-hd-secondary">
+          <h4>Atividade recente</h4>
+          <span id="activitySummary" class="nano-badge">0 ações</span>
+        </div>
+        <div id="activityFeed" class="activity-feed"></div>
+      </section>
+
+      <section id="terminalPanelSection" class="panel-section terminal-section" hidden>
+        <div class="section-hd">
+          <h4>Terminal e jobs</h4>
+          <button id="stopAllLocalButton" type="button" class="ghost-btn ghost-btn-danger">Parar tudo</button>
+        </div>
+        <div class="workbench-split">
+          <div class="workbench-subpane">
+            <span class="subpane-label">Terminais</span>
+            <div id="terminalFeed" class="feed"></div>
+          </div>
+          <div class="workbench-subpane">
+            <span class="subpane-label">Jobs</span>
+            <div id="backgroundFeed" class="feed"></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </aside>
+
+  <div id="runtimeSink" hidden>
+      <section class="panel-section"><div class="section-hd"><h4>Rota ativa</h4></div><div id="routeFeed"      class="feed"></div></section>
+      <section class="panel-section"><div class="section-hd"><h4>Language engine</h4></div><div id="lspFeed"       class="feed"></div></section>
+      <section class="panel-section"><div class="section-hd"><h4>Projetos</h4></div><div id="projectFeed"   class="feed"></div></section>
+      <section class="panel-section"><div class="section-hd"><h4>Todos</h4></div><div id="todoFeed"       class="feed"></div></section>
+      <section class="panel-section"><div class="section-hd"><h4>Tarefas</h4></div><div id="taskFeed"      class="feed"></div></section>
+      <section class="panel-section"><div class="section-hd"><h4>Subagentes</h4></div><div id="agentFeed"     class="feed"></div></section>
+      <section class="panel-section">
+        <div class="section-hd"><h4>Ações no PC</h4><span id="bridgeState" class="nano-badge">Ativa</span></div>
+        <div id="actionFeed" class="feed"></div>
+      </section>
+      <section class="panel-section"><div class="section-hd"><h4>MCP</h4></div><div id="mcpFeed"       class="feed"></div></section>
+      <section class="panel-section"><div class="section-hd"><h4>Atalhos conhecidos</h4></div><div id="supportedAppsList" class="supported-apps"></div></section>
+  </div>
+
+</div><!-- /app-shell -->
+
+<div id="settingsModal" class="settings-modal" hidden>
+  <button id="settingsBackdrop" type="button" class="settings-backdrop" aria-label="Fechar configurações"></button>
+  <section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settingsDialogTitle">
+
+    <!-- ─── Rail esquerdo: abas ─── -->
+    <nav class="d-rail">
+      <div class="d-rail-head">
+        <span class="d-rail-eyebrow">Controle</span>
+        <span class="d-rail-title">Configurações</span>
+      </div>
+      <div class="d-tabs" id="settingsTabs" role="tablist">
+        <button class="d-tab is-active" type="button" role="tab" data-tab="general" data-label="Hermes Agent">
+          <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="2.2" stroke="currentColor" stroke-width="1.2"/><path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.76 2.76l1.06 1.06M10.18 10.18l1.06 1.06M2.76 11.24l1.06-1.06M10.18 3.82l1.06-1.06" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+          Hermes Agent
+        </button>
+        <button class="d-tab" type="button" role="tab" data-tab="aperant" data-label="Aperant">
+          <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M2.2 3.2h3v3h-3v-3zm4.3 0h5.3v3H6.5v-3zM2.2 7.8h5.3v3H2.2v-3zm6.5 0h3.1v3H8.7v-3z" stroke="currentColor" stroke-width="1.05" stroke-linejoin="round"/></svg>
+          Aperant
+        </button>
+        <button class="d-tab" type="button" role="tab" data-tab="cloud" data-label="Skills & Gateways">
+          <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.5 10.5h7a2.5 2.5 0 00.4-4.97A3.5 3.5 0 004.1 5.3 2.5 2.5 0 003.5 10.5z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/></svg>
+          Skills
+        </button>
+        <button class="d-tab" type="button" role="tab" data-tab="local" data-label="Modelos locais">
+          <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><rect x="2" y="3" width="10" height="7" rx="1.2" stroke="currentColor" stroke-width="1.1"/><path d="M4.5 12h5M7 10v2" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+          Local
+        </button>
+        <button class="d-tab" type="button" role="tab" data-tab="desktop" data-label="Hermes Desktop">
+          <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><rect x="1.4" y="1.6" width="11.2" height="10.8" rx="1.6" stroke="currentColor" stroke-width="1.1"/><path d="M4 5l2 2-2 2M7.5 9h2.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Hermes Desktop
+        </button>
+        <button class="d-tab" type="button" role="tab" data-tab="appearance" data-label="Layout">
+          <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="5.2" stroke="currentColor" stroke-width="1.1"/><path d="M7 1.8c2 2.8 2 7.4 0 10.4M7 1.8c-2 2.8-2 7.4 0 10.4M1.8 7h10.4" stroke="currentColor" stroke-width="1"/></svg>
+          Layout
+        </button>
+        <button class="d-tab" type="button" role="tab" data-tab="advanced" data-label="Avançado">
+          <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M2.5 4h9M2.5 7h9M2.5 10h5.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="10.2" cy="10" r="1.4" stroke="currentColor" stroke-width="1.1"/></svg>
+          Avançado
+        </button>
+      </div>
+      <div class="d-rail-foot">
+        <span class="ver">dream-server</span>
+        <span class="pid">runtime: <span id="settingsRailStatus">pronto</span></span>
+      </div>
+    </nav>
+
+    <!-- ─── Painel direito ─── -->
+    <div class="d-main">
+      <header class="settings-dialog-head">
+        <div>
+          <span class="nav-label" id="settingsPaneEyebrow">Runtime Hermes</span>
+          <h3 id="settingsDialogTitle">Hermes Agent</h3>
+        </div>
+        <div class="d-head-right">
+          <button id="settingsSaveButton" type="submit" form="settingsForm" class="btn btn-primary">Salvar</button>
+          <button id="settingsCloseButton" type="button" class="icon-btn" title="Fechar configurações">×</button>
+        </div>
+      </header>
+
+      <form id="settingsForm" class="settings-dialog-body">
+
+        <!-- ═══════════ HERMES AGENT ═══════════ -->
+        <div class="pane is-visible" data-pane="general">
+          <section id="providerSettingsGroup" class="group">
+            <div class="group-hd">
+              <div class="hd-text">
+                <h3>Hermes Agent</h3>
+                <p>Runtime unico do DreamServer. Escolha o provider cloud/local que o Hermes deve rotear.</p>
+              </div>
+              <span id="providerBadgeSettings" class="badge is-acc">Hermes</span>
+            </div>
+            <div class="row-2">
+              <label class="field"><span>Provider cloud/local</span>
+                <select id="hermesProviderInput">
+                  <option value="custom">Custom / local OpenAI-compatible</option>
+                  <option value="auto">Auto (config Hermes)</option>
+                  <option value="manus">Manus Cloud</option>
+                  <option value="openrouter">OpenRouter</option>
+                  <option value="nous">Nous Portal</option>
+                  <option value="openai">OpenAI / ChatGPT API</option>
+                  <option value="openai-codex">OpenAI Codex</option>
+                  <option value="copilot">GitHub Copilot</option>
+                  <option value="copilot-acp">GitHub Copilot ACP</option>
+                  <option value="anthropic">Anthropic / Claude</option>
+                  <option value="gemini">Google Gemini</option>
+                  <option value="google-gemini-cli">Google Gemini OAuth</option>
+                  <option value="qwen-oauth">Qwen OAuth</option>
+                  <option value="xai">xAI</option>
+                  <option value="lmstudio">LM Studio</option>
+                  <option value="ollama-cloud">Ollama Cloud</option>
+                  <option value="huggingface">Hugging Face</option>
+                  <option value="zai">Z.AI / GLM</option>
+                  <option value="kimi-coding">Kimi / Moonshot</option>
+                  <option value="kimi-coding-cn">Kimi / Moonshot CN</option>
+                  <option value="stepfun">StepFun</option>
+                  <option value="gmi">GMI Cloud</option>
+                  <option value="minimax">MiniMax</option>
+                  <option value="minimax-oauth">MiniMax OAuth</option>
+                  <option value="minimax-cn">MiniMax CN</option>
+                  <option value="nvidia">NVIDIA NIM</option>
+                  <option value="ai-gateway">Vercel AI Gateway</option>
+                  <option value="opencode-zen">OpenCode Zen</option>
+                  <option value="opencode-go">OpenCode Go</option>
+                  <option value="arcee">Arcee AI</option>
+                  <option value="alibaba">Alibaba DashScope</option>
+                  <option value="alibaba-coding-plan">Alibaba Coding Plan</option>
+                  <option value="xiaomi">Xiaomi MiMo</option>
+                  <option value="tencent-tokenhub">Tencent TokenHub</option>
+                  <option value="kilocode">Kilo Code</option>
+                  <option value="azure-foundry">Azure Foundry</option>
+                  <option value="bedrock">AWS Bedrock</option>
+                  <option value="deepseek">DeepSeek</option>
+                </select>
+              </label>
+              <label class="field"><span>API mode</span>
+                <select id="hermesApiModeInput">
+                  <option value="auto">Auto (Hermes)</option>
+                  <option value="chat_completions">Chat Completions</option>
+                  <option value="codex_responses">Codex Responses</option>
+                  <option value="anthropic_messages">Anthropic Messages</option>
+                  <option value="bedrock_converse">Bedrock Converse</option>
+                </select>
+              </label>
+            </div>
+            <div class="row-2">
+              <label class="field"><span>Modelo</span>
+                <input id="localModelInput" type="text" placeholder="default" list="localModelsList"/>
+                <datalist id="localModelsList"></datalist>
+              </label>
+              <label class="field"><span>Base URL / endpoint</span>
+                <input id="localBaseUrlInput" type="text" placeholder="http://localhost:11434/v1"/>
+              </label>
+            </div>
+            <label class="field"><span>API key do provider</span>
+              <input id="localApiKeyInput" type="password" placeholder="not-needed" autocomplete="off"/>
+            </label>
+            <div id="manusProviderDetails" class="provider-detail-block" hidden>
+              <div class="group-hd compact">
+                <div class="hd-text">
+                  <h3>Manus provider</h3>
+                  <p>Campos usados somente quando o provider selecionado for Manus Cloud.</p>
+                </div>
+                <span id="apiKeyBadge" class="badge">sem chave</span>
+              </div>
+              <div class="row-2">
+                <label class="field"><span>Perfil Manus</span>
+                  <select id="agentProfileSelect">
+                    <option value="manus-1.6">Manus Cloud 1.6</option>
+                    <option value="manus-1.6-lite">Manus Cloud 1.6 Lite</option>
+                    <option value="manus-1.6-max">Manus Cloud 1.6 Max</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>API key Manus</span>
+                  <input id="apiKeyInput" type="password" placeholder="sk-…" autocomplete="off"/>
+                </label>
+              </div>
+              <div class="inline-actions">
+                <button id="clearApiKeyButton" type="button" class="btn btn-danger">Apagar chave Manus</button>
+              </div>
+            </div>
+            <div id="openRouterRoutingDetails" class="provider-detail-block">
+              <div class="row-2">
+                <label class="field"><span>OpenRouter only</span>
+                  <textarea id="hermesProvidersAllowedInput" rows="2" placeholder="anthropic, openai, google"></textarea>
+                </label>
+                <label class="field"><span>OpenRouter ignore</span>
+                  <textarea id="hermesProvidersIgnoredInput" rows="2" placeholder="together, deepinfra"></textarea>
+                </label>
+              </div>
+              <div class="row-2">
+                <label class="field"><span>OpenRouter order</span>
+                  <textarea id="hermesProvidersOrderInput" rows="2" placeholder="anthropic, openai, google"></textarea>
+                </label>
+                <label class="field"><span>OpenRouter sort</span>
+                  <select id="hermesProviderSortInput">
+                    <option value="">Sem prioridade</option>
+                    <option value="price">price</option>
+                    <option value="throughput">throughput</option>
+                    <option value="latency">latency</option>
+                  </select>
+                </label>
+              </div>
+              <div class="row-2">
+                <label class="field"><span>Data collection</span>
+                  <input id="hermesProviderDataCollectionInput" type="text" placeholder="allow ou deny"/>
+                </label>
+                <label class="toggle-row">
+                  <input id="hermesProviderRequireParametersInput" type="checkbox"/>
+                  <div><strong>Exigir provider parameters</strong><p>Encaminha <code>require_parameters</code> no routing do OpenRouter.</p></div>
+                </label>
+              </div>
+            </div>
+            <label class="toggle-row">
+              <input id="localThinkingEnabledInput" type="checkbox"/>
+              <div><strong>Thinking do modelo</strong><p>Envia reasoning/thinking para providers compativeis, incluindo Kimi, DeepSeek, GLM e NVIDIA NIM.</p></div>
+            </label>
+          </section>
+
+          <section class="group">
+            <div class="group-hd">
+              <div class="hd-text">
+                <h3>Sessao</h3>
+                <p>Idioma, permissoes e comportamento geral do Hermes Agent nesta instalacao.</p>
+              </div>
+            </div>
+            <div class="row-2">
+              <label class="field"><span>Locale</span>
+                <input id="localeInput" type="text" placeholder="pt-BR"/>
+              </label>
+              <label class="field"><span>Trust mode</span>
+                <select id="trustModeInput">
+                  <option value="ask">Perguntar sempre</option>
+                  <option value="session">Confiar nesta sessão</option>
+                  <option value="always">Sempre permitir</option>
+                </select>
+              </label>
+            </div>
+          </section>
+        </div>
+
+        <!-- ═══════════ APERANT ═══════════ -->
+        <div class="pane" data-pane="aperant">
+          <section class="group">
+            <div class="group-hd">
+              <div class="hd-text">
+                <h3>Kanban Aperant</h3>
+                <p>Scheduler, PR, cleanup e modo git/workspace usados somente pelo Kanban e telas multiagente.</p>
+              </div>
+              <span class="badge">Hermes</span>
+            </div>
+            <label class="toggle-row">
+              <input id="kanbanGitEnabledInput" type="checkbox"/>
+              <div><strong>Usar git/worktree no Kanban</strong><p>Quando desligado, o Kanban usa o workspace normal do PC e não chama worktree.</p></div>
+            </label>
+            <label class="toggle-row">
+              <input id="kanbanAutoSchedulerEnabledInput" type="checkbox"/>
+              <div><strong>Scheduler automático</strong><p>Observa fila, agentes, terminais, logs e avança cards em background.</p></div>
+            </label>
+            <label class="toggle-row">
+              <input id="kanbanAutoRecoverEnabledInput" type="checkbox"/>
+              <div><strong>Recovery automático</strong><p>Detecta task travada e reinicia o subagente sem precisar clicar Recover.</p></div>
+            </label>
+            <label class="toggle-row">
+              <input id="kanbanAutoCleanupEnabledInput" type="checkbox"/>
+              <div><strong>Cleanup protegido</strong><p>Remove worktrees concluídas apenas quando o git status está limpo.</p></div>
+            </label>
+            <label class="toggle-row">
+              <input id="kanbanAutoPrEnabledInput" type="checkbox"/>
+              <div><strong>PR automático</strong><p>Executa git status, commit, push e gh pr create quando a task chegar em AI Review.</p></div>
+            </label>
+            <label class="toggle-row">
+              <input id="kanbanMultiAgentOrchestrationEnabledInput" type="checkbox"/>
+              <div><strong>Orquestração multiagente</strong><p>Divide o Start em Planner, Builder e QA usando subagentes Hermes.</p></div>
+            </label>
+            <div class="row-2">
+              <label class="field"><span>Agentes paralelos</span>
+                <input id="kanbanMaxParallelAgentsInput" type="number" min="1" max="12" placeholder="3"/>
+              </label>
+              <label class="field"><span>Scheduler ms</span>
+                <input id="kanbanSchedulerIntervalMsInput" type="number" min="900" max="30000" placeholder="2500"/>
+              </label>
+            </div>
+          </section>
+        </div>
+
+        <!-- ═══════════ SKILLS & GATEWAYS ═══════════ -->
+        <div class="pane" data-pane="cloud">
+          <section id="cloudSettingsGroup" class="group">
+            <div class="group-hd">
+              <div class="hd-text">
+                <h3>Hermes skills e gateways</h3>
+                <p>Catalogo lido do Hermes Agent vendorizado: slash commands, SKILL.md e plataformas de gateway.</p>
+              </div>
+              <span class="badge">Hermes</span>
+            </div>
+            <div id="hermesSkillSummary" class="supported-apps"></div>
+            <div id="hermesGatewayList" class="supported-apps" style="margin-top:10px"></div>
+          </section>
+
+          <section class="group">
+            <div class="group-hd">
+              <div class="hd-text">
+                <h3>Overrides de skills</h3>
+                <p>IDs passados para providers/adaptadores compativeis quando for necessario forcar conectores ou skills.</p>
+              </div>
+            </div>
+            <label class="field"><span>Connector IDs</span>
+              <textarea id="connectorIdsInput" rows="2" placeholder="uuid-1, uuid-2"></textarea>
+            </label>
+            <div class="row-2">
+              <label class="field"><span>Skills habilitadas</span>
+                <textarea id="enableSkillsInput" rows="2" placeholder="skill-alpha, skill-beta"></textarea>
+              </label>
+              <label class="field"><span>Skills forçadas</span>
+                <textarea id="forceSkillsInput" rows="2" placeholder="skill-gamma"></textarea>
+              </label>
+            </div>
+          </section>
+        </div>
+
+        <!-- ═══════════ MODELOS LOCAIS ═══════════ -->
+        <div class="pane" data-pane="local">
+          <section id="localSettingsGroup" class="group">
+            <div class="group-hd">
+              <div class="hd-text">
+                <h3>llama.cpp gerenciado</h3>
+                <p id="localLlamaRuntimeDescription">Servidor OpenAI-compatível próprio quando existe runtime empacotado para este sistema.</p>
+              </div>
+              <span id="localLlamaStatusLabel" class="status-pill"><span class="dot"></span>llama.cpp: idle</span>
+            </div>
+            <label class="toggle-row">
+              <input id="localLlamaEnabledInput" type="checkbox"/>
+              <div><strong id="localLlamaManagedLabel">llama.cpp local gerenciado</strong><p id="localLlamaManagedHint">Quando ligado, o app sobe um servidor OpenAI-compatible próprio.</p></div>
+            </label>
+            <label class="toggle-row">
+              <input id="localLlamaAutoStartInput" type="checkbox"/>
+              <div><strong>Iniciar automaticamente</strong><p>Antes de responder em modo Local, inicia o <code>llama-server</code> se ainda não estiver rodando.</p></div>
+            </label>
+            <div class="row-3">
+              <label class="field"><span>Porta</span>
+                <input id="localLlamaPortInput" type="number" min="1024" max="65535" placeholder="11435"/>
+              </label>
+              <label class="field"><span>Contexto</span>
+                <input id="localLlamaContextSizeInput" type="number" min="512" max="262144" placeholder="65536"/>
+              </label>
+              <label class="field"><span>GPU layers</span>
+                <input id="localLlamaGpuLayersInput" type="number" min="0" max="999" placeholder="999"/>
+              </label>
+            </div>
+            <div class="row-2">
+              <label class="field"><span>Batch</span>
+                <input id="localLlamaBatchSizeInput" type="number" min="1" max="8192" placeholder="1024"/>
+              </label>
+              <label class="field"><span>Pasta de modelos</span>
+                <input id="localLlamaModelDirInput" type="text" placeholder="Pasta de modelos do host"/>
+              </label>
+            </div>
+            <label class="field"><span>Modelo GGUF específico (opcional)</span>
+              <input id="localLlamaModelPathInput" type="text" placeholder="Caminho para modelo.gguf"/>
+            </label>
+            <div class="inline-actions">
+              <button id="startLocalLlamaButton" type="button" class="btn">Iniciar</button>
+              <button id="stopLocalLlamaButton" type="button" class="btn btn-danger">Parar</button>
+              <button id="refreshLocalModelsButton" type="button" class="btn">Detectar modelos</button>
+            </div>
+          </section>
+
+        </div>
+
+        <!-- ═══════════ HERMES DESKTOP ═══════════ -->
+        <div class="pane" data-pane="desktop">
+          <section class="group">
+            <div class="group-hd">
+              <div class="hd-text">
+                <h3>Ponte desktop</h3>
+                <p id="desktopBridgeDescription">Como o modelo interage com o host: apps, arquivos, comandos e Workbench.</p>
+              </div>
+              <span id="hostPlatformBadge" class="badge">host</span>
+              <span id="bridgeStateBadge" class="badge is-ok">bridge ativa</span>
+            </div>
+            <label class="toggle-row">
+              <input id="desktopBridgeEnabledInput" type="checkbox"/>
+              <div><strong>Ponte local habilitada</strong><p>Instrui o modelo a responder com blocos <code>dream-server-action</code>.</p></div>
+            </label>
+            <label class="toggle-row toggle-row-warn">
+              <input id="fullAccessModeInput" type="checkbox"/>
+              <div><strong>Acesso total ao PC</strong><p>Executa apps, escreve arquivos e roda comandos automaticamente. Habilite com cuidado.</p></div>
+            </label>
+            <label class="toggle-row">
+              <input id="hermesDesktopIntegrationEnabledInput" type="checkbox"/>
+              <div><strong>Integração Hermes ↔ Desktop</strong><p id="hermesDesktopIntegrationHint">Mantém as ferramentas Dream Desktop ativas para Workbench, navegador interno e caminhos do host.</p></div>
+            </label>
+            <label class="toggle-row">
+              <input id="interactiveModeInput" type="checkbox"/>
+              <div><strong>Interactive mode</strong><p>Permite que o Hermes Desktop faça perguntas quando o pedido estiver incompleto.</p></div>
+            </label>
+          </section>
+
+          <section class="group">
+            <div class="group-hd">
+              <div class="hd-text">
+                <h3>Atalhos conhecidos</h3>
+                <p>Apps e caminhos que o desktop bridge entende nativamente.</p>
+              </div>
+            </div>
+            <div id="settingsSupportedAppsList" class="supported-apps"></div>
+            <p class="note" style="margin-top:10px">Esta lista reflete os atalhos reconhecidos pelo runtime local. Para adicionar novos, edite <code>runtime/actions/*</code>.</p>
+          </section>
+        </div>
+
+        <!-- ═══════════ APARÊNCIA ═══════════ -->
+        <div class="pane" data-pane="appearance">
+          <section class="group">
+            <div class="group-hd">
+              <div class="hd-text">
+                <h3>Tema</h3>
+                <p>Clique em um preset para aplicar. Tudo usa CSS variables, então muda sem reload.</p>
+              </div>
+            </div>
+            <div class="themes" id="themeGrid" role="radiogroup"></div>
+          </section>
+
+          <section class="group">
+            <div class="group-hd">
+              <div class="hd-text">
+                <h3>Ajuste fino</h3>
+                <p>Sobrescreve o preset selecionado. Sua escolha é salva como "Custom".</p>
+              </div>
+              <button id="themeResetButton" type="button" class="btn">Restaurar</button>
+            </div>
+            <div class="color-grid">
+              <div class="color-field">
+                <label>Accent</label>
+                <div class="cf-row">
+                  <input type="color" id="themeAccPicker" value="#7c6cfc"/>
+                  <input type="text" id="themeAccText" value="#7c6cfc"/>
+                </div>
+              </div>
+              <div class="color-field">
+                <label>Glow (topo)</label>
+                <div class="cf-row">
+                  <input type="color" id="themeStopAPicker" value="#8232ff"/>
+                  <input type="text" id="themeStopAText" value="#8232ff"/>
+                </div>
+              </div>
+              <div class="color-field">
+                <label>Glow (base)</label>
+                <div class="cf-row">
+                  <input type="color" id="themeStopBPicker" value="#1e3cf0"/>
+                  <input type="text" id="themeStopBText" value="#1e3cf0"/>
+                </div>
+              </div>
+            </div>
+            <div class="row-2 code-shader-controls">
+              <div class="color-field">
+                <label>Base (preto de fundo)</label>
+                <div class="cf-row">
+                  <input type="color" id="themeBasePicker" value="#04030b"/>
+                  <input type="text" id="themeBaseText" value="#04030b"/>
+                </div>
+              </div>
+              <div class="color-field">
+                <label>Tint do vidro</label>
+                <div class="cf-row">
+                  <input type="color" id="themeTintPicker" value="#0a081c"/>
+                  <input type="text" id="themeTintText" value="#0a081c"/>
+                </div>
+              </div>
+            </div>
+            <div class="slider-row" style="margin-top:12px">
+              <label for="themeBlurSlider">Intensidade do blur</label>
+              <input type="range" id="themeBlurSlider" min="8" max="60" value="30"/>
+              <span class="v" id="themeBlurValue">30px</span>
+            </div>
+          </section>
+
+          <section class="group">
+            <div class="group-hd">
+              <div class="hd-text">
+                <h3>Background do app</h3>
+                <p>Vídeo atual: <code>dream-ambient.mp4</code>. Pode substituir por vídeo/imagem próprios.</p>
+              </div>
+            </div>
+            <div class="inline-actions">
+              <button id="pickBackgroundButton" type="button" class="btn">Escolher vídeo/imagem</button>
+              <button id="clearBackgroundButton" type="button" class="btn">Usar padrão</button>
+            </div>
+            <p id="backgroundMediaLabel" class="background-media-label" style="margin-top:8px;font-size:0.7rem;color:var(--tx-1)">Padrão: dream-ambient.mp4</p>
+          </section>
+
+          <section class="group">
+            <div class="group-hd">
+              <div class="hd-text">
+                <h3>Código / shader</h3>
+                <p>Camada WebGL compatível com uniforms Ghostty para cursor e textura do editor.</p>
+              </div>
+              <span class="badge is-acc">WebGL</span>
+            </div>
+            <label class="toggle-row">
+              <input id="codeShaderEnabledInput" type="checkbox"/>
+              <div><strong>Shader no editor</strong><p>Usa uniforms e shaders Ghostty no painel Código.</p></div>
+            </label>
+            <div class="row-2" style="margin-top:10px">
+              <label class="field">
+                <span>Forma do cursor</span>
+                <select id="codeShaderPresetInput">
+                  <option value="bar">Barra Ghostty</option>
+                  <option value="block">Bloco</option>
+                  <option value="underline">Sublinhado</option>
+                  <option value="outline">Bloco vazado</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Shader do cursor</span>
+                <select id="codeCursorShaderInput">
+                  <option value="blaze">Blaze</option>
+                  <option value="frozen">Frozen</option>
+                  <option value="rainbow">Smear rainbow</option>
+                  <option value="lastletter">Last letter zoom</option>
+                  <option value="sparks">Party sparks</option>
+                  <option value="zoom">Zoom aberration</option>
+                  <option value="shake">Shake</option>
+                  <option value="border">Border</option>
+                </select>
+              </label>
+            </div>
+            <div class="slider-row" style="margin-top:12px">
+              <label for="codeShaderIntensityInput">Intensidade</label>
+              <input type="range" id="codeShaderIntensityInput" min="0" max="100" value="100"/>
+              <span class="v" id="codeShaderIntensityValue">100%</span>
+            </div>
+          </section>
+        </div>
+
+        <!-- ═══════════ AVANÇADO ═══════════ -->
+        <div class="pane" data-pane="advanced">
+          <section class="group">
+            <div class="group-hd">
+              <div class="hd-text">
+                <h3>Diagnóstico</h3>
+                <p>Pastas de trabalho e logs do runtime.</p>
+              </div>
+            </div>
+            <div class="note">
+              Resultados grandes vão para <code>%TEMP%\dream-server-tool-results\</code>.<br/>
+              Estado CLI em <code>~\.dream-server\cli-state.json</code>.
+            </div>
+          </section>
+
+          <section class="group">
+            <div class="group-hd">
+              <div class="hd-text">
+                <h3>gRPC headless</h3>
+                <p>Servidor opcional para chamar o runtime de fora do Electron.</p>
+              </div>
+              <span class="badge">opcional</span>
+            </div>
+            <p class="note">Inicie com <code>npm run start:grpc</code>. As variáveis <code>GRPC_HOST</code> e <code>GRPC_PORT</code> controlam onde ele escuta.</p>
+          </section>
+
+          <section class="group">
+            <div class="group-hd">
+              <div class="hd-text">
+                <h3>Salvar mudanças</h3>
+                <p>Aplica todas as configurações das abas.</p>
+              </div>
+            </div>
+            <div class="inline-actions">
+              <button type="submit" class="btn btn-primary">Salvar configurações</button>
+            </div>
+          </section>
+        </div>
+
+      </form>
+      <div id="settingsModalBody" hidden></div>
+    </div>
+  </section>
+</div>
+<div id="panelScrim" class="panel-scrim" hidden></div>
+
+<div id="setupOverlay" class="setup-overlay" hidden>
+  <div class="setup-card">
+    <div class="setup-card__icon" id="setupIcon">
+      <svg class="setup-card__spinner-svg" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
+        <circle class="setup-card__spinner-track" cx="22" cy="22" r="18" fill="none" stroke-width="3"/>
+        <circle class="setup-card__spinner-arc" cx="22" cy="22" r="18" fill="none" stroke-width="3" stroke-dasharray="56 57"/>
+      </svg>
+    </div>
+    <h2 class="setup-card__title">Configurando Dream Server</h2>
+    <p class="setup-card__sub" id="setupSub">Preparando ambiente Hermes Agent...</p>
+    <ul class="setup-card__log" id="setupLog"></ul>
+    <div class="setup-card__actions" id="setupActions" hidden>
+      <button class="setup-card__retry" id="setupRetryBtn" type="button">Tentar novamente</button>
+      <p class="setup-card__hint" id="setupHint"></p>
+    </div>
+  </div>
+</div>
+
+<div id="toast"      class="toast"       hidden></div>
+<script src="./renderer.js"></script>
+</body>
+</html>

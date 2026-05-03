@@ -1,0 +1,60 @@
+name: Lint
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'apps/desktop/**'
+      - '.github/workflows/lint.yml'
+      - '.github/actions/**'
+      - 'apps/desktop/biome.jsonc'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'apps/desktop/**'
+      - '.github/workflows/lint.yml'
+      - '.github/actions/**'
+      - 'apps/desktop/biome.jsonc'
+
+concurrency:
+  group: lint-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # TypeScript/JavaScript linting (Biome) - 15-25x faster than ESLint
+  typescript:
+    name: TypeScript (Biome)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Pin version to match package.json for consistent behavior
+      - name: Setup Biome
+        uses: biomejs/setup-biome@v2
+        with:
+          version: 2.3.11
+
+      - name: Run Biome
+        working-directory: apps/desktop
+        # biome ci fails on errors by default; warnings are reported but don't block
+        # Use --error-on-warnings when ready to enforce all rules
+        run: biome ci .
+
+  # --------------------------------------------------------------------------
+  # Gate Job - Single check for branch protection
+  # --------------------------------------------------------------------------
+  lint-complete:
+    name: Lint Complete
+    runs-on: ubuntu-latest
+    needs: [typescript]
+    if: always()
+    steps:
+      - name: Check lint results
+        run: |
+          if [[ "${{ needs.typescript.result }}" != "success" ]]; then
+            echo "❌ Linting failed"
+            echo "  TypeScript: ${{ needs.typescript.result }}"
+            exit 1
+          fi
+          echo "✅ All linting passed"

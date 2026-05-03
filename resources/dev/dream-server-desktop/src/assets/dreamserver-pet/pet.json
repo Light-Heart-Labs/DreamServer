@@ -1,0 +1,6 @@
+{
+  "id": "dreamserver",
+  "displayName": "Dreamserver",
+  "description": "A compact chibi digital pet inspired by the provided anime-style Dreamserver character.",
+  "spritesheetPath": "spritesheet.webp"
+}

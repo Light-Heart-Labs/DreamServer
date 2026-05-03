@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hi Dream server</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      :root {
+        color-scheme: light;
+        --label: #111318;
+        --secondary: #6a707a;
+        --fill: #f2f3f7;
+        --line: rgba(14, 18, 27, 0.07);
+        --blue: #1684ff;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--label);
+        background: #fbfcff;
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      main {
+        min-height: 100vh;
+        display: grid;
+        grid-template-rows: 1fr auto auto;
+        padding: 74px 26px 18px;
+      }
+
+      .hero {
+        display: grid;
+        align-content: center;
+        justify-items: center;
+        gap: 16px;
+        min-height: 314px;
+      }
+
+      .mark {
+        width: 96px;
+        height: 96px;
+        display: grid;
+        place-items: center;
+        border-radius: 24px;
+        background: linear-gradient(180deg, #2aa4ff, #0b70dc);
+        box-shadow:
+          0 16px 40px rgba(22, 132, 255, 0.28),
+          0 0 0 1px rgba(255, 255, 255, 0.45) inset;
+      }
+
+      .mark::before {
+        content: "";
+        width: 38px;
+        height: 38px;
+        border-top: 10px solid #fff;
+        border-left: 10px solid #fff;
+        border-radius: 5px 0 0;
+        transform: translateY(8px) rotate(45deg);
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 32px;
+        line-height: 1.05;
+        font-weight: 760;
+        letter-spacing: 0;
+      }
+
+      .eyebrow {
+        margin: 0 0 12px;
+        color: #444a55;
+        font-size: 11px;
+        font-weight: 850;
+        text-align: center;
+        letter-spacing: 0.06em;
+      }
+
+      .quick-card {
+        display: grid;
+        gap: 0;
+        width: 100%;
+        margin-bottom: 28px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: color-mix(in srgb, var(--fill) 76%, white);
+        box-shadow: 0 18px 42px rgba(28, 35, 48, 0.07);
+      }
+
+      .row {
+        min-height: 43px;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        gap: 16px;
+        padding: 0 14px;
+        border-top: 1px solid var(--line);
+      }
+
+      .row:first-child {
+        border-top: 0;
+      }
+
+      .row strong {
+        font-size: 13px;
+        font-weight: 760;
+      }
+
+      .row code {
+        max-width: 145px;
+        overflow: hidden;
+        border-radius: 8px;
+        padding: 5px 7px;
+        background: rgba(255, 255, 255, 0.72);
+        color: #4e545f;
+        font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+        font-size: 11px;
+        font-weight: 760;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      nav {
+        justify-self: center;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 4px;
+        min-width: 166px;
+        min-height: 54px;
+        padding: 4px;
+        border: 1px solid rgba(20, 23, 30, 0.06);
+        border-radius: 25px;
+        background: rgba(255, 255, 255, 0.78);
+        box-shadow: 0 10px 30px rgba(29, 35, 48, 0.08);
+        backdrop-filter: blur(18px) saturate(1.25);
+      }
+
+      nav button {
+        min-width: 0;
+        height: 46px;
+        border: 0;
+        border-radius: 21px;
+        background: transparent;
+        color: var(--secondary);
+        font: inherit;
+        font-size: 11px;
+        font-weight: 760;
+      }
+
+      nav button.active {
+        background: #f0f4fb;
+        color: #116ad0;
+      }
+
+      .tab-icon {
+        display: block;
+        width: 18px;
+        height: 16px;
+        margin: 0 auto 3px;
+        border-radius: 4px 4px 2px 2px;
+        background: currentColor;
+        clip-path: polygon(50% 0, 100% 40%, 100% 100%, 63% 100%, 63% 62%, 37% 62%, 37% 100%, 0 100%, 0 40%);
+      }
+
+      .tab-grid {
+        display: grid;
+        grid-template-columns: 6px 6px;
+        grid-template-rows: 6px 6px;
+        gap: 3px;
+        width: 15px;
+        height: 15px;
+        margin: 0 auto 4px;
+      }
+
+      .tab-grid i {
+        border-radius: 3px;
+        background: currentColor;
+      }
+
+      @media (max-height: 430px) {
+        main {
+          grid-template-columns: 1fr 1fr;
+          grid-template-rows: 1fr auto;
+          gap: 12px 22px;
+          align-items: center;
+          padding: 56px 30px 16px;
+        }
+
+        .hero {
+          grid-column: 1;
+          min-height: 210px;
+        }
+
+        .quick-card {
+          grid-column: 2;
+          margin-bottom: 0;
+        }
+
+        nav {
+          grid-column: 1 / -1;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <div class="mark" aria-hidden="true"></div>
+        <h1>Hi Dream server</h1>
+      </section>
+      <section>
+        <p class="eyebrow">GET STARTED</p>
+        <div class="quick-card">
+          <div class="row"><strong>Try editing</strong><code>src/app/index.tsx</code></div>
+          <div class="row"><strong>Dev tools</strong><code>press cmd+d</code></div>
+          <div class="row"><strong>Fresh start</strong><code>npm run reset-project</code></div>
+        </div>
+      </section>
+      <nav aria-label="Tabs">
+        <button class="active" type="button"><span class="tab-icon" aria-hidden="true"></span>Home</button>
+        <button type="button"><span class="tab-grid" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Explore</button>
+      </nav>
+    </main>
+  </body>
+</html>

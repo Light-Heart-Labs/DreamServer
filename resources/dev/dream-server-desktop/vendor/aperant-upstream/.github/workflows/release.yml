@@ -1,0 +1,596 @@
+name: Release
+# Triggers on version tags (v*) to build and publish releases
+#
+# IMPORTANT: If branch protection is enabled on 'main', the update-readme job
+# requires a PAT or GitHub App token with bypass permissions to push directly.
+# Currently uses GITHUB_TOKEN which works if "Allow GitHub Actions to create
+# and approve pull requests" is enabled OR branch protection is not configured.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Test build without creating release'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  # Intel build on Intel runner for native compilation
+  # Note: macos-15-intel is the last Intel runner, supported until Fall 2027
+  build-macos-intel:
+    runs-on: macos-15-intel
+    outputs:
+      notarization_id: ${{ steps.notarize.outputs.notarization-id }}
+      dmg_file: ${{ steps.notarize.outputs.dmg-file }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js and install dependencies
+        uses: ./.github/actions/setup-node-frontend
+
+      - name: Build application
+        run: cd apps/desktop && npm run build
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_TRACES_SAMPLE_RATE: ${{ secrets.SENTRY_TRACES_SAMPLE_RATE }}
+          SENTRY_PROFILES_SAMPLE_RATE: ${{ secrets.SENTRY_PROFILES_SAMPLE_RATE }}
+
+      - name: Package macOS (Intel)
+        run: cd apps/desktop && npm run package:mac -- --x64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_TRACES_SAMPLE_RATE: ${{ secrets.SENTRY_TRACES_SAMPLE_RATE }}
+          SENTRY_PROFILES_SAMPLE_RATE: ${{ secrets.SENTRY_PROFILES_SAMPLE_RATE }}
+
+      - name: Submit notarization (async)
+        id: notarize
+        uses: ./.github/actions/submit-macos-notarization
+        with:
+          apple-id: ${{ secrets.APPLE_ID }}
+          apple-app-specific-password: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          apple-team-id: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-intel-builds
+          path: |
+            apps/desktop/dist/*.dmg
+            apps/desktop/dist/*.zip
+            apps/desktop/dist/*.yml
+            apps/desktop/dist/*.blockmap
+
+  # Apple Silicon build on ARM64 runner for native compilation
+  build-macos-arm64:
+    runs-on: macos-15
+    outputs:
+      notarization_id: ${{ steps.notarize.outputs.notarization-id }}
+      dmg_file: ${{ steps.notarize.outputs.dmg-file }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js and install dependencies
+        uses: ./.github/actions/setup-node-frontend
+
+      - name: Build application
+        run: cd apps/desktop && npm run build
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_TRACES_SAMPLE_RATE: ${{ secrets.SENTRY_TRACES_SAMPLE_RATE }}
+          SENTRY_PROFILES_SAMPLE_RATE: ${{ secrets.SENTRY_PROFILES_SAMPLE_RATE }}
+
+      - name: Package macOS (Apple Silicon)
+        run: cd apps/desktop && npm run package:mac -- --arm64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_TRACES_SAMPLE_RATE: ${{ secrets.SENTRY_TRACES_SAMPLE_RATE }}
+          SENTRY_PROFILES_SAMPLE_RATE: ${{ secrets.SENTRY_PROFILES_SAMPLE_RATE }}
+
+      - name: Submit notarization (async)
+        id: notarize
+        uses: ./.github/actions/submit-macos-notarization
+        with:
+          apple-id: ${{ secrets.APPLE_ID }}
+          apple-app-specific-password: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          apple-team-id: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-builds
+          path: |
+            apps/desktop/dist/*.dmg
+            apps/desktop/dist/*.zip
+            apps/desktop/dist/*.yml
+            apps/desktop/dist/*.blockmap
+
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      id-token: write  # Required for OIDC authentication with Azure
+      contents: read
+    env:
+      # Job-level env so AZURE_CLIENT_ID is available for step-level if conditions
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js and install dependencies
+        uses: ./.github/actions/setup-node-frontend
+
+      - name: Build application
+        run: cd apps/desktop && npm run build
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_TRACES_SAMPLE_RATE: ${{ secrets.SENTRY_TRACES_SAMPLE_RATE }}
+          SENTRY_PROFILES_SAMPLE_RATE: ${{ secrets.SENTRY_PROFILES_SAMPLE_RATE }}
+
+      - name: Package Windows
+        run: cd apps/desktop && npm run package:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Disable electron-builder's built-in signing (we use Azure Trusted Signing instead)
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_TRACES_SAMPLE_RATE: ${{ secrets.SENTRY_TRACES_SAMPLE_RATE }}
+          SENTRY_PROFILES_SAMPLE_RATE: ${{ secrets.SENTRY_PROFILES_SAMPLE_RATE }}
+
+      - name: Azure Login (OIDC)
+        if: env.AZURE_CLIENT_ID != ''
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign Windows executable with Azure Trusted Signing
+        if: env.AZURE_CLIENT_ID != ''
+        uses: azure/trusted-signing-action@v0.5.11
+        with:
+          endpoint: https://neu.codesigning.azure.net/
+          trusted-signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_CERTIFICATE_PROFILE }}
+          files-folder: apps/desktop/dist
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Verify Windows executable is signed
+        if: env.AZURE_CLIENT_ID != ''
+        shell: pwsh
+        run: |
+          cd apps/desktop/dist
+          $exeFile = Get-ChildItem -Filter "*.exe" | Select-Object -First 1
+          if ($exeFile) {
+            Write-Host "Verifying signature on $($exeFile.Name)..."
+            $sig = Get-AuthenticodeSignature -FilePath $exeFile.FullName
+            if ($sig.Status -ne 'Valid') {
+              Write-Host "::error::Signature verification failed: $($sig.Status)"
+              Write-Host "::error::Status Message: $($sig.StatusMessage)"
+              exit 1
+            }
+            Write-Host "✅ Signature verified successfully"
+            Write-Host "  Subject: $($sig.SignerCertificate.Subject)"
+            Write-Host "  Issuer: $($sig.SignerCertificate.Issuer)"
+            Write-Host "  Thumbprint: $($sig.SignerCertificate.Thumbprint)"
+          } else {
+            Write-Host "::error::No .exe file found to verify"
+            exit 1
+          }
+
+      - name: Regenerate checksums after signing
+        if: env.AZURE_CLIENT_ID != ''
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          cd apps/desktop/dist
+
+          # Find the installer exe (electron-builder names it with "Setup" or just the app name)
+          # electron-builder produces one installer exe per build
+          $exeFiles = Get-ChildItem -Filter "*.exe"
+          if ($exeFiles.Count -eq 0) {
+            Write-Host "::error::No .exe files found in dist folder"
+            exit 1
+          }
+
+          Write-Host "Found $($exeFiles.Count) exe file(s): $($exeFiles.Name -join ', ')"
+
+          $ymlFile = "latest.yml"
+          if (-not (Test-Path $ymlFile)) {
+            Write-Host "::error::$ymlFile not found - cannot update checksums"
+            exit 1
+          }
+
+          $content = Get-Content $ymlFile -Raw
+          $originalContent = $content
+
+          # Process each exe file and update its hash in latest.yml
+          foreach ($exeFile in $exeFiles) {
+            Write-Host "Processing $($exeFile.Name)..."
+
+            # Compute SHA512 hash and convert to base64 (electron-builder format)
+            $bytes = [System.IO.File]::ReadAllBytes($exeFile.FullName)
+            $sha512 = [System.Security.Cryptography.SHA512]::Create()
+            $hashBytes = $sha512.ComputeHash($bytes)
+            $hash = [System.Convert]::ToBase64String($hashBytes)
+            $size = $exeFile.Length
+
+            Write-Host "  Hash: $hash"
+            Write-Host "  Size: $size"
+          }
+
+          # For electron-builder, latest.yml has a single file entry for the installer
+          # Update the sha512 and size for the primary exe (first one, typically the installer)
+          $primaryExe = $exeFiles | Select-Object -First 1
+          $bytes = [System.IO.File]::ReadAllBytes($primaryExe.FullName)
+          $sha512 = [System.Security.Cryptography.SHA512]::Create()
+          $hashBytes = $sha512.ComputeHash($bytes)
+          $hash = [System.Convert]::ToBase64String($hashBytes)
+          $size = $primaryExe.Length
+
+          # Update sha512 hash (base64 pattern: alphanumeric, +, /, =)
+          $content = $content -replace 'sha512: [A-Za-z0-9+/=]+', "sha512: $hash"
+          # Update size
+          $content = $content -replace 'size: \d+', "size: $size"
+
+          if ($content -eq $originalContent) {
+            Write-Host "::error::Checksum replacement failed - content unchanged. Check if latest.yml format has changed."
+            exit 1
+          }
+
+          Set-Content -Path $ymlFile -Value $content -NoNewline
+          Write-Host "✅ Updated $ymlFile with new base64 hash and size for $($primaryExe.Name)"
+
+      - name: Skip signing notice
+        if: env.AZURE_CLIENT_ID == ''
+        run: echo "::warning::Windows signing skipped - AZURE_CLIENT_ID not configured. The .exe will be unsigned."
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-builds
+          path: |
+            apps/desktop/dist/*.exe
+            apps/desktop/dist/*.yml
+            apps/desktop/dist/*.blockmap
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js and install dependencies
+        uses: ./.github/actions/setup-node-frontend
+
+      - name: Setup Flatpak and verification tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder squashfs-tools
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install -y --user flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08
+          flatpak install -y --user flathub org.electronjs.Electron2.BaseApp//25.08
+
+      - name: Build application
+        run: cd apps/desktop && npm run build
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_TRACES_SAMPLE_RATE: ${{ secrets.SENTRY_TRACES_SAMPLE_RATE }}
+          SENTRY_PROFILES_SAMPLE_RATE: ${{ secrets.SENTRY_PROFILES_SAMPLE_RATE }}
+
+      - name: Package Linux
+        run: cd apps/desktop && npm run package:linux
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_TRACES_SAMPLE_RATE: ${{ secrets.SENTRY_TRACES_SAMPLE_RATE }}
+          SENTRY_PROFILES_SAMPLE_RATE: ${{ secrets.SENTRY_PROFILES_SAMPLE_RATE }}
+
+      - name: Verify Linux packages
+        run: cd apps/desktop && npm run verify:linux
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-builds
+          path: |
+            apps/desktop/dist/*.AppImage
+            apps/desktop/dist/*.deb
+            apps/desktop/dist/*.flatpak
+            apps/desktop/dist/*.yml
+            apps/desktop/dist/*.blockmap
+
+  # Finalize macOS notarization (runs in parallel with Windows/Linux builds)
+  finalize-notarization:
+    needs: [build-macos-intel, build-macos-arm64]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Intel DMG
+        uses: actions/download-artifact@v7
+        with:
+          name: macos-intel-builds
+          path: intel
+
+      - name: Download ARM64 DMG
+        uses: actions/download-artifact@v7
+        with:
+          name: macos-arm64-builds
+          path: arm64
+
+      - name: Wait for notarization and staple
+        uses: ./.github/actions/finalize-macos-notarization
+        with:
+          apple-id: ${{ secrets.APPLE_ID }}
+          apple-app-specific-password: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          apple-team-id: ${{ secrets.APPLE_TEAM_ID }}
+          intel-notarization-id: ${{ needs.build-macos-intel.outputs.notarization_id }}
+          arm64-notarization-id: ${{ needs.build-macos-arm64.outputs.notarization_id }}
+          intel-dmg-file: ${{ needs.build-macos-intel.outputs.dmg_file }}
+          arm64-dmg-file: ${{ needs.build-macos-arm64.outputs.dmg_file }}
+
+      - name: Upload stapled Intel DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-intel-stapled
+          path: intel/*.dmg
+
+      - name: Upload stapled ARM64 DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-stapled
+          path: arm64/*.dmg
+
+  create-release:
+    needs: [build-macos-intel, build-macos-arm64, finalize-notarization, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: dist
+
+      - name: Flatten binary artifacts
+        run: |
+          mkdir -p release-assets
+
+          # Copy stapled macOS DMGs (from finalize-notarization job)
+          # Validate that stapled DMGs exist before copying
+          if ! find dist/macos-intel-stapled dist/macos-arm64-stapled -type f -name "*.dmg" 2>/dev/null | grep -q .; then
+            echo "::warning::No stapled DMGs found. Using un-stapled DMGs from build artifacts."
+            find dist/macos-intel-builds dist/macos-arm64-builds -type f -name "*.dmg" -exec cp {} release-assets/ \; 2>/dev/null || true
+          else
+            find dist/macos-intel-stapled dist/macos-arm64-stapled -type f -name "*.dmg" -exec cp {} release-assets/ \; 2>/dev/null || true
+          fi
+
+          # Copy other macOS artifacts (zip, yml, blockmap) from original build
+          find dist/macos-intel-builds dist/macos-arm64-builds -type f \( -name "*.zip" -o -name "*.yml" -o -name "*.blockmap" \) -exec cp {} release-assets/ \; 2>/dev/null || true
+
+          # Copy Windows and Linux artifacts
+          find dist/windows-builds dist/linux-builds -type f \( -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.flatpak" -o -name "*.yml" -o -name "*.blockmap" \) -exec cp {} release-assets/ \; 2>/dev/null || true
+
+          # Validate that installer files exist
+          installer_count=$(find release-assets -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.flatpak" \) | wc -l)
+          if [ "$installer_count" -eq 0 ]; then
+            echo "::error::No installer artifacts found! Expected .dmg, .zip, .exe, .AppImage, .deb, or .flatpak files."
+            exit 1
+          fi
+
+          echo "Found $installer_count binary artifact(s):"
+          find release-assets -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.flatpak" \) -exec basename {} \;
+
+      # Merge macOS manifests from Intel and ARM64 builds
+      # See: https://github.com/electron-userland/electron-builder/issues/5592
+      - name: Merge macOS manifests
+        uses: ./.github/actions/merge-macos-manifests
+        with:
+          dist-path: dist
+          output-path: release-assets
+          copy-other-manifests: 'true'
+
+      - name: Validate manifests
+        run: |
+          # Validate that electron-updater manifest files are present (required for auto-updates)
+          yml_count=$(find release-assets -type f -name "*.yml" | wc -l)
+          if [ "$yml_count" -eq 0 ]; then
+            echo "::error::No update manifest (.yml) files found! Auto-update will not work."
+            exit 1
+          fi
+
+          echo "Found $yml_count manifest file(s):"
+          find release-assets -type f -name "*.yml" -exec basename {} \;
+
+          # Validate required manifests exist
+          missing=""
+          [ ! -f "release-assets/latest-mac.yml" ] && missing="$missing latest-mac.yml"
+          [ ! -f "release-assets/latest.yml" ] && missing="$missing latest.yml"
+          [ ! -f "release-assets/latest-linux.yml" ] && missing="$missing latest-linux.yml"
+
+          if [ -n "$missing" ]; then
+            echo "::error::Missing required manifests:$missing"
+            echo "::error::Auto-update will fail on affected platforms!"
+            exit 1
+          fi
+
+          echo ""
+          echo "All required manifests present:"
+          echo "  - latest-mac.yml (macOS)"
+          echo "  - latest.yml (Windows)"
+          echo "  - latest-linux.yml (Linux)"
+
+          echo ""
+          echo "All release assets:"
+          ls -la release-assets/
+
+      - name: Generate checksums
+        run: |
+          cd release-assets
+          sha256sum ./* > checksums.sha256
+          cat checksums.sha256
+
+      - name: Dry run summary
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
+        run: |
+          echo "## Dry Run Complete" >> $GITHUB_STEP_SUMMARY
+          echo "Build artifacts created successfully:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          ls -la release-assets/ >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "### Checksums" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          cat release-assets/checksums.sha256 >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Extract changelog from CHANGELOG.md
+        if: ${{ github.event_name == 'push' }}
+        id: changelog
+        run: |
+          # Extract version from tag (v2.7.2 -> 2.7.2)
+          VERSION=${GITHUB_REF_NAME#v}
+          CHANGELOG_FILE="CHANGELOG.md"
+
+          echo "📋 Extracting release notes for version $VERSION from CHANGELOG.md..."
+
+          if [ ! -f "$CHANGELOG_FILE" ]; then
+            echo "::warning::CHANGELOG.md not found, using minimal release notes"
+            echo "body=Release v$VERSION" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Extract changelog section for this version
+          # Looks for "## X.Y.Z" header and captures until next "## " or "---"
+          CHANGELOG_CONTENT=$(awk -v ver="$VERSION" '
+            BEGIN { found=0; content="" }
+            /^## / {
+              if (found) exit
+              # Match version at start of header (e.g., "## 2.7.3 -" or "## 2.7.3")
+              if ($2 == ver || $2 ~ "^"ver"[[:space:]]*-") {
+                found=1
+                next
+              }
+            }
+            /^---$/ { if (found) exit }
+            found { content = content $0 "\n" }
+            END {
+              if (!found) {
+                print "NOT_FOUND"
+                exit 0
+              }
+              # Trim leading/trailing whitespace
+              gsub(/^[[:space:]]+|[[:space:]]+$/, "", content)
+              print content
+            }
+          ' "$CHANGELOG_FILE")
+
+          if [ "$CHANGELOG_CONTENT" = "NOT_FOUND" ] || [ -z "$CHANGELOG_CONTENT" ]; then
+            echo "::warning::Version $VERSION not found in CHANGELOG.md, using minimal release notes"
+            REPO="${{ github.repository }}"
+            CHANGELOG_CONTENT="Release v$VERSION"$'\n\n'"See [CHANGELOG.md](https://github.com/${REPO}/blob/main/CHANGELOG.md) for details."
+          fi
+
+          echo "✅ Extracted changelog content"
+
+          # Save to file first (more reliable for multiline)
+          echo "$CHANGELOG_CONTENT" > changelog-body.md
+
+          # Use file-based output for multiline content
+          {
+            echo "body<<CHANGELOG_EOF"
+            cat changelog-body.md
+            echo "CHANGELOG_EOF"
+          } >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        if: ${{ github.event_name == 'push' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          body: |
+            ${{ steps.changelog.outputs.body }}
+
+            ---
+
+            **Full Changelog**: https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md
+
+            _VirusTotal scan results will be added automatically after release._
+          files: release-assets/*
+          draft: false
+          prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+
+  # Update README with new version after successful release
+  update-readme:
+    needs: [create-release]
+    runs-on: ubuntu-latest
+    # Only update README on actual releases (tag push), not dry runs
+    if: ${{ github.event_name == 'push' }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          # Use PAT_TOKEN to bypass branch protection rules on main
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - name: Extract version and detect release type
+        id: version
+        run: |
+          # Extract version from tag (v2.7.2 -> 2.7.2)
+          VERSION=${GITHUB_REF_NAME#v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          # Detect if this is a prerelease (contains - after version, e.g., 2.7.2-beta.10)
+          if [[ "$VERSION" == *-* ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+            echo "Detected PRERELEASE: $VERSION"
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+            echo "Detected STABLE release: $VERSION"
+          fi
+
+      - name: Update README.md
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          IS_PRERELEASE="${{ steps.version.outputs.is_prerelease }}"
+
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            node scripts/update-readme.mjs "$VERSION" --prerelease
+          else
+            node scripts/update-readme.mjs "$VERSION"
+          fi
+
+          echo "--- Verifying update ---"
+          grep -E "(stable-|beta-|version-)[0-9]" README.md | head -5
+
+      - name: Commit and push README update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Check if there are changes to commit
+          if git diff --quiet README.md; then
+            echo "No changes to README.md, skipping commit"
+            exit 0
+          fi
+
+          git add README.md
+          git commit -m "docs: update README to v${{ steps.version.outputs.version }} [skip ci]"
+          git push origin main

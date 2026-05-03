@@ -45,6 +45,16 @@ A lightweight Docker image containing everything needed to run the DreamServer i
 
 Static HTML download page for `dreamserver.dev/download` (or equivalent). Auto-detects visitor's OS and shows the right installation command. Single-file, no dependencies, deploys anywhere.
 
+### [`dream-server-desktop/`](dream-server-desktop/) — Electron Desktop Shell
+
+Source-first Electron desktop build for Dream Server DESKTOP. It includes the
+renderer, shared local runtime, Hermes Agent vendor source, CLI/gRPC entrypoints,
+and cross-platform packaging scripts for Windows, Linux, and macOS.
+
+Generated artifacts stay out of Git: `node_modules`, Electron `dist/` output,
+Python virtual environments, downloaded standalone Python runtimes, GGUF models,
+and machine-specific llama.cpp binaries.
+
 ### [`extensions-library/`](extensions-library/) — 33 Service Extensions
 
 **The next wave of DreamServer services.** 17 extensions are already in production — these 33 are being tested for the next release.

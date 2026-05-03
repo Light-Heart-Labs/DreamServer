@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024px" height="1024px" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <!-- Generator: Sketch 63.1 (92452) - https://sketch.com -->
+    <title>App Icon / Apple / Messages /@SVG</title>
+    <desc>Created with Sketch.</desc>
+    <defs>
+        <linearGradient x1="50%" y1="0%" x2="50%" y2="100%" id="linearGradient-1">
+            <stop stop-color="#67FF81" offset="0%"></stop>
+            <stop stop-color="#01B41F" offset="100%"></stop>
+        </linearGradient>
+    </defs>
+    <g id="App-Icon-/-Apple-/-Messages-/" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <rect id="Origin-Color" fill="url(#linearGradient-1)" x="0" y="0" width="1024" height="1024"></rect>
+        <path d="M512,187.733333 C719.364524,187.733333 887.466667,327.181701 887.466667,499.2 C887.466667,671.218299 719.364524,810.666667 512,810.666667 C486.941627,810.666667 462.456595,808.630327 438.772261,804.746249 C417.861808,802.712266 405.461255,804.643435 384.041667,811.26875 C358.4,819.2 318.779167,853.333333 264.533333,853.333333 C261.4875,853.333333 315.733329,809.604167 315.733335,776.533333 L315.728877,764.774795 C208.226734,709.985823 136.533333,611.538239 136.533333,499.2 C136.533333,327.181701 304.635476,187.733333 512,187.733333 Z" id="Messages-Icon" fill="#FFFFFF"></path>
+    </g>
+</svg>
