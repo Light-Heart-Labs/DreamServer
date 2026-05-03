@@ -35,7 +35,7 @@ services:
           cpus: '0.1'
           memory: 128m
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3456/api/v1/info"]
+      test: ["CMD", "/app/vikunja/vikunja", "healthcheck", "site"]
       interval: 30s
       timeout: 10s
       retries: 3

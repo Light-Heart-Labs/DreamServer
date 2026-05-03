@@ -1,0 +1,84 @@
+{
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "local-llama/extra.Qwen3.6-35B-A3B-Q4_K_XL.gguf"
+      },
+      "subagents": {
+        "model": "local-llama/extra.Qwen3.6-35B-A3B-Q4_K_XL.gguf",
+        "maxConcurrent": 4
+      },
+      "llm": {
+        "idleTimeoutSeconds": 0
+      }
+    }
+  },
+  "models": {
+    "mode": "replace",
+    "providers": {
+      "local-llama": {
+        "baseUrl": "http://llama-server:8080/v1",
+        "apiKey": "none",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "extra.Qwen3.6-35B-A3B-Q4_K_XL.gguf",
+            "name": "Qwen3.6 35B-A3B (Chat/Agent, Default)",
+            "contextWindow": 131072,
+            "maxTokens": 8192
+          },
+          {
+            "id": "extra.qwen3-coder-next-Q4_K_M.gguf",
+            "name": "Qwen3 Coder Next (Tool-Calling, Coding)",
+            "contextWindow": 131072,
+            "maxTokens": 8192
+          },
+          {
+            "id": "extra.Qwen3.5-122B-A10B-Q4_K_M-00001-of-00003.gguf",
+            "name": "Qwen3.5 122B-A10B (Reasoning Heavy)",
+            "reasoning": true,
+            "contextWindow": 131072,
+            "maxTokens": 8192
+          },
+          {
+            "id": "extra.qwen3-vl-30b",
+            "name": "Qwen3 VL 30B (Vision)",
+            "input": [
+              "text",
+              "image"
+            ],
+            "contextWindow": 131072,
+            "maxTokens": 8192
+          },
+          {
+            "id": "extra.qwen3-4b",
+            "name": "Qwen3 4B (Fast, weak tools)",
+            "contextWindow": 131072,
+            "maxTokens": 4096
+          }
+        ]
+      }
+    }
+  },
+  "gateway": {
+    "mode": "local",
+    "controlUi": {
+      "allowInsecureAuth": true,
+      "dangerouslyDisableDeviceAuth": true,
+      "dangerouslyAllowHostHeaderOriginFallback": true
+    }
+  },
+  "plugins": {
+    "entries": {
+      "phone-control": {
+        "enabled": false
+      },
+      "talk-voice": {
+        "enabled": false
+      },
+      "file-transfer": {
+        "enabled": false
+      }
+    }
+  }
+}
