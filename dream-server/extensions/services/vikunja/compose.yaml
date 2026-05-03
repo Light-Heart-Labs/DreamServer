@@ -35,11 +35,11 @@ services:
           cpus: '0.1'
           memory: 128m
     healthcheck:
-      test: ["CMD", "/app/vikunja/vikunja", "healthcheck", "site"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+      # Vikunja ships a fully distroless image (no shell, no wget, no curl, no
+      # `vikunja healthcheck` subcommand). We disable the container-level
+      # healthcheck and rely on the dashboard-api's own /api/v1/info poll
+      # (declared in manifest.yaml -> service.health) for status reporting.
+      disable: true
     logging:
       driver: "json-file"
       options:
