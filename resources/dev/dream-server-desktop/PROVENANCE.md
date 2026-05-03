@@ -6,21 +6,16 @@ third-party material in `resources/dev/dream-server-desktop`.
 ## Packaging Policy
 
 Electron artifacts are built from an explicit allowlist in `package.json`.
-Development reference snapshots may be present in `vendor/`, but they are not
-included in packaged builds unless the allowlist names their subtree.
+The only vendored source tree kept in this directory is the runtime dependency
+that the desktop app imports directly.
 
 Current packaged vendor allowlist:
 
 - `vendor/hermes-agent/**/*`
 
-Current excluded reference snapshots:
-
-- `vendor/aperant-upstream/**/*`
-- `vendor/browser-harness/**/*`
-- `vendor/browser-harness-upstream/**/*`
-- `vendor/ghostty-cursor-shaders/**/*`
-- `vendor/ghostty-shader-playground/**/*`
-- `vendor/hermes-ios-panel-plugin/**/*`
+Reference-only upstream trees are not committed here. The multiagent workbench
+UI was adapted into `src/` and routes through the local Dream/Hermes runtime
+actions rather than executing upstream desktop code.
 
 ## Runtime Base
 
@@ -29,8 +24,8 @@ Dream Server DESKTOP's runtime is the local Electron/Node implementation under
 the bridge under `runtime/hermes`.
 
 The workbench and Kanban views were adapted for Dream Server DESKTOP and route
-through Dream/Hermes runtime actions. The desktop app does not execute from the
-desktop workbench reference snapshot.
+through Dream/Hermes runtime actions. The desktop app does not execute from a
+separate upstream desktop runtime.
 
 ## Third-Party Source Records
 
@@ -41,25 +36,11 @@ desktop workbench reference snapshot.
 - Role: packaged runtime dependency used by `runtime/hermes`
 - Notice: `THIRD_PARTY_NOTICES.md`
 
-### Desktop Workbench Reference Snapshot
-
-- Path: `vendor/aperant-upstream`
-- License: AGPL-3.0
-- Role: development reference snapshot for visual/product patterns only
-- Packaged: no
-- Notice: `THIRD_PARTY_NOTICES.md`
-
-### Browser Harness References
-
-- Paths: `vendor/browser-harness`, `vendor/browser-harness-upstream`
-- Role: development reference snapshots for browser-control behavior
-- Packaged: no
-- Notice: `THIRD_PARTY_NOTICES.md`
-
 ### Ghostty Shader References
 
-- Paths: `vendor/ghostty-cursor-shaders`, `vendor/ghostty-shader-playground`
-- Role: provenance/reference for selected shader files copied under
+- Sources: https://github.com/sahaj-b/ghostty-cursor-shaders and
+  https://github.com/KroneCorylus/ghostty-shader-playground
+- Role: provenance for selected shader files copied under
   `src/shaders/ghostty`
 - Packaged: selected files under `src/shaders/ghostty`
 - Notice: `THIRD_PARTY_NOTICES.md` and `src/shaders/ghostty/LICENSES.md`

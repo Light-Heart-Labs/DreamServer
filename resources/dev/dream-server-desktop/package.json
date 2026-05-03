@@ -43,6 +43,7 @@
       "PROVENANCE.md",
       "THIRD_PARTY_NOTICES.md",
       "build/**/*",
+      "mobile-preview/**/*",
       "runtime/**/*",
       "bin/**/*",
       "src/**/*",

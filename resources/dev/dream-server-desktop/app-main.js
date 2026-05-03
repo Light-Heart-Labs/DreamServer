@@ -620,7 +620,7 @@ function resolveBundledPath(...segments) {
 }
 
 function getMobilePreviewScriptPath() {
-  return resolveBundledPath("vendor", "hermes-ios-panel-plugin", "server.js");
+  return resolveBundledPath("mobile-preview", "server.js");
 }
 
 async function findAvailablePort(preferred = 8420, attempts = 40) {
