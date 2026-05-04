@@ -6,15 +6,15 @@ resolvers, template-path resolvers, cache). Functions that call those resolvers
 remain in main.py so that test monkeypatches continue to intercept them.
 """
 
-import json
 import re
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import HTTPException
 
-from config import AGENT_URL, DREAM_AGENT_KEY  # noqa: F401 (re-exported via import)
+from config import AGENT_URL
 
 # ── Regex constants ────────────────────────────────────────────────────────────
 
@@ -346,5 +346,5 @@ def _check_host_agent_available() -> bool:
     try:
         with urllib.request.urlopen(f"{AGENT_URL}/health", timeout=3) as response:
             return response.status == 200
-    except Exception:
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError):
         return False

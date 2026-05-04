@@ -58,13 +58,10 @@ from routers import (
     tailscale,
 )
 from settings import (
-    _ENV_ASSIGNMENT_RE, _ENV_COMMENTED_ASSIGNMENT_RE, _SENSITIVE_ENV_KEY_RE,
-    _SETTINGS_APPLY_ALLOWED_SERVICES, _LLAMA_APPLY_KEYS, _OPEN_WEBUI_APPLY_KEYS,
-    _TOKEN_SPY_APPLY_KEYS, _PRIVACY_SHIELD_APPLY_KEYS, _MANUAL_RESTART_KEYS,
-    _strip_env_quotes, _parse_env_text, _read_env_map_from_path,
-    _normalize_bool, _humanize_env_key, _is_secret_field, _slugify,
+    _ENV_ASSIGNMENT_RE, _ENV_COMMENTED_ASSIGNMENT_RE, _SETTINGS_APPLY_ALLOWED_SERVICES, _parse_env_text, _read_env_map_from_path,
+    _slugify,
     _build_env_fields, _validate_env_values, _serialize_form_values,
-    _match_apply_service, _build_apply_summary, _compute_env_apply_plan,
+    _compute_env_apply_plan,
     _check_host_agent_available,
 )
 
