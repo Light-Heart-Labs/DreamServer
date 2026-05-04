@@ -122,13 +122,21 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
         OPENCLAW_MODEL="$LLM_MODEL"
         OPENCLAW_CONTEXT=$MAX_CONTEXT
 
-        if [[ -f "$INSTALL_DIR/config/openclaw/$OPENCLAW_CONFIG" ]]; then
-            cp "$INSTALL_DIR/config/openclaw/$OPENCLAW_CONFIG" "$INSTALL_DIR/config/openclaw/openclaw.json"
+        # Tiers 1/2/3 set OPENCLAW_CONFIG="openclaw.json", which is also the
+        # destination filename — skip the self-copy in that case so the file
+        # the rsync from SCRIPT_DIR placed there is used as-is.
+        _oc_src="$INSTALL_DIR/config/openclaw/$OPENCLAW_CONFIG"
+        _oc_dst="$INSTALL_DIR/config/openclaw/openclaw.json"
+        if [[ -f "$_oc_src" ]]; then
+            if [[ ! "$_oc_src" -ef "$_oc_dst" ]]; then
+                cp "$_oc_src" "$_oc_dst"
+            fi
         elif [[ -f "$SCRIPT_DIR/config/openclaw/$OPENCLAW_CONFIG" ]]; then
-            cp "$SCRIPT_DIR/config/openclaw/$OPENCLAW_CONFIG" "$INSTALL_DIR/config/openclaw/openclaw.json"
+            cp "$SCRIPT_DIR/config/openclaw/$OPENCLAW_CONFIG" "$_oc_dst"
         else
             error "Missing OpenClaw config $OPENCLAW_CONFIG and no fallback present in repo. This is a packaging bug; please re-clone or report."
         fi
+        unset _oc_src _oc_dst
         # Resolve provider name/URL before any sed replacements that depend on them
         OPENCLAW_PROVIDER_NAME="${OPENCLAW_PROVIDER_NAME_DEFAULT}"
         OPENCLAW_PROVIDER_URL="${OPENCLAW_PROVIDER_URL_DEFAULT}"
