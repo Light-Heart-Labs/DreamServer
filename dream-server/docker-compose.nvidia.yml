@@ -5,7 +5,7 @@
 
 services:
   llama-server:
-    image: ${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda-b8248}
+    image: ${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda-b9014}
     deploy:
       resources:
         reservations:

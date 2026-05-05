@@ -22,7 +22,7 @@ services:
   # Serves OpenAI-compatible API on port 8080
   # ============================================
   llama-server:
-    image: ${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-b8248}
+    image: ${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-b9014}
     container_name: dream-llama-server
     restart: unless-stopped
     volumes:

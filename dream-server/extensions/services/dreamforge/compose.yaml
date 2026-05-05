@@ -1,7 +1,10 @@
 services:
   dreamforge:
     image: ${DREAMFORGE_IMAGE:-ghcr.io/light-heart-labs/dreamforge:v0.1.0}
-    platform: linux/amd64  # DreamForge image is amd64-only; Rosetta 2 emulation on Apple Silicon
+    # Upstream image is linux/amd64 only. amd64 hosts pull it (default
+    # 'missing' = pull-if-not-local); arm64 hosts must build locally —
+    # installers/phases/02-detection.sh sets DREAMFORGE_PULL_POLICY=build.
+    pull_policy: ${DREAMFORGE_PULL_POLICY:-missing}
     build:
       context: ./extensions/services/dreamforge
       dockerfile: Dockerfile.rust
