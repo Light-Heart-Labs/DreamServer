@@ -121,6 +121,12 @@ generate_dream_env() {
         if [[ -z "$(read_env_value "$env_path" "DREAM_AGENT_KEY")" ]]; then
             upsert_env_value "$env_path" "DREAM_AGENT_KEY" "$(new_secure_hex 32)"
         fi
+        # Upsert DREAMFORGE_PULL_POLICY=build on existing Apple Silicon
+        # installs so the dreamforge upstream amd64-only image isn't pulled
+        # under Rosetta 2 — same logic as the fresh-install branch below.
+        if [[ "$(uname -m)" == "arm64" ]] && [[ -z "$(read_env_value "$env_path" "DREAMFORGE_PULL_POLICY")" ]]; then
+            upsert_env_value "$env_path" "DREAMFORGE_PULL_POLICY" "build"
+        fi
         return 0
     fi
 
