@@ -145,6 +145,24 @@ generate_dream_env() {
         if [[ "$(uname -m)" == "arm64" ]] && [[ -z "$(read_env_value "$env_path" "DREAMFORGE_PULL_POLICY")" ]]; then
             upsert_env_value "$env_path" "DREAMFORGE_PULL_POLICY" "build"
         fi
+        # HOST_LAN_IP backfill: the fresh-install heredoc below populates
+        # HOST_LAN_IP when BIND_ADDRESS=0.0.0.0 was pre-set, so openclaw can
+        # extend allowedOrigins for LAN clients. Pre-existing installs that
+        # opted into LAN mode (BIND_ADDRESS=0.0.0.0 in their .env) but were
+        # generated before this code shipped have no HOST_LAN_IP — openclaw
+        # then rejects LAN client requests until a manual .env edit. Detect
+        # and upsert when missing, gated by the operator's existing BIND_ADDRESS
+        # opt-in. Linux Phase 06 doesn't need this — it always reads HOST_LAN_IP
+        # via _env_get unconditionally.
+        local _existing_bind
+        _existing_bind=$(read_env_value "$env_path" "BIND_ADDRESS")
+        if [[ "$_existing_bind" == "0.0.0.0" ]] && [[ -z "$(read_env_value "$env_path" "HOST_LAN_IP")" ]]; then
+            local _host_lan_ip
+            _host_lan_ip=$(detect_host_lan_ip)
+            if [[ -n "$_host_lan_ip" ]]; then
+                upsert_env_value "$env_path" "HOST_LAN_IP" "$_host_lan_ip"
+            fi
+        fi
         return 0
     fi
 
