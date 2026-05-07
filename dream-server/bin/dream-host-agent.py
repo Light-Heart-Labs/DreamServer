@@ -279,32 +279,39 @@ def _precreate_data_dirs(service_id: str):
             # backticks, Windows-style escapes) — we cannot resolve them safely.
             if not vol_str or vol_str.startswith(("~", "$", "`", "\\")):
                 continue
-            if vol_str.startswith("./data/") or vol_str.startswith("data/"):
-                dir_path = (INSTALL_DIR / vol_str.lstrip("./")).resolve()
-                try:
-                    dir_path.relative_to(INSTALL_DIR.resolve())
-                except ValueError:
-                    logger.warning("Skipping out-of-tree volume path in %s: %s", service_id, vol_str)
-                    continue
-                try:
-                    dir_path.mkdir(parents=True, exist_ok=True)
-                    if uid is not None and os.getuid() == 0:
-                        # Defense-in-depth: the installer preflight already
-                        # blocks non-POSIX filesystems at INSTALL_DIR, but
-                        # runtime extension installs (post-setup) can still
-                        # land on a non-POSIX volume. chown there is a silent
-                        # no-op or raises EPERM/EOPNOTSUPP — skip cleanly.
-                        fs = _fs_type(dir_path)
-                        if fs in _NON_POSIX_FS:
-                            logger.warning(
-                                "Skipping chown for %s on non-POSIX filesystem %s "
-                                "(extension may not function correctly)",
-                                dir_path, fs,
-                            )
-                        else:
-                            os.chown(str(dir_path), uid, uid)
-                except OSError as e:
-                    logger.warning("Failed to pre-create %s: %s", dir_path, e)
+            # Accept any relative bind-mount source (e.g. "./data/state",
+            # "./upload", "config/stuff"). Skip named volumes (no "/") and
+            # absolute paths ("/etc/..."). Docker Compose v2 resolves relative
+            # bind paths against the project directory (the first -f file's
+            # parent = INSTALL_DIR), not the individual fragment's directory,
+            # so anchor on INSTALL_DIR to match where Compose actually mounts.
+            if vol_str.startswith("/") or "/" not in vol_str:
+                continue
+            dir_path = (INSTALL_DIR / vol_str.lstrip("./")).resolve()
+            try:
+                dir_path.relative_to(INSTALL_DIR.resolve())
+            except ValueError:
+                logger.warning("Skipping out-of-tree volume path in %s: %s", service_id, vol_str)
+                continue
+            try:
+                dir_path.mkdir(parents=True, exist_ok=True)
+                if uid is not None and os.getuid() == 0:
+                    # Defense-in-depth: the installer preflight already
+                    # blocks non-POSIX filesystems at INSTALL_DIR, but
+                    # runtime extension installs (post-setup) can still
+                    # land on a non-POSIX volume. chown there is a silent
+                    # no-op or raises EPERM/EOPNOTSUPP — skip cleanly.
+                    fs = _fs_type(dir_path)
+                    if fs in _NON_POSIX_FS:
+                        logger.warning(
+                            "Skipping chown for %s on non-POSIX filesystem %s "
+                            "(extension may not function correctly)",
+                            dir_path, fs,
+                        )
+                    else:
+                        os.chown(str(dir_path), uid, uid)
+            except OSError as e:
+                logger.warning("Failed to pre-create %s: %s", dir_path, e)
 
 
 def docker_compose_action(service_id: str, action: str) -> tuple:
@@ -432,7 +439,9 @@ def _write_progress(service_id: str, status: str, phase_label: str = "",
         "updated_at": _iso_now(),
     }
     tmp_file.write_text(json.dumps(data), encoding="utf-8")
-    os.rename(str(tmp_file), str(progress_file))
+    # os.replace (not os.rename) — Windows os.rename raises FileExistsError
+    # when the destination exists; os.replace always overwrites atomically.
+    os.replace(str(tmp_file), str(progress_file))
 
 
 def _read_progress_status(service_id: str) -> str | None:
@@ -1189,7 +1198,10 @@ class AgentHandler(BaseHTTPRequestHandler):
                 state = "enabled" if activate else "disabled"
                 json_response(self, 409, {"error": f"Extension already {state}: {sid}"})
                 return
-            os.rename(str(src), str(dst))
+            # os.replace (not os.rename) — Windows os.rename raises
+            # FileExistsError when destination exists; os.replace always
+            # overwrites atomically.
+            os.replace(str(src), str(dst))
         except OSError as exc:
             json_response(self, 500, {"error": f"Failed to {action} extension: {exc}"})
             return
