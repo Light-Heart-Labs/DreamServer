@@ -622,7 +622,7 @@ if ($dryRun) {
             Write-AI "  building $_svc ..."
             & docker compose @composeFlags build --no-cache $_svc *>> $_buildLog
             if ($LASTEXITCODE -ne 0) {
-                Write-AIWarn "$_svc build failed (non-fatal — see $_buildLog)"
+                Write-AIWarn "$_svc build failed (non-fatal - see $_buildLog)"
             }
         }
         Write-AISuccess "Local images rebuilt"
