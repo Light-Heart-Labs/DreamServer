@@ -74,6 +74,10 @@ fi
 TEST_HOME="$(mktemp -d -t dream-openclaw-XXXXXXXX)"
 mkdir -p "$TEST_HOME/.openclaw"
 MERGED_PATH="/tmp/openclaw-config.json"
+TEST_UI_DIR="$TEST_HOME/control-ui"
+TEST_HTML="$TEST_UI_DIR/index.html"
+TEST_JS="$TEST_UI_DIR/auto-token.js"
+mkdir -p "$TEST_UI_DIR"
 
 cleanup() {
     rm -rf "$TEST_HOME"
@@ -82,10 +86,14 @@ cleanup() {
 trap cleanup EXIT
 
 run_inject() {
+    local bind_address="${1:-127.0.0.1}"
     HOME="$TEST_HOME" \
     OPENCLAW_GATEWAY_TOKEN="test-token-abc123" \
     OPENCLAW_EXTERNAL_PORT="7860" \
     OPENCLAW_CONFIG="$SOURCE_CONFIG" \
+    OPENCLAW_CONTROL_UI_HTML="$TEST_HTML" \
+    OPENCLAW_AUTO_TOKEN_JS="$TEST_JS" \
+    BIND_ADDRESS="$bind_address" \
     LLM_MODEL="test-model" \
     GGUF_FILE="" \
     OLLAMA_URL="" \
@@ -94,6 +102,12 @@ run_inject() {
         node "$INJECT_SCRIPT" >/dev/null 2>&1
 }
 
+write_test_html() {
+    printf '%s\n' '<!doctype html><html><head></head><body></body></html>' >"$TEST_HTML"
+    rm -f "$TEST_JS"
+}
+
+write_test_html
 if ! run_inject; then
     fail "inject-token.js exited non-zero"
     exit 1
@@ -175,6 +189,39 @@ if [[ -f "$HOME_CONFIG" ]]; then
     fi
 else
     fail "Part 1 output ~/.openclaw/openclaw.json not written"
+fi
+
+# ── Assertion 6: localhost-only installs auto-bootstrap the Control UI token ─
+if [[ -f "$TEST_JS" ]]; then
+    if grep -Fq 'test-token-abc123' "$TEST_JS" \
+        && grep -Fq 'openclaw.control.settings.v1' "$TEST_JS" \
+        && grep -Fq 'localStorage.setItem' "$TEST_JS"; then
+        pass "localhost auto-token.js writes token into Control UI settings"
+    else
+        fail "localhost auto-token.js should bootstrap token and gateway URL"
+    fi
+else
+    fail "localhost auto-token.js was not written"
+fi
+
+if grep -Fq '<script src="./auto-token.js"></script>' "$TEST_HTML"; then
+    pass "Control UI HTML includes external auto-token script"
+else
+    fail "Control UI HTML missing external auto-token script"
+fi
+
+# ── Assertion 7: LAN-bound installs keep token out of unauthenticated asset ──
+write_test_html
+if ! run_inject "0.0.0.0"; then
+    fail "LAN-bound inject-token.js exited non-zero"
+else
+    if [[ -f "$TEST_JS" ]] \
+        && ! grep -Fq 'test-token-abc123' "$TEST_JS" \
+        && grep -Fq 'LAN-bound' "$TEST_JS"; then
+        pass "LAN-bound auto-token.js remains a token-free placeholder"
+    else
+        fail "LAN-bound auto-token.js must not contain the gateway token"
+    fi
 fi
 
 # ── Upgrade scenario: pre-seed bad flag, confirm Part 1 strips it ───────────
