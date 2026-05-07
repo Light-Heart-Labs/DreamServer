@@ -359,7 +359,7 @@ if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "nvidia" ]]; then
                 apt)
                     # Add NVIDIA GPG key (apt's signed-by trust anchor for the toolkit repo)
                     curl -fsSL --max-time 60 https://nvidia.github.io/libnvidia-container/gpgkey | \
-                        sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+                        sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
                     if [[ ! -s /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg ]]; then
                         error "NVIDIA Container Toolkit keyring download failed (empty or missing /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg). Check network connectivity to nvidia.github.io."
                     fi
