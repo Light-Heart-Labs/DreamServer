@@ -5,6 +5,7 @@ import {
   Puzzle,
   Activity,
   Box,
+  Network,
 } from 'lucide-react'
 
 const Dashboard = lazy(() => import('../pages/Dashboard'))
@@ -12,6 +13,7 @@ const SettingsPage = lazy(() => import('../pages/Settings'))
 const Extensions = lazy(() => import('../pages/Extensions'))
 const GPUMonitor = lazy(() => import('../pages/GPUMonitor'))
 const Models = lazy(() => import('../pages/Models'))
+const ServiceMap = lazy(() => import('../pages/ServiceMap'))
 
 export const coreRoutes = [
   {
@@ -43,6 +45,17 @@ export const coreRoutes = [
     component: Extensions,
     getProps: () => ({}),
     sidebar: true,
+    order: 2,
+  },
+  {
+    id: 'integrations',
+    path: '/extensions/integrations',
+    label: 'Integrations',
+    icon: Network,
+    component: ServiceMap,
+    getProps: () => ({}),
+    sidebar: true,
+    order: 2.1,
   },
   {
     id: 'models',
