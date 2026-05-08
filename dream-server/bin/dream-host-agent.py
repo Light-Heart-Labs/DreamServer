@@ -2294,15 +2294,28 @@ def _launch_native_llama_server(env_path: Path, llama_bin: Path, llama_log: Path
     reasoning_fmt = {"off": "none", "on": "deepseek"}.get(reasoning, reasoning)
     # Honour the unified BIND_ADDRESS knob (PR #964); empty/missing → loopback.
     bind_addr = env.get("BIND_ADDRESS", "").strip() or "127.0.0.1"
+    args = [
+        str(llama_bin),
+        "--host", bind_addr, "--port", "8080",
+        "--model", str(model_path),
+        "--ctx-size", ctx_size,
+        "--n-gpu-layers", "999",
+        "--reasoning-format", reasoning_fmt,
+        "--metrics",
+    ]
+    optional_args = {
+        "LLAMA_ARG_FLASH_ATTN": "--flash-attn",
+        "LLAMA_ARG_CACHE_TYPE_K": "--cache-type-k",
+        "LLAMA_ARG_CACHE_TYPE_V": "--cache-type-v",
+        "LLAMA_ARG_N_CPU_MOE": "--n-cpu-moe",
+    }
+    for env_key, flag in optional_args.items():
+        value = env.get(env_key, "").strip()
+        if value:
+            args.extend([flag, value])
     with open(llama_log, "a") as log_f:
         proc = subprocess.Popen(
-            [str(llama_bin),
-             "--host", bind_addr, "--port", "8080",
-             "--model", str(model_path),
-             "--ctx-size", ctx_size,
-             "--n-gpu-layers", "999",
-             "--reasoning-format", reasoning_fmt,
-             "--metrics"],
+            args,
             stdout=log_f, stderr=log_f,
         )
     pid_file.write_text(str(proc.pid), encoding="utf-8")

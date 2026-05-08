@@ -213,6 +213,11 @@ CTX_SIZE=${MAX_CONTEXT}
 GPU_BACKEND=apple
 HOST_RAM_GB=${SYSTEM_RAM_GB}
 $(if [[ -n "${LLAMA_SERVER_IMAGE:-}" ]]; then echo "LLAMA_SERVER_IMAGE=${LLAMA_SERVER_IMAGE}"; fi)
+#=== llama.cpp Runtime Tuning ===
+LLAMA_ARG_FLASH_ATTN=${LLAMA_ARG_FLASH_ATTN:-auto}
+LLAMA_ARG_CACHE_TYPE_K=${LLAMA_ARG_CACHE_TYPE_K:-f16}
+LLAMA_ARG_CACHE_TYPE_V=${LLAMA_ARG_CACHE_TYPE_V:-f16}
+# Optional MoE only. Example for 8-12GB VRAM: LLAMA_ARG_N_CPU_MOE=25
 $(if [[ "$(uname -m)" == "arm64" ]]; then
     # Apple Silicon: dreamforge upstream image is linux/amd64 only.
     # Build locally via Dockerfile.rust to get a native arm64 image

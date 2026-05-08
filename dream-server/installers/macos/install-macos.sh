@@ -705,14 +705,24 @@ else
         _bind=$(grep '^BIND_ADDRESS=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
         [[ -z "$_bind" ]] && _bind="127.0.0.1"
 
-        "$LLAMA_SERVER_BIN" \
-            --host "$_bind" --port 8080 \
-            --model "$MODEL_FULL_PATH" \
-            --ctx-size "$MAX_CONTEXT" \
-            --n-gpu-layers 999 \
-            --reasoning-format "$_reasoning_fmt" \
-            --metrics \
-            > "$LLAMA_SERVER_LOG" 2>&1 &
+        _flash_attn=$(grep '^LLAMA_ARG_FLASH_ATTN=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+        _cache_type_k=$(grep '^LLAMA_ARG_CACHE_TYPE_K=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+        _cache_type_v=$(grep '^LLAMA_ARG_CACHE_TYPE_V=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+        _n_cpu_moe=$(grep '^LLAMA_ARG_N_CPU_MOE=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+        _llama_args=(
+            --host "$_bind" --port 8080
+            --model "$MODEL_FULL_PATH"
+            --ctx-size "$MAX_CONTEXT"
+            --n-gpu-layers 999
+            --reasoning-format "$_reasoning_fmt"
+            --metrics
+        )
+        [[ -n "$_flash_attn" ]] && _llama_args+=(--flash-attn "$_flash_attn")
+        [[ -n "$_cache_type_k" ]] && _llama_args+=(--cache-type-k "$_cache_type_k")
+        [[ -n "$_cache_type_v" ]] && _llama_args+=(--cache-type-v "$_cache_type_v")
+        [[ -n "$_n_cpu_moe" ]] && _llama_args+=(--n-cpu-moe "$_n_cpu_moe")
+
+        "$LLAMA_SERVER_BIN" "${_llama_args[@]}" > "$LLAMA_SERVER_LOG" 2>&1 &
         LLAMA_PID=$!
         echo "$LLAMA_PID" > "$LLAMA_SERVER_PID_FILE"
 
