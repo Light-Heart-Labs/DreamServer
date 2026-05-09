@@ -65,4 +65,3 @@ Use container binding (NOT the `"label"` property, which doesn't work). On dark 
 ```
 
 Note: For standalone text elements on dark backgrounds, always set `"strokeColor": "#e5e5e5"` explicitly. The default `#1e1e1e` is invisible on dark.
-

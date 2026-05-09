@@ -71,7 +71,7 @@ function Write-Err {
 
 function Install-Uv {
     Write-Info "Checking for uv package manager..."
-    
+
     # Check if uv is already available
     if (Get-Command uv -ErrorAction SilentlyContinue) {
         $version = uv --version
@@ -79,7 +79,7 @@ function Install-Uv {
         Write-Success "uv found ($version)"
         return $true
     }
-    
+
     # Check common install locations
     $uvPaths = @(
         "$env:USERPROFILE\.local\bin\uv.exe",
@@ -93,12 +93,12 @@ function Install-Uv {
             return $true
         }
     }
-    
+
     # Install uv
     Write-Info "Installing uv (fast Python package manager)..."
     try {
         powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex" 2>&1 | Out-Null
-        
+
         # Find the installed binary
         $uvExe = "$env:USERPROFILE\.local\bin\uv.exe"
         if (-not (Test-Path $uvExe)) {
@@ -111,14 +111,14 @@ function Install-Uv {
                 $uvExe = (Get-Command uv).Source
             }
         }
-        
+
         if (Test-Path $uvExe) {
             $script:UvCmd = $uvExe
             $version = & $uvExe --version
             Write-Success "uv installed ($version)"
             return $true
         }
-        
+
         Write-Err "uv installed but not found on PATH"
         Write-Info "Try restarting your terminal and re-running"
         return $false
@@ -131,7 +131,7 @@ function Install-Uv {
 
 function Test-Python {
     Write-Info "Checking Python $PythonVersion..."
-    
+
     # Let uv find or install Python
     try {
         $pythonPath = & $UvCmd python find $PythonVersion 2>$null
@@ -141,7 +141,7 @@ function Test-Python {
             return $true
         }
     } catch { }
-    
+
     # Python not found — use uv to install it (no admin needed!)
     Write-Info "Python $PythonVersion not found, installing via uv..."
     try {
@@ -183,7 +183,7 @@ function Test-Python {
             return $true
         }
     }
-    
+
     Write-Err "Failed to install Python $PythonVersion"
     Write-Info "Install Python 3.11 manually, then re-run this script:"
     Write-Info "  https://www.python.org/downloads/"
@@ -193,13 +193,13 @@ function Test-Python {
 
 function Test-Git {
     Write-Info "Checking Git..."
-    
+
     if (Get-Command git -ErrorAction SilentlyContinue) {
         $version = git --version
         Write-Success "Git found ($version)"
         return $true
     }
-    
+
     Write-Err "Git not found"
     Write-Info "Please install Git from:"
     Write-Info "  https://git-scm.com/download/win"
@@ -411,7 +411,7 @@ function Install-SystemPackages {
 
 function Install-Repository {
     Write-Info "Installing to $InstallDir..."
-    
+
     if (Test-Path $InstallDir) {
         if (Test-Path "$InstallDir\.git") {
             Write-Info "Existing installation found, updating..."
@@ -446,7 +446,7 @@ function Install-Repository {
             if ($LASTEXITCODE -eq 0) { $cloneSuccess = $true }
         } catch { }
         $env:GIT_SSH_COMMAND = $null
-        
+
         if (-not $cloneSuccess) {
             if (Test-Path $InstallDir) { Remove-Item -Recurse -Force $InstallDir -ErrorAction SilentlyContinue }
             Write-Info "SSH failed, trying HTTPS..."
@@ -464,18 +464,18 @@ function Install-Repository {
                 $zipUrl = "https://github.com/NousResearch/hermes-agent/archive/refs/heads/$Branch.zip"
                 $zipPath = "$env:TEMP\hermes-agent-$Branch.zip"
                 $extractPath = "$env:TEMP\hermes-agent-extract"
-                
+
                 Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
                 if (Test-Path $extractPath) { Remove-Item -Recurse -Force $extractPath }
                 Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
-                
+
                 # GitHub ZIPs extract to repo-branch/ subdirectory
                 $extractedDir = Get-ChildItem $extractPath -Directory | Select-Object -First 1
                 if ($extractedDir) {
                     New-Item -ItemType Directory -Force -Path (Split-Path $InstallDir) -ErrorAction SilentlyContinue | Out-Null
                     Move-Item $extractedDir.FullName $InstallDir -Force
                     Write-Success "Downloaded and extracted"
-                    
+
                     # Initialize git repo so updates work later
                     Push-Location $InstallDir
                     git -c windows.appendAtomically=false init 2>$null
@@ -483,10 +483,10 @@ function Install-Repository {
                     git remote add origin $RepoUrlHttps 2>$null
                     Pop-Location
                     Write-Success "Git repo initialized for future updates"
-                    
+
                     $cloneSuccess = $true
                 }
-                
+
                 # Cleanup temp files
                 Remove-Item -Force $zipPath -ErrorAction SilentlyContinue
                 Remove-Item -Recurse -Force $extractPath -ErrorAction SilentlyContinue
@@ -499,7 +499,7 @@ function Install-Repository {
             throw "Failed to download repository (tried git clone SSH, HTTPS, and ZIP)"
         }
     }
-    
+
     # Set per-repo config (harmless if it fails)
     Push-Location $InstallDir
     git -c windows.appendAtomically=false config windows.appendAtomically false 2>$null
@@ -513,7 +513,7 @@ function Install-Repository {
         Write-Success "Submodules ready"
     }
     Pop-Location
-    
+
     Write-Success "Repository ready"
 }
 
@@ -522,43 +522,43 @@ function Install-Venv {
         Write-Info "Skipping virtual environment (-NoVenv)"
         return
     }
-    
+
     Write-Info "Creating virtual environment with Python $PythonVersion..."
-    
+
     Push-Location $InstallDir
-    
+
     if (Test-Path "venv") {
         Write-Info "Virtual environment already exists, recreating..."
         Remove-Item -Recurse -Force "venv"
     }
-    
+
     # uv creates the venv and pins the Python version in one step
     & $UvCmd venv venv --python $PythonVersion
-    
+
     Pop-Location
-    
+
     Write-Success "Virtual environment ready (Python $PythonVersion)"
 }
 
 function Install-Dependencies {
     Write-Info "Installing dependencies..."
-    
+
     Push-Location $InstallDir
-    
+
     if (-not $NoVenv) {
         # Tell uv to install into our venv (no activation needed)
         $env:VIRTUAL_ENV = "$InstallDir\venv"
     }
-    
+
     # Install main package with all extras
     try {
         & $UvCmd pip install -e ".[all]" 2>&1 | Out-Null
     } catch {
         & $UvCmd pip install -e "." | Out-Null
     }
-    
+
     Write-Success "Main package installed"
-    
+
     # Install optional submodules
     Write-Info "Installing tinker-atropos (RL training backend)..."
     if (Test-Path "tinker-atropos\pyproject.toml") {
@@ -571,25 +571,25 @@ function Install-Dependencies {
     } else {
         Write-Warn "tinker-atropos not found (run: git submodule update --init)"
     }
-    
+
     Pop-Location
-    
+
     Write-Success "All dependencies installed"
 }
 
 function Set-PathVariable {
     Write-Info "Setting up hermes command..."
-    
+
     if ($NoVenv) {
         $hermesBin = "$InstallDir"
     } else {
         $hermesBin = "$InstallDir\venv\Scripts"
     }
-    
+
     # Add the venv Scripts dir to user PATH so hermes is globally available
     # On Windows, the hermes.exe in venv\Scripts\ has the venv Python baked in
     $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
-    
+
     if ($currentPath -notlike "*$hermesBin*") {
         [Environment]::SetEnvironmentVariable(
             "Path",
@@ -600,7 +600,7 @@ function Set-PathVariable {
     } else {
         Write-Info "PATH already configured"
     }
-    
+
     # Set HERMES_HOME so the Python code finds config/data in the right place.
     # Only needed on Windows where we install to %LOCALAPPDATA%\hermes instead
     # of the Unix default ~/.hermes
@@ -610,16 +610,16 @@ function Set-PathVariable {
         Write-Success "Set HERMES_HOME=$HermesHome"
     }
     $env:HERMES_HOME = $HermesHome
-    
+
     # Update current session
     $env:Path = "$hermesBin;$env:Path"
-    
+
     Write-Success "hermes command ready"
 }
 
 function Copy-ConfigTemplates {
     Write-Info "Setting up configuration files..."
-    
+
     # Create ~/.hermes directory structure
     New-Item -ItemType Directory -Force -Path "$HermesHome\cron" | Out-Null
     New-Item -ItemType Directory -Force -Path "$HermesHome\sessions" | Out-Null
@@ -630,8 +630,8 @@ function Copy-ConfigTemplates {
     New-Item -ItemType Directory -Force -Path "$HermesHome\audio_cache" | Out-Null
     New-Item -ItemType Directory -Force -Path "$HermesHome\memories" | Out-Null
     New-Item -ItemType Directory -Force -Path "$HermesHome\skills" | Out-Null
-    New-Item -ItemType Directory -Force -Path "$HermesHome\whatsapp\session" | Out-Null
-    
+
+
     # Create .env
     $envPath = "$HermesHome\.env"
     if (-not (Test-Path $envPath)) {
@@ -646,7 +646,7 @@ function Copy-ConfigTemplates {
     } else {
         Write-Info "~/.hermes/.env already exists, keeping it"
     }
-    
+
     # Create config.yaml
     $configPath = "$HermesHome\config.yaml"
     if (-not (Test-Path $configPath)) {
@@ -658,14 +658,14 @@ function Copy-ConfigTemplates {
     } else {
         Write-Info "~/.hermes/config.yaml already exists, keeping it"
     }
-    
+
     # Create SOUL.md if it doesn't exist (global persona file)
     $soulPath = "$HermesHome\SOUL.md"
     if (-not (Test-Path $soulPath)) {
         @"
 # Hermes Agent Persona
 
-<!-- 
+<!--
 This file defines the agent's personality and tone.
 The agent will embody whatever you write here.
 Edit this to customize how Hermes communicates with you.
@@ -681,9 +681,9 @@ Delete the contents (or this file) to use the default personality.
 "@ | Set-Content -Path $soulPath -Encoding UTF8
         Write-Success "Created ~/.hermes/SOUL.md (edit to customize personality)"
     }
-    
+
     Write-Success "Configuration directory ready: ~/.hermes/"
-    
+
     # Seed bundled skills into ~/.hermes/skills/ (manifest-based, one-time per skill)
     Write-Info "Syncing bundled skills to ~/.hermes/skills/ ..."
     $pythonExe = "$InstallDir\venv\Scripts\python.exe"
@@ -708,9 +708,9 @@ function Install-NodeDeps {
         Write-Info "Skipping Node.js dependencies (Node not installed)"
         return
     }
-    
+
     Push-Location $InstallDir
-    
+
     if (Test-Path "package.json") {
         Write-Info "Installing Node.js dependencies (browser tools)..."
         try {
@@ -720,7 +720,7 @@ function Install-NodeDeps {
             Write-Warn "npm install failed (browser tools may not work)"
         }
     }
-    
+
     # Install TUI dependencies
     $tuiDir = "$InstallDir\ui-tui"
     if (Test-Path "$tuiDir\package.json") {
@@ -735,20 +735,8 @@ function Install-NodeDeps {
         Pop-Location
     }
 
-    # Install WhatsApp bridge dependencies
-    $bridgeDir = "$InstallDir\scripts\whatsapp-bridge"
-    if (Test-Path "$bridgeDir\package.json") {
-        Write-Info "Installing WhatsApp bridge dependencies..."
-        Push-Location $bridgeDir
-        try {
-            npm install --silent 2>&1 | Out-Null
-            Write-Success "WhatsApp bridge dependencies installed"
-        } catch {
-            Write-Warn "WhatsApp bridge npm install failed (WhatsApp may not work)"
-        }
-        Pop-Location
-    }
-    
+
+
     Pop-Location
 }
 
@@ -757,20 +745,20 @@ function Invoke-SetupWizard {
         Write-Info "Skipping setup wizard (-SkipSetup)"
         return
     }
-    
+
     Write-Host ""
     Write-Info "Starting setup wizard..."
     Write-Host ""
-    
+
     Push-Location $InstallDir
-    
+
     # Run hermes setup using the venv Python directly (no activation needed)
     if (-not $NoVenv) {
         & ".\venv\Scripts\python.exe" -m hermes_cli.main setup
     } else {
         python -m hermes_cli.main setup
     }
-    
+
     Pop-Location
 }
 
@@ -841,7 +829,7 @@ function Write-Completion {
     Write-Host "│              ✓ Installation Complete!                   │" -ForegroundColor Green
     Write-Host "└─────────────────────────────────────────────────────────┘" -ForegroundColor Green
     Write-Host ""
-    
+
     # Show file locations
     Write-Host "📁 Your files:" -ForegroundColor Cyan
     Write-Host ""
@@ -854,7 +842,7 @@ function Write-Completion {
     Write-Host "   Code:      " -NoNewline -ForegroundColor Yellow
     Write-Host "$HermesHome\hermes-agent\"
     Write-Host ""
-    
+
     Write-Host "─────────────────────────────────────────────────────────" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "🚀 Commands:" -ForegroundColor Cyan
@@ -872,19 +860,19 @@ function Write-Completion {
     Write-Host "   hermes update       " -NoNewline -ForegroundColor Green
     Write-Host "Update to latest version"
     Write-Host ""
-    
+
     Write-Host "─────────────────────────────────────────────────────────" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "⚡ Restart your terminal for PATH changes to take effect" -ForegroundColor Yellow
     Write-Host ""
-    
+
     if (-not $HasNode) {
         Write-Host "Note: Node.js could not be installed automatically." -ForegroundColor Yellow
         Write-Host "Browser tools need Node.js. Install manually:" -ForegroundColor Yellow
         Write-Host "  https://nodejs.org/en/download/" -ForegroundColor Yellow
         Write-Host ""
     }
-    
+
     if (-not $HasRipgrep) {
         Write-Host "Note: ripgrep (rg) was not installed. For faster file search:" -ForegroundColor Yellow
         Write-Host "  winget install BurntSushi.ripgrep.MSVC" -ForegroundColor Yellow
@@ -898,13 +886,13 @@ function Write-Completion {
 
 function Main {
     Write-Banner
-    
+
     if (-not (Install-Uv)) { throw "uv installation failed — cannot continue" }
     if (-not (Test-Python)) { throw "Python $PythonVersion not available — cannot continue" }
     if (-not (Test-Git)) { throw "Git not found — install from https://git-scm.com/download/win" }
     Test-Node              # Auto-installs if missing
     Install-SystemPackages  # ripgrep + ffmpeg in one step
-    
+
     Install-Repository
     Install-Venv
     Install-Dependencies
@@ -913,7 +901,7 @@ function Main {
     Copy-ConfigTemplates
     Invoke-SetupWizard
     Start-GatewayIfConfigured
-    
+
     Write-Completion
 }
 

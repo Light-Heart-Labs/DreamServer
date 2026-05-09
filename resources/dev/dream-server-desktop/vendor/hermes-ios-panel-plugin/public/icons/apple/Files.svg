@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024px" height="1024px" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <!-- Generator: Sketch 63.1 (92452) - https://sketch.com -->
+    <title>App Icon / Apple / Files /@SVG</title>
+    <desc>Created with Sketch.</desc>
+    <defs>
+        <linearGradient x1="49.4430285%" y1="20.7855773%" x2="49.9999977%" y2="79.8096525%" id="linearGradient-1">
+            <stop stop-color="#13B0F8" offset="0%"></stop>
+            <stop stop-color="#008CEE" offset="18.5448368%"></stop>
+            <stop stop-color="#336699" offset="100%"></stop>
+        </linearGradient>
+        <path d="M52,96 L716,96 C727.045695,96 736,104.954305 736,116 L736,190 C736,201.045695 727.045695,210 716,210 L52,210 C40.954305,210 32,201.045695 32,190 L32,116 C32,104.954305 40.954305,96 52,96 Z" id="path-2"></path>
+        <filter x="-1.8%" y="-11.8%" width="103.6%" height="121.9%" filterUnits="objectBoundingBox" id="filter-3">
+            <feOffset dx="0" dy="-1" in="SourceAlpha" result="shadowOffsetOuter1"></feOffset>
+            <feGaussianBlur stdDeviation="4" in="shadowOffsetOuter1" result="shadowBlurOuter1"></feGaussianBlur>
+            <feColorMatrix values="0 0 0 0 0   0 0 0 0 0   0 0 0 0 0  0 0 0 0.25 0" type="matrix" in="shadowBlurOuter1"></feColorMatrix>
+        </filter>
+        <linearGradient x1="50.0000015%" y1="9.75236306e-06%" x2="50.0000015%" y2="100.000016%" id="linearGradient-4">
+            <stop stop-color="#2ABBFB" offset="0%"></stop>
+            <stop stop-color="#2675F6" offset="100%"></stop>
+        </linearGradient>
+        <path d="M20,124 L748,124 C759.045695,124 768,132.954305 768,144 L768,542 C768,570.166522 745.166522,593 717,593 L51,593 C22.8334778,593 3.44940413e-15,570.166522 0,542 L0,144 C-1.3527075e-15,132.954305 8.954305,124 20,124 Z" id="path-5"></path>
+        <filter x="-2.0%" y="-3.8%" width="103.9%" height="106.4%" filterUnits="objectBoundingBox" id="filter-6">
+            <feMorphology radius="0.5" operator="erode" in="SourceAlpha" result="shadowSpreadOuter1"></feMorphology>
+            <feOffset dx="0" dy="-3" in="shadowSpreadOuter1" result="shadowOffsetOuter1"></feOffset>
+            <feGaussianBlur stdDeviation="5" in="shadowOffsetOuter1" result="shadowBlurOuter1"></feGaussianBlur>
+            <feColorMatrix values="0 0 0 0 0   0 0 0 0 0.478431373   0 0 0 0 1  0 0 0 0.5 0" type="matrix" in="shadowBlurOuter1"></feColorMatrix>
+        </filter>
+    </defs>
+    <g id="App-Icon-/-Apple-/-Files-/" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <rect id="Origin-Color" fill="#FFFFFF" x="0" y="0" width="1024" height="1024"></rect>
+        <g id="Folder" transform="translate(128.000000, 215.000000)">
+            <path d="M0.913983448,541.992185 C0.961489078,570.163023 23.8246262,593 51.99347,593 L717.00653,593 C745.169446,593 768,570.163264 768,542.000566 L768,103.999434 C768,75.8332244 745.175468,53 716.993182,53 L287.659807,53 C245,53 234,0 196,0 L51.0010035,0 C22.833927,0 0.0385121623,22.8377123 0.086016552,51.0078153 L0.913983448,541.992185 Z" id="path4873" fill="url(#linearGradient-1)"></path>
+            <g id="Rectangle-2">
+                <use fill="black" fill-opacity="1" filter="url(#filter-3)" xlink:href="#path-2"></use>
+                <use fill="#FAFEFD" fill-rule="evenodd" xlink:href="#path-2"></use>
+            </g>
+            <g id="rect4869">
+                <use fill="black" fill-opacity="1" filter="url(#filter-6)" xlink:href="#path-5"></use>
+                <use fill="url(#linearGradient-4)" fill-rule="evenodd" xlink:href="#path-5"></use>
+            </g>
+        </g>
+    </g>
+</svg>

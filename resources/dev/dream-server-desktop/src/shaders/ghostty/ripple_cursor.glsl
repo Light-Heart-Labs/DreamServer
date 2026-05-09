@@ -83,7 +83,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord){
     vec2 centerCC = currentCursor.xy - (currentCursor.zw * offsetFactor);
 
     float cellWidth = max(currentCursor.z, previousCursor.z); // width of the 'block' cursor
-    
+
     // check for significant width change
     float widthChange = abs(currentCursor.z - previousCursor.z);
     float widthThresholdNorm = cellWidth * CURSOR_WIDTH_CHANGE_THRESHOLD;
@@ -94,7 +94,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord){
     float rippleProgress = (iTime - iTimeCursorChange) / DURATION + ANIMATION_START_OFFSET;
     // don't clamp yet; we need to know if it's > 1.0 (finished)
      float isAnimating = 1.0 - step(1.0, rippleProgress); // progress < 1.0 ? 1.0: 0.0
-     
+
      if (isModeChange > 0.0 && isAnimating > 0.0) {
         // Apply easing to progress
         // float easedProgress = rippleProgress;
@@ -110,21 +110,21 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord){
 
         // RIPPLE CALCULATION
         float rippleRadius = easedProgress * MAX_RADIUS;
-        
+
         // float fade = 1.0; // no fade
         // float fade = 1.0 - easedProgress; // linear fade
         float fade = 1.0 - easeOutPulse(rippleProgress);
         // float fade = 1.0 - exponentialDecayPulse(rippleProgress);
-        
+
         // Calculate distance from frag to cursor center
         float dist = distance(vu, centerCC);
-        
+
         float sdfRing = abs(dist - rippleRadius) - RING_THICKNESS * 0.5;
-        
+
         // Antialias (1-pixel width in normalized coords)
         float antiAliasSize = normalize(vec2(BLUR, BLUR), 0.0).x;
         float ripple = (1.0 - smoothstep(-antiAliasSize, antiAliasSize, sdfRing)) * fade;
-        
+
         // Apply ripple effect
         fragColor = mix(fragColor, COLOR, ripple * COLOR.a);
     }

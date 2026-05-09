@@ -19,7 +19,7 @@ NS = {'a': 'http://www.w3.org/2005/Atom'}
 
 def search(query=None, author=None, category=None, ids=None, max_results=5, sort="relevance"):
     params = {}
-    
+
     if ids:
         params['id_list'] = ids
     else:
@@ -34,30 +34,30 @@ def search(query=None, author=None, category=None, ids=None, max_results=5, sort
             print("Error: provide a query, --author, --category, or --id")
             sys.exit(1)
         params['search_query'] = '+AND+'.join(parts)
-    
+
     params['max_results'] = str(max_results)
-    
+
     sort_map = {"relevance": "relevance", "date": "submittedDate", "updated": "lastUpdatedDate"}
     params['sortBy'] = sort_map.get(sort, sort)
     params['sortOrder'] = 'descending'
-    
+
     url = "https://export.arxiv.org/api/query?" + "&".join(f"{k}={v}" for k, v in params.items())
-    
+
     req = urllib.request.Request(url, headers={'User-Agent': 'HermesAgent/1.0'})
     with urllib.request.urlopen(req, timeout=15) as resp:
         data = resp.read()
-    
+
     root = ET.fromstring(data)
     entries = root.findall('a:entry', NS)
-    
+
     if not entries:
         print("No results found.")
         return
-    
+
     total = root.find('{http://a9.com/-/spec/opensearch/1.1/}totalResults')
     if total is not None:
         print(f"Found {total.text} results (showing {len(entries)})\n")
-    
+
     for i, entry in enumerate(entries):
         title = entry.find('a:title', NS).text.strip().replace('\n', ' ')
         raw_id = entry.find('a:id', NS).text.strip()
@@ -68,7 +68,7 @@ def search(query=None, author=None, category=None, ids=None, max_results=5, sort
         authors = ', '.join(a.find('a:name', NS).text for a in entry.findall('a:author', NS))
         summary = entry.find('a:summary', NS).text.strip().replace('\n', ' ')
         cats = ', '.join(c.get('term') for c in entry.findall('a:category', NS))
-        
+
         version = full_id[len(arxiv_id):] if full_id != arxiv_id else ""
         print(f"{i+1}. {title}")
         print(f"   ID: {arxiv_id}{version} | Published: {published} | Updated: {updated}")
@@ -84,14 +84,14 @@ if __name__ == "__main__":
     if not args or args[0] in ("-h", "--help"):
         print(__doc__)
         sys.exit(0)
-    
+
     query = None
     author = None
     category = None
     ids = None
     max_results = 5
     sort = "relevance"
-    
+
     i = 0
     positional = []
     while i < len(args):
@@ -107,8 +107,8 @@ if __name__ == "__main__":
             ids = args[i + 1]; i += 2
         else:
             positional.append(args[i]); i += 1
-    
+
     if positional:
         query = " ".join(positional)
-    
+
     search(query=query, author=author, category=category, ids=ids, max_results=max_results, sort=sort)

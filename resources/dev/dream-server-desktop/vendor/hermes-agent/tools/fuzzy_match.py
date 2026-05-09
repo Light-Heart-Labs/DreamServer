@@ -20,7 +20,7 @@ Multi-occurrence matching is handled via the replace_all flag.
 
 Usage:
     from tools.fuzzy_match import fuzzy_find_and_replace
-    
+
     new_content, match_count, strategy, error = fuzzy_find_and_replace(
         content="def foo():\\n    pass",
         old_string="def foo():",
@@ -93,6 +93,21 @@ def fuzzy_find_and_replace(content: str, old_string: str, new_string: str,
                     f"Provide more context to make it unique, or use replace_all=True."
                 )
 
+            # Escape-drift guard: when the matched strategy is NOT `exact`,
+            # we matched via some form of normalization. If new_string
+            # contains shell/JSON-style escape sequences (\' or \") that
+            # would be written literally into the file but the matched
+            # region of the file has no such sequences, this is almost
+            # certainly tool-call serialization drift — the model typed
+            # an apostrophe/quote and the transport added a stray
+            # backslash. Writing new_string as-is would corrupt the file.
+            # Block with a helpful error so the model re-reads and retries
+            # instead of the caller silently persisting garbage (or not).
+            if strategy_name != "exact":
+                drift_err = _detect_escape_drift(content, matches, old_string, new_string)
+                if drift_err:
+                    return content, 0, None, drift_err
+
             # Perform replacement
             new_content = _apply_replacements(content, matches, new_string)
             return new_content, len(matches), strategy_name, None
@@ -101,26 +116,66 @@ def fuzzy_find_and_replace(content: str, old_string: str, new_string: str,
     return content, 0, None, "Could not find a match for old_string in the file"
 
 
+def _detect_escape_drift(content: str, matches: List[Tuple[int, int]],
+                         old_string: str, new_string: str) -> Optional[str]:
+    """Detect tool-call escape-drift artifacts in new_string.
+
+    Looks for ``\\'`` or ``\\"`` sequences that are present in both
+    old_string and new_string (i.e. the model copy-pasted them as "context"
+    it intended to preserve) but don't exist in the matched region of the
+    file. That pattern indicates the transport layer inserted spurious
+    shell-style escapes around apostrophes or quotes — writing new_string
+    verbatim would literally insert ``\\'`` into source code.
+
+    Returns an error string if drift is detected, None otherwise.
+    """
+    # Cheap pre-check: bail out unless new_string actually contains a
+    # suspect escape sequence. This keeps the guard free for all the
+    # common, correct cases.
+    if "\\'" not in new_string and '\\"' not in new_string:
+        return None
+
+    # Aggregate matched regions of the file — that's what new_string will
+    # replace. If the suspect escapes are present there already, the
+    # model is genuinely preserving them (valid for some languages /
+    # escaped strings); accept the patch.
+    matched_regions = "".join(content[start:end] for start, end in matches)
+
+    for suspect in ("\\'", '\\"'):
+        if suspect in new_string and suspect in old_string and suspect not in matched_regions:
+            plain = suspect[1]  # "'" or '"'
+            return (
+                f"Escape-drift detected: old_string and new_string contain "
+                f"the literal sequence {suspect!r} but the matched region of "
+                f"the file does not. This is almost always a tool-call "
+                f"serialization artifact where an apostrophe or quote got "
+                f"prefixed with a spurious backslash. Re-read the file with "
+                f"read_file and pass old_string/new_string without "
+                f"backslash-escaping {plain!r} characters."
+            )
+    return None
+
+
 def _apply_replacements(content: str, matches: List[Tuple[int, int]], new_string: str) -> str:
     """
     Apply replacements at the given positions.
-    
+
     Args:
         content: Original content
         matches: List of (start, end) positions to replace
         new_string: Replacement text
-    
+
     Returns:
         Content with replacements applied
     """
     # Sort matches by position (descending) to replace from end to start
     # This preserves positions of earlier matches
     sorted_matches = sorted(matches, key=lambda x: x[0], reverse=True)
-    
+
     result = content
     for start, end in sorted_matches:
         result = result[:start] + new_string + result[end:]
-    
+
     return result
 
 
@@ -144,16 +199,16 @@ def _strategy_exact(content: str, pattern: str) -> List[Tuple[int, int]]:
 def _strategy_line_trimmed(content: str, pattern: str) -> List[Tuple[int, int]]:
     """
     Strategy 2: Match with line-by-line whitespace trimming.
-    
+
     Strips leading/trailing whitespace from each line before matching.
     """
     # Normalize pattern and content by trimming each line
     pattern_lines = [line.strip() for line in pattern.split('\n')]
     pattern_normalized = '\n'.join(pattern_lines)
-    
+
     content_lines = content.split('\n')
     content_normalized_lines = [line.strip() for line in content_lines]
-    
+
     # Build mapping from normalized positions back to original positions
     return _find_normalized_matches(
         content, content_lines, content_normalized_lines,
@@ -168,16 +223,16 @@ def _strategy_whitespace_normalized(content: str, pattern: str) -> List[Tuple[in
     def normalize(s):
         # Collapse multiple spaces/tabs to single space, preserve newlines
         return re.sub(r'[ \t]+', ' ', s)
-    
+
     pattern_normalized = normalize(pattern)
     content_normalized = normalize(content)
-    
+
     # Find in normalized, map back to original
     matches_in_normalized = _strategy_exact(content_normalized, pattern_normalized)
-    
+
     if not matches_in_normalized:
         return []
-    
+
     # Map positions back to original content
     return _map_normalized_positions(content, content_normalized, matches_in_normalized)
 
@@ -185,13 +240,13 @@ def _strategy_whitespace_normalized(content: str, pattern: str) -> List[Tuple[in
 def _strategy_indentation_flexible(content: str, pattern: str) -> List[Tuple[int, int]]:
     """
     Strategy 4: Ignore indentation differences entirely.
-    
+
     Strips all leading whitespace from lines before matching.
     """
     content_lines = content.split('\n')
     content_stripped_lines = [line.lstrip() for line in content_lines]
     pattern_lines = [line.lstrip() for line in pattern.split('\n')]
-    
+
     return _find_normalized_matches(
         content, content_lines, content_stripped_lines,
         pattern, '\n'.join(pattern_lines)
@@ -201,61 +256,61 @@ def _strategy_indentation_flexible(content: str, pattern: str) -> List[Tuple[int
 def _strategy_escape_normalized(content: str, pattern: str) -> List[Tuple[int, int]]:
     """
     Strategy 5: Convert escape sequences to actual characters.
-    
+
     Handles \\n -> newline, \\t -> tab, etc.
     """
     def unescape(s):
         # Convert common escape sequences
         return s.replace('\\n', '\n').replace('\\t', '\t').replace('\\r', '\r')
-    
+
     pattern_unescaped = unescape(pattern)
-    
+
     if pattern_unescaped == pattern:
         # No escapes to convert, skip this strategy
         return []
-    
+
     return _strategy_exact(content, pattern_unescaped)
 
 
 def _strategy_trimmed_boundary(content: str, pattern: str) -> List[Tuple[int, int]]:
     """
     Strategy 6: Trim whitespace from first and last lines only.
-    
+
     Useful when the pattern boundaries have whitespace differences.
     """
     pattern_lines = pattern.split('\n')
     if not pattern_lines:
         return []
-    
+
     # Trim only first and last lines
     pattern_lines[0] = pattern_lines[0].strip()
     if len(pattern_lines) > 1:
         pattern_lines[-1] = pattern_lines[-1].strip()
-    
+
     modified_pattern = '\n'.join(pattern_lines)
-    
+
     content_lines = content.split('\n')
-    
+
     # Search through content for matching block
     matches = []
     pattern_line_count = len(pattern_lines)
-    
+
     for i in range(len(content_lines) - pattern_line_count + 1):
         block_lines = content_lines[i:i + pattern_line_count]
-        
+
         # Trim first and last of this block
         check_lines = block_lines.copy()
         check_lines[0] = check_lines[0].strip()
         if len(check_lines) > 1:
             check_lines[-1] = check_lines[-1].strip()
-        
+
         if '\n'.join(check_lines) == modified_pattern:
             # Found match - calculate original positions
             start_pos, end_pos = _calculate_line_positions(
                 content_lines, i, i + pattern_line_count, len(content)
             )
             matches.append((start_pos, end_pos))
-    
+
     return matches
 
 
@@ -348,30 +403,30 @@ def _strategy_block_anchor(content: str, pattern: str) -> List[Tuple[int, int]]:
     # Normalize both strings for comparison while keeping original content for offset calculation
     norm_pattern = _unicode_normalize(pattern)
     norm_content = _unicode_normalize(content)
-    
+
     pattern_lines = norm_pattern.split('\n')
     if len(pattern_lines) < 2:
         return []
-    
+
     first_line = pattern_lines[0].strip()
     last_line = pattern_lines[-1].strip()
-    
+
     # Use normalized lines for matching logic
     norm_content_lines = norm_content.split('\n')
     # BUT use original lines for calculating start/end positions to prevent index shift
     orig_content_lines = content.split('\n')
-    
+
     pattern_line_count = len(pattern_lines)
-    
+
     potential_matches = []
     for i in range(len(norm_content_lines) - pattern_line_count + 1):
-        if (norm_content_lines[i].strip() == first_line and 
+        if (norm_content_lines[i].strip() == first_line and
             norm_content_lines[i + pattern_line_count - 1].strip() == last_line):
             potential_matches.append(i)
-            
+
     matches = []
     candidate_count = len(potential_matches)
-    
+
     # Thresholding logic: 0.50 for unique matches, 0.70 for multiple candidates.
     # Previous values (0.10 / 0.30) were dangerously loose — a 10% middle-section
     # similarity could match completely unrelated blocks.
@@ -385,49 +440,49 @@ def _strategy_block_anchor(content: str, pattern: str) -> List[Tuple[int, int]]:
             content_middle = '\n'.join(norm_content_lines[i+1:i+pattern_line_count-1])
             pattern_middle = '\n'.join(pattern_lines[1:-1])
             similarity = SequenceMatcher(None, content_middle, pattern_middle).ratio()
-        
+
         if similarity >= threshold:
             # Calculate positions using ORIGINAL lines to ensure correct character offsets in the file
             start_pos, end_pos = _calculate_line_positions(
                 orig_content_lines, i, i + pattern_line_count, len(content)
             )
             matches.append((start_pos, end_pos))
-    
+
     return matches
 
 
 def _strategy_context_aware(content: str, pattern: str) -> List[Tuple[int, int]]:
     """
     Strategy 9: Line-by-line similarity with 50% threshold.
-    
+
     Finds blocks where at least 50% of lines have high similarity.
     """
     pattern_lines = pattern.split('\n')
     content_lines = content.split('\n')
-    
+
     if not pattern_lines:
         return []
-    
+
     matches = []
     pattern_line_count = len(pattern_lines)
-    
+
     for i in range(len(content_lines) - pattern_line_count + 1):
         block_lines = content_lines[i:i + pattern_line_count]
-        
+
         # Calculate line-by-line similarity
         high_similarity_count = 0
         for p_line, c_line in zip(pattern_lines, block_lines):
             sim = SequenceMatcher(None, p_line.strip(), c_line.strip()).ratio()
             if sim >= 0.80:
                 high_similarity_count += 1
-        
+
         # Need at least 50% of lines to have high similarity
         if high_similarity_count >= len(pattern_lines) * 0.5:
             start_pos, end_pos = _calculate_line_positions(
                 content_lines, i, i + pattern_line_count, len(content)
             )
             matches.append((start_pos, end_pos))
-    
+
     return matches
 
 
@@ -460,33 +515,33 @@ def _find_normalized_matches(content: str, content_lines: List[str],
                               pattern: str, pattern_normalized: str) -> List[Tuple[int, int]]:
     """
     Find matches in normalized content and map back to original positions.
-    
+
     Args:
         content: Original content string
         content_lines: Original content split by lines
         content_normalized_lines: Normalized content lines
         pattern: Original pattern
         pattern_normalized: Normalized pattern
-    
+
     Returns:
         List of (start, end) positions in the original content
     """
     pattern_norm_lines = pattern_normalized.split('\n')
     num_pattern_lines = len(pattern_norm_lines)
-    
+
     matches = []
-    
+
     for i in range(len(content_normalized_lines) - num_pattern_lines + 1):
         # Check if this block matches
         block = '\n'.join(content_normalized_lines[i:i + num_pattern_lines])
-        
+
         if block == pattern_normalized:
             # Found a match - calculate original positions
             start_pos, end_pos = _calculate_line_positions(
                 content_lines, i, i + num_pattern_lines, len(content)
             )
             matches.append((start_pos, end_pos))
-    
+
     return matches
 
 
@@ -494,18 +549,18 @@ def _map_normalized_positions(original: str, normalized: str,
                                normalized_matches: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
     """
     Map positions from normalized string back to original.
-    
+
     This is a best-effort mapping that works for whitespace normalization.
     """
     if not normalized_matches:
         return []
-    
+
     # Build character mapping from normalized to original
     orig_to_norm = []  # orig_to_norm[i] = position in normalized
-    
+
     orig_idx = 0
     norm_idx = 0
-    
+
     while orig_idx < len(original) and norm_idx < len(normalized):
         if original[orig_idx] == normalized[norm_idx]:
             orig_to_norm.append(norm_idx)
@@ -526,21 +581,21 @@ def _map_normalized_positions(original: str, normalized: str,
             # Mismatch - shouldn't happen with our normalization
             orig_to_norm.append(norm_idx)
             orig_idx += 1
-    
+
     # Fill remaining
     while orig_idx < len(original):
         orig_to_norm.append(len(normalized))
         orig_idx += 1
-    
+
     # Reverse mapping: for each normalized position, find original range
     norm_to_orig_start = {}
     norm_to_orig_end = {}
-    
+
     for orig_pos, norm_pos in enumerate(orig_to_norm):
         if norm_pos not in norm_to_orig_start:
             norm_to_orig_start[norm_pos] = orig_pos
         norm_to_orig_end[norm_pos] = orig_pos
-    
+
     # Map matches
     original_matches = []
     for norm_start, norm_end in normalized_matches:
@@ -550,17 +605,100 @@ def _map_normalized_positions(original: str, normalized: str,
         else:
             # Find nearest
             orig_start = min(i for i, n in enumerate(orig_to_norm) if n >= norm_start)
-        
+
         # Find original end
         if norm_end - 1 in norm_to_orig_end:
             orig_end = norm_to_orig_end[norm_end - 1] + 1
         else:
             orig_end = orig_start + (norm_end - norm_start)
-        
+
         # Expand to include trailing whitespace that was normalized
         while orig_end < len(original) and original[orig_end] in ' \t':
             orig_end += 1
-        
+
         original_matches.append((orig_start, min(orig_end, len(original))))
-    
+
     return original_matches
+
+
+def find_closest_lines(old_string: str, content: str, context_lines: int = 2, max_results: int = 3) -> str:
+    """Find lines in content most similar to old_string for "did you mean?" feedback.
+
+    Returns a formatted string showing the closest matching lines with context,
+    or empty string if no useful match is found.
+    """
+    if not old_string or not content:
+        return ""
+
+    old_lines = old_string.splitlines()
+    content_lines = content.splitlines()
+
+    if not old_lines or not content_lines:
+        return ""
+
+    # Use first line of old_string as anchor for search
+    anchor = old_lines[0].strip()
+    if not anchor:
+        # Try second line if first is blank
+        candidates = [l.strip() for l in old_lines if l.strip()]
+        if not candidates:
+            return ""
+        anchor = candidates[0]
+
+    # Score each line in content by similarity to anchor
+    scored = []
+    for i, line in enumerate(content_lines):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        ratio = SequenceMatcher(None, anchor, stripped).ratio()
+        if ratio > 0.3:
+            scored.append((ratio, i))
+
+    if not scored:
+        return ""
+
+    # Take top matches
+    scored.sort(key=lambda x: -x[0])
+    top = scored[:max_results]
+
+    parts = []
+    seen_ranges = set()
+    for _, line_idx in top:
+        start = max(0, line_idx - context_lines)
+        end = min(len(content_lines), line_idx + len(old_lines) + context_lines)
+        key = (start, end)
+        if key in seen_ranges:
+            continue
+        seen_ranges.add(key)
+        snippet = "\n".join(
+            f"{start + j + 1:4d}| {content_lines[start + j]}"
+            for j in range(end - start)
+        )
+        parts.append(snippet)
+
+    if not parts:
+        return ""
+
+    return "\n---\n".join(parts)
+
+
+def format_no_match_hint(error: Optional[str], match_count: int,
+                         old_string: str, content: str) -> str:
+    """Return a '\\n\\nDid you mean...' snippet for plain no-match errors.
+
+    Gated so the hint only fires for actual "old_string not found" failures.
+    Ambiguous-match ("Found N matches"), escape-drift, and identical-strings
+    errors all have ``match_count == 0`` but a "did you mean?" snippet would
+    be misleading — those failed for unrelated reasons.
+
+    Returns an empty string when there's nothing useful to append.
+    """
+    if match_count != 0:
+        return ""
+    if not error or not error.startswith("Could not find"):
+        return ""
+    hint = find_closest_lines(old_string, content)
+    if not hint:
+        return ""
+    return "\n\nDid you mean one of these sections?\n" + hint

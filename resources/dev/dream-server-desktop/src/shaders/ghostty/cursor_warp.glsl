@@ -136,7 +136,7 @@ float antialising(float distance, float blurAmount) {
 float getDurationFromDot(float dot_val, float DURATION_LEAD, float DURATION_SIDE, float DURATION_TRAIL) {
     float isLead = step(0.5, dot_val);
     float isSide = step(-0.5, dot_val) * (1.0 - isLead);
-    
+
     // Start with trailing duration
     float duration = mix(DURATION_TRAIL, DURATION_SIDE, isSide);
     // Mix in leading duration
@@ -162,14 +162,14 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord){
     vec2 halfSizeCP = previousCursor.zw * 0.5;
 
     float sdfCurrentCursor = getSdfRectangle(vu, centerCC, halfSizeCC);
-    
+
     float lineLength = distance(centerCC, centerCP);
     float minDist = currentCursor.w * THRESHOLD_MIN_DISTANCE;
-    
+
     vec4 newColor = vec4(fragColor);
 
     float baseProgress = iTime - iTimeCursorChange;
-    
+
     if (lineLength > minDist && baseProgress < DURATION - 0.001) {
         // defining corners of cursors
 
@@ -237,13 +237,13 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord){
         // calculate vertical-rail durations
         float dot_right_edge = (dot_tr + dot_br) * 0.5;
         float dur_right_rail = getDurationFromDot(dot_right_edge, DURATION_LEAD, DURATION_SIDE, DURATION_TRAIL);
-        
+
         float dot_left_edge = (dot_tl + dot_bl) * 0.5;
         float dur_left_rail = getDurationFromDot(dot_left_edge, DURATION_LEAD, DURATION_SIDE, DURATION_TRAIL);
 
         float final_dur_tl = mix(dur_tl, dur_left_rail, isMovingLeft);
         float final_dur_bl = mix(dur_bl, dur_left_rail, isMovingLeft);
-        
+
         float final_dur_tr = mix(dur_tr, dur_right_rail, isMovingRight);
         float final_dur_br = mix(dur_br, dur_right_rail, isMovingRight);
 
@@ -264,14 +264,14 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord){
 
         // --- FADE GRADIENT CALCULATION ---
         vec2 fragVec = vu - centerCP;
-        
+
         // project fragment onto movement vector, normalize to [0, 1]
         // 0.0 at tail, 1.0 at head
         // tiny epsilon to avoid division by zero if moveVec is (0,0)
         float fadeProgress = clamp(dot(fragVec, moveVec) / (dot(moveVec, moveVec) + 1e-6), 0.0, 1.0);
 
         vec4 trail = TRAIL_COLOR;
-        
+
         float effectiveBlur = BLUR;
         if (BLUR < 2.5) {
           // no antialising on horizontal/vertical movement, fixes 'pulse' like thing on end cursor

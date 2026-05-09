@@ -1,7 +1,7 @@
 # AAAI 2026 统一LaTeX模板使用说明 / AAAI 2026 Unified LaTeX Template Guide
 
 > **📝 重要说明 / Important Notice**: 本仓库借助Cursor在AAAI 2026官方模板基础上改进得到。如果遇到不满足或有冲突的情况，请积极提issues。
-> 
+>
 > **📝 Important Notice**: This repository is improved based on the official AAAI 2026 template with the assistance of Cursor. If you encounter any issues or conflicts, please actively submit issues.
 
 [中文](#中文版本) | [English](#english-version)
@@ -14,7 +14,7 @@
 
 **📖 Online View and Test Template**: [https://cn.overleaf.com/read/wyhcnvcrtpyt#cd4a07](https://cn.overleaf.com/read/wyhcnvcrtpyt#cd4a07)
 
-💡 **提示 / Tips**: 
+💡 **提示 / Tips**:
 - 中文：您可以通过上述链接在Overleaf中直接查看、编辑和编译模板，无需本地安装LaTeX环境
 - English: You can view, edit, and compile the template directly in Overleaf using the link above, without needing a local LaTeX installation
 
@@ -113,7 +113,7 @@
 - `aaai2026-unified-template.tex` - 统一主论文模板文件
 - `aaai2026-unified-supp.tex` - 统一补充材料模板文件
 - `aaai2026.sty` - AAAI 2026 LaTeX 样式文件
-- `aaai2026.bst` - 参考文献样式文件  
+- `aaai2026.bst` - 参考文献样式文件
 - `aaai2026.bib` - 示例参考文献文件
 - `figure1.pdf` - 示例图片1
 - `figure2.pdf` - 示例图片2
@@ -136,7 +136,7 @@
 % 匿名投稿版本
 \def\aaaianonymous{true}
 
-% Camera-ready版本  
+% Camera-ready版本
 % \def\aaaianonymous{true}
 ```
 
@@ -221,8 +221,8 @@
 
 ### 实际使用建议
 
-1. **投稿阶段**: 
-   - 取消注释 `\def\aaaianonymous{true}` 
+1. **投稿阶段**:
+   - 取消注释 `\def\aaaianonymous{true}`
    - 确保不包含任何可能暴露身份的信息
    - 检查参考文献是否已匿名化
 
@@ -261,11 +261,11 @@ pdflatex aaai2026-unified-template.tex
 ### 常见问题解决
 
 #### 1. "Illegal, another \bibstyle command"错误
-**原因**: 重复设置了bibliography style  
+**原因**: 重复设置了bibliography style
 **解决方案**: 删除文档中的`\bibliographystyle{aaai2026}`命令，`aaai2026.sty`会自动处理
 
 #### 2. 参考文献格式不正确
-**原因**: 可能缺少natbib包或者BibTeX文件问题  
+**原因**: 可能缺少natbib包或者BibTeX文件问题
 **解决方案**: 确保按照标准的LaTeX编译流程：pdflatex → bibtex → pdflatex → pdflatex
 
 ---
@@ -471,8 +471,8 @@ Same as the main paper template, just modify line 11:
 
 ### Practical Usage Recommendations
 
-1. **Submission Stage**: 
-   - Uncomment `\def\aaaianonymous{true}` 
+1. **Submission Stage**:
+   - Uncomment `\def\aaaianonymous{true}`
    - Ensure no information that could reveal identity is included
    - Check that references are anonymized
 
@@ -511,11 +511,11 @@ pdflatex aaai2026-unified-template.tex
 ### Common Issues and Solutions
 
 #### 1. "Illegal, another \bibstyle command" Error
-**Cause**: Duplicate bibliography style setting  
+**Cause**: Duplicate bibliography style setting
 **Solution**: Remove the `\bibliographystyle{aaai2026}` command from your document, `aaai2026.sty` handles it automatically
 
 #### 2. Incorrect Reference Format
-**Cause**: Missing natbib package or BibTeX file issues  
+**Cause**: Missing natbib package or BibTeX file issues
 **Solution**: Follow the standard LaTeX compilation process: pdflatex → bibtex → pdflatex → pdflatex
 
 ---
@@ -530,5 +530,5 @@ pdflatex aaai2026-unified-template.tex
 
 ---
 
-🎉 **现在您只需要修改一行代码就可以在两个版本之间切换，同时所有必要的依赖文件都已经准备就绪！**  
+🎉 **现在您只需要修改一行代码就可以在两个版本之间切换，同时所有必要的依赖文件都已经准备就绪！**
 🎉 **Now you only need to modify one line of code to switch between the two versions, with all necessary dependency files ready to use!**

@@ -1798,25 +1798,25 @@ def scene_complex(r, f, t, S):
     r = Renderer, f = audio features, t = time, S = persistent state dict."""
     g = r.grids["md"]
     rows, cols = g.rows, g.cols
-    
+
     # 1. Value field composition
     plasma = vf_plasma(g, f, t, S)
     vortex = vf_vortex(g, f, t, S, twist=4.0)
     combined = np.clip(plasma * 0.6 + vortex * 0.5 + plasma * vortex * 0.4, 0, 1)
-    
+
     # 2. Color from hue field
     h = (hf_angle(0.3)(g,f,t,S) * 0.5 + hf_time_cycle(0.08)(g,f,t,S) * 0.5) % 1.0
-    
+
     # 3. Render to canvas via _render_vf helper
     canvas = _render_vf(g, combined, h, sat=0.75, pal=PAL_DENSE)
-    
+
     # 4. Optional: blend a second layer
     overlay = _render_vf(r.grids["sm"], vf_rings(r.grids["sm"],f,t,S),
                          hf_fixed(0.6)(r.grids["sm"],f,t,S), pal=PAL_BLOCK)
     canvas = blend_canvas(canvas, overlay, "screen", 0.4)
-    
+
     return canvas
-    
+
 # In the render_clip() loop (handled by the framework):
 # canvas = scene_fn(r, f, t, S)
 # canvas = tonemap(canvas, gamma=scene_gamma)

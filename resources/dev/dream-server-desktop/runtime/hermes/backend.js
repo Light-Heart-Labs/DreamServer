@@ -1,15 +1,18 @@
 const { spawn } = require("child_process");
 const os = require("os");
 const path = require("path");
-const {
-  appRoot,
-  pythonCandidates: resolverPythonCandidates
-} = require("../platform/runtime-resolver");
+const { maybeWindowsToWslPath } = require("../platform");
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+const DEFAULT_DOCTOR_TIMEOUT_MS = 60 * 1000;
+const DOCTOR_CACHE_TTL_MS = 5 * 60 * 1000;
+const doctorCache = new Map();
 
 function projectRootFromRuntime() {
-  return appRoot();
+  const root = path.resolve(__dirname, "..", "..");
+  return root.includes("app.asar")
+    ? root.replace("app.asar", "app.asar.unpacked")
+    : root;
 }
 
 function defaultHermesRoot() {
@@ -61,15 +64,6 @@ function normalizeWorkspaceRoot(value) {
   return path.resolve(normalizePathText(value) || defaultWorkspaceRoot());
 }
 
-function windowsToWslPath(value) {
-  const raw = String(value || "").trim();
-  const match = raw.match(/^([a-zA-Z]):[\\/](.*)$/);
-  if (!match) {
-    return "";
-  }
-  return `/mnt/${match[1].toLowerCase()}/${match[2].replace(/[\\/]+/g, "/")}`;
-}
-
 function nonEmptyText(...values) {
   return values
     .map((value) => String(value || "").trim())
@@ -102,7 +96,40 @@ function summarizeStdout(stdout) {
 }
 
 function pythonCandidates() {
-  return resolverPythonCandidates();
+  const envPython = String(process.env.DREAM_HERMES_PYTHON || "").trim();
+  const projectRoot = projectRootFromRuntime();
+  const candidates = [];
+  const add = (command, args = []) => {
+    if (!command) {
+      return;
+    }
+    const key = `${command}\0${JSON.stringify(args || [])}`;
+    if (!candidates.some((candidate) => `${candidate.command}\0${JSON.stringify(candidate.args || [])}` === key)) {
+      candidates.push({ command, args });
+    }
+  };
+  if (envPython) {
+    add(envPython);
+  }
+  const windowsVenv = path.join(projectRoot, ".venv-hermes", "Scripts", "python.exe");
+  const posixVenv = path.join(projectRoot, ".venv-hermes", "bin", "python");
+  const posixVenv3 = path.join(projectRoot, ".venv-hermes", "bin", "python3");
+  if (process.platform === "win32") {
+    add(windowsVenv);
+    add("py", ["-3"]);
+    add("python");
+    add("python3");
+    add(posixVenv);
+    add(posixVenv3);
+  } else {
+    add(posixVenv);
+    add(posixVenv3);
+    add("python3");
+    add("python");
+    add(windowsVenv);
+    add("py", ["-3"]);
+  }
+  return candidates;
 }
 
 function parseJsonLine(line) {
@@ -169,6 +196,13 @@ class HermesBackend {
   }
 
   async doctor(options = {}) {
+    const timeoutMs = Number(options.timeoutMs || process.env.DREAM_HERMES_DOCTOR_TIMEOUT_MS || DEFAULT_DOCTOR_TIMEOUT_MS);
+    const cacheKey = `${this.hermesRoot}\0${this.runnerPath}`;
+    const cached = doctorCache.get(cacheKey);
+    if (!options.force && cached?.ok && cached.expiresAt > Date.now()) {
+      this.python = { command: cached.command, args: cached.args || [] };
+      return { ...cached, cached: true };
+    }
     const errors = [];
     for (const candidate of this._pythonCandidates()) {
       try {
@@ -176,20 +210,24 @@ class HermesBackend {
           command: candidate.command,
           args: [...candidate.args, this.runnerPath, "--doctor", "--hermes-root", this.hermesRoot],
           input: "",
-          timeoutMs: options.timeoutMs || 20000
+          timeoutMs
         });
         const doctorEvent = result.events.find((event) => event.type === "doctor");
         if (doctorEvent?.ok) {
           this.python = candidate;
-          return {
+          const response = {
             ...doctorEvent,
             command: candidate.command,
-            args: candidate.args
+            args: candidate.args,
+            expiresAt: Date.now() + DOCTOR_CACHE_TTL_MS
           };
+          doctorCache.set(cacheKey, response);
+          return response;
         }
         errors.push(doctorEvent?.error || result.stderr || `${candidate.command} nao conseguiu importar Hermes.`);
       } catch (error) {
-        errors.push(`${candidate.command}: ${error.message}`);
+        const timedOut = /Hermes demorou mais de|timeout|timed out/i.test(String(error?.message || ""));
+        errors.push(`${candidate.command}: ${timedOut ? "doctor timeout" : error.message}`);
       }
     }
 
@@ -204,14 +242,17 @@ class HermesBackend {
   }
 
   async sendTurn(request = {}) {
-    const doctor = await this.doctor({ timeoutMs: request.doctorTimeoutMs || 20000 });
+    const doctor = await this.doctor({ timeoutMs: request.doctorTimeoutMs });
     if (!doctor.ok) {
+      const hasTimeout = /doctor timeout|Hermes demorou mais de|timeout/i.test(String(doctor.error || ""));
       return {
         ok: false,
         assistantText: [
-          "Hermes Agent esta vendorizado neste projeto, mas o ambiente Python/dependencias ainda nao esta pronto.",
+          hasTimeout
+            ? "Hermes Agent esta instalado, mas o diagnostico Python demorou demais para responder."
+            : "Hermes Agent esta vendorizado neste projeto, mas o ambiente Python/dependencias ainda nao esta pronto.",
           `Diagnostico: ${doctor.error}`,
-          "Instale o ambiente do Hermes ou configure DREAM_HERMES_PYTHON para o Python/WSL correto."
+          "No Windows, prefira a venv nativa .venv-hermes\\Scripts\\python.exe ou configure DREAM_HERMES_PYTHON. Em macOS/Linux/WSL, use a venv POSIX ou python3."
         ].join("\n"),
         actions: [],
         status: "blocked",
@@ -320,7 +361,9 @@ class HermesBackend {
     return new Promise((resolve, reject) => {
       const desktopIntegrationEnabled = Boolean(options.desktopIntegrationEnabled);
       const workspaceRoot = options.workspaceRoot ? normalizeWorkspaceRoot(options.workspaceRoot) : "";
-      const posixWorkspaceRoot = windowsToWslPath(workspaceRoot);
+      const posixWorkspaceRoot = maybeWindowsToWslPath(workspaceRoot, {
+        hostInfo: options.hostInfo || {}
+      });
       const env = {
         ...process.env,
         DREAM_HERMES_ROOT: this.hermesRoot,
@@ -465,5 +508,7 @@ class HermesBackend {
 module.exports = {
   HermesBackend,
   defaultHermesRoot,
-  bridgeRunnerPath
+  bridgeRunnerPath,
+  pythonCandidates,
+  DEFAULT_DOCTOR_TIMEOUT_MS
 };

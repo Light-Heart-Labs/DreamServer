@@ -320,7 +320,7 @@ def get_economic_data(page_id: int, referer_url: str, freq: str = 'D') -> dict:
     page_id:     numeric ID from the page URL (e.g. 2015 for Fed Funds Rate)
     referer_url: the full page URL — required as Referer header
     freq:        'D' = daily, 'M' = monthly (not all support both)
-    
+
     Returns {'data': [[ts_ms, value], ...], 'metadata': {...}}
     """
     url = f"https://www.macrotrends.net/economic-data/{page_id}/{freq}"

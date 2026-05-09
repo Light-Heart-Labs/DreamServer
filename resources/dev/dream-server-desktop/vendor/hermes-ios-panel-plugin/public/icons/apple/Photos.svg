@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024px" height="1024px" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <!-- Generator: Sketch 63.1 (92452) - https://sketch.com -->
+    <title>App Icon / Apple / Photos /@SVG</title>
+    <desc>Created with Sketch.</desc>
+    <defs>
+        <linearGradient x1="50%" y1="0%" x2="50%" y2="100%" id="linearGradient-1">
+            <stop stop-color="#F89B35" offset="0%"></stop>
+            <stop stop-color="#FEC229" offset="100%"></stop>
+        </linearGradient>
+        <linearGradient x1="50%" y1="0%" x2="50%" y2="100%" id="linearGradient-2">
+            <stop stop-color="#FFE836" offset="0%"></stop>
+            <stop stop-color="#DFDD31" offset="100%"></stop>
+        </linearGradient>
+        <linearGradient x1="50%" y1="0%" x2="50%" y2="100%" id="linearGradient-3">
+            <stop stop-color="#C7DB43" offset="0%"></stop>
+            <stop stop-color="#96CC6A" offset="100%"></stop>
+        </linearGradient>
+        <linearGradient x1="50%" y1="0%" x2="50%" y2="100%" id="linearGradient-4">
+            <stop stop-color="#6ABABC" offset="0%"></stop>
+            <stop stop-color="#6AC385" offset="100%"></stop>
+        </linearGradient>
+        <linearGradient x1="50%" y1="0%" x2="50%" y2="100%" id="linearGradient-5">
+            <stop stop-color="#69B7E5" offset="0%"></stop>
+            <stop stop-color="#87A1D3" offset="100%"></stop>
+        </linearGradient>
+        <linearGradient x1="50%" y1="0%" x2="50%" y2="100%" id="linearGradient-6">
+            <stop stop-color="#968EC4" offset="0%"></stop>
+            <stop stop-color="#B58EC1" offset="100%"></stop>
+        </linearGradient>
+        <linearGradient x1="50%" y1="100%" x2="50%" y2="0%" id="linearGradient-7">
+            <stop stop-color="#E2768D" offset="0%"></stop>
+            <stop stop-color="#CD8CBD" offset="100%"></stop>
+        </linearGradient>
+        <linearGradient x1="50%" y1="0%" x2="50%" y2="100%" id="linearGradient-8">
+            <stop stop-color="#F26568" offset="0%"></stop>
+            <stop stop-color="#F37D4F" offset="100%"></stop>
+        </linearGradient>
+    </defs>
+    <g id="App-Icon-/-Apple-/-Photos-/" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <rect id="Origin-Color" fill="#FFFFFF" x="0" y="0" width="1024" height="1024"></rect>
+        <g id="The-Petals" transform="translate(67.500000, 68.000000)">
+            <rect id="Orange" fill="url(#linearGradient-1)" style="mix-blend-mode: multiply;" x="307.5" y="0" width="274" height="418" rx="137"></rect>
+            <rect id="Orange" fill="url(#linearGradient-2)" style="mix-blend-mode: multiply;" transform="translate(611.023647, 277.976353) rotate(45.000000) translate(-611.023647, -277.976353) " x="474.023647" y="68.976353" width="274" height="418" rx="137"></rect>
+            <rect id="Orange" fill="url(#linearGradient-3)" style="mix-blend-mode: multiply;" transform="translate(680.000000, 444.500000) rotate(90.000000) translate(-680.000000, -444.500000) " x="543" y="235.5" width="274" height="418" rx="137"></rect>
+            <rect id="Orange" fill="url(#linearGradient-4)" style="mix-blend-mode: multiply;" transform="translate(611.023647, 611.023647) rotate(135.000000) translate(-611.023647, -611.023647) " x="474.023647" y="402.023647" width="274" height="418" rx="137"></rect>
+            <rect id="Orange" fill="url(#linearGradient-5)" style="mix-blend-mode: multiply;" transform="translate(444.500000, 680.000000) rotate(180.000000) translate(-444.500000, -680.000000) " x="307.5" y="471" width="274" height="418" rx="137"></rect>
+            <rect id="Orange" fill="url(#linearGradient-6)" style="mix-blend-mode: multiply;" transform="translate(277.976353, 611.023647) rotate(225.000000) translate(-277.976353, -611.023647) " x="140.976353" y="402.023647" width="274" height="418" rx="137"></rect>
+            <rect id="Orange" fill="url(#linearGradient-7)" style="mix-blend-mode: multiply;" transform="translate(209.000000, 444.500000) rotate(270.000000) translate(-209.000000, -444.500000) " x="72" y="235.5" width="274" height="418" rx="137"></rect>
+            <rect id="Orange" fill="url(#linearGradient-8)" style="mix-blend-mode: multiply;" transform="translate(277.976353, 277.976353) rotate(315.000000) translate(-277.976353, -277.976353) " x="140.976353" y="68.976353" width="274" height="418" rx="137"></rect>
+        </g>
+    </g>
+</svg>

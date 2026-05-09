@@ -16,7 +16,8 @@ const {
   normalizeTodo,
   normalizeCodeShaderPreset,
   normalizeState,
-  normalizeTheme
+  normalizeTheme,
+  normalizeGatewayPlatforms
 } = require("./state");
 const {
   ensureLocalLlamaServer,
@@ -425,6 +426,35 @@ class DreamRuntime extends EventEmitter {
       hermesDesktopIntegrationEnabled: typeof payload.hermesDesktopIntegrationEnabled === "boolean"
         ? payload.hermesDesktopIntegrationEnabled
         : Boolean(settings.hermesDesktopIntegrationEnabled),
+      gatewayEnabled: typeof payload.gatewayEnabled === "boolean"
+        ? payload.gatewayEnabled
+        : Boolean(settings.gatewayEnabled),
+      gatewayAutoStart: typeof payload.gatewayAutoStart === "boolean"
+        ? payload.gatewayAutoStart
+        : Boolean(settings.gatewayAutoStart),
+      gatewayDoctorTimeoutMs: Number.isFinite(Number(payload.gatewayDoctorTimeoutMs ?? settings.gatewayDoctorTimeoutMs))
+        ? Math.max(10000, Math.min(300000, Number(payload.gatewayDoctorTimeoutMs ?? settings.gatewayDoctorTimeoutMs)))
+        : Number(settings.hermesDoctorTimeoutMs || 60000),
+      gatewayPlatforms: normalizeGatewayPlatforms(
+        payload.gatewayPlatforms && typeof payload.gatewayPlatforms === "object"
+          ? payload.gatewayPlatforms
+          : settings.gatewayPlatforms
+      ),
+      dreamPetEnabled: typeof payload.dreamPetEnabled === "boolean"
+        ? payload.dreamPetEnabled
+        : settings.dreamPetEnabled === true,
+      dreamPetBubbleEnabled: typeof payload.dreamPetBubbleEnabled === "boolean"
+        ? payload.dreamPetBubbleEnabled
+        : settings.dreamPetBubbleEnabled !== false,
+      dreamPetVoiceEnabled: typeof payload.dreamPetVoiceEnabled === "boolean"
+        ? payload.dreamPetVoiceEnabled
+        : settings.dreamPetVoiceEnabled === true,
+      dreamPetVoiceName: typeof payload.dreamPetVoiceName === "string"
+        ? payload.dreamPetVoiceName.trim()
+        : String(settings.dreamPetVoiceName || "").trim(),
+      dreamPetWindowBounds: payload.dreamPetWindowBounds && typeof payload.dreamPetWindowBounds === "object"
+        ? payload.dreamPetWindowBounds
+        : settings.dreamPetWindowBounds || null,
       kanbanGitEnabled: typeof payload.kanbanGitEnabled === "boolean"
         ? payload.kanbanGitEnabled
         : Boolean(settings.kanbanGitEnabled),
@@ -895,6 +925,13 @@ class DreamRuntime extends EventEmitter {
       workspaceRoot: payload.workspaceRoot || this.workspaceRoot,
       worktreePath: payload.worktreePath,
       worktreeBranch: payload.worktreeBranch,
+      assignee: payload.assignee,
+      tenant: payload.tenant,
+      priority: payload.priority,
+      maxRuntimeSeconds: payload.maxRuntimeSeconds,
+      skills: payload.skills,
+      comments: payload.comments,
+      links: payload.links,
       status: payload.status || "backlog",
       lastActivityAt: Date.now(),
       executionProgress: taskProgressFor(payload.status || "backlog", "Task criada no Kanban Hermes."),
@@ -1099,6 +1136,13 @@ class DreamRuntime extends EventEmitter {
       prState: payload.prState ?? task.prState,
       cleanupState: payload.cleanupState ?? task.cleanupState,
       terminalSessionId: payload.terminalSessionId ?? task.terminalSessionId,
+      assignee: payload.assignee ?? task.assignee,
+      tenant: payload.tenant ?? task.tenant,
+      priority: payload.priority ?? task.priority,
+      maxRuntimeSeconds: payload.maxRuntimeSeconds ?? task.maxRuntimeSeconds,
+      skills: payload.skills ?? task.skills,
+      comments: payload.comments ?? task.comments,
+      links: payload.links ?? task.links,
       stuckAt: null,
       lastActivityAt: Date.now(),
       executionProgress: taskProgressFor(status, message, task.executionProgress),
@@ -1362,7 +1406,7 @@ class DreamRuntime extends EventEmitter {
       });
       return {
         task: updated,
-        error: "Git do Kanban esta desativado. Ative em Settings > Desktop & Tools > Kanban para criar PR."
+        error: "Git do Kanban esta desativado. Ative em Settings > Kanban Hermes para criar PR."
       };
     }
     const cwd = path.resolve(task.worktreePath || task.workspaceRoot || this.workspaceRoot);

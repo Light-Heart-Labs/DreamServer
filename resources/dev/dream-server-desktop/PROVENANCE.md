@@ -1,55 +1,66 @@
-# Dream Server DESKTOP Provenance
+# Dream Server Desktop Provenance
 
-This document records the source and packaging status for vendored or referenced
-third-party material in `resources/dev/dream-server-desktop`.
+This document records why third-party source lives under
+`resources/dev/dream-server-desktop` and what is intentionally excluded from the
+repository.
 
 ## Packaging Policy
 
-Electron artifacts are built from an explicit allowlist in `package.json`.
-Vendored source trees are limited to runtime/support material used by the
-desktop app and Hermes browser tooling.
+The Electron app is built from the explicit `package.json` allowlist. Local
+machine artifacts are excluded from Git and from the packaged app:
 
-Current packaged vendor allowlist:
+- `node_modules/`
+- `.venv-hermes/`
+- `bin/llama/`
+- local models such as `*.gguf`
+- generated Electron build outputs
 
-- `vendor/browser-harness-upstream/**/*`
-- `vendor/hermes-agent/**/*`
-
-Reference-only upstream trees are not committed here. The multiagent workbench
-UI was adapted into `src/` and routes through the local Dream/Hermes runtime
-actions rather than executing upstream desktop code.
+Hermes Python dependencies are recreated with `npm run setup:hermes` after clone.
+The local llama.cpp server is optional; users can place a compatible
+`llama-server` under `bin/llama` or point Settings to any OpenAI-compatible
+endpoint.
 
 ## Runtime Base
 
-Dream Server DESKTOP's runtime is the local Electron/Node implementation under
-`app-main.js`, `preload.js`, `src/`, and `runtime/`, plus Hermes Agent through
-the bridge under `runtime/hermes`.
+The desktop runtime is implemented in:
 
-The workbench and Kanban views were adapted for Dream Server DESKTOP and route
-through Dream/Hermes runtime actions. The desktop app does not execute from a
-separate upstream desktop runtime.
+- `app-main.js`
+- `preload.js`
+- `src/`
+- `runtime/`
+- `scripts/`
 
-## Third-Party Source Records
+The app integrates Hermes Agent through the bridge under `runtime/hermes`.
+
+## Vendored Source Records
 
 ### Hermes Agent
 
 - Path: `vendor/hermes-agent`
 - License: MIT
-- Role: packaged runtime dependency used by `runtime/hermes`
+- Role: local agent runtime and tool/provider reference used by `runtime/hermes`
+- Packaging: included by the Electron build allowlist
 - Notice: `THIRD_PARTY_NOTICES.md`
 
 ### Browser Harness
 
 - Path: `vendor/browser-harness-upstream`
 - License: MIT
-- Role: packaged browser-harness-compatible support material for Hermes'
-  Workbench browser tooling
+- Role: browser-harness-compatible support material for Workbench browser tooling
+- Packaging: included by the Electron build allowlist
 - Notice: `THIRD_PARTY_NOTICES.md`
+
+### Hermes iOS Panel Plugin
+
+- Path: `vendor/hermes-ios-panel-plugin`
+- License: upstream plugin source
+- Role: optional local plugin material used during desktop development
+- Packaging: included by the Electron build allowlist
 
 ### Ghostty Shader References
 
-- Sources: https://github.com/sahaj-b/ghostty-cursor-shaders and
-  https://github.com/KroneCorylus/ghostty-shader-playground
-- Role: provenance for selected shader files copied under
-  `src/shaders/ghostty`
-- Packaged: selected files under `src/shaders/ghostty`
+- Sources: `https://github.com/sahaj-b/ghostty-cursor-shaders` and
+  `https://github.com/KroneCorylus/ghostty-shader-playground`
+- Role: provenance for selected shader files copied under `src/shaders/ghostty`
+- Packaging: only selected shader files under `src/shaders/ghostty`
 - Notice: `THIRD_PARTY_NOTICES.md` and `src/shaders/ghostty/LICENSES.md`

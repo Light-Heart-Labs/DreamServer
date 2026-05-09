@@ -11,10 +11,10 @@ Probabilities should sum to 100, but the system will normalize if they don't.
 
 Usage:
     from toolset_distributions import get_distribution, list_distributions
-    
+
     # Get a specific distribution
     dist = get_distribution("image_gen")
-    
+
     # List all available distributions
     all_dists = list_distributions()
 """
@@ -40,7 +40,7 @@ DISTRIBUTIONS = {
             "browser": 100
         }
     },
-    
+
     # Image generation focused distribution
     "image_gen": {
         "description": "Heavy focus on image generation with vision and web support",
@@ -52,7 +52,7 @@ DISTRIBUTIONS = {
             "moa": 10          # 20% chance of reasoning tools
         }
     },
-    
+
     # Research-focused distribution
     "research": {
         "description": "Web research with vision analysis and reasoning",
@@ -90,7 +90,7 @@ DISTRIBUTIONS = {
             "vision": 10     # 10% chance of vision tools
         }
     },
-    
+
     # Safe mode (no terminal)
     "safe": {
         "description": "All tools except terminal for safety",
@@ -102,7 +102,7 @@ DISTRIBUTIONS = {
             "moa": 50
         }
     },
-    
+
     # Balanced distribution
     "balanced": {
         "description": "Equal probability of all toolsets",
@@ -116,7 +116,7 @@ DISTRIBUTIONS = {
             "browser": 50
         }
     },
-    
+
     # Minimal (web only)
     "minimal": {
         "description": "Only web tools for basic research",
@@ -124,7 +124,7 @@ DISTRIBUTIONS = {
             "web": 100
         }
     },
-    
+
     # Terminal only
     "terminal_only": {
         "description": "Terminal and file tools for code execution tasks",
@@ -133,7 +133,7 @@ DISTRIBUTIONS = {
             "file": 100
         }
     },
-    
+
     # Terminal + web (common for coding tasks that need docs)
     "terminal_web": {
         "description": "Terminal and file tools with web search for documentation lookup",
@@ -143,7 +143,7 @@ DISTRIBUTIONS = {
             "web": 100
         }
     },
-    
+
     # Creative (vision + image generation)
     "creative": {
         "description": "Image generation and vision analysis focus",
@@ -153,7 +153,7 @@ DISTRIBUTIONS = {
             "web": 30
         }
     },
-    
+
     # Reasoning heavy
     "reasoning": {
         "description": "Heavy mixture of agents usage with minimal other tools",
@@ -163,7 +163,7 @@ DISTRIBUTIONS = {
             "terminal": 20
         }
     },
-    
+
     # Browser-based web interaction
     "browser_use": {
         "description": "Full browser-based web interaction with search, vision, and page control",
@@ -173,7 +173,7 @@ DISTRIBUTIONS = {
             "vision": 70     # Vision analysis for images found on pages
         }
     },
-    
+
     # Browser only (no other tools)
     "browser_only": {
         "description": "Only browser automation tools for pure web interaction tasks",
@@ -181,7 +181,7 @@ DISTRIBUTIONS = {
             "browser": 100
         }
     },
-    
+
     # Browser-focused tasks distribution (for browser-use-tasks.jsonl)
     "browser_tasks": {
         "description": "Browser-focused distribution (browser toolset includes web_search for finding URLs since Google blocks direct browser searches)",
@@ -191,7 +191,7 @@ DISTRIBUTIONS = {
             "terminal": 15   # 15% - terminal occasionally for local operations
         }
     },
-    
+
     # Terminal-focused tasks distribution (for nous-terminal-tasks.jsonl)
     "terminal_tasks": {
         "description": "Terminal-focused distribution with high terminal/file availability, occasional other tools",
@@ -204,7 +204,7 @@ DISTRIBUTIONS = {
             "image_gen": 10    # 3% - image generation very rarely
         }
     },
-    
+
     # Mixed browser+terminal tasks distribution (for mixed-browser-terminal-tasks.jsonl)
     "mixed_tasks": {
         "description": "Mixed distribution with high browser, terminal, and file availability for complex tasks",
@@ -223,10 +223,10 @@ DISTRIBUTIONS = {
 def get_distribution(name: str) -> Optional[Dict[str, any]]:
     """
     Get a toolset distribution by name.
-    
+
     Args:
         name (str): Name of the distribution
-        
+
     Returns:
         Dict: Distribution definition with description and toolsets
         None: If distribution not found
@@ -237,7 +237,7 @@ def get_distribution(name: str) -> Optional[Dict[str, any]]:
 def list_distributions() -> Dict[str, Dict]:
     """
     List all available distributions.
-    
+
     Returns:
         Dict: All distribution definitions
     """
@@ -247,54 +247,54 @@ def list_distributions() -> Dict[str, Dict]:
 def sample_toolsets_from_distribution(distribution_name: str) -> List[str]:
     """
     Sample toolsets based on a distribution's probabilities.
-    
+
     Each toolset in the distribution has a % chance of being included.
     This allows multiple toolsets to be active simultaneously.
-    
+
     Args:
         distribution_name (str): Name of the distribution to sample from
-        
+
     Returns:
         List[str]: List of sampled toolset names
-        
+
     Raises:
         ValueError: If distribution name is not found
     """
     dist = get_distribution(distribution_name)
     if not dist:
         raise ValueError(f"Unknown distribution: {distribution_name}")
-    
+
     # Sample each toolset independently based on its probability
     selected_toolsets = []
-    
+
     for toolset_name, probability in dist["toolsets"].items():
         # Validate toolset exists
         if not validate_toolset(toolset_name):
             print(f"⚠️  Warning: Toolset '{toolset_name}' in distribution '{distribution_name}' is not valid")
             continue
-        
+
         # Roll the dice - if random value is less than probability, include this toolset
         if random.random() * 100 < probability:
             selected_toolsets.append(toolset_name)
-    
-    # If no toolsets were selected (can happen with low probabilities), 
+
+    # If no toolsets were selected (can happen with low probabilities),
     # ensure at least one toolset is selected by picking the highest probability one
     if not selected_toolsets and dist["toolsets"]:
         # Find toolset with highest probability
         highest_prob_toolset = max(dist["toolsets"].items(), key=lambda x: x[1])[0]
         if validate_toolset(highest_prob_toolset):
             selected_toolsets.append(highest_prob_toolset)
-    
+
     return selected_toolsets
 
 
 def validate_distribution(distribution_name: str) -> bool:
     """
     Check if a distribution name is valid.
-    
+
     Args:
         distribution_name (str): Distribution name to validate
-        
+
     Returns:
         bool: True if valid, False otherwise
     """
@@ -304,7 +304,7 @@ def validate_distribution(distribution_name: str) -> bool:
 def print_distribution_info(distribution_name: str) -> None:
     """
     Print detailed information about a distribution.
-    
+
     Args:
         distribution_name (str): Distribution name
     """
@@ -312,7 +312,7 @@ def print_distribution_info(distribution_name: str) -> None:
     if not dist:
         print(f"❌ Unknown distribution: {distribution_name}")
         return
-    
+
     print(f"\n📊 Distribution: {distribution_name}")
     print(f"   Description: {dist['description']}")
     print("   Toolsets:")
@@ -326,7 +326,7 @@ if __name__ == "__main__":
     """
     print("📊 Toolset Distributions Demo")
     print("=" * 60)
-    
+
     # List all distributions
     print("\n📋 Available Distributions:")
     print("-" * 40)
@@ -335,13 +335,13 @@ if __name__ == "__main__":
         print(f"    {dist['description']}")
         toolset_list = ", ".join([f"{ts}({p}%)" for ts, p in dist["toolsets"].items()])
         print(f"    Toolsets: {toolset_list}")
-    
+
     # Demo sampling
     print("\n\n🎲 Sampling Examples:")
     print("-" * 40)
-    
+
     test_distributions = ["image_gen", "research", "balanced", "default"]
-    
+
     for dist_name in test_distributions:
         print(f"\n{dist_name}:")
         # Sample 5 times to show variability
@@ -349,16 +349,15 @@ if __name__ == "__main__":
         for _ in range(5):
             sampled = sample_toolsets_from_distribution(dist_name)
             samples.append(sorted(sampled))
-        
+
         print(f"  Sample 1: {samples[0]}")
         print(f"  Sample 2: {samples[1]}")
         print(f"  Sample 3: {samples[2]}")
         print(f"  Sample 4: {samples[3]}")
         print(f"  Sample 5: {samples[4]}")
-    
+
     # Show detailed info
     print("\n\n📊 Detailed Distribution Info:")
     print("-" * 40)
     print_distribution_info("image_gen")
     print_distribution_info("research")
-

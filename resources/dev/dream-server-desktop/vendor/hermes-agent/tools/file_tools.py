@@ -650,7 +650,7 @@ def patch_tool(mode: str = "replace", path: str = None, old_string: str = None,
                 stale_warnings.append(_sw)
 
         file_ops = _get_file_ops(task_id)
-        
+
         if mode == "replace":
             if not path:
                 return tool_error("path required")
@@ -663,7 +663,7 @@ def patch_tool(mode: str = "replace", path: str = None, old_string: str = None,
             result = file_ops.patch_v4a(patch)
         else:
             return tool_error(f"Unknown mode: {mode}")
-        
+
         result_dict = result.to_dict()
         if stale_warnings:
             result_dict["_warning"] = stale_warnings[0] if len(stale_warnings) == 1 else " | ".join(stale_warnings)

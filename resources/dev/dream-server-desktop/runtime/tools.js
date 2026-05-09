@@ -31,6 +31,11 @@ const {
 const { fileSymbols, workspaceSymbols } = require("./symbols");
 const { findBrowserExecutable, formatVerification, verifyBrowser, verifyFiles, verifySite, verifyUrl } = require("./verifier");
 const { createToolRegistry, normalizeToolResult } = require("./tool-registry");
+const {
+  commandBaseName,
+  nativeWindowsPosixProblem,
+  shouldExposeWslPaths
+} = require("./platform");
 
 let nodePty = null;
 try {
@@ -270,6 +275,92 @@ const TOOL_MANIFESTS = [
         timeoutMs: { type: "integer" },
         steps: { type: "array", items: { type: "object" } }
       }
+    }
+  },
+  {
+    name: "gateway_control",
+    description: "Control Dream Server's real Hermes Gateway through the Electron runtime.",
+    permissionClass: "system-write",
+    supportedSurfaces: ["desktop"],
+    inputSchema: {
+      type: "object",
+      properties: {
+        command: {
+          type: "string",
+          enum: [
+            "start",
+            "stop",
+            "restart",
+            "status",
+            "configure",
+            "configure_secret",
+            "set_secret",
+            "capabilities",
+            "identity",
+            "groups",
+            "guilds",
+            "channels",
+            "chats",
+            "recent_messages",
+            "pairing_status",
+            "approve_pairing",
+            "revoke_pairing",
+            "clear_pairing",
+            "chat",
+            "send",
+            "edit",
+            "send_media",
+            "typing"
+          ]
+        },
+        platform: {
+          type: "string",
+          enum: [
+            "whatsapp",
+            "discord",
+            "telegram",
+            "slack",
+            "matrix",
+            "mattermost",
+            "signal",
+            "homeassistant",
+            "email",
+            "sms",
+            "api_server",
+            "webhook",
+            "dingtalk",
+            "feishu",
+            "wecom",
+            "weixin",
+            "bluebubbles",
+            "qqbot",
+            "yuanbao"
+          ]
+        },
+        timeoutMs: { type: "integer" },
+        token: { type: "string" },
+        botToken: { type: "string" },
+        secretField: { type: "string" },
+        secretValue: { type: "string" },
+        secrets: { type: "object" },
+        chatId: { type: "string" },
+        target: { type: "string" },
+        threadId: { type: "string" },
+        guildId: { type: "string" },
+        message: { type: "string" },
+        messageId: { type: "string" },
+        filePath: { type: "string" },
+        mediaType: { type: "string" },
+        caption: { type: "string" },
+        fileName: { type: "string" },
+        replyTo: { type: "string" },
+        code: { type: "string" },
+        pairingCode: { type: "string" },
+        approvalCode: { type: "string" },
+        userId: { type: "string" },
+        limit: { type: "integer" }
+      },
+      required: ["command"]
     }
   },
   {
@@ -714,6 +805,15 @@ const TOOL_MANIFESTS = [
         event: { type: "string" },
         message: { type: "string" },
         reviewReason: { type: "string" },
+        assignee: { type: "string" },
+        tenant: { type: "string" },
+        priority: { type: "integer" },
+        maxRuntimeSeconds: { type: "integer" },
+        skills: { type: "array", items: { type: "string" } },
+        comment: { type: "string" },
+        author: { type: "string" },
+        linkParentId: { type: "string" },
+        linkChildId: { type: "string" },
         prUrl: { type: "string" },
         prState: { type: "string" }
       },
@@ -749,7 +849,7 @@ const TOOL_MANIFESTS = [
   },
   {
     name: "task_recover",
-    description: "Recover a stuck Dream Desktop task and optionally restart its Hermes agent.",
+    description: "Recover a stuck Hermes Kanban task and optionally restart its Hermes agent.",
     permissionClass: "system-write",
     supportedSurfaces: ["desktop", "cli", "headless"],
     inputSchema: {
@@ -798,7 +898,7 @@ const TOOL_MANIFESTS = [
   },
   {
     name: "task_scheduler_tick",
-    description: "Run one Dream Desktop Kanban scheduler tick: recover stale tasks, start queued work, PR and cleanup when enabled.",
+    description: "Run one Hermes Kanban scheduler tick: recover stale tasks, start queued work, PR and cleanup when enabled.",
     permissionClass: "system-write",
     supportedSurfaces: ["desktop", "cli", "headless"],
     inputSchema: {
@@ -1533,6 +1633,7 @@ function makeActionLabel(action) {
   if (type === "verify_site") return `verificar site ${action.url || ""}`.trim();
   if (type === "browser_check") return `verificar navegador ${action.url || ""}`.trim();
   if (type === "browser_control") return `controlar navegador ${action.url || ""}`.trim();
+  if (type === "gateway_control") return `controlar gateway ${action.command || "status"} ${action.platform || ""}`.trim();
   if (type === "verify_browser_console") return `verificar console do navegador ${action.url || ""}`.trim();
   if (type === "stop_all_local_activity") return "parar atividade local";
   if (type === "set_volume") return `ajustar volume ${action.level ?? action.delta ?? action.muted}`.trim();
@@ -1715,7 +1816,7 @@ function permissionClassForAction(action, context = {}) {
   if (type === "set_volume" || type === "set_preview_device" || type === "media_control") {
     return "desktop-control";
   }
-  if (["project_prepare_vite", "terminal_open", "terminal_exec", "terminal_close", "background_command_start", "background_command_stop", "stop_all_local_activity", "verify_command", "adb_command", "adb_shell", "fastboot_command", "mcp_call", "git_create_branch", "git_worktree_add", "git_worktree_remove", "agent_spawn", "agent_stop", "task_recover", "task_cleanup_worktree", "task_create_pr", "task_scheduler_tick"].includes(type)) {
+  if (["project_prepare_vite", "gateway_control", "terminal_open", "terminal_exec", "terminal_close", "background_command_start", "background_command_stop", "stop_all_local_activity", "verify_command", "adb_command", "adb_shell", "fastboot_command", "mcp_call", "git_create_branch", "git_worktree_add", "git_worktree_remove", "agent_spawn", "agent_stop", "task_recover", "task_cleanup_worktree", "task_create_pr", "task_scheduler_tick"].includes(type)) {
     return "system-write";
   }
   if (type === "file_rollback" && !action?.path) {
@@ -1930,6 +2031,30 @@ async function launchDetached(command, args = [], options = {}) {
       finalizeResolve();
     });
   });
+}
+
+async function openDesktopTarget(target) {
+  if (process.platform === "win32") {
+    await launchDetached("cmd.exe", ["/d", "/s", "/c", "start", "", target], { shell: true });
+    return;
+  }
+  if (process.platform === "darwin") {
+    await launchDetached("open", [target]);
+    return;
+  }
+  await launchDetached("xdg-open", [target]);
+}
+
+async function revealDesktopTarget(target) {
+  if (process.platform === "win32") {
+    await launchDetached("explorer.exe", [`/select,${target}`]);
+    return;
+  }
+  if (process.platform === "darwin") {
+    await launchDetached("open", ["-R", target]);
+    return;
+  }
+  await launchDetached("xdg-open", [path.dirname(target)]);
 }
 
 function toPowerShellLiteral(value) {
@@ -3049,6 +3174,7 @@ async function runCommandAction(action, workspaceRoot = process.cwd(), signal = 
     if (!script) {
       throw new Error("A acao run_command com runner=powershell precisa de um script.");
     }
+    assertNoNativeWindowsPosix({ script, cwd, shell: "powershell" });
     const wrappedScript = wrapPowerShellScript(script);
     if (!wait) {
       await launchDetached(
@@ -3073,6 +3199,7 @@ async function runCommandAction(action, workspaceRoot = process.cwd(), signal = 
     if (!script) {
       throw new Error("A acao run_command com runner=cmd precisa de um comando.");
     }
+    assertNoNativeWindowsPosix({ script, cwd, shell: "cmd" });
     if (!wait) {
       await launchDetached("cmd.exe", ["/d", "/s", "/c", script], { cwd, windowsHide: true });
       return `Comando CMD iniciado: ${script}`;
@@ -3087,13 +3214,14 @@ async function runCommandAction(action, workspaceRoot = process.cwd(), signal = 
     return formatCommandResult("CMD", "cmd", result);
   }
 
-  const command = String(action?.command || "").trim();
+  const command = normalizeNativeWindowsProcessCommand(String(action?.command || "").trim());
   if (!command) {
     throw new Error("A acao run_command precisa de um comando.");
   }
 
   const args = sanitizeArgs(action?.args);
   const shellMode = Boolean(action?.shell);
+  assertNoNativeWindowsPosix({ command, args, cwd, shell: shellMode ? "shell" : "process" });
   if (!wait) {
     await launchDetached(command, args, { cwd, shell: shellMode, windowsHide: true });
     return `Processo iniciado: ${command}`;
@@ -3114,6 +3242,7 @@ async function runVerificationCommand(action, workspaceRoot = process.cwd(), sig
     if (!script) {
       throw new Error("verify_command com runner=powershell exige um script.");
     }
+    assertNoNativeWindowsPosix({ script, cwd, shell: "powershell" });
     return {
       label: "PowerShell",
       runner,
@@ -3130,6 +3259,7 @@ async function runVerificationCommand(action, workspaceRoot = process.cwd(), sig
     if (!script) {
       throw new Error("verify_command com runner=cmd exige um comando.");
     }
+    assertNoNativeWindowsPosix({ script, cwd, shell: "cmd" });
     return {
       label: "CMD",
       runner,
@@ -3137,15 +3267,17 @@ async function runVerificationCommand(action, workspaceRoot = process.cwd(), sig
     };
   }
 
-  const command = String(action?.command || "").trim();
+  const command = normalizeNativeWindowsProcessCommand(String(action?.command || "").trim());
   if (!command) {
     throw new Error("verify_command exige um comando.");
   }
+  const args = sanitizeArgs(action?.args);
+  assertNoNativeWindowsPosix({ command, args, cwd, shell: Boolean(action?.shell) ? "shell" : "process" });
 
   return {
     label: "Processo",
     runner: "process",
-    result: await runProcess(command, sanitizeArgs(action?.args), {
+    result: await runProcess(command, args, {
       cwd,
       shell: Boolean(action?.shell),
       timeoutMs,
@@ -3401,6 +3533,31 @@ function findWindowsGitBash() {
   return candidates.find((candidate) => candidate && existsSync(candidate)) || "";
 }
 
+function assertNoNativeWindowsPosix(action = {}) {
+  const problem = nativeWindowsPosixProblem(action);
+  if (problem) {
+    throw new Error(problem);
+  }
+}
+
+function normalizeNativeWindowsProcessCommand(command) {
+  if (process.platform !== "win32") {
+    return command;
+  }
+  const base = commandBaseName(command);
+  if (base !== "bash" && base !== "bash.exe") {
+    return command;
+  }
+  const gitBash = findWindowsGitBash();
+  if (gitBash) {
+    return gitBash;
+  }
+  if (shouldExposeWslPaths()) {
+    return command;
+  }
+  throw new Error("Bash nao esta configurado para este Windows nativo. Use cmd/PowerShell, instale Git Bash, ou chame wsl.exe explicitamente quando quiser rodar dentro do WSL.");
+}
+
 function getTerminalShell(shellName) {
   const parseMarkerExitCode = (line) => {
     const match = String(line || "").match(/:(-?\d*)(?:\D|$)/);
@@ -3418,11 +3575,28 @@ function getTerminalShell(shellName) {
     };
   }
   if (["bash", "zsh", "sh"].includes(normalized)) {
+    if (process.platform === "win32") {
+      const gitBash = normalized === "bash" ? findWindowsGitBash() : "";
+      if (!gitBash) {
+        return {
+          shell: "cmd",
+          command: "cmd.exe",
+          args: ["/Q", "/K"],
+          marker: (id) => `echo __DREAM_DONE_${id}__:%errorlevel%`,
+          parseExitCode: parseMarkerExitCode
+        };
+      }
+      return {
+        shell: "bash",
+        command: gitBash,
+        args: ["-i"],
+        marker: (id) => `(code=$?; printf '__DREAM_DONE_${id}__:%s\\n' "$code")`,
+        parseExitCode: parseMarkerExitCode
+      };
+    }
     return {
       shell: normalized,
-      command: process.platform === "win32" && normalized === "bash"
-        ? findWindowsGitBash() || "bash.exe"
-        : normalized,
+      command: normalized,
       args: ["-i"],
       marker: (id) => `(code=$?; printf '__DREAM_DONE_${id}__:%s\\n' "$code")`,
       parseExitCode: parseMarkerExitCode
@@ -3733,6 +3907,11 @@ async function openTerminalSession(action, workspaceRoot = process.cwd(), contex
 
   const shellConfig = getTerminalShell(action?.shell);
   const cwd = action?.cwd ? expandPathInput(action.cwd, workspaceRoot) : workspaceRoot;
+  assertNoNativeWindowsPosix({
+    script: String(action?.initialCommand || ""),
+    cwd,
+    shell: shellConfig.shell
+  });
   await fs.mkdir(cwd, { recursive: true });
   const meta = runtimeContextMeta(context);
   let child = null;
@@ -4005,6 +4184,11 @@ async function terminalExecAction(action, workspaceRoot = process.cwd(), signal 
   if (!command) {
     throw new Error("terminal_exec exige um comando.");
   }
+  assertNoNativeWindowsPosix({
+    script: command,
+    cwd: session.cwd,
+    shell: session.shell
+  });
 
   const run = async () => {
     const meta = runtimeContextMeta(context);
@@ -4105,23 +4289,69 @@ async function terminalCloseAction(action) {
   return `Sessao de terminal fechada: ${sessionName}. Kill tree: ${session.killResult?.ok ? "ok" : "falhou/nao necessario"}`;
 }
 
+async function gatewayControlAction(action, context = {}) {
+  const command = String(action?.command || action?.operation || "status").trim().toLowerCase();
+  if (![
+    "start",
+    "stop",
+    "restart",
+    "status",
+    "configure",
+    "configure_secret",
+    "set_secret",
+    "capabilities",
+    "identity",
+    "groups",
+    "guilds",
+    "channels",
+    "chats",
+    "recent_messages",
+    "pairing_status",
+    "approve_pairing",
+    "revoke_pairing",
+    "clear_pairing",
+    "chat",
+    "send",
+    "edit",
+    "send_media",
+    "typing"
+  ].includes(command)) {
+    throw new Error(`Comando de gateway invalido: ${command || "(vazio)"}.`);
+  }
+  const platform = String(action?.platform || action?.gateway || "").trim().toLowerCase();
+  const handler = context.gatewayRuntime?.handleAction || context.gatewayRuntime?.handleChatRequest;
+  if (typeof handler !== "function") {
+    throw new Error("Gateway runtime indisponivel nesta superficie. Use o bridge desktop ativo do Dream Server.");
+  }
+  const result = await handler({ ...action, command, platform, timeoutMs: action?.timeoutMs });
+  if (typeof result?.formatted === "string" && result.formatted.trim()) {
+    return result.formatted;
+  }
+  const { formatGatewayChatResponse } = require("./hermes/gateway-chat");
+  return formatGatewayChatResponse(result);
+}
+
 async function createBackgroundRunner(action, workspaceRoot) {
   const runner = String(action?.runner || "process").trim().toLowerCase();
   const cwd = action?.cwd ? expandPathInput(action.cwd, workspaceRoot) : workspaceRoot;
   if (runner === "powershell") {
+    const script = String(action?.command || "");
+    assertNoNativeWindowsPosix({ script, cwd, shell: "powershell" });
     return {
       runner,
       command: "powershell.exe",
-      args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", wrapPowerShellScript(String(action?.command || ""))],
+      args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", wrapPowerShellScript(script)],
       cwd,
       shell: false
     };
   }
   if (runner === "cmd") {
+    const script = String(action?.command || "");
+    assertNoNativeWindowsPosix({ script, cwd, shell: "cmd" });
     return {
       runner,
       command: "cmd.exe",
-      args: ["/d", "/s", "/c", String(action?.command || "")],
+      args: ["/d", "/s", "/c", script],
       cwd,
       shell: false
     };
@@ -4129,8 +4359,14 @@ async function createBackgroundRunner(action, workspaceRoot) {
 
   const rawCommand = String(action?.command || "").trim();
   const safeArgs = sanitizeArgs(action?.args);
-  let resolvedCommand = rawCommand;
-  const resolvedWithWhere = await resolveCommandWithWhere(rawCommand, cwd).catch(() => null);
+  let resolvedCommand = normalizeNativeWindowsProcessCommand(rawCommand);
+  assertNoNativeWindowsPosix({
+    command: resolvedCommand,
+    args: safeArgs,
+    cwd,
+    shell: Boolean(action?.shell) ? "shell" : "process"
+  });
+  const resolvedWithWhere = await resolveCommandWithWhere(resolvedCommand, cwd).catch(() => null);
   if (resolvedWithWhere) {
     resolvedCommand = resolvedWithWhere;
   }
@@ -5846,12 +6082,66 @@ async function taskUpdateAction(action, context = {}) {
     error: "ERROR"
   };
   const event = action?.event || eventByStatus[status] || "";
+  const current = context.runtime.getTaskRecord(action?.id);
+  if (!current) {
+    throw new Error(`Tarefa nao encontrada: ${action?.id}`);
+  }
+  const patch = { ...action };
+  if (String(action?.comment || "").trim()) {
+    const comment = {
+      id: `comment-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      author: String(action?.author || "dashboard"),
+      body: String(action.comment).trim(),
+      createdAt: Date.now()
+    };
+    patch.comments = [
+      ...(Array.isArray(current.comments) ? current.comments : []),
+      comment
+    ];
+    if (typeof context.runtime._taskLogsWithEntry === "function") {
+      patch.logs = context.runtime._taskLogsWithEntry(
+        current,
+        "validation",
+        "comment",
+        comment.body,
+        { author: comment.author }
+      );
+    }
+  }
+  if (String(action?.linkParentId || "").trim() && String(action?.linkChildId || "").trim()) {
+    const parentId = String(action.linkParentId).trim();
+    const childId = String(action.linkChildId).trim();
+    const links = {
+      parents: Array.isArray(current.links?.parents) ? [...current.links.parents] : [],
+      children: Array.isArray(current.links?.children) ? [...current.links.children] : []
+    };
+    if (current.id === childId && !links.parents.includes(parentId)) {
+      links.parents.push(parentId);
+    }
+    if (current.id === parentId && !links.children.includes(childId)) {
+      links.children.push(childId);
+    }
+    patch.links = links;
+    if (typeof context.runtime._taskLogsWithEntry === "function") {
+      patch.logs = context.runtime._taskLogsWithEntry(
+        current,
+        "planning",
+        "link",
+        `Link registrado: ${parentId} -> ${childId}`,
+        { parentId, childId }
+      );
+    }
+  }
+  delete patch.comment;
+  delete patch.author;
+  delete patch.linkParentId;
+  delete patch.linkChildId;
   const task = event && typeof context.runtime.transitionTaskRecord === "function"
     ? context.runtime.transitionTaskRecord(action?.id, event, {
-        ...action,
+        ...patch,
         message: action?.message || `Task movida para ${status || event}.`
       })
-    : context.runtime.updateTaskRecord(action?.id, action);
+    : context.runtime.updateTaskRecord(action?.id, patch);
   return `Tarefa atualizada: ${task.id} -> ${task.status}`;
 }
 
@@ -6232,22 +6522,10 @@ async function executeTool(action, context = {}) {
       if (!existsSync(target.value)) {
         throw new Error(`Arquivo nao encontrado para abrir: ${target.value}`);
       }
-      if (process.platform === "win32") {
-        await launchDetached("cmd.exe", ["/d", "/s", "/c", "start", "", target.value], { shell: true });
-      } else if (process.platform === "darwin") {
-        await launchDetached("open", [target.value]);
-      } else {
-        await launchDetached("xdg-open", [target.value]);
-      }
+      await openDesktopTarget(target.value);
       return `Arquivo aberto: ${target.value}`;
     }
-    if (process.platform === "win32") {
-      await launchDetached("cmd.exe", ["/d", "/s", "/c", "start", "", target.value], { shell: true });
-    } else if (process.platform === "darwin") {
-      await launchDetached("open", [target.value]);
-    } else {
-      await launchDetached("xdg-open", [target.value]);
-    }
+    await openDesktopTarget(target.value);
     return `URL aberta: ${target.display}`;
   }
 
@@ -6256,7 +6534,7 @@ async function executeTool(action, context = {}) {
     if (!existsSync(target)) {
       throw new Error(`Caminho nao encontrado: ${target}`);
     }
-    await launchDetached("explorer.exe", [target]);
+    await openDesktopTarget(target);
     return `Caminho aberto: ${target}`;
   }
 
@@ -6265,8 +6543,8 @@ async function executeTool(action, context = {}) {
     if (!existsSync(target)) {
       throw new Error(`Caminho nao encontrado: ${target}`);
     }
-    await launchDetached("explorer.exe", [`/select,${target}`]);
-    return `Arquivo/pasta revelado no Explorer: ${target}`;
+    await revealDesktopTarget(target);
+    return `Arquivo/pasta revelado no gerenciador de arquivos: ${target}`;
   }
 
   if (type === "launch_app") {
@@ -6289,6 +6567,9 @@ async function executeTool(action, context = {}) {
   }
   if (type === "browser_harness") {
     return await browserHarnessAction(action, context);
+  }
+  if (type === "gateway_control") {
+    return await gatewayControlAction(action, context);
   }
 
   if (type === "create_directory") {

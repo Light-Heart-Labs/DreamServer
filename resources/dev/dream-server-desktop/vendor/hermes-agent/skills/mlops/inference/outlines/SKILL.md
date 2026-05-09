@@ -1,6 +1,6 @@
 ---
 name: outlines
-description: Guarantee valid JSON/XML/code structure during generation, use Pydantic models for type-safe outputs, support local models (Transformers, vLLM), and maximize inference speed with Outlines - dottxt.ai's structured generation library
+description: "Outlines: structured JSON/regex/Pydantic LLM generation."
 version: 1.0.0
 author: Orchestra Research
 license: MIT
@@ -651,5 +651,3 @@ class Article(BaseModel):
 - `references/json_generation.md` - Comprehensive JSON and Pydantic patterns
 - `references/backends.md` - Backend-specific configuration
 - `references/examples.md` - Production-ready examples
-
-

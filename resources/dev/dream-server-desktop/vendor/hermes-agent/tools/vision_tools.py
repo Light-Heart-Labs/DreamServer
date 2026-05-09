@@ -20,7 +20,7 @@ Features:
 Usage:
     from vision_tools import vision_analyze_tool
     import asyncio
-    
+
     # Analyze an image
     result = await vision_analyze_tool(
         image_url="https://example.com/image.jpg",
@@ -38,6 +38,7 @@ from typing import Any, Awaitable, Dict, Optional
 from urllib.parse import urlparse
 import httpx
 from agent.auxiliary_client import async_call_llm, extract_content_or_reasoning
+from hermes_constants import get_hermes_dir
 from tools.debug_helpers import DebugSession
 from tools.website_policy import check_website_access
 
@@ -56,9 +57,9 @@ def _resolve_download_timeout() -> float:
         except ValueError:
             pass
     try:
-        from hermes_cli.config import load_config
+        from hermes_cli.config import cfg_get, load_config
         cfg = load_config()
-        val = cfg.get("auxiliary", {}).get("vision", {}).get("download_timeout")
+        val = cfg_get(cfg, "auxiliary", "vision", "download_timeout")
         if val is not None:
             return float(val)
     except Exception:
@@ -75,10 +76,10 @@ _VISION_MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
 def _validate_image_url(url: str) -> bool:
     """
     Basic validation of image URL format.
-    
+
     Args:
         url (str): The URL to validate
-        
+
     Returns:
         bool: True if URL appears to be valid, False otherwise
     """
@@ -128,23 +129,23 @@ def _detect_image_mime_type(image_path: Path) -> Optional[str]:
 async def _download_image(image_url: str, destination: Path, max_retries: int = 3) -> Path:
     """
     Download an image from a URL to a local destination (async) with retry logic.
-    
+
     Args:
         image_url (str): The URL of the image to download
         destination (Path): The path where the image should be saved
         max_retries (int): Maximum number of retry attempts (default: 3)
-        
+
     Returns:
         Path: The path to the downloaded image
-        
+
     Raises:
         Exception: If download fails after all retries
     """
     import asyncio
-    
+
     # Create parent directories if they don't exist
     destination.parent.mkdir(parents=True, exist_ok=True)
-    
+
     async def _ssrf_redirect_guard(response):
         """Re-validate each redirect target to prevent redirect-based SSRF.
 
@@ -196,7 +197,7 @@ async def _download_image(image_url: str, destination: Path, max_retries: int = 
                 blocked = check_website_access(final_url)
                 if blocked:
                     raise PermissionError(blocked["message"])
-                
+
                 # Save the image content (double-check actual size)
                 body = response.content
                 if len(body) > _VISION_MAX_DOWNLOAD_BYTES:
@@ -204,7 +205,7 @@ async def _download_image(image_url: str, destination: Path, max_retries: int = 
                         f"Image too large ({len(body)} bytes, max {_VISION_MAX_DOWNLOAD_BYTES})"
                     )
                 destination.write_bytes(body)
-            
+
             return destination
         except Exception as e:
             last_error = e
@@ -220,7 +221,7 @@ async def _download_image(image_url: str, destination: Path, max_retries: int = 
                     str(e)[:100],
                     exc_info=True,
                 )
-    
+
     if last_error is None:
         raise RuntimeError(
             f"_download_image exited retry loop without attempting (max_retries={max_retries})"
@@ -231,10 +232,10 @@ async def _download_image(image_url: str, destination: Path, max_retries: int = 
 def _determine_mime_type(image_path: Path) -> str:
     """
     Determine the MIME type of an image based on its file extension.
-    
+
     Args:
         image_path (Path): Path to the image file
-        
+
     Returns:
         str: The MIME type (defaults to image/jpeg if unknown)
     """
@@ -254,26 +255,26 @@ def _determine_mime_type(image_path: Path) -> str:
 def _image_to_base64_data_url(image_path: Path, mime_type: Optional[str] = None) -> str:
     """
     Convert an image file to a base64-encoded data URL.
-    
+
     Args:
         image_path (Path): Path to the image file
         mime_type (Optional[str]): MIME type of the image (auto-detected if None)
-        
+
     Returns:
         str: Base64-encoded data URL (e.g., "data:image/jpeg;base64,...")
     """
     # Read the image as bytes
     data = image_path.read_bytes()
-    
+
     # Encode to base64
     encoded = base64.b64encode(data).decode("ascii")
-    
+
     # Determine MIME type
     mime = mime_type or _determine_mime_type(image_path)
-    
+
     # Create data URL
     data_url = f"data:{mime};base64,{encoded}"
-    
+
     return data_url
 
 
@@ -409,36 +410,38 @@ async def vision_analyze_tool(
 ) -> str:
     """
     Analyze an image from a URL or local file path using vision AI.
-    
+
     This tool accepts either an HTTP/HTTPS URL or a local file path. For URLs,
     it downloads the image first. In both cases, the image is converted to base64
     and processed using Gemini 3 Flash Preview via OpenRouter API.
-    
+
     The user_prompt parameter is expected to be pre-formatted by the calling
     function (typically model_tools.py) to include both full description
     requests and specific questions.
-    
+
     Args:
         image_url (str): The URL or local file path of the image to analyze.
                          Accepts http://, https:// URLs or absolute/relative file paths.
         user_prompt (str): The pre-formatted prompt for the vision model
         model (str): The vision model to use (default: google/gemini-3-flash-preview)
-    
+
     Returns:
         str: JSON string containing the analysis results with the following structure:
              {
                  "success": bool,
                  "analysis": str (defaults to error message if None)
              }
-    
+
     Raises:
         Exception: If download fails, analysis fails, or API key is not set
-        
+
     Note:
-        - For URLs, temporary images are stored in ./temp_vision_images/ and cleaned up
+        - For URLs, temporary images are stored under $HERMES_HOME/cache/vision/ and cleaned up
         - For local file paths, the file is used directly and NOT deleted
         - Supports common image formats (JPEG, PNG, GIF, WebP, etc.)
     """
+    if not isinstance(user_prompt, str):
+        user_prompt = str(user_prompt) if user_prompt is not None else ""
     debug_call_data = {
         "parameters": {
             "image_url": image_url,
@@ -451,13 +454,13 @@ async def vision_analyze_tool(
         "model_used": model,
         "image_size_bytes": 0
     }
-    
+
     temp_image_path = None
     # Track whether we should clean up the file after processing.
     # Local files (e.g. from the image cache) should NOT be deleted.
     should_cleanup = True
     detected_mime_type = None
-    
+
     try:
         from tools.interrupt import is_interrupted
         if is_interrupted():
@@ -465,7 +468,7 @@ async def vision_analyze_tool(
 
         logger.info("Analyzing image: %s", image_url[:60])
         logger.info("User prompt: %s", user_prompt[:100])
-        
+
         # Determine if this is a local file path or a remote URL
         # Strip file:// scheme so file URIs resolve as local paths.
         resolved_url = image_url
@@ -483,7 +486,7 @@ async def vision_analyze_tool(
             if blocked:
                 raise PermissionError(blocked["message"])
             logger.info("Downloading image from URL...")
-            temp_dir = Path("./temp_vision_images")
+            temp_dir = get_hermes_dir("cache/vision", "temp_vision_images")
             temp_image_path = temp_dir / f"temp_image_{uuid.uuid4()}.jpg"
             await _download_image(image_url, temp_image_path)
             should_cleanup = True
@@ -491,7 +494,7 @@ async def vision_analyze_tool(
             raise ValueError(
                 "Invalid image source. Provide an HTTP/HTTPS URL or a valid local file path."
             )
-        
+
         # Get image file size for logging
         image_size_bytes = temp_image_path.stat().st_size
         image_size_kb = image_size_bytes / 1024
@@ -500,7 +503,7 @@ async def vision_analyze_tool(
         detected_mime_type = _detect_image_mime_type(temp_image_path)
         if not detected_mime_type:
             raise ValueError("Only real image files are supported for vision analysis.")
-        
+
         # Convert image to base64 — send at full resolution first.
         # If the provider rejects it as too large, we auto-resize and retry.
         logger.info("Converting image to base64...")
@@ -524,10 +527,10 @@ async def vision_analyze_tool(
                 )
 
         debug_call_data["image_size_bytes"] = image_size_bytes
-        
+
         # Use the prompt as provided (model_tools.py now handles full description formatting)
         comprehensive_prompt = user_prompt
-        
+
         # Prepare the message with base64-encoded image
         messages = [
             {
@@ -546,25 +549,30 @@ async def vision_analyze_tool(
                 ]
             }
         ]
-        
+
         logger.info("Processing image with vision model...")
-        
+
         # Call the vision API via centralized router.
         # Read timeout from config.yaml (auxiliary.vision.timeout), default 120s.
         # Local vision models (llama.cpp, ollama) can take well over 30s.
         vision_timeout = 120.0
+        vision_temperature = 0.1
         try:
-            from hermes_cli.config import load_config
+            from hermes_cli.config import cfg_get, load_config
             _cfg = load_config()
-            _vt = _cfg.get("auxiliary", {}).get("vision", {}).get("timeout")
+            _vision_cfg = cfg_get(_cfg, "auxiliary", "vision", default={})
+            _vt = _vision_cfg.get("timeout")
             if _vt is not None:
                 vision_timeout = float(_vt)
+            _vtemp = _vision_cfg.get("temperature")
+            if _vtemp is not None:
+                vision_temperature = float(_vtemp)
         except Exception:
             pass
         call_kwargs = {
             "task": "vision",
             "messages": messages,
-            "temperature": 0.1,
+            "temperature": vision_temperature,
             "max_tokens": 2000,
             "timeout": vision_timeout,
         }
@@ -588,7 +596,7 @@ async def vision_analyze_tool(
                 response = await async_call_llm(**call_kwargs)
             else:
                 raise
-        
+
         # Extract the analysis — fall back to reasoning if content is empty
         analysis = extract_content_or_reasoning(response)
 
@@ -599,28 +607,28 @@ async def vision_analyze_tool(
             analysis = extract_content_or_reasoning(response)
 
         analysis_length = len(analysis)
-        
+
         logger.info("Image analysis completed (%s characters)", analysis_length)
-        
+
         # Prepare successful response
         result = {
             "success": True,
             "analysis": analysis or "There was a problem with the request and the image could not be analyzed."
         }
-        
+
         debug_call_data["success"] = True
         debug_call_data["analysis_length"] = analysis_length
-        
+
         # Log debug information
         _debug.log_call("vision_analyze_tool", debug_call_data)
         _debug.save()
-        
+
         return json.dumps(result, indent=2, ensure_ascii=False)
-        
+
     except Exception as e:
         error_msg = f"Error analyzing image: {str(e)}"
         logger.error("%s", error_msg, exc_info=True)
-        
+
         # Detect vision capability errors — give the model a clear message
         # so it can inform the user instead of a cryptic API error.
         err_str = str(e).lower()
@@ -652,20 +660,20 @@ async def vision_analyze_tool(
                 "There was a problem with the request and the image could not "
                 f"be analyzed. Error: {e}"
             )
-        
+
         # Prepare error response
         result = {
             "success": False,
             "error": error_msg,
             "analysis": analysis,
         }
-        
+
         debug_call_data["error"] = error_msg
         _debug.log_call("vision_analyze_tool", debug_call_data)
         _debug.save()
-        
+
         return json.dumps(result, indent=2, ensure_ascii=False)
-    
+
     finally:
         # Clean up temporary image file (but NOT local/cached files)
         if should_cleanup and temp_image_path and temp_image_path.exists():
@@ -696,26 +704,26 @@ if __name__ == "__main__":
     """
     print("👁️ Vision Tools Module")
     print("=" * 40)
-    
+
     # Check if vision model is available
     api_available = check_vision_requirements()
-    
+
     if not api_available:
         print("❌ No auxiliary vision model available")
         print("Configure a supported multimodal backend (OpenRouter, Nous, Codex, Anthropic, or a custom OpenAI-compatible endpoint).")
         exit(1)
     else:
         print("✅ Vision model available")
-    
+
     print("🛠️ Vision tools ready for use!")
-    
+
     # Show debug mode status
     if _debug.active:
         print(f"🐛 Debug mode ENABLED - Session ID: {_debug.session_id}")
         print(f"   Debug logs will be saved to: ./logs/vision_tools_debug_{_debug.session_id}.json")
     else:
         print("🐛 Debug mode disabled (set VISION_TOOLS_DEBUG=true to enable)")
-    
+
     print("\nBasic usage:")
     print("  from vision_tools import vision_analyze_tool")
     print("  import asyncio")
@@ -727,14 +735,14 @@ if __name__ == "__main__":
     print("      )")
     print("      print(result)")
     print("  asyncio.run(main())")
-    
+
     print("\nExample prompts:")
     print("  - 'What architectural style is this building?'")
     print("  - 'Describe the emotions and mood in this image'")
     print("  - 'What text can you read in this image?'")
     print("  - 'Identify any safety hazards visible'")
     print("  - 'What products or brands are shown?'")
-    
+
     print("\nDebug mode:")
     print("  # Enable debug logging")
     print("  export VISION_TOOLS_DEBUG=true")
@@ -749,7 +757,15 @@ from tools.registry import registry, tool_error
 
 VISION_ANALYZE_SCHEMA = {
     "name": "vision_analyze",
-    "description": "Analyze images using AI vision. Provides a comprehensive description and answers a specific question about the image content.",
+    "description": (
+        "Inspect an image from a URL, file path, or tool output when you need "
+        "closer detail than what's visible in the conversation. If the user's "
+        "image is already attached to the conversation and you can see it, "
+        "just answer directly — only call this tool for images referenced by "
+        "URL/path, images returned inside other tool results (browser "
+        "screenshots, search thumbnails), or when you need a deeper look at "
+        "a specific region the main model's vision may have missed."
+    ),
     "parameters": {
         "type": "object",
         "properties": {
@@ -786,4 +802,367 @@ registry.register(
     check_fn=check_vision_requirements,
     is_async=True,
     emoji="👁️",
+)
+
+
+# ---------------------------------------------------------------------------
+# Video Analysis Tool
+# ---------------------------------------------------------------------------
+
+# Extension → MIME. avi/mkv fall back to mp4.
+_VIDEO_MIME_TYPES = {
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mov": "video/mov",
+    ".avi": "video/mp4",
+    ".mkv": "video/mp4",
+    ".mpeg": "video/mpeg",
+    ".mpg": "video/mpeg",
+}
+
+_MAX_VIDEO_BASE64_BYTES = 50 * 1024 * 1024  # 50 MB hard cap
+_VIDEO_SIZE_WARN_BYTES = 20 * 1024 * 1024
+
+
+def _detect_video_mime_type(video_path: Path) -> Optional[str]:
+    """Return a video MIME type based on file extension, or None if unsupported."""
+    ext = video_path.suffix.lower()
+    return _VIDEO_MIME_TYPES.get(ext)
+
+
+def _video_to_base64_data_url(video_path: Path, mime_type: Optional[str] = None) -> str:
+    """Convert a video file to a base64-encoded data URL."""
+    data = video_path.read_bytes()
+    encoded = base64.b64encode(data).decode("ascii")
+    mime = mime_type or _VIDEO_MIME_TYPES.get(video_path.suffix.lower(), "video/mp4")
+    return f"data:{mime};base64,{encoded}"
+
+
+async def _download_video(video_url: str, destination: Path, max_retries: int = 3) -> Path:
+    """Download video from URL with SSRF protection and retry."""
+    import asyncio
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+
+    async def _ssrf_redirect_guard(response):
+        if response.is_redirect and response.next_request:
+            redirect_url = str(response.next_request.url)
+            from tools.url_safety import is_safe_url
+            if not is_safe_url(redirect_url):
+                raise ValueError(
+                    f"Blocked redirect to private/internal address: {redirect_url}"
+                )
+
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            blocked = check_website_access(video_url)
+            if blocked:
+                raise PermissionError(blocked["message"])
+
+            async with httpx.AsyncClient(
+                timeout=60.0,
+                follow_redirects=True,
+                event_hooks={"response": [_ssrf_redirect_guard]},
+            ) as client:
+                response = await client.get(
+                    video_url,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                        "Accept": "video/*,*/*;q=0.8",
+                    },
+                )
+                response.raise_for_status()
+
+                cl = response.headers.get("content-length")
+                if cl and int(cl) > _MAX_VIDEO_BASE64_BYTES:
+                    raise ValueError(
+                        f"Video too large ({int(cl)} bytes, max {_MAX_VIDEO_BASE64_BYTES})"
+                    )
+
+                final_url = str(response.url)
+                blocked = check_website_access(final_url)
+                if blocked:
+                    raise PermissionError(blocked["message"])
+
+                body = response.content
+                if len(body) > _MAX_VIDEO_BASE64_BYTES:
+                    raise ValueError(
+                        f"Video too large ({len(body)} bytes, max {_MAX_VIDEO_BASE64_BYTES})"
+                    )
+                destination.write_bytes(body)
+
+            return destination
+        except Exception as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                wait_time = 2 ** (attempt + 1)
+                logger.warning("Video download failed (attempt %s/%s): %s", attempt + 1, max_retries, str(e)[:50])
+                await asyncio.sleep(wait_time)
+            else:
+                logger.error(
+                    "Video download failed after %s attempts: %s",
+                    max_retries, str(e)[:100], exc_info=True,
+                )
+
+    if last_error is None:
+        raise RuntimeError(
+            f"_download_video exited retry loop without attempting (max_retries={max_retries})"
+        )
+    raise last_error
+
+
+async def video_analyze_tool(
+    video_url: str,
+    user_prompt: str,
+    model: str = None,
+) -> str:
+    """Analyze a video via multimodal LLM. Returns JSON {success, analysis}."""
+    if not isinstance(user_prompt, str):
+        user_prompt = str(user_prompt) if user_prompt is not None else ""
+    debug_call_data = {
+        "parameters": {
+            "video_url": video_url,
+            "user_prompt": user_prompt[:200] + "..." if len(user_prompt) > 200 else user_prompt,
+            "model": model,
+        },
+        "error": None,
+        "success": False,
+        "analysis_length": 0,
+        "model_used": model,
+        "video_size_bytes": 0,
+    }
+
+    temp_video_path = None
+    should_cleanup = True
+
+    try:
+        from tools.interrupt import is_interrupted
+        if is_interrupted():
+            return tool_error("Interrupted", success=False)
+
+        logger.info("Analyzing video: %s", video_url[:60])
+        logger.info("User prompt: %s", user_prompt[:100])
+
+        # Resolve local path vs remote URL
+        resolved_url = video_url
+        if resolved_url.startswith("file://"):
+            resolved_url = resolved_url[len("file://"):]
+        local_path = Path(os.path.expanduser(resolved_url))
+
+        if local_path.is_file():
+            logger.info("Using local video file: %s", video_url)
+            temp_video_path = local_path
+            should_cleanup = False
+        elif _validate_image_url(video_url):
+            blocked = check_website_access(video_url)
+            if blocked:
+                raise PermissionError(blocked["message"])
+            temp_dir = get_hermes_dir("cache/video", "temp_video_files")
+            temp_video_path = temp_dir / f"temp_video_{uuid.uuid4()}.mp4"
+            await _download_video(video_url, temp_video_path)
+            should_cleanup = True
+        else:
+            raise ValueError(
+                "Invalid video source. Provide an HTTP/HTTPS URL or a valid local file path."
+            )
+
+        video_size_bytes = temp_video_path.stat().st_size
+        video_size_mb = video_size_bytes / (1024 * 1024)
+        logger.info("Video ready (%.1f MB)", video_size_mb)
+
+        detected_mime = _detect_video_mime_type(temp_video_path)
+        if not detected_mime:
+            raise ValueError(
+                f"Unsupported video format: '{temp_video_path.suffix}'. "
+                f"Supported: {', '.join(sorted(_VIDEO_MIME_TYPES.keys()))}"
+            )
+
+        if video_size_bytes > _VIDEO_SIZE_WARN_BYTES:
+            logger.warning("Video is %.1f MB — may be slow or rejected", video_size_mb)
+
+        video_data_url = _video_to_base64_data_url(temp_video_path, mime_type=detected_mime)
+        data_size_mb = len(video_data_url) / (1024 * 1024)
+
+        if len(video_data_url) > _MAX_VIDEO_BASE64_BYTES:
+            raise ValueError(
+                f"Video too large for API: base64 payload is {data_size_mb:.1f} MB "
+                f"(limit {_MAX_VIDEO_BASE64_BYTES / (1024 * 1024):.0f} MB). "
+                f"Compress or trim the video and retry."
+            )
+
+        debug_call_data["video_size_bytes"] = video_size_bytes
+
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": user_prompt,
+                    },
+                    {
+                        "type": "video_url",
+                        "video_url": {
+                            "url": video_data_url,
+                        },
+                    },
+                ],
+            }
+        ]
+
+        vision_timeout = 180.0
+        vision_temperature = 0.1
+        try:
+            from hermes_cli.config import cfg_get, load_config
+            _cfg = load_config()
+            _vision_cfg = cfg_get(_cfg, "auxiliary", "vision", default={})
+            _vt = _vision_cfg.get("timeout")
+            if _vt is not None:
+                vision_timeout = max(float(_vt), 180.0)
+            _vtemp = _vision_cfg.get("temperature")
+            if _vtemp is not None:
+                vision_temperature = float(_vtemp)
+        except Exception:
+            pass
+
+        call_kwargs = {
+            "task": "vision",
+            "messages": messages,
+            "temperature": vision_temperature,
+            "max_tokens": 4000,
+            "timeout": vision_timeout,
+        }
+        if model:
+            call_kwargs["model"] = model
+
+        response = await async_call_llm(**call_kwargs)
+        analysis = extract_content_or_reasoning(response)
+
+        if not analysis:
+            logger.warning("Empty video response, retrying once")
+            response = await async_call_llm(**call_kwargs)
+            analysis = extract_content_or_reasoning(response)
+
+        analysis_length = len(analysis) if analysis else 0
+        logger.info("Video analysis completed (%s characters)", analysis_length)
+
+        result = {
+            "success": True,
+            "analysis": analysis or "There was a problem with the request and the video could not be analyzed.",
+        }
+
+        debug_call_data["success"] = True
+        debug_call_data["analysis_length"] = analysis_length
+        _debug.log_call("video_analyze_tool", debug_call_data)
+        _debug.save()
+
+        return json.dumps(result, indent=2, ensure_ascii=False)
+
+    except Exception as e:
+        error_msg = f"Error analyzing video: {str(e)}"
+        logger.error("%s", error_msg, exc_info=True)
+
+        err_str = str(e).lower()
+        if any(hint in err_str for hint in (
+            "402", "insufficient", "payment required", "credits", "billing",
+        )):
+            analysis = (
+                "Insufficient credits or payment required. Please top up your "
+                f"API provider account and try again. Error: {e}"
+            )
+        elif any(hint in err_str for hint in (
+            "does not support", "not support video",
+            "content_policy", "multimodal",
+            "unrecognized request argument", "video input",
+            "video_url",
+        )):
+            analysis = (
+                f"The model does not support video analysis or the request was "
+                f"rejected. Ensure you're using a video-capable model "
+                f"(e.g. google/gemini-2.5-flash). Error: {e}"
+            )
+        elif any(hint in err_str for hint in (
+            "too large", "payload", "413", "content_too_large",
+            "request_too_large", "exceeds", "size limit",
+        )):
+            analysis = (
+                "The video is too large for the API. Try compressing or trimming "
+                f"the video (max ~50 MB). Error: {e}"
+            )
+        else:
+            analysis = (
+                "There was a problem with the request and the video could not "
+                f"be analyzed. Error: {e}"
+            )
+
+        result = {
+            "success": False,
+            "error": error_msg,
+            "analysis": analysis,
+        }
+
+        debug_call_data["error"] = error_msg
+        _debug.log_call("video_analyze_tool", debug_call_data)
+        _debug.save()
+
+        return json.dumps(result, indent=2, ensure_ascii=False)
+
+    finally:
+        if should_cleanup and temp_video_path and temp_video_path.exists():
+            try:
+                temp_video_path.unlink()
+                logger.debug("Cleaned up temporary video file")
+            except Exception as cleanup_error:
+                logger.warning(
+                    "Could not delete temporary file: %s", cleanup_error, exc_info=True
+                )
+
+
+VIDEO_ANALYZE_SCHEMA = {
+    "name": "video_analyze",
+    "description": (
+        "Analyze a video from a URL or local file path using a multimodal AI model. "
+        "Sends the video to a video-capable model (e.g. Gemini) for understanding. "
+        "Use this for video files — for images, use vision_analyze instead. "
+        "Supports mp4, webm, mov, avi, mkv, mpeg formats. "
+        "Note: large videos (>20 MB) may be slow; max ~50 MB."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "video_url": {
+                "type": "string",
+                "description": "Video URL (http/https) or local file path to analyze.",
+            },
+            "question": {
+                "type": "string",
+                "description": "Your specific question about the video. The AI will describe what happens in the video and answer your question.",
+            },
+        },
+        "required": ["video_url", "question"],
+    },
+}
+
+
+def _handle_video_analyze(args: Dict[str, Any], **kw: Any) -> Awaitable[str]:
+    video_url = args.get("video_url", "")
+    question = args.get("question", "")
+    full_prompt = (
+        "Fully describe and explain everything happening in this video, "
+        "including visual content, motion, audio cues, text overlays, and scene "
+        f"transitions. Then answer the following question:\n\n{question}"
+    )
+    model = os.getenv("AUXILIARY_VIDEO_MODEL", "").strip() or os.getenv("AUXILIARY_VISION_MODEL", "").strip() or None
+    return video_analyze_tool(video_url, full_prompt, model)
+
+
+registry.register(
+    name="video_analyze",
+    toolset="video",
+    schema=VIDEO_ANALYZE_SCHEMA,
+    handler=_handle_video_analyze,
+    check_fn=check_vision_requirements,
+    is_async=True,
+    emoji="🎬",
 )

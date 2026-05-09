@@ -53,10 +53,10 @@ def run_experiment(problems, strategies, output_dir):
             if result_path.exists():
                 print(f"Skipping {problem['id']}/{strategy} (already done)")
                 continue
-            
+
             # Run the experiment
             result = execute_strategy(problem, strategy)
-            
+
             # Save immediately
             result_path.parent.mkdir(parents=True, exist_ok=True)
             with open(result_path, 'w') as f:
@@ -74,7 +74,7 @@ def save_pass_artifacts(output_dir, pass_num, artifacts):
     """Save all artifacts from a single pass of an iterative method."""
     pass_dir = Path(output_dir) / f"pass_{pass_num:02d}"
     pass_dir.mkdir(parents=True, exist_ok=True)
-    
+
     for name, content in artifacts.items():
         with open(pass_dir / f"{name}.md", 'w') as f:
             f.write(content)
@@ -130,29 +130,29 @@ import random
 def run_blind_evaluation(outputs: dict, task_prompt: str, num_judges: int = 7):
     """
     Run blind evaluation of multiple method outputs.
-    
+
     Args:
         outputs: {"method_name": "output_text", ...}
         task_prompt: The original task description
         num_judges: Number of independent judge evaluations
     """
     rankings = []
-    
+
     for judge_i in range(num_judges):
         # Randomize labels and presentation order per judge
         methods = list(outputs.keys())
         random.shuffle(methods)
         labels = {m: chr(65 + i) for i, m in enumerate(methods)}  # A, B, C...
-        
+
         # Present to judge with randomized labels
         prompt = f"Task: {task_prompt}\n\n"
         for method in methods:
             prompt += f"--- Proposal {labels[method]} ---\n{outputs[method]}\n\n"
         prompt += "Rank all proposals from best to worst. Format: RANKING: [best], [second], [worst]"
-        
+
         ranking = call_judge(prompt)
         rankings.append({"labels": labels, "ranking": ranking})
-    
+
     # Aggregate via Borda count
     return compute_borda(rankings)
 
@@ -160,11 +160,11 @@ def compute_borda(rankings, n_methods=3):
     """Borda count: 3/2/1 points for 1st/2nd/3rd."""
     scores = {}
     points = {0: n_methods, 1: n_methods - 1, 2: n_methods - 2}  # Adjust for n_methods
-    
+
     for r in rankings:
         for position, method in enumerate(r["ranking"]):
             scores[method] = scores.get(method, 0) + points.get(position, 0)
-    
+
     return scores
 ```
 
@@ -184,7 +184,7 @@ import subprocess
 def evaluate_code(solution: str, test_cases: list, timeout: int = 30):
     """Run code solution against test cases with sandboxed execution."""
     results = {"public": [], "private": []}
-    
+
     for test in test_cases:
         try:
             proc = subprocess.run(
@@ -199,10 +199,10 @@ def evaluate_code(solution: str, test_cases: list, timeout: int = 30):
             passed = actual == expected
         except subprocess.TimeoutExpired:
             passed = False
-        
+
         category = "public" if test.get("public") else "private"
         results[category].append(passed)
-    
+
     return {
         "public_pass_rate": sum(results["public"]) / max(len(results["public"]), 1),
         "private_pass_rate": sum(results["private"]) / max(len(results["private"]), 1),
@@ -369,7 +369,7 @@ def pairwise_mcnemar(method_a_results, method_b_results):
     """McNemar's test for paired binary outcomes."""
     a_win_b_lose = sum(1 for a, b in zip(method_a_results, method_b_results) if a and not b)
     b_win_a_lose = sum(1 for a, b in zip(method_a_results, method_b_results) if b and not a)
-    
+
     n = a_win_b_lose + b_win_a_lose
     if n < 25:
         # Use exact binomial for small samples
@@ -379,7 +379,7 @@ def pairwise_mcnemar(method_a_results, method_b_results):
         # Chi-squared approximation
         chi2 = (abs(a_win_b_lose - b_win_a_lose) - 1)**2 / (a_win_b_lose + b_win_a_lose)
         p_value = 1 - stats.chi2.cdf(chi2, df=1)
-    
+
     return {
         "a_wins": a_win_b_lose,
         "b_wins": b_win_a_lose,
@@ -461,7 +461,7 @@ If nothing has changed since the last check, respond with [SILENT].
 | **autoreason** | **40.0%** | **+2.0pp** |
 | best_of_6 | 31.0% | -7.0pp |
 
-Key finding: Autoreason shows +2pp improvement over single pass, while 
+Key finding: Autoreason shows +2pp improvement over single pass, while
 best-of-6 collapses due to single-public-test selection issue.
 
 Committed: `git commit -m "Add Haiku code results (150 problems, 4 strategies)"`
@@ -666,20 +666,20 @@ with plt.style.context(style):
     scores = [73.2, 74.1, 68.5, 77.0]
     errors = [2.1, 1.8, 3.2, 1.5]
     colors = ['#56B4E9', '#E69F00', '#CC79A7', '#0072B2']
-    
+
     fig, ax = plt.subplots(figsize=(3.5, 2.5))
     bars = ax.bar(methods, scores, yerr=errors, capsize=3,
                   color=colors, edgecolor='black', linewidth=0.5)
-    
+
     # Highlight "Ours"
     bars[-1].set_edgecolor('#0072B2')
     bars[-1].set_linewidth(1.5)
-    
+
     ax.set_ylabel('Pass Rate (%)')
     ax.set_ylim(60, 85)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    
+
     fig.savefig('paper/fig_comparison.pdf', bbox_inches='tight')
 ```
 
@@ -688,25 +688,25 @@ with plt.style.context(style):
 ```python
 with plt.style.context(style):
     fig, ax = plt.subplots(figsize=(3.5, 2.5))
-    
+
     passes = np.arange(1, 16)
     ours = [65, 72, 78, 82, 85, 87, 88, 89, 89.5, 90, 90, 90, 90, 90, 90]
     baseline = [65, 68, 70, 71, 69, 67, 66, 65, 64, 63, 62, 61, 60, 59, 58]
-    
+
     ax.plot(passes, ours, **STYLES[0], label='Ours', markersize=4)
     ax.plot(passes, baseline, **STYLES[1], label='Critique+Revise', markersize=4)
-    
+
     # Mark convergence point
     ax.axvline(x=10, color='gray', linestyle=':', alpha=0.5, linewidth=0.8)
     ax.annotate('Converged', xy=(10, 90), fontsize=8, ha='center',
                 xytext=(10, 93), arrowprops=dict(arrowstyle='->', color='gray'))
-    
+
     ax.set_xlabel('Iteration')
     ax.set_ylabel('Quality Score')
     ax.legend(loc='lower right')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    
+
     fig.savefig('paper/fig_trajectory.pdf', bbox_inches='tight')
 ```
 

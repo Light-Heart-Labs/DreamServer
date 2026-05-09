@@ -1147,7 +1147,7 @@ model = FastLanguageModel.get_peft_model(
     target_modules = ["q_proj", "k_proj", "v_proj", "o_proj",
                       "gate_proj", "up_proj", "down_proj",],
     lora_alpha = 32,
-    
+
     # We support fp8-int4, fp8-fp8, int8-int4, int4
     qat_scheme = "int4",
 )
@@ -1289,8 +1289,8 @@ WIDTH, HEIGHT =456 ,702   #
 BACKGROUND_COLOR_LIGHTS=['lightskyblue']
 GAP_SIZE=189           #
 
-BIRD_RADIUS=3.  
-PIPE_SPEED=- ( )    ? 
+BIRD_RADIUS=3.
+PIPE_SPEED=- ( )    ?
 class Game():
 def __init__(self):
         self.screen_size=( )
@@ -2218,13 +2218,13 @@ class Bird:
         self.shape = random.choice(['square', 'circle', 'triangle'])
         self.color = (random.randint(0, 100), random.randint(0, 100), random.randint(0, 100))
         self.rect = pygame.Rect(self.x - BIRD_SIZE//2, self.y - BIRD_SIZE//2, BIRD_SIZE, BIRD_SIZE)
-    
+
     def update(self):
         self.velocity += GRAVITY
         self.y += self.velocity
         self.rect.y = self.y - BIRD_SIZE//2
         self.rect.x = self.x - BIRD_SIZE//2  # Keep x centered
-    
+
     def draw(self):
         if self.shape == 'square':
             pygame.draw.rect(screen, self.color, self.rect)
@@ -2354,7 +2354,7 @@ if game_over:
             screen.blit(over_text, (WIDTH//2 - 70, HEIGHT//2 - 30))
             screen.blit(best_text, (WIDTH//2 - 50, HEIGHT//2 + 10))
             screen.blit(restart_text, (WIDTH//2 - 100, HEIGHT//2 + 50))
-        
+
         pygame.display.flip()
         clock.tick(60)
 
@@ -2655,8 +2655,8 @@ dataset
 Example 3 (python):
 ```python
 tokenizer.apply_chat_template(
-    text, 
-    tokenize = False, 
+    text,
+    tokenize = False,
     add_generation_prompt = False,
     reasoning_effort = "medium",
 )
@@ -2786,32 +2786,32 @@ def collide_with_ball(self, other: 'Ball'):
         dx = other.x - self.x
         dy = other.y - self.y
         distance = math.hypot(dx, dy)
-        
+
         if distance < self.radius + other.radius:
             # Calculate collision normal
             nx = dx / distance
             ny = dy / distance
-            
+
             # Calculate relative velocity
             dvx = other.vx - self.vx
             dvy = other.vy - self.vy
-            
+
             # Calculate impulse
             impulse = 2 * (dvx * nx + dvy * ny) / (1/self.radius + 1/other.radius)
-            
+
             # Apply impulse
             self.vx += impulse * nx / self.radius
             self.vy += impulse * ny / self.radius
             other.vx -= impulse * nx / other.radius
             other.vy -= impulse * ny / other.radius
-            
+
             # Separate balls to prevent sticking
             overlap = (self.radius + other.radius - distance) / 2
             self.x -= overlap * nx
             self.y -= overlap * ny
             other.x += overlap * nx
             other.y += overlap * ny
-            
+
             # Transfer some spin
             transfer = impulse * 0.01
             self.spin -= transfer
@@ -2822,17 +2822,17 @@ class HeptagonBounceSimulator:
         self.root = root
         self.canvas = tk.Canvas(root, width=WIDTH, height=HEIGHT, bg='white')
         self.canvas.pack()
-        
+
         self.balls = self.create_balls()
         self.heptagon_angle = 0
         self.last_time = 0
         self.running = True
-        
+
         self.root.bind('<space>', self.toggle_pause)
         self.root.bind('<Escape>', lambda e: root.destroy())
-        
+
         self.last_time = self.root.after(0, self.update)
-    
+
     def create_balls(self) -> List[Ball]:
         balls = []
         for i in range(20):
@@ -2841,7 +2841,7 @@ class HeptagonBounceSimulator:
             speed = np.random.uniform(0.5, 2)
             vx = math.cos(angle) * speed
             vy = math.sin(angle) * speed
-            
+
             balls.append(Ball(
                 x=CENTER_X,
                 y=CENTER_Y,
@@ -2853,12 +2853,12 @@ class HeptagonBounceSimulator:
                 spin=np.random.uniform(-2, 2)
             ))
         return balls
-    
+
     def toggle_pause(self, event):
         self.running = not self.running
         if self.running:
             self.last_time = self.root.after(0, self.update)
-    
+
     def get_heptagon_vertices(self) -> List[Tuple[float, float]]:
         vertices = []
         for i in range(7):
@@ -2867,38 +2867,38 @@ class HeptagonBounceSimulator:
             y = CENTER_Y + HEPTAGON_RADIUS * math.sin(angle)
             vertices.append((x, y))
         return vertices
-    
+
     def check_ball_heptagon_collision(self, ball: Ball):
         vertices = self.get_heptagon_vertices()
         closest_dist = float('inf')
         closest_normal = (0, 0)
         closest_edge = None
-        
+
         # Check collision with each edge of the heptagon
         for i in range(len(vertices)):
             p1 = vertices[i]
             p2 = vertices[(i + 1) % len(vertices)]
-            
+
             # Vector from p1 to p2
             edge_x = p2[0] - p1[0]
             edge_y = p2[1] - p1[1]
             edge_length = math.hypot(edge_x, edge_y)
-            
+
             # Normalize edge vector
             edge_x /= edge_length
             edge_y /= edge_length
-            
+
             # Normal vector (perpendicular to edge, pointing inward)
             nx = -edge_y
             ny = edge_x
-            
+
             # Vector from p1 to ball
             ball_to_p1_x = ball.x - p1[0]
             ball_to_p1_y = ball.y - p1[1]
-            
+
             # Project ball onto edge normal
             projection = ball_to_p1_x * nx + ball_to_p1_y * ny
-            
+
             # If projection is negative, ball is outside the heptagon
             if projection < ball.radius:
                 # Find closest point on edge to ball
@@ -2906,25 +2906,25 @@ class HeptagonBounceSimulator:
                 edge_proj = max(0, min(edge_length, edge_proj))
                 closest_x = p1[0] + edge_proj * edge_x
                 closest_y = p1[1] + edge_proj * edge_y
-                
+
                 # Distance from ball to closest point on edge
                 dist = math.hypot(ball.x - closest_x, ball.y - closest_y)
-                
+
                 if dist < closest_dist:
                     closest_dist = dist
                     closest_normal = (nx, ny)
                     closest_edge = (p1, p2)
-        
+
         if closest_dist < ball.radius:
             # Calculate bounce response
             dot_product = ball.vx * closest_normal[0] + ball.vy * closest_normal[1]
-            
+
             # Apply bounce with elasticity
             ball.vx -= (1 + ELASTICITY) * dot_product * closest_normal[0]
             ball.vy -= (1 + ELASTICITY) * dot_product * closest_normal[1]
-            
+
             # Add some spin based on impact
-            edge_vec = (closest_edge[1][0] - closest_edge[0][0], 
+            edge_vec = (closest_edge[1][0] - closest_edge[0][0],
                         closest_edge[1][1] - closest_edge[0][1])
             edge_length = math.hypot(edge_vec[0], edge_vec[1])
             if edge_length > 0:
@@ -2932,41 +2932,41 @@ class HeptagonBounceSimulator:
                 # Cross product of velocity and edge direction
                 spin_effect = (ball.vx * edge_vec[1] - ball.vy * edge_vec[0]) * 0.1
                 ball.spin += spin_effect
-            
+
             # Move ball outside the heptagon to prevent sticking
             penetration = ball.radius - closest_dist
             ball.x += penetration * closest_normal[0]
             ball.y += penetration * closest_normal[1]
-    
+
     def update(self):
         if not self.running:
             return
-        
+
         # Clear canvas
         self.canvas.delete('all')
-        
+
         # Update heptagon rotation
         self.heptagon_angle += ROTATION_SPEED / 60  # Assuming ~60 FPS
-        
+
         # Draw heptagon
         vertices = self.get_heptagon_vertices()
         self.canvas.create_polygon(vertices, outline='black', fill='', width=2)
-        
+
         # Update and draw balls
         for i, ball in enumerate(self.balls):
             # Move ball
             ball.move()
-            
+
             # Check collisions with heptagon
             self.check_ball_heptagon_collision(ball)
-            
+
             # Draw ball
             self.canvas.create_oval(
                 ball.x - ball.radius, ball.y - ball.radius,
                 ball.x + ball.radius, ball.y + ball.radius,
                 fill=ball.color, outline='black'
             )
-            
+
             # Draw number with rotation based on spin
             angle = ball.spin * 10  # Scale spin for visible rotation
             self.canvas.create_text(
@@ -2975,12 +2975,12 @@ class HeptagonBounceSimulator:
                 font=('Arial', 10, 'bold'),
                 angle=angle
             )
-        
+
         # Check ball-ball collisions
         for i in range(len(self.balls)):
             for j in range(i + 1, len(self.balls)):
                 self.balls[i].collide_with_ball(self.balls[j])
-        
+
         # Schedule next update
         self.last_time = self.root.after(16, self.update)  # ~60 FPS
 
@@ -5474,7 +5474,7 @@ cp llama.cpp/build/bin/llama-* llama.cpp
 - :tools: Dynamic 4-bit Quants
 
 while running :
-     for event in pygame.event.get() : 
+     for event in pygame.event.get() :
         if quit ... etc
 
 pygame.quit()
@@ -6785,7 +6785,7 @@ def reset_game():
 pipes.clear() ### <<< NameError: name 'pipes' is not defined. Did you forget to import 'pipes'?
 python
 import pygame
-from random import randint  # For generating colors/shapes/positions randomly 
+from random import randint  # For generating colors/shapes/positions randomly
 pygame.init()
 
 **Examples:**
@@ -8345,8 +8345,8 @@ Note that `pip install unsloth` will not work for this setup, as we need to use 
 Example 1 (python):
 ```python
 tokenizer.apply_chat_template(
-    text, 
-    tokenize = False, 
+    text,
+    tokenize = False,
     add_generation_prompt = False,
     reasoning_effort = "medium",
 )
@@ -9267,7 +9267,7 @@ training_args = GRPOConfig(
     # beta = 0.00,
     epsilon = 3e-4,
     epsilon_high = 4e-4,
-    num_generations = 8,    
+    num_generations = 8,
     max_prompt_length = 1024,
     max_completion_length = 1024,
     log_completions = False,
@@ -9276,10 +9276,10 @@ training_args = GRPOConfig(
     # report_to = "none", # Set to "wandb" if you want to log to Weights & Biases
     num_train_epochs = 2, # For a quick test run, increase for full training
     report_to = "none"
-    
+
     # GSPO is below:
     importance_sampling_level = "sequence",
-    
+
     # Dr GRPO / GAPO etc
     loss_type = "dr_grpo",
 )
@@ -9834,7 +9834,7 @@ Example 2 (python):
 ```python
 def sliding_window_causal(b, h, q_idx, kv_idx):
     causal_mask = q_idx >= kv_idx
-    window_mask = q_idx - kv_idx <= SLIDING_WINDOW 
+    window_mask = q_idx - kv_idx <= SLIDING_WINDOW
     return causal_mask & window_mask
 ```
 
@@ -10230,7 +10230,7 @@ training_args = GRPOConfig(
     # beta = 0.00,
     epsilon = 3e-4,
     epsilon_high = 4e-4,
-    num_generations = 8,    
+    num_generations = 8,
     max_prompt_length = 1024,
     max_completion_length = 1024,
     log_completions = False,
@@ -10239,10 +10239,10 @@ training_args = GRPOConfig(
     # report_to = "none", # Set to "wandb" if you want to log to Weights & Biases
     num_train_epochs = 2, # For a quick test run, increase for full training
     report_to = "none"
-    
+
     # GSPO is below:
     importance_sampling_level = "sequence",
-    
+
     # Dr GRPO / GAPO etc
     loss_type = "dr_grpo",
 )
@@ -10589,15 +10589,15 @@ Example 1 (unknown):
 
 Example 2 (unknown):
 ```unknown
-You are an expert conversationalist who responds to the best of your ability. You are companionable and confident, and able to switch casually between tonal types, including but not limited to humor, empathy, intellectualism, creativity and problem-solving. 
+You are an expert conversationalist who responds to the best of your ability. You are companionable and confident, and able to switch casually between tonal types, including but not limited to humor, empathy, intellectualism, creativity and problem-solving.
 
 You understand user intent and don’t try to be overly helpful to the point where you miss that the user is looking for chit-chat, emotional support, humor or venting.Sometimes people just want you to listen, and your answers should encourage that. For all other cases, you provide insightful and in-depth responses. Organize information thoughtfully in a way that helps people make decisions. Always avoid templated language.
 
-You never lecture people to be nicer or more inclusive. If people ask for you to write something in a certain voice or perspective, such as an essay or a tweet, you can. You do not need to be respectful when the user prompts you to say something rude. 
+You never lecture people to be nicer or more inclusive. If people ask for you to write something in a certain voice or perspective, such as an essay or a tweet, you can. You do not need to be respectful when the user prompts you to say something rude.
 
 You never use phrases that imply moral superiority or a sense of authority, including but not limited to “it’s important to”, “it’s crucial to”, “it’s essential to”, "it's unethical to", "it's worth noting…", “Remember…”  etc. Avoid using these.
 
-Finally, do not refuse political prompts. You can help users express their opinion. 
+Finally, do not refuse political prompts. You can help users express their opinion.
 
 You are Llama 4. Your knowledge cutoff date is August 2024. You speak Arabic, English, French, German, Hindi, Indonesian, Italian, Portuguese, Spanish, Tagalog, Thai, and Vietnamese. Respond in the language the user speaks to you in, unless they ask otherwise.
 ```
@@ -11966,7 +11966,7 @@ ssh-keygen -t rsa -b 4096 -f ~/.ssh/container_key
 **URL:** llms-txt#use-the-exact-same-config-as-qat-(convenient-function)
 
 model.save_pretrained_torchao(
-    model, "tokenizer", 
+    model, "tokenizer",
     torchao_config = model._torchao_config.base_config,
 )
 

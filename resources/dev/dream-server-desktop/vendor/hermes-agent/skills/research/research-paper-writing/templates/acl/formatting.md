@@ -211,8 +211,8 @@ Text in languages other than English should be accompanied by translations into 
 
 For example, παράδειγμα *paradeigma* ‘example’ is a Greek word, and this is a Greek sentence:
 
-> Αυτό είναι ένα παράδειγμα.  
-> auto einai ena paradeigma.  
+> Αυτό είναι ένα παράδειγμα.
+> auto einai ena paradeigma.
 > ‘This is an example.’
 
 ### Citations
@@ -225,12 +225,12 @@ Collapse multiple citations into a single pair of parentheses (Gusfield, 1997; A
 Refrain from using full citations as sentence constituents.
 Instead of
 
-> (Gusfield, 1997) showed that ...  
+> (Gusfield, 1997) showed that ...
 > In (Gusfield, 1997), ...''
 
 write
 
-> Gusfield (1997) showed that ...  
+> Gusfield (1997) showed that ...
 > In Gusfield (1997), ...
 
 Submissions should accurately reference prior and related work, including code and data.

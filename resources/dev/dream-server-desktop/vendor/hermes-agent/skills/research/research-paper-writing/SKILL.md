@@ -1,7 +1,7 @@
 ---
 name: research-paper-writing
 title: Research Paper Writing Pipeline
-description: End-to-end pipeline for writing ML/AI research papers — from experiment design through analysis, drafting, revision, and submission. Covers NeurIPS, ICML, ICLR, ACL, AAAI, COLM. Integrates automated experiment monitoring, statistical analysis, iterative writing, and citation verification.
+description: "Write ML papers for NeurIPS/ICML/ICLR: design→submit."
 version: 1.1.0
 author: Orchestra Research
 license: MIT
@@ -22,6 +22,7 @@ End-to-end pipeline for producing publication-ready ML/AI research papers target
 
 This is **not a linear pipeline** — it is an iterative loop. Results trigger new experiments. Reviews trigger new analysis. The agent must handle these feedback loops.
 
+<!-- ascii-guard-ignore -->
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    RESEARCH PAPER PIPELINE                  │
@@ -41,6 +42,7 @@ This is **not a linear pipeline** — it is an iterative loop. Results trigger n
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
+<!-- ascii-guard-ignore-end -->
 
 ---
 
@@ -1412,7 +1414,7 @@ TikZ is the standard for method diagrams in ML papers. Common patterns:
 \centering
 \begin{tikzpicture}[
   node distance=1.8cm,
-  box/.style={rectangle, draw, rounded corners, minimum height=1cm, 
+  box/.style={rectangle, draw, rounded corners, minimum height=1cm,
               minimum width=2cm, align=center, font=\small},
   arrow/.style={-{Stealth[length=3mm]}, thick},
 ]
@@ -1421,13 +1423,13 @@ TikZ is the standard for method diagrams in ML papers. Common patterns:
   \node[box, fill=okgreen!20, right of=encoder] (latent) {Latent\\$z$};
   \node[box, fill=okorange!20, right of=latent] (decoder) {Decoder\\$g_\phi$};
   \node[box, fill=okred!20, right of=decoder] (output) {Output\\$\hat{x}$};
-  
+
   \draw[arrow] (input) -- (encoder);
   \draw[arrow] (encoder) -- (latent);
   \draw[arrow] (latent) -- (decoder);
   \draw[arrow] (decoder) -- (output);
 \end{tikzpicture}
-\caption{Architecture overview. The encoder maps input $x$ to latent 
+\caption{Architecture overview. The encoder maps input $x$ to latent
 representation $z$, which the decoder reconstructs.}
 \label{fig:architecture}
 \end{figure}
@@ -1437,7 +1439,7 @@ representation $z$, which the decoder reconstructs.}
 
 ```latex
 \begin{tikzpicture}[
-  cell/.style={rectangle, draw, minimum width=2.5cm, minimum height=1cm, 
+  cell/.style={rectangle, draw, minimum width=2.5cm, minimum height=1cm,
                align=center, font=\small},
   header/.style={cell, fill=gray!20, font=\small\bfseries},
 ]
@@ -1463,7 +1465,7 @@ representation $z$, which the decoder reconstructs.}
 ```latex
 \begin{tikzpicture}[
   node distance=2cm,
-  box/.style={rectangle, draw, rounded corners, minimum height=0.8cm, 
+  box/.style={rectangle, draw, rounded corners, minimum height=0.8cm,
               minimum width=1.8cm, align=center, font=\small},
   arrow/.style={-{Stealth[length=3mm]}, thick},
   label/.style={font=\scriptsize, midway, above},
@@ -1471,7 +1473,7 @@ representation $z$, which the decoder reconstructs.}
   \node[box, fill=okblue!20] (gen) {Generator};
   \node[box, fill=okred!20, right=2.5cm of gen] (critic) {Critic};
   \node[box, fill=okgreen!20, below=1.5cm of $(gen)!0.5!(critic)$] (judge) {Judge Panel};
-  
+
   \draw[arrow] (gen) -- node[label] {output $A$} (critic);
   \draw[arrow] (critic) -- node[label, right] {critique $C$} (judge);
   \draw[arrow] (judge) -| node[label, left, pos=0.3] {winner} (gen);
@@ -1660,8 +1662,8 @@ When responding to actual reviews (post-submission), rebuttals are a distinct sk
 ```
 > R1-W1: "The paper lacks comparison with Method X."
 
-We thank the reviewer for this suggestion. We have added a comparison with 
-Method X in Table 3 (revised). Our method outperforms X by 3.2pp on [metric] 
+We thank the reviewer for this suggestion. We have added a comparison with
+Method X in Table 3 (revised). Our method outperforms X by 3.2pp on [metric]
 (p<0.05). We note that X requires 2x our compute budget.
 ```
 
@@ -2162,14 +2164,14 @@ terminal("ps aux | grep <pattern>")
 
 **Parallel section drafting** (using delegation):
 ```
-delegate_task("Draft the Methods section based on these experiment scripts and configs. 
-  Include: pseudocode, all hyperparameters, architectural details sufficient for 
+delegate_task("Draft the Methods section based on these experiment scripts and configs.
+  Include: pseudocode, all hyperparameters, architectural details sufficient for
   reproduction. Write in LaTeX using the neurips2025 template conventions.")
 
-delegate_task("Draft the Related Work section. Use web_search and web_extract to 
+delegate_task("Draft the Related Work section. Use web_search and web_extract to
   find papers. Verify every citation via Semantic Scholar. Group by methodology.")
 
-delegate_task("Draft the Experiments section. Read all result files in results/. 
+delegate_task("Draft the Experiments section. Read all result files in results/.
   State which claim each experiment supports. Include error bars and significance.")
 ```
 
@@ -2186,7 +2188,7 @@ results = sch.search_paper("attention mechanism transformers", limit=5)
 for paper in results:
     doi = paper.externalIds.get('DOI', 'N/A')
     if doi != 'N/A':
-        bibtex = requests.get(f"https://doi.org/{doi}", 
+        bibtex = requests.get(f"https://doi.org/{doi}",
                               headers={"Accept": "application/x-bibtex"}).text
         print(bibtex)
 ```
@@ -2196,7 +2198,7 @@ for paper in results:
 **`memory` tool** — persist key decisions (bounded: ~2200 chars for MEMORY.md):
 
 ```
-memory("add", "Paper: autoreason. Venue: NeurIPS 2025 (9 pages). 
+memory("add", "Paper: autoreason. Venue: NeurIPS 2025 (9 pages).
   Contribution: structured refinement works when generation-evaluation gap is wide.
   Key results: Haiku 42/42, Sonnet 3/5, S4.6 constrained 2/3.
   Status: Phase 5 — drafting Methods section.")
@@ -2235,7 +2237,7 @@ cronjob("create", {
     1. ps aux | grep run_experiment
     2. tail -30 logs/experiment_haiku.log
     3. ls results/haiku_baselines/
-    4. If complete: read results, compute Borda scores, 
+    4. If complete: read results, compute Borda scores,
        git add -A && git commit -m 'Add Haiku results' && git push
     5. Report: table of results, key finding, next step
     6. If nothing changed: respond with [SILENT]"
@@ -2248,9 +2250,9 @@ cronjob("create", {
 ```
 cronjob("create", {
   "schedule": "0 9 * * *",  # Daily at 9am
-  "prompt": "NeurIPS 2025 deadline: May 22. Today is {date}. 
-    Days remaining: {compute}. 
-    Check todo list — are we on track? 
+  "prompt": "NeurIPS 2025 deadline: May 22. Today is {date}.
+    Days remaining: {compute}.
+    Check todo list — are we on track?
     If <7 days: warn user about remaining tasks."
 })
 ```

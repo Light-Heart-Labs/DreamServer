@@ -21,7 +21,7 @@ from .delivery import DeliveryRouter, DeliveryTarget
 __all__ = [
     # Config
     "GatewayConfig",
-    "PlatformConfig", 
+    "PlatformConfig",
     "HomeChannel",
     "load_gateway_config",
     # Session

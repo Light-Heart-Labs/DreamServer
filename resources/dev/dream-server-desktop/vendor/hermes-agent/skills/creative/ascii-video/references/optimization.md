@@ -17,7 +17,7 @@ import os
 def detect_hardware():
     """Detect hardware capabilities and return render config."""
     cpu_count = multiprocessing.cpu_count()
-    
+
     # Leave 1-2 cores free for OS + ffmpeg encoding
     if cpu_count >= 16:
         workers = cpu_count - 2
@@ -27,7 +27,7 @@ def detect_hardware():
         workers = cpu_count - 1
     else:
         workers = max(1, cpu_count)
-    
+
     # Memory detection (platform-specific)
     try:
         if platform.system() == "Darwin":
@@ -45,16 +45,16 @@ def detect_hardware():
         mem_bytes = 8 * 1024**3
 
     mem_gb = mem_bytes / (1024**3)
-    
+
     # Each worker uses ~50-150MB depending on grid sizes
     # Cap workers if memory is tight
     mem_per_worker_mb = 150
     max_workers_by_mem = int(mem_gb * 1024 * 0.6 / mem_per_worker_mb)  # use 60% of RAM
     workers = min(workers, max_workers_by_mem)
-    
+
     # ffmpeg availability and codec support
     has_ffmpeg = shutil.which("ffmpeg") is not None
-    
+
     return {
         "cpu_count": cpu_count,
         "workers": workers,
@@ -78,31 +78,31 @@ def quality_profile(hw, target_duration_s, user_preference="auto"):
     if user_preference == "draft":
         return {"vw": 960, "vh": 540, "fps": 12, "crf": 28, "workers": min(4, hw["workers"]),
                 "grid_scale": 0.5, "shaders": "minimal", "particles_max": 200}
-    
+
     if user_preference == "preview":
         return {"vw": 1280, "vh": 720, "fps": 15, "crf": 25, "workers": hw["workers"],
                 "grid_scale": 0.75, "shaders": "standard", "particles_max": 500}
-    
+
     if user_preference == "max":
         return {"vw": 3840, "vh": 2160, "fps": 30, "crf": 15, "workers": hw["workers"],
                 "grid_scale": 2.0, "shaders": "full", "particles_max": 3000}
-    
+
     # "production" or "auto"
     # Auto-detect: estimate render time, downgrade if it would take too long
     n_frames = int(target_duration_s * 24)
     est_seconds_per_frame = 0.18  # ~180ms at 1080p
     est_total_s = n_frames * est_seconds_per_frame / max(1, hw["workers"])
-    
+
     if hw["mem_gb"] < 4 or hw["cpu_count"] <= 2:
         # Low-end: 720p, 15fps
         return {"vw": 1280, "vh": 720, "fps": 15, "crf": 23, "workers": hw["workers"],
                 "grid_scale": 0.75, "shaders": "standard", "particles_max": 500}
-    
+
     if est_total_s > 3600:  # would take over an hour
         # Downgrade to 720p to speed up
         return {"vw": 1280, "vh": 720, "fps": 24, "crf": 20, "workers": hw["workers"],
                 "grid_scale": 0.75, "shaders": "standard", "particles_max": 800}
-    
+
     # Standard production: 1080p 24fps
     return {"vw": 1920, "vh": 1080, "fps": 24, "crf": 20, "workers": hw["workers"],
             "grid_scale": 1.0, "shaders": "full", "particles_max": 1200}
@@ -633,36 +633,36 @@ import shutil
 
 def cleanup_render_artifacts(segments_dir="segments", keep_final=True):
     """Remove intermediate files after successful render.
-    
+
     Call this AFTER verifying the final output exists and plays correctly.
-    
+
     Args:
         segments_dir: directory containing segment clips and concat list
         keep_final: if True, only delete intermediates (not the final output)
     """
     removed = []
-    
+
     # 1. Segment clips
     if os.path.isdir(segments_dir):
         shutil.rmtree(segments_dir)
         removed.append(f"directory: {segments_dir}")
-    
+
     # 2. Temporary WAV files
     for wav in glob.glob("*.wav"):
         if wav.startswith("tmp") or wav.startswith("extracted_"):
             os.remove(wav)
             removed.append(wav)
-    
+
     # 3. ffmpeg stderr logs
     for log in glob.glob("ffmpeg_*.log"):
         os.remove(log)
         removed.append(log)
-    
+
     # 4. Feature cache (optional — useful to keep for re-renders)
     # for cache in glob.glob("features_*.npz"):
     #     os.remove(cache)
     #     removed.append(cache)
-    
+
     print(f"Cleaned {len(removed)} artifacts: {removed}")
     return removed
 ```

@@ -91,11 +91,11 @@ Recursive temporal effect: frame N-1 feeds back into frame N with decay and opti
 class FeedbackBuffer:
     def __init__(self):
         self.buf = None  # previous frame (float32, 0-1)
-    
+
     def apply(self, canvas, decay=0.85, blend="screen", opacity=0.5,
               transform=None, transform_amt=0.02, hue_shift=0.0):
         """Mix current frame with decayed/transformed previous frame.
-        
+
         Args:
             canvas: current frame (uint8 H,W,3)
             decay: how fast old frame fades (0=instant, 1=permanent)
@@ -147,7 +147,7 @@ Composable shader pipeline. Build chains of named shaders with parameters. Order
 ```python
 class ShaderChain:
     """Composable shader pipeline.
-    
+
     Usage:
         chain = ShaderChain()
         chain.add("bloom", thr=120)
@@ -178,7 +178,7 @@ Routes shader names to implementations. Some shaders have **audio-reactive scali
 ```python
 def _apply_shader_step(canvas, name, kwargs, f, t):
     """Dispatch a single shader by name with kwargs.
-    
+
     Args:
         canvas: uint8 (H,W,3) pixel array
         name: shader key string (e.g. "bloom", "chromatic")
@@ -1073,13 +1073,13 @@ import os
 def output_png_sequence(frames, output_dir, W, H, fps, prefix="frame"):
     """Write frames as numbered PNGs. frames = iterable of uint8 (H,W,3) arrays."""
     os.makedirs(output_dir, exist_ok=True)
-    
+
     # Method 1: Direct PIL write (no ffmpeg dependency)
     from PIL import Image
     for i, frame in enumerate(frames):
         img = Image.fromarray(frame)
         img.save(os.path.join(output_dir, f"{prefix}_{i:06d}.png"))
-    
+
     # Method 2: ffmpeg pipe (faster for large sequences)
     cmd = ["ffmpeg", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
            "-s", f"{W}x{H}", "-r", str(fps), "-i", "pipe:0",
@@ -1170,7 +1170,7 @@ ANSI_SHOW_CURSOR = "\033[?25h"
 ```python
 def frame_to_ansi(chars, colors):
     """Convert char+color arrays to a single ANSI string for terminal output.
-    
+
     Args:
         chars: (rows, cols) array of single characters
         colors: (rows, cols, 3) uint8 RGB array
@@ -1225,7 +1225,7 @@ import time
 
 def render_live(scene_fn, r, fps=24, duration=None):
     """Render a scene function live in the terminal.
-    
+
     Args:
         scene_fn: v2 scene function (r, f, t, S) -> canvas
                   OR v1-style function that populates a grid
@@ -1236,10 +1236,10 @@ def render_live(scene_fn, r, fps=24, duration=None):
     frame_time = 1.0 / fps
     S = {}
     f = {}  # synthesize features or connect to live audio
-    
+
     sys.stdout.write(ANSI_HIDE_CURSOR + ANSI_CLEAR)
     sys.stdout.flush()
-    
+
     t0 = time.monotonic()
     frame_count = 0
     try:
@@ -1247,24 +1247,24 @@ def render_live(scene_fn, r, fps=24, duration=None):
             t = time.monotonic() - t0
             if duration and t > duration:
                 break
-            
+
             # Synthesize features from time (or connect to live audio via pyaudio)
             f = synthesize_features(t)
-            
+
             # Render scene — for terminal, use a small grid
             g = r.get_grid("sm")
             # Option A: v2 scene → extract chars/colors from canvas (reverse render)
             # Option B: call effect functions directly for chars/colors
             canvas = scene_fn(r, f, t, S)
-            
+
             # For terminal display, render chars+colors directly
             # (bypassing the pixel canvas — terminal uses character cells)
             chars, colors = scene_to_terminal(scene_fn, r, f, t, S, g)
-            
+
             frame_str = ANSI_CLEAR + frame_to_ansi(chars, colors)
             sys.stdout.write(frame_str)
             sys.stdout.flush()
-            
+
             # Frame timing
             elapsed = time.monotonic() - t0 - (frame_count * frame_time)
             sleep_time = frame_time - elapsed
@@ -1300,18 +1300,18 @@ import curses
 
 def render_curses(scene_fn, r, fps=24):
     """Curses-based live renderer with resize handling and key input."""
-    
+
     def _main(stdscr):
         curses.start_color()
         curses.use_default_colors()
         curses.curs_set(0)  # hide cursor
         stdscr.nodelay(True)  # non-blocking input
-        
+
         # Initialize color pairs (curses supports 256 colors)
         # Map RGB to nearest curses color pair
         color_cache = {}
         next_pair = [1]
-        
+
         def get_color_pair(r, g, b):
             key = (r >> 4, g >> 4, b >> 4)  # quantize to reduce pairs
             if key not in color_cache:
@@ -1323,23 +1323,23 @@ def render_curses(scene_fn, r, fps=24):
                 else:
                     return 0
             return curses.color_pair(color_cache[key])
-        
+
         S = {}
         f = {}
         frame_time = 1.0 / fps
         t0 = time.monotonic()
-        
+
         while True:
             t = time.monotonic() - t0
             f = synthesize_features(t)
-            
+
             # Adapt grid to terminal size
             max_y, max_x = stdscr.getmaxyx()
             g = r.get_grid_for_size(max_x, max_y)  # dynamic grid sizing
-            
+
             chars, colors = scene_to_terminal(scene_fn, r, f, t, S, g)
             rows, cols = chars.shape
-            
+
             for row in range(min(rows, max_y - 1)):
                 for col in range(min(cols, max_x - 1)):
                     ch = chars[row, col]
@@ -1348,16 +1348,16 @@ def render_curses(scene_fn, r, fps=24):
                         stdscr.addch(row, col, ch, get_color_pair(*rgb))
                     except curses.error:
                         pass  # ignore writes outside terminal bounds
-            
+
             stdscr.refresh()
-            
+
             # Handle input
             key = stdscr.getch()
             if key == ord('q'):
                 break
-            
+
             time.sleep(max(0, frame_time - (time.monotonic() - t0 - t)))
-    
+
     curses.wrapper(_main)
 ```
 

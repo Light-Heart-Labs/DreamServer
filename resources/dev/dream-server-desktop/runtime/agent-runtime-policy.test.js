@@ -1,4 +1,6 @@
 const assert = require("assert");
+const os = require("os");
+const path = require("path");
 const { AgentRuntime } = require("./agent-runtime");
 
 function createRuntimeStub() {
@@ -36,6 +38,17 @@ function createRuntimeStub() {
 }
 
 const runtime = new AgentRuntime(createRuntimeStub());
+
+const qrImagePath = path.join(os.tmpdir(), "dream-server-hermes-test", "whatsapp", "qr.svg");
+const gatewayQrAppendix = runtime._appendGatewayQrAppendix("Encontrei o QR.", [
+  {
+    name: "dream_gateway",
+    result: JSON.stringify({
+      result: `QR Code do WhatsApp:\n\n![QR Code do WhatsApp](${qrImagePath})`
+    })
+  }
+]);
+assert.ok(gatewayQrAppendix.includes(`![QR Code do WhatsApp](${qrImagePath})`));
 
 const answerOnlyState = {
   routeId: "coding-project",

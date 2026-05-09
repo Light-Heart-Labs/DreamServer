@@ -12,6 +12,7 @@ import os
 logger = logging.getLogger(__name__)
 
 DEFAULT_CODEX_MODELS: List[str] = [
+    "gpt-5.5",
     "gpt-5.4-mini",
     "gpt-5.4",
     "gpt-5.3-codex",
@@ -21,10 +22,10 @@ DEFAULT_CODEX_MODELS: List[str] = [
 ]
 
 _FORWARD_COMPAT_TEMPLATE_MODELS: List[tuple[str, tuple[str, ...]]] = [
+    ("gpt-5.5", ("gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex")),
     ("gpt-5.4-mini", ("gpt-5.3-codex", "gpt-5.2-codex")),
     ("gpt-5.4", ("gpt-5.3-codex", "gpt-5.2-codex")),
     ("gpt-5.3-codex", ("gpt-5.2-codex",)),
-    ("gpt-5.3-codex-spark", ("gpt-5.3-codex", "gpt-5.2-codex")),
 ]
 
 
@@ -146,7 +147,7 @@ def _read_cache_models(codex_home: Path) -> List[str]:
 
 def get_codex_model_ids(access_token: Optional[str] = None) -> List[str]:
     """Return available Codex model IDs, trying API first, then local sources.
-    
+
     Resolution order: API (live, if token provided) > config.toml default >
     local cache > hardcoded defaults.
     """

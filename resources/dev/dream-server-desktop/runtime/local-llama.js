@@ -3,10 +3,6 @@ const fsp = require("fs/promises");
 const os = require("os");
 const path = require("path");
 const { spawn } = require("child_process");
-const {
-  llamaBinaryPath: resolverBinaryPath,
-  llamaDllDirs: resolverDllDirs
-} = require("./platform/runtime-resolver");
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 11435;
@@ -127,11 +123,6 @@ async function walk(root, predicate, options = {}) {
 }
 
 async function findLlamaServerBinary() {
-  const resolved = resolverBinaryPath();
-  if (resolved) {
-    return resolved;
-  }
-
   const root = path.join(projectRoot(), "bin", "llama");
   const executableNames = process.platform === "win32"
     ? new Set(["llama-server.exe", "server.exe"])
@@ -147,10 +138,6 @@ async function findLlamaServerBinary() {
 async function findDllDirs(runtimeDir) {
   if (process.platform !== "win32") {
     return [];
-  }
-  const resolved = resolverDllDirs();
-  if (resolved.length > 0) {
-    return resolved;
   }
   const dlls = await walk(
     runtimeDir,

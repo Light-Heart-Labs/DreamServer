@@ -8,7 +8,7 @@
 %% merlin.mbs  (with options: `tail,ay,nat,ed-au,nm-rev,ed-rev,jnrlst,aunm-semi,mcite,mct-1,mct-x3,keyxyr,dt-beg,yr-per,yrp-per,note-yr,atit-u,volp-sp,num-xser,bkpg-x,add-pub,isbn,ppx,ed,xedn,and-com,and-com-ed,etal-xc,nfss,,{}')
 %% ----------------------------------------
 %% *** Natbib-compatible implementation of 'aaai' bib style ***
-%% 
+%%
  % ===============================================================
  % IMPORTANT NOTICE:
  % This bibliographic style (bst) file has been generated from one or

@@ -113,7 +113,7 @@ Uses `srgb_to_linear()` / `linear_to_srgb()` from `architecture.md` § OKLAB Col
 ```python
 def blend_canvas_linear(base, top, mode="normal", opacity=1.0):
     """Blend in linear light space for physically accurate results.
-    
+
     Identical API to blend_canvas(), but converts sRGB → linear before
     blending and linear → sRGB after. More expensive (~2x) due to the
     gamma conversions, but produces correct results for additive blending,
@@ -145,7 +145,7 @@ def blend_canvas_linear(base, top, mode="normal", opacity=1.0):
 ```python
 def blend_many_linear(layers, modes, opacities):
     """Blend a stack of layers in linear light space.
-    
+
     Args:
         layers: list of uint8 (H,W,3) canvases
         modes: list of blend mode strings (len = len(layers) - 1)
@@ -756,9 +756,9 @@ from scipy.ndimage import gaussian_filter
 
 def apply_text_backdrop(canvas, glyphs, padding=80, darkness=0.75):
     """Darken the background behind text for readability.
-    
+
     Call AFTER rendering background, BEFORE rendering text.
-    
+
     Args:
         canvas: (VH, VW, 3) uint8 background
         glyphs: list of {"x": float, "y": float, ...} glyph positions
@@ -775,12 +775,12 @@ def apply_text_backdrop(canvas, glyphs, padding=80, darkness=0.75):
     y0 = max(0, int(min(ys)) - padding)
     x1 = min(VW, int(max(xs)) + padding + 50)   # extra for char width
     y1 = min(VH, int(max(ys)) + padding + 60)   # extra for char height
-    
+
     # Soft dark mask with gaussian blur for feathered edges
     mask = np.zeros((VH, VW), dtype=np.float32)
     mask[y0:y1, x0:x1] = 1.0
     mask = gaussian_filter(mask, sigma=padding * 0.6)
-    
+
     factor = 1.0 - mask * darkness
     return (canvas.astype(np.float32) * factor[:, :, np.newaxis]).astype(np.uint8)
 ```

@@ -1,6 +1,6 @@
 ---
 name: unsloth
-description: Expert guidance for fast fine-tuning with Unsloth - 2-5x faster training, 50-80% less memory, LoRA/QLoRA optimization
+description: "Unsloth: 2-5x faster LoRA/QLoRA fine-tuning, less VRAM."
 version: 1.0.0
 author: Orchestra Research
 license: MIT
@@ -78,6 +78,3 @@ To refresh this skill with updated documentation:
 2. The skill will be rebuilt with the latest information
 
 <!-- Trigger re-upload 1763621536 -->
-
-
-

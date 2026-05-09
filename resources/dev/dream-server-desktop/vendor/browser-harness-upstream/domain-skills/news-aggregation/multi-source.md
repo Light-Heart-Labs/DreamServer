@@ -121,7 +121,7 @@ headlines = js("""
   Array.from(document.querySelectorAll('article h2'))
     .map(h => ({
       title: h.innerText.trim(),
-      url: h.closest('a')?.href || h.closest('[href]')?.href || 
+      url: h.closest('a')?.href || h.closest('[href]')?.href ||
            h.parentElement.querySelector('a')?.href
     }))
     .filter(h => h.title.length > 10)
@@ -154,7 +154,7 @@ articles = js("""
   Array.from(document.querySelectorAll('h3'))
     .map(h => ({
       title: h.innerText?.trim(),
-      url: h.closest('a')?.href || h.querySelector('a')?.href || 
+      url: h.closest('a')?.href || h.querySelector('a')?.href ||
            h.parentElement?.querySelector('a')?.href
     }))
     .filter(a => a.title && a.title.length > 20)

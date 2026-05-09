@@ -11,6 +11,7 @@ const state = {
   kanbanQueueProcessing: false,
   kanbanStartingTaskIds: new Set(),
   workbenchView: "preview",
+  selectedGatewayMonitorPlatform: localStorage.getItem("dream.workbench.gatewayPlatform") || "",
   workbenchFilesView: localStorage.getItem("dream.workbench.filesView") === "list" ? "list" : "grid",
   workbenchFilesPath: "",
   selectedWorkbenchFilePath: "",
@@ -30,11 +31,33 @@ const state = {
   liveRefreshTimer: null,
   autoRunKey: null,
   toastTimer: null,
+  settingsSaveTimer: null,
+  endpointModelProbe: {
+    timer: null,
+    requestId: 0,
+    provider: "",
+    baseUrl: "",
+    autofilledValue: "",
+    lastError: ""
+  },
+  skillCatalogPage: 0,
   mobilePreview: {
     service: null,
     loading: false,
     error: "",
     promise: null
+  },
+  installer: {
+    step: "welcome",
+    mode: "local",
+    preset: "minimal",
+    profile: null,
+    recommendation: null,
+    preflight: null,
+    status: null,
+    logs: [],
+    progress: 0,
+    firstRunShown: false
   },
   homeDashboard: {
     timer: null,
@@ -77,6 +100,11 @@ const state = {
     consoleMessages: [],
     pageErrors: []
   },
+  gatewayMonitorLive: {
+    timer: null,
+    polling: false,
+    lastPollAt: 0
+  },
   codeEditor: {
     key: "",
     value: "",
@@ -110,6 +138,7 @@ const state = {
     multiTerminals: "",
     changes: "",
     activity: "",
+    gatewayMonitor: "",
     files: "",
     workbench: "",
     previewSrc: "",
@@ -186,6 +215,7 @@ const elements = {
   profileMeta: document.getElementById("profileMeta"),
   localeMeta: document.getElementById("localeMeta"),
   interactiveMeta: document.getElementById("interactiveMeta"),
+  chatStage: document.querySelector(".chat-stage"),
   heroState: document.getElementById("heroState"),
   transcript: document.getElementById("transcript"),
   kanbanBoard: document.getElementById("kanbanBoard"),
@@ -236,6 +266,51 @@ const elements = {
   manusProviderDetails: document.getElementById("manusProviderDetails"),
   openRouterRoutingDetails: document.getElementById("openRouterRoutingDetails"),
   cloudSettingsGroup: document.getElementById("cloudSettingsGroup"),
+  setupWizard: document.getElementById("setupWizard"),
+  setupCloseButton: document.getElementById("setupCloseButton"),
+  setupEyebrow: document.getElementById("setupEyebrow"),
+  setupTitle: document.getElementById("setupTitle"),
+  setupBackButton: document.getElementById("setupBackButton"),
+  setupNextButton: document.getElementById("setupNextButton"),
+  setupScanButton: document.getElementById("setupScanButton"),
+  setupPreflightButton: document.getElementById("setupPreflightButton"),
+  setupDryRunButton: document.getElementById("setupDryRunButton"),
+  setupInstallButton: document.getElementById("setupInstallButton"),
+  setupCancelButton: document.getElementById("setupCancelButton"),
+  setupRetryButton: document.getElementById("setupRetryButton"),
+  setupHardwareGrid: document.getElementById("setupHardwareGrid"),
+  setupRecommendationPill: document.getElementById("setupRecommendationPill"),
+  setupRecommendationBody: document.getElementById("setupRecommendationBody"),
+  setupRequirementsList: document.getElementById("setupRequirementsList"),
+  setupDreamServerState: document.getElementById("setupDreamServerState"),
+  setupModelDownloadTarget: document.getElementById("setupModelDownloadTarget"),
+  setupLocalEndpointPreview: document.getElementById("setupLocalEndpointPreview"),
+  setupProgressLabel: document.getElementById("setupProgressLabel"),
+  setupProgressValue: document.getElementById("setupProgressValue"),
+  setupProgressBar: document.getElementById("setupProgressBar"),
+  setupLogViewer: document.getElementById("setupLogViewer"),
+  setupFinalStatus: document.getElementById("setupFinalStatus"),
+  setupServiceGrid: document.getElementById("setupServiceGrid"),
+  setupOpenDashboardButton: document.getElementById("setupOpenDashboardButton"),
+  setupOpenLogsButton: document.getElementById("setupOpenLogsButton"),
+  setupOpenLocalSettingsButton: document.getElementById("setupOpenLocalSettingsButton"),
+  openSetupWizardButton: document.getElementById("openSetupWizardButton"),
+  installerSettingsStatusLabel: document.getElementById("installerSettingsStatusLabel"),
+  installerSettingsMode: document.getElementById("installerSettingsMode"),
+  installerSettingsBackend: document.getElementById("installerSettingsBackend"),
+  installerSettingsModel: document.getElementById("installerSettingsModel"),
+  installerSettingsTier: document.getElementById("installerSettingsTier"),
+  installerSettingsServices: document.getElementById("installerSettingsServices"),
+  installerSettingsDisk: document.getElementById("installerSettingsDisk"),
+  installerSettingsRequirements: document.getElementById("installerSettingsRequirements"),
+  installerSettingsServicesList: document.getElementById("installerSettingsServicesList"),
+  installerModelsList: document.getElementById("installerModelsList"),
+  installerDownloadModelSettingsButton: document.getElementById("installerDownloadModelSettingsButton"),
+  installerRefreshStatusButton: document.getElementById("installerRefreshStatusButton"),
+  installerOpenDashboardSettingsButton: document.getElementById("installerOpenDashboardSettingsButton"),
+  installerOpenLogsSettingsButton: document.getElementById("installerOpenLogsSettingsButton"),
+  installerOpenDataFolderButton: document.getElementById("installerOpenDataFolderButton"),
+  installerDiagnosticButton: document.getElementById("installerDiagnosticButton"),
   localSettingsGroup: document.getElementById("localSettingsGroup"),
   settingsForm: document.getElementById("settingsForm"),
   apiKeyInput: document.getElementById("apiKeyInput"),
@@ -274,13 +349,12 @@ const elements = {
   pickBackgroundButton: document.getElementById("pickBackgroundButton"),
   clearBackgroundButton: document.getElementById("clearBackgroundButton"),
   backgroundMediaLabel: document.getElementById("backgroundMediaLabel"),
-  setupOverlay: document.getElementById("setupOverlay"),
-  setupIcon: document.getElementById("setupIcon"),
-  setupSub: document.getElementById("setupSub"),
-  setupLog: document.getElementById("setupLog"),
-  setupActions: document.getElementById("setupActions"),
-  setupRetryBtn: document.getElementById("setupRetryBtn"),
-  setupHint: document.getElementById("setupHint"),
+  dreamPetEnabledInput: document.getElementById("dreamPetEnabledInput"),
+  dreamPetBubbleEnabledInput: document.getElementById("dreamPetBubbleEnabledInput"),
+  dreamPetVoiceEnabledInput: document.getElementById("dreamPetVoiceEnabledInput"),
+  dreamPetVoiceInput: document.getElementById("dreamPetVoiceInput"),
+  dreamPetWakeButton: document.getElementById("dreamPetWakeButton"),
+  dreamPetResetButton: document.getElementById("dreamPetResetButton"),
   refreshLocalModelsButton: document.getElementById("refreshLocalModelsButton"),
   trustModeInput: document.getElementById("trustModeInput"),
   interactiveModeInput: document.getElementById("interactiveModeInput"),
@@ -294,15 +368,42 @@ const elements = {
   kanbanMultiAgentOrchestrationEnabledInput: document.getElementById("kanbanMultiAgentOrchestrationEnabledInput"),
   kanbanMaxParallelAgentsInput: document.getElementById("kanbanMaxParallelAgentsInput"),
   kanbanSchedulerIntervalMsInput: document.getElementById("kanbanSchedulerIntervalMsInput"),
-  connectorIdsInput: document.getElementById("connectorIdsInput"),
-  enableSkillsInput: document.getElementById("enableSkillsInput"),
-  forceSkillsInput: document.getElementById("forceSkillsInput"),
   clearApiKeyButton: document.getElementById("clearApiKeyButton"),
   settingsTabs: document.getElementById("settingsTabs"),
   settingsPaneEyebrow: document.getElementById("settingsPaneEyebrow"),
   settingsDialogTitle: document.getElementById("settingsDialogTitle"),
   settingsRailStatus: document.getElementById("settingsRailStatus"),
   settingsSaveButton: document.getElementById("settingsSaveButton"),
+  settingsSaveState: document.getElementById("settingsSaveState"),
+  settingsRuntimeMode: document.getElementById("settingsRuntimeMode"),
+  settingsRuntimeModeDetail: document.getElementById("settingsRuntimeModeDetail"),
+  settingsRuntimeProvider: document.getElementById("settingsRuntimeProvider"),
+  settingsRuntimeModel: document.getElementById("settingsRuntimeModel"),
+  settingsRuntimeEndpoint: document.getElementById("settingsRuntimeEndpoint"),
+  settingsRuntimeApiMode: document.getElementById("settingsRuntimeApiMode"),
+  settingsRuntimeLocal: document.getElementById("settingsRuntimeLocal"),
+  settingsRuntimeLocalDetail: document.getElementById("settingsRuntimeLocalDetail"),
+  kanbanSettingsQueue: document.getElementById("kanbanSettingsQueue"),
+  kanbanSettingsQueueDetail: document.getElementById("kanbanSettingsQueueDetail"),
+  kanbanSettingsAgents: document.getElementById("kanbanSettingsAgents"),
+  kanbanSettingsAgentsDetail: document.getElementById("kanbanSettingsAgentsDetail"),
+  kanbanSettingsGit: document.getElementById("kanbanSettingsGit"),
+  kanbanSettingsGitDetail: document.getElementById("kanbanSettingsGitDetail"),
+  kanbanSettingsRuntime: document.getElementById("kanbanSettingsRuntime"),
+  kanbanSettingsRuntimeDetail: document.getElementById("kanbanSettingsRuntimeDetail"),
+  skillsSettingsCount: document.getElementById("skillsSettingsCount"),
+  skillsSettingsCommands: document.getElementById("skillsSettingsCommands"),
+  skillsSettingsGateways: document.getElementById("skillsSettingsGateways"),
+  skillCatalogPrevButton: document.getElementById("skillCatalogPrevButton"),
+  skillCatalogNextButton: document.getElementById("skillCatalogNextButton"),
+  skillCatalogPageMeta: document.getElementById("skillCatalogPageMeta"),
+  gatewayRuntimeState: document.getElementById("gatewayRuntimeState"),
+  gatewayRuntimeDetail: document.getElementById("gatewayRuntimeDetail"),
+  gatewayEnabledInput: document.getElementById("gatewayEnabledInput"),
+  gatewayAutoStartInput: document.getElementById("gatewayAutoStartInput"),
+  gatewayStartButton: document.getElementById("gatewayStartButton"),
+  gatewayStopButton: document.getElementById("gatewayStopButton"),
+  gatewayPlatformSettings: document.getElementById("gatewayPlatformSettings"),
   providerBadgeSettings: document.getElementById("providerBadgeSettings"),
   apiKeyBadge: document.getElementById("apiKeyBadge"),
   bridgeStateBadge: document.getElementById("bridgeStateBadge"),
@@ -327,7 +428,6 @@ const elements = {
   codeShaderIntensityValue: document.getElementById("codeShaderIntensityValue"),
   settingsSupportedAppsList: document.getElementById("settingsSupportedAppsList"),
   hermesSkillSummary: document.getElementById("hermesSkillSummary"),
-  hermesGatewayList: document.getElementById("hermesGatewayList"),
   routeFeed: document.getElementById("routeFeed"),
   lspFeed: document.getElementById("lspFeed"),
   projectFeed: document.getElementById("projectFeed"),
@@ -349,11 +449,14 @@ const elements = {
   previewDesktopButton: document.getElementById("previewDesktopButton"),
   previewMobileButton: document.getElementById("previewMobileButton"),
   workbenchPreviewTab: document.getElementById("workbenchPreviewTab"),
+  workbenchGatewayTab: document.getElementById("workbenchGatewayTab"),
   workbenchFilesTab: document.getElementById("workbenchFilesTab"),
   workbenchCodeTab: document.getElementById("workbenchCodeTab"),
   workbenchChangesTab: document.getElementById("workbenchChangesTab"),
   workbenchTerminalTab: document.getElementById("workbenchTerminalTab"),
   previewPanelSection: document.getElementById("previewPanelSection"),
+  gatewayPanelSection: document.getElementById("gatewayPanelSection"),
+  gatewayMonitorSurface: document.getElementById("gatewayMonitorSurface"),
   filesPanelSection: document.getElementById("filesPanelSection"),
   codePanelSection: document.getElementById("codePanelSection"),
   changesPanelSection: document.getElementById("changesPanelSection"),
@@ -655,6 +758,117 @@ function effectiveModelForProvider(provider = "custom", value = "") {
   return defaultModel && looksLikeLocalModelName(model) ? defaultModel : model;
 }
 
+function shouldAutofillEndpointModel(value = "") {
+  const current = String(value || "").trim();
+  return !current || current === "default" || current === state.endpointModelProbe.autofilledValue;
+}
+
+function mergeEndpointModels(models = []) {
+  const seen = new Set();
+  const merged = [];
+  for (const entry of [
+    ...models.map((id) => ({ id })),
+    ...(Array.isArray(state.localModels) ? state.localModels : [])
+  ]) {
+    const id = String(entry?.id || "").trim();
+    if (!id || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    merged.push({ ...entry, id });
+  }
+  state.localModels = merged;
+  renderLocalModels();
+}
+
+function scheduleEndpointModelDetection(options = {}) {
+  if (!window.manusDesktop?.probeOpenAiModels || !elements.localModelInput || !elements.localBaseUrlInput) {
+    return;
+  }
+  const settings = state.app?.settings || {};
+  const provider = normalizeHermesProvider(elements.hermesProviderInput?.value || settings.hermesProvider || "custom");
+  if (!providerUsesLocalEndpoint(provider)) {
+    return;
+  }
+  const baseUrl = effectiveBaseUrlForProvider(
+    provider,
+    fieldValue(elements.localBaseUrlInput, settings.localBaseUrl || defaultBaseUrlForProvider(provider))
+  );
+  if (!baseUrl) {
+    return;
+  }
+  const currentModel = fieldValue(elements.localModelInput, "");
+  const sameTarget = state.endpointModelProbe.provider === provider && state.endpointModelProbe.baseUrl === baseUrl;
+  if (!options.force && sameTarget && state.endpointModelProbe.lastError === "" && !shouldAutofillEndpointModel(currentModel)) {
+    return;
+  }
+  if (!options.force && sameTarget && state.endpointModelProbe.autofilledValue && currentModel === state.endpointModelProbe.autofilledValue) {
+    return;
+  }
+  clearTimeout(state.endpointModelProbe.timer);
+  const delay = Number.isFinite(Number(options.delayMs)) ? Number(options.delayMs) : 450;
+  state.endpointModelProbe.timer = setTimeout(() => {
+    void detectEndpointModel({ ...options, provider, baseUrl });
+  }, Math.max(0, delay));
+}
+
+async function detectEndpointModel(options = {}) {
+  if (!window.manusDesktop?.probeOpenAiModels || !elements.localModelInput) {
+    return null;
+  }
+  const provider = normalizeHermesProvider(options.provider || elements.hermesProviderInput?.value || "custom");
+  if (!providerUsesLocalEndpoint(provider)) {
+    return null;
+  }
+  const baseUrl = String(options.baseUrl || elements.localBaseUrlInput?.value || "").trim();
+  if (!baseUrl) {
+    return null;
+  }
+  const requestId = state.endpointModelProbe.requestId + 1;
+  state.endpointModelProbe.requestId = requestId;
+  state.endpointModelProbe.provider = provider;
+  state.endpointModelProbe.baseUrl = baseUrl;
+  try {
+    const result = await window.manusDesktop.probeOpenAiModels({
+      baseUrl,
+      apiKey: fieldValue(elements.localApiKeyInput, state.app?.settings?.localApiKey || "not-needed"),
+      timeoutMs: options.timeoutMs || 1800
+    });
+    if (requestId !== state.endpointModelProbe.requestId) {
+      return result;
+    }
+    const models = Array.isArray(result?.models) ? result.models.filter(Boolean) : [];
+    if (models.length) {
+      mergeEndpointModels(models);
+    }
+    const selectedModel = String(result?.model || models[0] || "").trim();
+    const currentModel = fieldValue(elements.localModelInput, "");
+    if (selectedModel && shouldAutofillEndpointModel(currentModel)) {
+      elements.localModelInput.value = selectedModel;
+      state.endpointModelProbe.autofilledValue = selectedModel;
+      renderSettingsOperationalSummary(collectSettingsPayload());
+      if (options.markDirty !== false) {
+        markSettingsDirty();
+      }
+      if (options.showToast) {
+        showToast(`Modelo detectado: ${selectedModel}`);
+      }
+    } else if (!selectedModel && options.showToast) {
+      showToast(result?.error || "Nenhum modelo retornado pelo endpoint local.");
+    }
+    state.endpointModelProbe.lastError = result?.ok ? "" : (result?.error || "");
+    return result;
+  } catch (error) {
+    if (requestId === state.endpointModelProbe.requestId) {
+      state.endpointModelProbe.lastError = error?.message || "Falha ao detectar modelo local.";
+    }
+    if (options.showToast) {
+      showToast(error?.message || "Nao consegui detectar o modelo do endpoint local.");
+    }
+    return null;
+  }
+}
+
 function currentHermesRoute(settings = state.app?.settings || {}) {
   const provider = normalizeHermesProvider(settings.hermesProvider || "custom");
   const model = provider === "manus"
@@ -744,7 +958,7 @@ function terminalHermesRouting(settings = state.app?.settings || {}) {
 
 const APERANT_TERMINAL_SLOTS = ["agent-01", "agent-02", "agent-03", "agent-04", "agent-05", "agent-06"];
 const APERANT_MAX_PARALLEL_TASKS = 3;
-const APERANT_APP_MODES = ["kanban", "terminals", "insights", "roadmap", "ideation", "changelog", "context", "github", "worktrees"];
+const APERANT_APP_MODES = ["kanban", "terminals", "github", "worktrees"];
 
 function kanbanMaxParallelAgents() {
   const value = Number(state.app?.settings?.kanbanMaxParallelAgents || APERANT_MAX_PARALLEL_TASKS);
@@ -760,8 +974,8 @@ function aperantProviderHealth(provider = selectedAperantProvider()) {
   const normalized = normalizeAperantProvider(provider);
   if (normalized === "cloud") {
     return state.app?.hasCloudApiKey
-      ? { ok: true, label: "Manus ok", detail: hermesProfileLabel(settings.agentProfile || "manus-1.6") }
-      : { ok: false, label: "Manus sem chave", detail: "Configure a API key em Settings > Hermes Agent > Manus provider." };
+      ? { ok: true, label: "Provider remoto ok", detail: hermesProfileLabel(settings.agentProfile || "manus-1.6") }
+      : { ok: false, label: "Provider remoto sem chave", detail: "Configure a API key em Settings > Hermes Agent." };
   }
   const route = currentHermesRoute(settings);
   const llama = state.app?.localLlamaState || {};
@@ -922,6 +1136,12 @@ function nextTerminalSlot() {
   return terminalSlotName(sessions.length);
 }
 
+function syncViewportLayoutVars() {
+  const root = document.documentElement;
+  root.style.setProperty("--app-viewport-width", `${window.innerWidth}px`);
+  root.style.setProperty("--app-viewport-height", `${window.innerHeight}px`);
+}
+
 function normalizeAppMode(mode) {
   return ["home", "chat", ...APERANT_APP_MODES].includes(String(mode || "").toLowerCase())
     ? String(mode || "").toLowerCase()
@@ -934,6 +1154,70 @@ function setAppMode(mode) {
     state.panelOpen = false;
   }
   renderAll();
+  requestAnimationFrame(() => {
+    syncViewportLayoutVars();
+    resizeComposer();
+    if (state.appMode === "chat") {
+      elements.promptInput?.focus();
+    }
+  });
+}
+
+function syncSurfaceModeClass() {
+  const mode = normalizeAppMode(state.appMode);
+  const active = mode !== "home";
+  document.body.classList.toggle("app-surface-mode", active);
+  document.body.classList.toggle("chat-surface-mode", mode === "chat");
+  document.body.classList.toggle("aperant-surface-mode", APERANT_APP_MODES.includes(mode));
+  if (mode !== "chat") {
+    hideAmbientUi();
+  }
+  syncGatewayPerformanceMode();
+}
+
+function syncGatewayPerformanceMode() {
+  const gatewayActive = normalizeAppMode(state.appMode) === "chat"
+    && Boolean(state.panelOpen)
+    && state.workbenchView === "gateway";
+  const videoActive = Boolean(elements.ambientVideo && !elements.ambientVideo.hidden);
+  document.body.classList.toggle("gateway-workbench-active", gatewayActive);
+  document.body.classList.toggle("has-animated-background", videoActive);
+  document.body.classList.toggle("has-static-background", Boolean(elements.ambientImage && !elements.ambientImage.hidden));
+}
+
+let ambientUiTimer = null;
+
+function canShowAmbientIntro() {
+  const chat = currentChat();
+  return normalizeAppMode(state.appMode) === "chat"
+    && !state.busy
+    && !state.stopping
+    && (!chat || (!(chat.messages || []).length && !visibleEntries(chat).length));
+}
+
+function pulseAmbientUi(event) {
+  const isInsideChatStage = event?.target?.closest?.(".chat-stage");
+  if (!isInsideChatStage || !canShowAmbientIntro()) {
+    hideAmbientUi();
+    return;
+  }
+  document.body.classList.add("ambient-ui-visible");
+  clearTimeout(ambientUiTimer);
+  ambientUiTimer = setTimeout(() => {
+    document.body.classList.remove("ambient-ui-visible");
+  }, 5200);
+}
+
+function hideAmbientUi() {
+  clearTimeout(ambientUiTimer);
+  ambientUiTimer = null;
+  document.body.classList.remove("ambient-ui-visible");
+}
+
+function initAmbientMouseUi() {
+  const target = elements.appShell || document.body;
+  target.addEventListener("pointermove", pulseAmbientUi, { passive: true });
+  target.addEventListener("pointerleave", hideAmbientUi, { passive: true });
 }
 
 function updateHomeDockMagnification(activeIndex = -1) {
@@ -1965,6 +2249,8 @@ function initHomeDashboardDragging() {
   state.homeDashboard.topZ = Math.max(state.homeDashboard.topZ, 4 + windows.length);
 
   window.addEventListener("resize", () => {
+    syncViewportLayoutVars();
+    resizeComposer();
     layoutHomeDashboardWindows();
     drawThroughputChart();
     drawSignalChart();
@@ -2215,7 +2501,7 @@ function applyAmbientBackground(filePath = "") {
   if (elements.backgroundMediaLabel) {
     elements.backgroundMediaLabel.textContent = hasCustom
       ? rawPath
-      : "Padrao: dream-ambient.mp4";
+      : "Sem background padrão";
     elements.backgroundMediaLabel.title = hasCustom ? rawPath : "";
   }
 
@@ -2226,6 +2512,7 @@ function applyAmbientBackground(filePath = "") {
       elements.ambientVideo.pause();
       elements.ambientVideo.hidden = true;
     }
+    syncGatewayPerformanceMode();
     return;
   }
 
@@ -2238,15 +2525,93 @@ function applyAmbientBackground(filePath = "") {
     return;
   }
 
+  if (!useVideo) {
+    elements.ambientVideo.pause();
+    elements.ambientVideo.hidden = true;
+    elements.ambientVideo.removeAttribute("src");
+    elements.ambientVideo.innerHTML = "";
+    elements.ambientVideo.dataset.src = "";
+    syncGatewayPerformanceMode();
+    return;
+  }
+
   elements.ambientVideo.hidden = false;
-  const nextSrc = useVideo ? fileUrlFromPath(rawPath) : "./assets/dream-ambient.mp4";
+  const nextSrc = fileUrlFromPath(rawPath);
   if (elements.ambientVideo.dataset.src !== nextSrc) {
     elements.ambientVideo.dataset.src = nextSrc;
-    elements.ambientVideo.innerHTML = `<source src="${escapeHtml(nextSrc)}" type="${useVideo ? videoContentType(rawPath) : "video/mp4"}"/>`;
+    elements.ambientVideo.innerHTML = `<source src="${escapeHtml(nextSrc)}" type="${videoContentType(rawPath)}"/>`;
     elements.ambientVideo.load();
   }
   elements.ambientVideo.play?.().catch(() => {});
+  syncGatewayPerformanceMode();
 }
+
+function currentAmbientMediaSource() {
+  if (elements.ambientImage && !elements.ambientImage.hidden && elements.ambientImage.src) {
+    return { tag: "img", src: elements.ambientImage.src };
+  }
+  if (elements.ambientVideo && !elements.ambientVideo.hidden) {
+    const source = elements.ambientVideo.currentSrc || elements.ambientVideo.querySelector("source")?.src || "";
+    if (source) {
+      return { tag: "video", src: source };
+    }
+  }
+  return null;
+}
+
+function syncLiquidGlassBackdrops() {
+  document.querySelector(".glass-backdrop-media-global")?.remove();
+  document.querySelectorAll(".glass-backdrop-media").forEach((clone) => clone.remove());
+}
+
+function syncGlobalLiquidGlassBackdrop(media, surfaces) {
+  return;
+  const host = elements.appShell || document.body;
+  let clone = document.querySelector(".glass-backdrop-media-global");
+  if (!clone) {
+    clone = document.createElement("video");
+    clone.className = "glass-backdrop-media-global";
+    clone.setAttribute("aria-hidden", "true");
+    clone.muted = true;
+    clone.loop = true;
+    clone.autoplay = true;
+    clone.playsInline = true;
+    host.prepend(clone);
+  }
+
+  if (clone.dataset.src !== media.src) {
+    clone.dataset.src = media.src;
+    clone.src = media.src;
+    clone.load?.();
+  }
+
+  try {
+    if (elements.ambientVideo && Number.isFinite(elements.ambientVideo.currentTime)) {
+      const delta = Math.abs((clone.currentTime || 0) - elements.ambientVideo.currentTime);
+      if (delta > 0.45) {
+        clone.currentTime = elements.ambientVideo.currentTime;
+      }
+    }
+  } catch (_) {}
+  clone.play?.().catch(() => {});
+
+  const visibleRects = Array.from(surfaces)
+    .map((surface) => surface.getBoundingClientRect())
+    .filter((rect) => rect.width > 2 && rect.height > 2);
+
+  const applyRect = (slot, rect) => {
+    clone.style.setProperty(`--glass-mask-${slot}-x`, `${Math.round(rect?.left ?? -9999)}px`);
+    clone.style.setProperty(`--glass-mask-${slot}-y`, `${Math.round(rect?.top ?? -9999)}px`);
+    clone.style.setProperty(`--glass-mask-${slot}-w`, `${Math.round(rect?.width ?? 0)}px`);
+    clone.style.setProperty(`--glass-mask-${slot}-h`, `${Math.round(rect?.height ?? 0)}px`);
+  };
+
+  applyRect("a", visibleRects[0]);
+  applyRect("b", visibleRects[1]);
+}
+
+window.addEventListener("resize", () => requestAnimationFrame(syncLiquidGlassBackdrops));
+setInterval(syncLiquidGlassBackdrops, 1000);
 
 function fileUrlFromPath(value) {
   const raw = String(value || "").trim();
@@ -2257,6 +2622,9 @@ function fileUrlFromPath(value) {
     return raw;
   }
   const normalized = raw.replace(/\\/g, "/");
+  if (/^(?:\.{1,2}\/|assets\/)/.test(normalized)) {
+    return normalized.startsWith("assets/") ? `./${normalized}` : normalized;
+  }
   if (/^[A-Za-z]:\//.test(normalized)) {
     const [drive, ...parts] = normalized.split("/");
     return `file:///${drive}/${parts.map(encodeURIComponent).join("/")}`;
@@ -5189,7 +5557,7 @@ async function runPreviewHarnessCommand(command = {}) {
 
 function resizeComposer() {
   elements.promptInput.style.height = "0px";
-  elements.promptInput.style.height = `${Math.min(elements.promptInput.scrollHeight, 220)}px`;
+  elements.promptInput.style.height = `${Math.max(54, Math.min(elements.promptInput.scrollHeight, 220))}px`;
 }
 
 function slashCatalogItems() {
@@ -5472,7 +5840,7 @@ function normalizeStatus(status) {
 }
 
 function parseActionPayload(content) {
-  const source = String(content || "");
+  const source = sanitizeHermesProtocolMarkup(content);
   const pattern = /```(?:dream-server-action|manus-studio-action)\s*([\s\S]*?)```/gi;
   const actions = [];
   const cleaned = source.replace(pattern, (_, rawJson) => {
@@ -5489,6 +5857,16 @@ function parseActionPayload(content) {
     body: cleaned.trim(),
     actions
   };
+}
+
+function sanitizeHermesProtocolMarkup(content = "") {
+  return String(content || "")
+    .replace(/<tool_call\b[^>]*>[\s\S]*?<\/tool_call>/gi, "")
+    .replace(/<tool_call\b[^>]*>[\s\S]*$/gi, "")
+    .replace(/<arg_key\b[^>]*>[\s\S]*?<\/arg_key>/gi, "")
+    .replace(/<arg_value\b[^>]*>[\s\S]*?<\/arg_value>/gi, "")
+    .replace(/<\/?(?:tool_call|arg_key|arg_value)\b[^>]*>/gi, "")
+    .trim();
 }
 
 function extractMessagePayload(message) {
@@ -5685,12 +6063,32 @@ function visibleThinkingSummary(item = {}) {
   return summary;
 }
 
+function thinkingActivityLabel(item = {}) {
+  if (item.type === "agent_reasoning_delta") return "Thought";
+  if (item.type === "tool_call_started") return "Executando";
+  if (item.type === "tool_call_finished") return item.ok === false ? "Falhou" : "Executou";
+  return "Status";
+}
+
+function thinkingActivitySummary(item = {}) {
+  if (item.type === "agent_reasoning_delta" || item.type === "agent_phase_changed") {
+    return visibleThinkingSummary(item);
+  }
+  return shortText(String(item.summary || item.type || "").trim(), 220);
+}
+
 function thinkingActivityMarkup() {
   const items = runtimeActivityForChat(currentChat())
-    .filter((item) => item.type === "agent_reasoning_delta" || item.type === "agent_phase_changed")
+    .filter((item) => (
+      item.type === "agent_reasoning_delta" ||
+      item.type === "agent_phase_changed" ||
+      item.type === "tool_call_started" ||
+      item.type === "tool_call_finished"
+    ))
     .map((item) => ({
       ...item,
-      summary: visibleThinkingSummary(item)
+      label: thinkingActivityLabel(item),
+      summary: thinkingActivitySummary(item)
     }))
     .filter((item) => item.summary)
     .slice(-8)
@@ -5704,7 +6102,7 @@ function thinkingActivityMarkup() {
       <div class="thinking-detail-feed">
         ${items.map((item) => `
           <div class="thinking-detail-row">
-            <span>${escapeHtml(item.type === "agent_reasoning_delta" ? "Thought" : "Status")}</span>
+            <span>${escapeHtml(item.label)}</span>
             <p>${escapeHtml(shortText(item.summary || item.type, 220))}</p>
           </div>
         `).join("")}
@@ -5759,7 +6157,7 @@ function actionCardsMarkup(items) {
 }
 
 function transcriptBodyForAssistant(content = "") {
-  const source = String(content || "").trim();
+  const source = sanitizeHermesProtocolMarkup(content);
   if (!source) {
     return "";
   }
@@ -5784,6 +6182,19 @@ function renderInlineMarkdown(text = "") {
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/\*([^*]+)\*/g, "<em>$1</em>");
+}
+
+function renderMarkdownImage(line = "") {
+  const match = String(line || "").trim().match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+  if (!match) {
+    return "";
+  }
+  const alt = match[1] || "imagem";
+  const source = fileUrlFromPath(match[2]);
+  if (!source) {
+    return "";
+  }
+  return `<figure class="message-image"><img src="${escapeHtml(source)}" alt="${escapeHtml(alt)}" /></figure>`;
 }
 
 function renderMarkdownTable(lines, startIndex) {
@@ -5818,7 +6229,7 @@ function renderMarkdownTable(lines, startIndex) {
 }
 
 function renderMessageMarkdown(source = "") {
-  const lines = String(source || "").replace(/\r\n/g, "\n").split("\n");
+  const lines = sanitizeHermesProtocolMarkup(source).replace(/\r\n/g, "\n").split("\n");
   const html = [];
   let paragraph = [];
   let list = null;
@@ -5863,6 +6274,13 @@ function renderMessageMarkdown(source = "") {
       flushList();
       continue;
     }
+    const image = renderMarkdownImage(line);
+    if (image) {
+      flushParagraph();
+      flushList();
+      html.push(image);
+      continue;
+    }
     const heading = line.match(/^(#{1,3})\s+(.+)$/);
     if (heading) {
       flushParagraph();
@@ -5902,7 +6320,7 @@ function renderSidebar() {
     .map((chat) => {
       const isActive = chat.id === selectedId ? "is-active" : "";
       const snippet = shortText(lastPreview(chat) || "Sem mensagens ainda.", 86);
-      return `<div class="chat-list-row"><button class="chat-list-item ${isActive}" data-chat-id="${escapeHtml(chat.id)}"><p class="chat-list-title">${escapeHtml(chat.title || "Nova sessao")}</p><p class="chat-list-snippet">${escapeHtml(snippet)}</p><div class="chat-list-meta"><span>${activeProvider(chat) === "local" ? "Hermes" : "Manus"}</span><span>${formatClock(chat.updatedAt)}</span></div></button><button class="toolbar-button chat-delete" data-delete-chat="${escapeHtml(chat.id)}">x</button></div>`;
+      return `<div class="chat-list-row"><button class="chat-list-item ${isActive}" data-chat-id="${escapeHtml(chat.id)}"><p class="chat-list-title">${escapeHtml(chat.title || "Nova sessao")}</p><p class="chat-list-snippet">${escapeHtml(snippet)}</p><div class="chat-list-meta"><span>${activeProvider(chat) === "local" ? "Hermes" : "Remoto"}</span><span>${formatClock(chat.updatedAt)}</span></div></button><button class="toolbar-button chat-delete" data-delete-chat="${escapeHtml(chat.id)}">x</button></div>`;
     })
     .join("");
 
@@ -5930,6 +6348,16 @@ function setCheckedIfPresent(element, value) {
 
 function currentHostInfo() {
   return state.app?.hostInfo || {};
+}
+
+function currentWorkspaceRootFallback(chat = currentChat(), project = null) {
+  return chat?.workspaceRoot ||
+    project?.path ||
+    project?.root ||
+    project?.workspaceRoot ||
+    state.app?.workspaceRoot ||
+    currentHostInfo().workspaceRoot ||
+    "";
 }
 
 function defaultTerminalShellValue() {
@@ -6067,6 +6495,369 @@ function syncProviderSpecificSettings(settings = state.app?.settings || {}, opti
   }
 }
 
+function setElementText(element, value) {
+  if (element) {
+    element.textContent = value;
+  }
+}
+
+function setSettingsSaveState(kind = "idle", message = "Sem alteracoes") {
+  if (!elements.settingsSaveState) {
+    return;
+  }
+  clearTimeout(state.settingsSaveTimer);
+  elements.settingsSaveState.textContent = message;
+  elements.settingsSaveState.dataset.state = kind;
+  elements.settingsSaveState.classList.toggle("is-saving", kind === "saving");
+  elements.settingsSaveState.classList.toggle("is-saved", kind === "saved");
+  elements.settingsSaveState.classList.toggle("is-error", kind === "error");
+  elements.settingsSaveState.classList.toggle("is-dirty", kind === "dirty");
+  if (kind === "saved") {
+    state.settingsSaveTimer = setTimeout(() => {
+      if (elements.settingsSaveState?.dataset.state === "saved") {
+        setSettingsSaveState("idle", "Sem alteracoes");
+      }
+    }, 4200);
+  }
+}
+
+function markSettingsDirty() {
+  if (!elements.settingsModal || elements.settingsModal.hidden) {
+    return;
+  }
+  setSettingsSaveState("dirty", "Alteracoes nao salvas");
+  const draftSettings = collectSettingsPayload();
+  renderSettingsOperationalSummary(draftSettings);
+  renderKanbanSettingsSummary(draftSettings);
+  renderSkillsSettingsSummary(draftSettings);
+}
+
+function renderSettingsOperationalSummary(settings = state.app?.settings || {}) {
+  const route = currentHermesRoute(settings);
+  const executionProvider = executionProviderForSettings(settings);
+  const llama = state.app?.localLlamaState || {};
+  const llamaStatus = String(llama.status || "idle");
+  const modelText = route.model || "default";
+  const endpointText = route.provider === "auto"
+    ? (route.baseUrl || "config.yaml/env")
+    : (route.baseUrl || "Provider sem endpoint");
+  const apiMode = settings.hermesApiMode && settings.hermesApiMode !== "auto"
+    ? settings.hermesApiMode
+    : "API auto";
+  const localDetail = [
+    settings.localLlamaEnabled ? "gerenciado ligado" : "gerenciado desligado",
+    settings.localLlamaAutoStart ? "autostart" : "",
+    llama.pid ? `pid ${llama.pid}` : "",
+    llama.model ? pathBaseName(llama.model) : ""
+  ].filter(Boolean).join(" · ") || "Sem processo local ativo";
+
+  setElementText(elements.settingsRuntimeMode, executionProvider === "cloud" ? "Cloud" : "Local / externo");
+  setElementText(elements.settingsRuntimeModeDetail, executionProvider === "cloud"
+    ? "Provider remoto selecionado"
+    : "Rota Hermes atual selecionada");
+  setElementText(elements.settingsRuntimeProvider, route.label || "Hermes");
+  setElementText(elements.settingsRuntimeModel, modelText || "Modelo default");
+  setElementText(elements.settingsRuntimeEndpoint, shortText(endpointText, 42));
+  setElementText(elements.settingsRuntimeApiMode, apiMode);
+  setElementText(elements.settingsRuntimeLocal, settings.localLlamaEnabled ? llamaStatus : "desligado");
+  setElementText(elements.settingsRuntimeLocalDetail, localDetail);
+}
+
+function renderKanbanSettingsSummary(settings = state.app?.settings || {}) {
+  const tasks = state.app?.tasks || [];
+  const total = tasks.length;
+  const pending = pendingKanbanTasks().length;
+  const running = runningKanbanTaskCount();
+  const review = tasks.filter((task) => ["ai_review", "human_review"].includes(visualTaskStatus(task.status))).length;
+  const maxParallel = Number(settings.kanbanMaxParallelAgents || APERANT_MAX_PARALLEL_TASKS) || APERANT_MAX_PARALLEL_TASKS;
+  const schedulerOn = settings.kanbanAutoSchedulerEnabled !== false;
+  const interval = Number(settings.kanbanSchedulerIntervalMs || 2500);
+  const queueState = state.kanbanQueueActive ? "Fila ligada" : "Fila parada";
+  const agentLimit = Math.max(1, Math.min(12, maxParallel));
+
+  setElementText(elements.kanbanSettingsQueue, `${pending} pendentes`);
+  setElementText(elements.kanbanSettingsQueueDetail, `${queueState} · ${total} cards · ${review} review`);
+  setElementText(elements.kanbanSettingsAgents, `${running}/${agentLimit} agentes`);
+  setElementText(elements.kanbanSettingsAgentsDetail, settings.kanbanMultiAgentOrchestrationEnabled
+    ? "Planner / Builder / QA ativo"
+    : "Start simples por task");
+  setElementText(elements.kanbanSettingsGit, settings.kanbanGitEnabled ? "Worktree on" : "Worktree off");
+  setElementText(elements.kanbanSettingsGitDetail, settings.kanbanAutoPrEnabled ? "PR automatico ativo" : "PR manual");
+  setElementText(elements.kanbanSettingsRuntime, schedulerOn ? "Automatico" : "Manual");
+  setElementText(elements.kanbanSettingsRuntimeDetail, [
+    schedulerOn ? `${interval} ms` : "Scheduler desligado",
+    settings.kanbanAutoRecoverEnabled !== false ? "recovery" : "",
+    settings.kanbanAutoCleanupEnabled !== false ? "cleanup" : ""
+  ].filter(Boolean).join(" · "));
+}
+
+const GATEWAY_UI_FIELDS = Object.freeze({
+  discord: {
+    label: "Discord",
+    summary: "Bot oficial do Discord. Precisa de token de bot e ID do canal.",
+    steps: ["Crie um app no Discord Developer Portal.", "Ative Bot e copie o token.", "Convide o bot para o servidor com permissao de ler/enviar mensagens.", "No Discord, ative Developer Mode e copie o ID do canal."],
+    secrets: {
+      botToken: { label: "Bot token", placeholder: "Cole o token do bot Discord" }
+    },
+    fields: {
+      homeChannel: { label: "Canal principal", placeholder: "Ex.: 123456789012345678", help: "Use o ID numerico do canal, nao o nome visivel. Clique com o botao direito no canal e use Copy Channel ID." },
+      replyToMode: { label: "Modo de resposta", placeholder: "thread, channel ou mention", help: "Define se o Hermes responde em thread, no canal ou apenas quando mencionado." }
+    }
+  },
+  telegram: {
+    label: "Telegram",
+    summary: "Bot do Telegram via BotFather. Precisa de token e chat/canal de destino.",
+    steps: ["Crie o bot no @BotFather.", "Cole o token.", "Envie uma mensagem para o bot ou adicione em um grupo.", "Informe o chat id em Home channel quando quiser canal fixo."],
+    secrets: {
+      botToken: { label: "Bot token", placeholder: "Token gerado pelo BotFather" }
+    },
+    fields: {
+      homeChannel: { label: "Chat principal", placeholder: "Ex.: -1001234567890 ou @canal", help: "Para grupos/canais, use o chat id real. Em muitos grupos ele comeca com -100." },
+      replyToMode: { label: "Modo de resposta", placeholder: "direct, mention ou all", help: "Use all para responder tudo, mention para exigir mencao, ou direct para DMs." }
+    }
+  },
+  slack: {
+    label: "Slack",
+    summary: "Slack bot token. Use um token xoxb com escopos de mensagens.",
+    steps: ["Crie um Slack App.", "Adicione escopos de bot para canais e mensagens.", "Instale no workspace.", "Cole o Bot token e o canal."],
+    secrets: {
+      botToken: { label: "Bot token", placeholder: "xoxb-..." }
+    },
+    fields: {
+      homeChannel: { label: "Canal principal", placeholder: "Ex.: C0123ABCDEF", help: "Use o ID do canal do Slack. Nomes como #geral podem mudar e sao menos confiaveis." },
+      replyToMode: { label: "Modo de resposta", placeholder: "thread, channel ou mention", help: "Controla se o Hermes responde em thread, direto no canal ou so quando citado." }
+    }
+  },
+  whatsapp: {
+    label: "WhatsApp",
+    summary: "O Hermes usa uma bridge de WhatsApp; a autenticação acontece fora deste formulário.",
+    steps: ["Inicie a bridge de WhatsApp do Hermes pelo gateway, nao pelo Preview.", "Faça login/pareamento por QR code na janela/log da bridge.", "Copie o ID real do chat ou grupo retornado pela bridge.", "Defina as politicas para limitar DMs, grupos e usuarios autorizados."],
+    fields: {
+      homeChannel: { label: "Chat/grupo principal", placeholder: "Ex.: 5511999999999@s.whatsapp.net ou 1203...@g.us", help: "Nao e o nome do grupo. Use o ID que a bridge mostra nos logs/eventos." },
+      dmPolicy: { label: "Politica de DM", placeholder: "allow, deny ou allowed_users", help: "allow responde DMs; deny ignora; allowed_users limita aos IDs autorizados." },
+      groupPolicy: { label: "Politica de grupo", placeholder: "mention, allow ou deny", help: "mention exige mencao/padrao; allow responde no grupo; deny ignora grupos." },
+      allowedUsers: { label: "Usuarios autorizados", placeholder: "5511999999999@s.whatsapp.net, 5521888888888@s.whatsapp.net", help: "Lista separada por virgula. Use IDs da bridge, nao apelidos." },
+      groupAllowedUsers: { label: "Usuarios autorizados em grupos", placeholder: "5511999999999@s.whatsapp.net, 5521888888888@s.whatsapp.net", help: "Quem pode chamar o Hermes dentro de grupos quando a politica exigir permissao." },
+      freeResponseChats: { label: "Chats livres", placeholder: "1203...@g.us, 5511999999999@s.whatsapp.net", help: "Chats onde o Hermes pode responder sem mencao ou regra extra." },
+      mentionPatterns: { label: "Padroes de mencao", placeholder: "@hermes, hermes, dream server", help: "Termos separados por virgula que ativam o agente em grupos." }
+    }
+  },
+  matrix: {
+    label: "Matrix",
+    summary: "Conecta em um homeserver Matrix com access token ou senha.",
+    steps: ["Informe o homeserver.", "Use access token ou usuario/senha.", "Opcionalmente informe room em Home channel.", "Salve e inicie o gateway."],
+    secrets: { accessToken: { label: "Access token" }, password: { label: "Password" } },
+    fields: {
+      homeserver: { label: "Homeserver", placeholder: "https://matrix.org" },
+      userId: { label: "User ID", placeholder: "@user:matrix.org" },
+      deviceId: { label: "Device ID", placeholder: "Opcional" },
+      homeChannel: { label: "Sala principal", placeholder: "!roomid:matrix.org", help: "Use o ID da sala Matrix quando quiser uma sala padrao." }
+    }
+  },
+  mattermost: {
+    label: "Mattermost",
+    summary: "Bot token e URL do servidor Mattermost.",
+    steps: ["Crie um bot ou token pessoal no Mattermost.", "Informe a URL base do servidor.", "Cole o token.", "Informe canal quando quiser destino fixo."],
+    secrets: { token: "Token" },
+    fields: { serverUrl: "Server URL", homeChannel: "Channel" }
+  },
+  signal: {
+    label: "Signal",
+    summary: "Requer signal-cli-rest-api rodando e uma conta vinculada.",
+    steps: ["Suba o signal-cli-rest-api.", "Vincule a conta Signal.", "Informe HTTP URL e account.", "Informe Home channel se quiser conversa fixa."],
+    fields: { httpUrl: "Signal HTTP URL", account: "Account", homeChannel: "Home channel" }
+  },
+  homeassistant: {
+    label: "Home Assistant",
+    summary: "Long-lived access token do Home Assistant.",
+    steps: ["Crie um token longo no perfil do Home Assistant.", "Informe a URL da instancia.", "Cole o token.", "Salve e inicie."],
+    secrets: { token: "Token" },
+    fields: { url: "URL" }
+  },
+  email: {
+    label: "Email",
+    summary: "IMAP/SMTP para ler e responder emails.",
+    steps: ["Use senha de app quando o provedor exigir.", "Informe endereco, IMAP e SMTP.", "Cole a senha.", "Defina Home address se precisar de caixa principal."],
+    secrets: { password: "Password" },
+    fields: { address: "Address", imapHost: "IMAP host", smtpHost: "SMTP host", homeAddress: "Home address" }
+  },
+  sms: {
+    label: "SMS/Twilio",
+    summary: "Twilio Account SID e Auth Token.",
+    steps: ["Crie/abra o projeto Twilio.", "Copie Account SID e Auth Token.", "Informe telefone/canal.", "Salve e inicie."],
+    secrets: { accountSid: "Account SID", authToken: "Auth token" },
+    fields: { homeChannel: "Phone/channel" }
+  },
+  api_server: {
+    label: "API Server",
+    summary: "Servidor HTTP local do gateway para integrações internas.",
+    steps: ["Escolha host e porta.", "Defina API key se quiser proteger acesso.", "Salve e inicie.", "Aponte seu cliente para o endpoint exibido nos logs."],
+    secrets: { apiKey: "API key" },
+    fields: { host: "Host", port: "Port", modelName: "Model name" }
+  },
+  webhook: {
+    label: "Webhook",
+    summary: "Entrada HTTP simples para receber eventos externos.",
+    steps: ["Escolha a porta.", "Defina um secret se o emissor suportar assinatura.", "Salve e inicie.", "Configure o emissor externo para chamar o webhook."],
+    secrets: { secret: "Secret" },
+    fields: { port: "Port" }
+  },
+  dingtalk: { label: "DingTalk", summary: "App DingTalk com client id/secret.", secrets: { clientId: "Client ID", clientSecret: "Client secret" }, fields: { homeChannel: "Home channel" } },
+  feishu: { label: "Feishu", summary: "App Feishu/Lark com app id/secret.", secrets: { appId: "App ID", appSecret: "App secret" }, fields: { homeChannel: "Home channel" } },
+  wecom: { label: "WeCom", summary: "Conector WeCom configurado pelo ambiente Hermes.", fields: { homeChannel: "Home channel" } },
+  weixin: { label: "Weixin", summary: "Conector Weixin configurado pelo ambiente Hermes.", fields: { homeChannel: "Home channel" } },
+  bluebubbles: { label: "BlueBubbles", summary: "Bridge BlueBubbles para iMessage.", secrets: { password: "Password" }, fields: { serverUrl: "Server URL", homeChannel: "Home channel" } },
+  qqbot: { label: "QQ Bot", summary: "Conector QQ Bot configurado pelo ambiente Hermes.", fields: { homeChannel: "Home channel" } },
+  yuanbao: { label: "Yuanbao", summary: "Conector Yuanbao configurado pelo ambiente Hermes.", fields: { homeChannel: "Home channel" } }
+});
+
+function gatewayFieldMeta(definition, fallback = "") {
+  if (definition && typeof definition === "object") {
+    return {
+      label: String(definition.label || fallback || ""),
+      placeholder: String(definition.placeholder || ""),
+      help: String(definition.help || "")
+    };
+  }
+  return {
+    label: String(definition || fallback || ""),
+    placeholder: "",
+    help: ""
+  };
+}
+
+function renderGatewaySettings(settings = state.app?.settings || {}) {
+  const gateway = state.app?.gateway || {};
+  const platforms = Array.isArray(gateway.platforms) && gateway.platforms.length
+    ? gateway.platforms
+    : Object.keys(GATEWAY_UI_FIELDS).map((id) => ({ id, label: GATEWAY_UI_FIELDS[id].label, enabled: false, configured: false, missing: [] }));
+  setElementText(elements.gatewayRuntimeState, gateway.running ? `Gateway rodando${gateway.pid ? ` · pid ${gateway.pid}` : ""}` : "Gateway parado");
+  setElementText(elements.gatewayRuntimeDetail, gateway.lastError || `${gateway.configuredCount || 0} configurado(s) de ${gateway.enabledCount || 0} habilitado(s)`);
+  setCheckedIfPresent(elements.gatewayEnabledInput, settings.gatewayEnabled);
+  setCheckedIfPresent(elements.gatewayAutoStartInput, settings.gatewayAutoStart);
+  if (elements.gatewayStartButton) {
+    elements.gatewayStartButton.disabled = !settings.gatewayEnabled || gateway.running;
+  }
+  if (elements.gatewayStopButton) {
+    elements.gatewayStopButton.disabled = !gateway.running;
+  }
+  if (!elements.gatewayPlatformSettings || elements.gatewayPlatformSettings.dataset.rendered === "true") {
+    return;
+  }
+  elements.gatewayPlatformSettings.dataset.rendered = "true";
+  elements.gatewayPlatformSettings.innerHTML = platforms.map((platform) => {
+    const meta = GATEWAY_UI_FIELDS[platform.id] || { label: platform.label || platform.id, fields: {}, secrets: {} };
+    const missingText = (platform.missing || []).join(", ") || "credenciais";
+    const configuredText = platform.configured ? "Pronto para iniciar" : `Falta: ${missingText}`;
+    const fieldsHtml = Object.entries(meta.fields || {}).map(([field, definition]) => {
+      const fieldMeta = gatewayFieldMeta(definition, field);
+      return `<label class="field gateway-field"><span>${escapeHtml(fieldMeta.label)}</span><input data-gateway-field="${escapeHtml(field)}" type="text" placeholder="${escapeHtml(fieldMeta.placeholder)}"/>${fieldMeta.help ? `<small class="gateway-field-help">${escapeHtml(fieldMeta.help)}</small>` : ""}</label>`;
+    }).join("");
+    const secretsHtml = Object.entries(meta.secrets || {}).map(([field, definition]) => {
+      const fieldMeta = gatewayFieldMeta(definition, field);
+      const placeholder = platform.hasSecret ? "salvo" : fieldMeta.placeholder;
+      return `<label class="field gateway-field"><span>${escapeHtml(fieldMeta.label)}</span><input data-gateway-secret="${escapeHtml(field)}" type="password" placeholder="${escapeHtml(placeholder)}"/>${fieldMeta.help ? `<small class="gateway-field-help">${escapeHtml(fieldMeta.help)}</small>` : ""}</label>`;
+    }).join("");
+    const steps = Array.isArray(meta.steps) && meta.steps.length
+      ? meta.steps
+      : ["Preencha os campos obrigatorios.", "Salve as configuracoes.", "Inicie o gateway."];
+    const stepsHtml = steps.map((step, index) =>
+      `<li><span>${index + 1}</span>${escapeHtml(step)}</li>`
+    ).join("");
+    return `
+      <section class="gateway-platform-card" data-gateway-platform="${escapeHtml(platform.id)}">
+        <div class="gateway-platform-card-head">
+          <label class="toggle-row">
+            <input data-gateway-enabled type="checkbox"/>
+            <div><strong>${escapeHtml(meta.label)}</strong><p data-gateway-state>${escapeHtml(configuredText)}</p></div>
+          </label>
+          <p class="gateway-platform-summary">${escapeHtml(meta.summary || "Gateway Hermes configuravel.")}</p>
+        </div>
+        <ol class="gateway-setup-steps">${stepsHtml}</ol>
+        <div class="gateway-platform-fields">${fieldsHtml}${secretsHtml}</div>
+      </section>
+    `;
+  }).join("");
+}
+
+function hydrateGatewaySettings(settings = state.app?.settings || {}) {
+  renderGatewaySettings(settings);
+  const platformSettings = settings.gatewayPlatforms || {};
+  const gateway = state.app?.gateway || {};
+  const statusById = new Map((gateway.platforms || []).map((entry) => [entry.id, entry]));
+  document.querySelectorAll("[data-gateway-platform]").forEach((card) => {
+    const id = card.dataset.gatewayPlatform;
+    const config = platformSettings[id] || {};
+    const status = statusById.get(id) || {};
+    const enabled = card.querySelector("[data-gateway-enabled]");
+    if (enabled && document.activeElement !== enabled) {
+      enabled.checked = Boolean(config.enabled);
+    }
+    const stateLabel = card.querySelector("[data-gateway-state]");
+    if (stateLabel) {
+      stateLabel.textContent = status.configured ? "Pronto para iniciar" : `Falta: ${(status.missing || []).join(", ") || "credenciais"}`;
+    }
+    card.querySelectorAll("[data-gateway-field]").forEach((input) => {
+      const field = input.dataset.gatewayField;
+      setValueIfIdle(input, config[field] || "");
+    });
+    card.querySelectorAll("[data-gateway-secret]").forEach((input) => {
+      const field = input.dataset.gatewaySecret;
+      const meta = GATEWAY_UI_FIELDS[id] || {};
+      input.placeholder = status.hasSecret ? "salvo" : gatewayFieldMeta(meta.secrets?.[field], field).placeholder;
+    });
+  });
+}
+
+function renderSkillsSettingsSummary(settings = state.app?.settings || {}) {
+  const catalog = state.app?.hermesCatalog || {};
+  const counts = catalog.counts || {};
+  const skills = Array.isArray(catalog.skills) ? catalog.skills : [];
+  const gateways = Array.isArray(catalog.gateways) ? catalog.gateways : [];
+
+  setElementText(elements.skillsSettingsCount, String(counts.skills || skills.length || 0));
+  setElementText(elements.skillsSettingsCommands, String(counts.commands || 0));
+  setElementText(elements.skillsSettingsGateways, String(counts.providers || gateways.length || 0));
+  renderGatewaySettings(settings);
+}
+
+function dreamPetVoices() {
+  try {
+    return Array.from(window.speechSynthesis?.getVoices?.() || []);
+  } catch {
+    return [];
+  }
+}
+
+function hydrateDreamPetVoiceOptions(settings = state.app?.settings || {}) {
+  const select = elements.dreamPetVoiceInput;
+  if (!select) {
+    return;
+  }
+  const selected = String(settings.dreamPetVoiceName || "").trim();
+  const voices = dreamPetVoices();
+  const options = [
+    `<option value="">Automatica</option>`,
+    ...voices.map((voice) => {
+      const name = voice.name || "";
+      const label = `${name}${voice.lang ? ` - ${voice.lang}` : ""}`;
+      return `<option value="${escapeHtml(name)}">${escapeHtml(label)}</option>`;
+    })
+  ].join("");
+  if (select.dataset.voiceOptions !== options) {
+    select.dataset.voiceOptions = options;
+    select.innerHTML = options;
+  }
+  setValueIfIdle(select, selected);
+}
+
+function hydrateDreamPetSettings(settings = state.app?.settings || {}) {
+  setCheckedIfPresent(elements.dreamPetEnabledInput, settings.dreamPetEnabled === true);
+  setCheckedIfPresent(elements.dreamPetBubbleEnabledInput, settings.dreamPetBubbleEnabled !== false);
+  setCheckedIfPresent(elements.dreamPetVoiceEnabledInput, settings.dreamPetVoiceEnabled === true);
+  hydrateDreamPetVoiceOptions(settings);
+}
+
 function hydrateSettings(force = false) {
   const settings = state.app?.settings;
   if (!settings) {
@@ -6076,6 +6867,11 @@ function hydrateSettings(force = false) {
   syncPlatformSettingsHints(settings);
   const isEditing = Boolean(elements.settingsForm?.contains(document.activeElement));
   if (isEditing && !force) {
+    renderSettingsOperationalSummary(settings);
+    renderKanbanSettingsSummary(settings);
+    renderSkillsSettingsSummary(settings);
+    hydrateGatewaySettings(settings);
+    hydrateDreamPetSettings(settings);
     return;
   }
 
@@ -6118,9 +6914,6 @@ function hydrateSettings(force = false) {
   }
   setCheckedIfPresent(elements.hermesDesktopIntegrationEnabledInput, settings.hermesDesktopIntegrationEnabled);
   setValueIfIdle(elements.trustModeInput, settings.trustMode || "ask");
-  setValueIfIdle(elements.connectorIdsInput, (settings.connectorIds || []).join(", "));
-  setValueIfIdle(elements.enableSkillsInput, (settings.enableSkillIds || []).join(", "));
-  setValueIfIdle(elements.forceSkillsInput, (settings.forceSkillIds || []).join(", "));
   setCheckedIfPresent(elements.interactiveModeInput, settings.interactiveMode);
   setCheckedIfPresent(elements.desktopBridgeEnabledInput, settings.desktopBridgeEnabled);
   setCheckedIfPresent(elements.fullAccessModeInput, settings.fullAccessMode);
@@ -6135,9 +6928,447 @@ function hydrateSettings(force = false) {
   syncProviderSpecificSettings(settings, { applyDefaults: force || !isEditing });
   syncCodeShaderControls(settings);
   applyCodeShaderSettings(settings);
+  renderSettingsOperationalSummary(settings);
+  renderKanbanSettingsSummary(settings);
+  renderSkillsSettingsSummary(settings);
+  hydrateGatewaySettings(settings);
+  hydrateDreamPetSettings(settings);
   if (elements.localSettingsGroup) {
     elements.localSettingsGroup.hidden = false;
   }
+  renderInstallerSettings();
+  if (elements.settingsModal && !elements.settingsModal.hidden) {
+    scheduleEndpointModelDetection({ delayMs: 250 });
+  }
+}
+
+const SETUP_STEPS = ["welcome", "scan", "recommendation", "requirements", "features", "install", "complete"];
+const SETUP_TITLES = {
+  welcome: ["First run", "Preparar ambiente local"],
+  scan: ["System Scan", "Detectar OS, hardware e runtime"],
+  recommendation: ["Recommendation", "Escolher modo, backend e modelo"],
+  requirements: ["Requirements", "Validar dependências antes do download"],
+  features: ["Model", "Confirmar modelo e rota local"],
+  install: ["Model Download", "Baixar modelo indicado"],
+  complete: ["Final", "Modelo, endpoint e diagnóstico"]
+};
+
+function currentInstallerState() {
+  return state.installer.status?.state || state.app?.installer || {};
+}
+
+function setupFeaturePayload() {
+  return { projectBundle: "complete", source: "dreamserver-tier-map" };
+}
+
+function setSetupStep(step) {
+  const normalized = SETUP_STEPS.includes(step) ? step : "welcome";
+  state.installer.step = normalized;
+  document.querySelectorAll("[data-setup-step]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.setupStep === normalized);
+  });
+  document.querySelectorAll("[data-setup-pane]").forEach((pane) => {
+    pane.classList.toggle("is-visible", pane.dataset.setupPane === normalized);
+  });
+  const [eyebrow, title] = SETUP_TITLES[normalized] || SETUP_TITLES.welcome;
+  setElementText(elements.setupEyebrow, eyebrow);
+  setElementText(elements.setupTitle, title);
+  if (elements.setupBackButton) {
+    elements.setupBackButton.disabled = SETUP_STEPS.indexOf(normalized) <= 0;
+  }
+  if (elements.setupNextButton) {
+    elements.setupNextButton.textContent = normalized === "complete" ? "Abrir dashboard" : "Continuar";
+  }
+}
+
+function openSetupWizard(step = state.installer.step || "welcome") {
+  if (!elements.setupWizard) return;
+  elements.setupWizard.hidden = false;
+  document.body.classList.add("setup-open");
+  setSetupStep(step);
+  void refreshInstallerStatus();
+}
+
+function closeSetupWizard() {
+  if (!elements.setupWizard) return;
+  elements.setupWizard.hidden = true;
+  document.body.classList.remove("setup-open");
+  localStorage.setItem("dream.setupWizard.dismissed", "true");
+}
+
+function renderSetupHardware(profile = state.installer.profile) {
+  if (!elements.setupHardwareGrid) return;
+  if (!profile) {
+    elements.setupHardwareGrid.innerHTML = `<div class="setup-empty">Clique em Escanear sistema para detectar hardware, Docker, WSL e portas.</div>`;
+    return;
+  }
+  const rows = [
+    ["OS", `${profile.os} ${profile.arch}`],
+    ["CPU", `${profile.cpu || "--"} · ${profile.cpuCores || 0} cores`],
+    ["RAM", `${profile.ramGB || 0} GB`],
+    ["Disco livre", `${profile.diskFreeGB || 0} GB`],
+    ["GPU", `${profile.gpuVendor || "--"} · ${profile.gpuModel || "--"}`],
+    ["VRAM/Unified", `${profile.vramGB || 0} GB / ${profile.unifiedMemoryGB || 0} GB`],
+    ["Docker", profile.dockerAvailable ? `OK ${profile.dockerVersion || ""}` : "ausente/parado"],
+    ["WSL2", profile.wsl2Available ? "ativo" : (profile.os === "win32" ? "ausente" : "n/a")]
+  ];
+  elements.setupHardwareGrid.innerHTML = rows.map(([label, value]) => `
+    <article class="setup-card">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+    </article>
+  `).join("");
+}
+
+function renderSetupRecommendation(recommendation = state.installer.recommendation) {
+  if (!elements.setupRecommendationBody) return;
+  if (!recommendation) {
+    elements.setupRecommendationBody.innerHTML = `<div class="setup-empty">A recomendação aparece depois do scan.</div>`;
+    setElementText(elements.setupRecommendationPill, "Aguardando scan");
+    return;
+  }
+  const tier = recommendation.tier || {};
+  const dreamTier = tier.dreamTier || tier.id || "--";
+  const dream = currentInstallerState().dreamServer || {};
+  setElementText(elements.setupRecommendationPill, `${recommendation.mode} · ${recommendation.backend} · Dream tier ${dreamTier}`);
+  const warnings = (recommendation.warnings || []).map((warning) => `<li>${escapeHtml(warning)}</li>`).join("");
+  elements.setupRecommendationBody.innerHTML = `
+    <article class="setup-card setup-card-wide">
+      <span>Modo recomendado</span>
+      <strong>${escapeHtml(recommendation.mode || "--")}</strong>
+      <small>${escapeHtml(recommendation.modeReason || "")}</small>
+    </article>
+    <article class="setup-card setup-card-wide">
+      <span>Backend</span>
+      <strong>${escapeHtml(recommendation.backend || "--")}</strong>
+      <small>Escolhido conforme OS, GPU, Docker/WSL e aceleração disponível, seguindo as faixas do DreamServer.</small>
+    </article>
+    <article class="setup-card setup-card-wide">
+      <span>Modelo recomendado</span>
+      <strong>${escapeHtml(tier.modelName || "--")}</strong>
+      <small>Dream tier ${escapeHtml(String(dreamTier))} · ${escapeHtml(tier.ggufFile || "")} · ~${tier.estimatedSizeGB || 0} GB · ctx ${tier.contextSize || "--"}</small>
+    </article>
+    <article class="setup-card setup-card-wide">
+      <span>Origem da recomendação</span>
+      <strong>DreamServer tier-map + gpu-database</strong>
+      <small>${escapeHtml(tier.downloadUrl || "Sem download local")} ${tier.sha256 ? `· sha256 ${escapeHtml(tier.sha256.slice(0, 12))}...` : ""}</small>
+    </article>
+    <article class="setup-card setup-card-wide">
+      <span>DreamServer local</span>
+      <strong>${dream.installed ? "Detectado" : "Não detectado"}</strong>
+      <small>${escapeHtml(dream.root || "O modelo será salvo na pasta de dados do app.")}</small>
+    </article>
+    ${warnings ? `<article class="setup-card setup-card-wide setup-warning"><span>Avisos</span><ul>${warnings}</ul></article>` : ""}
+  `;
+  renderSetupModelPlan();
+}
+
+function renderSetupModelPlan() {
+  const installer = currentInstallerState();
+  const recommendation = state.installer.recommendation || state.installer.preflight?.recommendation || installer.lastPreflight?.recommendation || {};
+  const tier = recommendation.tier || {};
+  const dream = installer.dreamServer || {};
+  const download = installer.modelDownload || {};
+  const route = installer.localRoute || {};
+  const modelDir = download.modelDir || (dream.installed ? "Pasta de modelos do DreamServer" : "Pasta de modelos do app");
+
+  if (elements.setupDreamServerState) {
+    elements.setupDreamServerState.innerHTML = `
+      <article class="setup-card setup-card-wide ${dream.installed ? "" : "setup-warning"}">
+        <span>DreamServer GitHub</span>
+        <strong>${dream.installed ? "Detectado" : "Não detectado"}</strong>
+        <small>${escapeHtml(dream.root || "Não será clonado nem instalado automaticamente; o app usa a tabela de tiers e baixa só o modelo indicado.")}</small>
+      </article>
+    `;
+  }
+  if (elements.setupModelDownloadTarget) {
+    elements.setupModelDownloadTarget.innerHTML = `
+      <article class="setup-card">
+        <span>Modelo</span>
+        <strong>${escapeHtml(tier.modelName || download.modelName || "--")}</strong>
+        <small>${escapeHtml(tier.ggufFile || download.ggufFile || "--")}</small>
+      </article>
+      <article class="setup-card">
+        <span>Download</span>
+        <strong>~${tier.estimatedSizeGB || 0} GB</strong>
+        <small>${escapeHtml(modelDir)}</small>
+      </article>
+    `;
+  }
+  if (elements.setupLocalEndpointPreview) {
+    elements.setupLocalEndpointPreview.innerHTML = `
+      <article class="setup-card setup-card-wide">
+        <span>Rota local configurada no app</span>
+        <strong>${escapeHtml(route.baseUrl || "http://127.0.0.1:11434/v1")}</strong>
+        <small>Provider custom/local · model ${escapeHtml(route.model || tier.modelName || "--")} · backend ${escapeHtml(recommendation.backend || "--")}</small>
+      </article>
+    `;
+  }
+}
+
+function renderSetupRequirements(preflight = state.installer.preflight) {
+  if (!elements.setupRequirementsList) return;
+  const requirements = preflight?.requirements || [];
+  if (!requirements.length) {
+    elements.setupRequirementsList.innerHTML = `<div class="setup-empty">Rode o preflight para validar Docker, WSL, drivers, portas, RAM e disco.</div>`;
+    return;
+  }
+  elements.setupRequirementsList.innerHTML = requirements.map((item) => `
+    <article class="requirement-card ${escapeHtml(item.status)}">
+      <div>
+        <strong>${escapeHtml(item.label)}</strong>
+        <p>${escapeHtml(item.detail)}</p>
+        ${item.manualAction ? `<small>${escapeHtml(item.manualAction)}</small>` : ""}
+      </div>
+      <span>${escapeHtml(item.status)}</span>
+    </article>
+  `).join("");
+}
+
+function renderSetupLogs() {
+  if (!elements.setupLogViewer) return;
+  const logs = state.installer.logs || [];
+  elements.setupLogViewer.textContent = logs.map((entry) => `[${entry.level || "info"}] ${entry.line || entry.raw || ""}`).slice(-400).join("\n");
+  elements.setupLogViewer.scrollTop = elements.setupLogViewer.scrollHeight;
+}
+
+function renderSetupServices(status = state.installer.status) {
+  const services = status?.services?.services || [];
+  const installer = currentInstallerState();
+  const download = installer.modelDownload || {};
+  const route = installer.localRoute || {};
+  if (elements.setupServiceGrid) {
+    elements.setupServiceGrid.innerHTML = services.length
+      ? services.map((service) => `
+        <article class="setup-card">
+          <span>${escapeHtml(service.label)}</span>
+          <strong>${escapeHtml(service.status)}</strong>
+          <small>${escapeHtml(service.url)}</small>
+        </article>
+      `).join("")
+      : `
+        <article class="setup-card">
+          <span>Modelo</span>
+          <strong>${escapeHtml(download.modelName || route.model || "--")}</strong>
+          <small>${escapeHtml(download.modelPath || download.ggufFile || "Aguardando download")}</small>
+        </article>
+        <article class="setup-card">
+          <span>Endpoint</span>
+          <strong>${escapeHtml(route.baseUrl || "http://127.0.0.1:11434/v1")}</strong>
+          <small>Configuração local/custom aplicada quando o modelo fica pronto.</small>
+        </article>
+      `;
+  }
+  const installState = status?.state || currentInstallerState();
+  setElementText(elements.setupFinalStatus, installState.status || "not_started");
+}
+
+function renderInstallerSettings() {
+  const installer = currentInstallerState();
+  const status = state.installer.status || {};
+  const recommendation = state.installer.recommendation || state.installer.preflight?.recommendation || installer.lastPreflight?.recommendation || {};
+  const tier = recommendation.tier || {};
+  const download = installer.modelDownload || {};
+  const dream = installer.dreamServer || {};
+  const route = installer.localRoute || {};
+  setElementText(elements.installerSettingsStatusLabel, `setup: ${installer.status || "not_started"}`);
+  setElementText(elements.installerSettingsMode, installer.selectedMode || recommendation.mode || "--");
+  setElementText(elements.installerSettingsBackend, recommendation.backend || route.runtime || "backend pendente");
+  setElementText(elements.installerSettingsModel, download.modelName || route.model || tier.modelName || "--");
+  setElementText(elements.installerSettingsTier, tier.id ? `Dream ${tier.dreamTier || tier.id} · ~${tier.estimatedSizeGB || 0} GB` : (installer.selectedTier || "tier pendente"));
+  const services = status?.services?.services || [];
+  const running = services.filter((service) => service.status === "running").length;
+  setElementText(elements.installerSettingsServices, services.length ? `${running}/${services.length}` : "--");
+  setElementText(elements.installerSettingsDisk, state.installer.profile?.diskFreeGB ? `${state.installer.profile.diskFreeGB} GB livres` : "disco pendente");
+  if (elements.installerSettingsRequirements) {
+    const reqs = state.installer.preflight?.requirements || installer.lastPreflight?.requirements || [];
+    elements.installerSettingsRequirements.innerHTML = reqs.slice(0, 6).map((item) => `
+      <div class="installer-mini-row ${escapeHtml(item.status)}"><strong>${escapeHtml(item.label)}</strong><span>${escapeHtml(item.status)}</span></div>
+    `).join("") || `<div class="installer-mini-row"><strong>Preflight</strong><span>pendente</span></div>`;
+  }
+  if (elements.installerSettingsServicesList) {
+    elements.installerSettingsServicesList.innerHTML = services.map((service) => `
+      <div class="installer-mini-row ${service.status === "running" ? "ok" : "warning"}"><strong>${escapeHtml(service.label)}</strong><span>${escapeHtml(service.status)}</span></div>
+    `).join("") || `<div class="installer-mini-row"><strong>Serviços</strong><span>pendente</span></div>`;
+  }
+  if (elements.installerModelsList) {
+    const percent = Number(download.percent || 0);
+    elements.installerModelsList.innerHTML = `
+      <div class="installer-mini-row ${download.status === "ready" || installer.status === "model_ready" ? "ok" : "warning"}"><strong>Status</strong><span>${escapeHtml(download.status || installer.status || "pendente")}${percent ? ` · ${percent}%` : ""}</span></div>
+      <div class="installer-mini-row"><strong>Modelo</strong><span>${escapeHtml(download.modelName || tier.modelName || "--")}</span></div>
+      <div class="installer-mini-row"><strong>Arquivo</strong><span>${escapeHtml(download.ggufFile || tier.ggufFile || "--")}</span></div>
+      <div class="installer-mini-row"><strong>Pasta</strong><span>${escapeHtml(download.modelDir || "pendente")}</span></div>
+      <div class="installer-mini-row ${dream.installed ? "ok" : "warning"}"><strong>DreamServer</strong><span>${escapeHtml(dream.installed ? (dream.root || "detectado") : "não detectado")}</span></div>
+      <div class="installer-mini-row ok"><strong>Endpoint</strong><span>${escapeHtml(route.baseUrl || "http://127.0.0.1:11434/v1")}</span></div>
+    `;
+  }
+}
+
+async function scanInstallerSystem() {
+  if (!window.manusDesktop?.scanInstallerSystem) return;
+  setElementText(elements.setupProgressLabel, "Escaneando sistema...");
+  const result = await window.manusDesktop.scanInstallerSystem({ mode: state.installer.mode });
+  state.installer.profile = result.profile;
+  state.installer.recommendation = result.recommendation;
+  state.installer.status = { ...(state.installer.status || {}), state: result.state };
+  renderSetupHardware();
+  renderSetupRecommendation();
+  renderSetupModelPlan();
+  renderInstallerSettings();
+  return result;
+}
+
+async function runInstallerPreflight() {
+  if (!window.manusDesktop?.runInstallerPreflight) return;
+  const result = await window.manusDesktop.runInstallerPreflight({
+    mode: state.installer.mode === "advanced" ? undefined : state.installer.mode,
+    profile: state.installer.profile || undefined
+  });
+  state.installer.profile = result.profile;
+  state.installer.preflight = result;
+  state.installer.recommendation = result.recommendation;
+  state.installer.status = { ...(state.installer.status || {}), state: result.state };
+  renderSetupRequirements();
+  renderSetupRecommendation();
+  renderSetupModelPlan();
+  renderInstallerSettings();
+  return result;
+}
+
+async function refreshInstallerStatus() {
+  if (!window.manusDesktop?.getInstallerStatus) return null;
+  const status = await window.manusDesktop.getInstallerStatus();
+  state.installer.status = status;
+  state.installer.logs = status?.state?.logs || state.installer.logs || [];
+  renderSetupServices(status);
+  renderSetupLogs();
+  renderSetupModelPlan();
+  renderInstallerSettings();
+  return status;
+}
+
+async function startInstallerRun(dryRun = false) {
+  if (!window.manusDesktop?.startInstaller) return;
+  const tier = state.installer.recommendation?.tier?.id || currentInstallerState().selectedTier || "";
+  const payload = {
+    dryRun,
+    mode: state.installer.mode === "advanced" ? (state.installer.recommendation?.mode || "local") : state.installer.mode,
+    tier,
+    features: setupFeaturePayload()
+  };
+  state.installer.progress = 0;
+  if (elements.setupProgressBar) elements.setupProgressBar.value = 0;
+  setElementText(elements.setupProgressValue, "0%");
+  setElementText(elements.setupProgressLabel, dryRun ? "Dry-run do download em andamento" : "Download do modelo em andamento");
+  setSetupStep("install");
+  try {
+    const result = await window.manusDesktop.startInstaller(payload);
+    state.installer.status = { ...(state.installer.status || {}), state: result };
+    state.installer.logs = result.logs || state.installer.logs;
+    state.installer.progress = 100;
+    if (elements.setupProgressBar) elements.setupProgressBar.value = 100;
+    setElementText(elements.setupProgressValue, "100%");
+    setElementText(elements.setupProgressLabel, result.status || "finalizado");
+    await refreshInstallerStatus();
+    setSetupStep("complete");
+  } catch (error) {
+    const message = error?.message || String(error);
+    state.installer.logs = [...(state.installer.logs || []), { level: "error", line: message }];
+    setElementText(elements.setupProgressLabel, "Falha no download");
+    renderSetupLogs();
+  }
+}
+
+function applyFeaturePreset(preset) {
+  state.installer.preset = preset;
+  document.querySelectorAll("[data-feature-preset]").forEach((button) => {
+    button.classList.toggle("is-selected", button.dataset.featurePreset === preset);
+  });
+  const sets = {
+    minimal: [],
+    recommended: ["rag", "agents"],
+    complete: ["voice", "rag", "agents", "workflows", "image"],
+    custom: null
+  };
+  const selected = sets[preset];
+  if (!selected) return;
+  document.querySelectorAll("[data-setup-feature]").forEach((input) => {
+    input.checked = selected.includes(input.dataset.setupFeature);
+  });
+}
+
+function bindInstallerUI() {
+  if (bindInstallerUI.bound) return;
+  bindInstallerUI.bound = true;
+  document.querySelectorAll("[data-setup-step]").forEach((button) => button.addEventListener("click", () => setSetupStep(button.dataset.setupStep)));
+  document.querySelectorAll("[data-setup-mode]").forEach((button) => button.addEventListener("click", () => {
+    state.installer.mode = button.dataset.setupMode || "local";
+    document.querySelectorAll("[data-setup-mode]").forEach((entry) => entry.classList.toggle("is-selected", entry === button));
+  }));
+  document.querySelectorAll("[data-feature-preset]").forEach((button) => button.addEventListener("click", () => applyFeaturePreset(button.dataset.featurePreset)));
+  elements.setupCloseButton?.addEventListener("click", closeSetupWizard);
+  elements.setupBackButton?.addEventListener("click", () => {
+    setSetupStep(SETUP_STEPS[Math.max(0, SETUP_STEPS.indexOf(state.installer.step) - 1)]);
+  });
+  elements.setupNextButton?.addEventListener("click", async () => {
+    const index = SETUP_STEPS.indexOf(state.installer.step);
+    if (state.installer.step === "welcome") await scanInstallerSystem();
+    if (state.installer.step === "recommendation") await runInstallerPreflight();
+    if (state.installer.step === "complete") await window.manusDesktop?.openInstallerDashboard?.();
+    setSetupStep(SETUP_STEPS[Math.min(SETUP_STEPS.length - 1, index + 1)]);
+  });
+  elements.setupScanButton?.addEventListener("click", scanInstallerSystem);
+  elements.setupPreflightButton?.addEventListener("click", runInstallerPreflight);
+  elements.setupDryRunButton?.addEventListener("click", () => startInstallerRun(true));
+  elements.setupInstallButton?.addEventListener("click", () => startInstallerRun(false));
+  elements.setupCancelButton?.addEventListener("click", async () => { await window.manusDesktop?.cancelInstaller?.(); await refreshInstallerStatus(); });
+  elements.setupRetryButton?.addEventListener("click", async () => { await window.manusDesktop?.retryInstaller?.(); await refreshInstallerStatus(); });
+  elements.setupOpenDashboardButton?.addEventListener("click", () => window.manusDesktop?.openInstallerDashboard?.());
+  elements.setupOpenLogsButton?.addEventListener("click", () => window.manusDesktop?.openInstallerLogs?.());
+  elements.setupOpenLocalSettingsButton?.addEventListener("click", () => {
+    closeSetupWizard();
+    openSettingsModal();
+    document.querySelector('.d-tab[data-tab="system"]')?.click();
+  });
+  elements.openSetupWizardButton?.addEventListener("click", () => openSetupWizard("welcome"));
+  elements.installerDownloadModelSettingsButton?.addEventListener("click", () => {
+    openSetupWizard("install");
+    void startInstallerRun(false);
+  });
+  elements.installerRefreshStatusButton?.addEventListener("click", refreshInstallerStatus);
+  elements.installerOpenDashboardSettingsButton?.addEventListener("click", () => window.manusDesktop?.openInstallerDashboard?.());
+  elements.installerOpenLogsSettingsButton?.addEventListener("click", () => window.manusDesktop?.openInstallerLogs?.());
+  elements.installerOpenDataFolderButton?.addEventListener("click", () => window.manusDesktop?.openInstallerDataFolder?.());
+  elements.installerDiagnosticButton?.addEventListener("click", async () => {
+    const result = await window.manusDesktop?.exportInstallerDiagnostic?.();
+    showToast(result?.path ? `Diagnóstico exportado: ${result.path}` : "Diagnóstico exportado.");
+  });
+  window.manusDesktop?.onInstallerEvent?.((event) => {
+    if (event.type === "installer:log") {
+      state.installer.logs = [...(state.installer.logs || []), { level: event.level, line: event.raw }];
+      if (event.percent !== null && event.percent !== undefined) {
+        state.installer.progress = event.percent;
+        if (elements.setupProgressBar) elements.setupProgressBar.value = event.percent;
+        setElementText(elements.setupProgressValue, `${event.percent}%`);
+      }
+      renderSetupLogs();
+      renderInstallerSettings();
+    } else if (event.type === "installer:model-progress") {
+      const download = event.modelDownload || {};
+      const percent = Number(download.percent || 0);
+      const installerState = currentInstallerState();
+      installerState.modelDownload = download;
+      state.installer.progress = percent;
+      if (elements.setupProgressBar) elements.setupProgressBar.value = percent;
+      setElementText(elements.setupProgressValue, `${percent}%`);
+      setElementText(elements.setupProgressLabel, `${download.status || "download"} ${download.ggufFile || ""}`.trim());
+      renderSetupModelPlan();
+      renderInstallerSettings();
+    } else if (event.type === "installer:finished") {
+      setElementText(elements.setupProgressLabel, event.status || "finalizado");
+      void refreshInstallerStatus();
+    }
+  });
 }
 
 function renderHeader() {
@@ -6167,7 +7398,7 @@ function renderHeader() {
   setText(elements.composerProviderHint, `Hermes: ${hermesRouteText || "config.yaml"}`);
   setText(elements.composerAttachmentHint, state.attachments.length ? `${state.attachments.length} anexo(s)` : "Imagens, PDF e arquivos");
   setText(elements.apiKeyState, isManusProviderSelected(settings)
-    ? (state.app?.hasCloudApiKey ? "Manus selecionado dentro do Hermes: chave salva localmente." : "Manus selecionado dentro do Hermes: configure a chave Manus.")
+    ? (state.app?.hasCloudApiKey ? "Provider remoto selecionado dentro do Hermes: chave salva localmente." : "Provider remoto selecionado dentro do Hermes: configure a chave.")
     : `Hermes usa provider/modelo configurados: ${hermesRouteText || "config.yaml/env do Hermes"}.`);
   setText(elements.providerSummary, `Runtime: Hermes Agent. Provider: ${hermesRouteText || "config.yaml/env"}. Workspace: ${chat?.workspaceRoot || "-"}. Rota: ${chat?.activeRoute?.id || "general-purpose"}.`);
   if (elements.openTaskButton) {
@@ -6192,6 +7423,9 @@ function renderHeader() {
     elements.bridgeStateBadge.textContent = on ? "bridge ativa" : "bridge off";
     elements.bridgeStateBadge.classList.toggle("is-ok", on);
   }
+  renderSettingsOperationalSummary(settings);
+  renderKanbanSettingsSummary(settings);
+  renderSkillsSettingsSummary(settings);
 }
 
 function cssEscape(value) {
@@ -6211,7 +7445,7 @@ function transcriptEntryBody(entry, actions = []) {
 }
 
 function patchTranscriptBodies(entries = [], suggestedActionByKey = new Map(), transcriptThinking = false) {
-  if (!elements.transcript || !entries.length) {
+  if (!elements.transcript) {
     return false;
   }
 
@@ -6252,9 +7486,32 @@ function patchTranscriptBodies(entries = [], suggestedActionByKey = new Map(), t
   }
 
   if (transcriptThinking) {
+    patchThinkingActivity();
     updateThinkingSvgs();
   }
   return allPatchable;
+}
+
+function patchThinkingActivity() {
+  if (!elements.transcript) {
+    return false;
+  }
+  const shell = elements.transcript.querySelector(".message-thinking .message-shell");
+  if (!shell) {
+    return false;
+  }
+  const nextMarkup = thinkingActivityMarkup();
+  const existing = shell.querySelector(".thinking-details");
+  if (!nextMarkup) {
+    existing?.remove();
+    return true;
+  }
+  if (existing) {
+    existing.outerHTML = nextMarkup;
+  } else {
+    shell.insertAdjacentHTML("beforeend", nextMarkup);
+  }
+  return true;
 }
 
 function renderTranscript() {
@@ -6264,8 +7521,11 @@ function renderTranscript() {
   const suggestedActionByKey = new Map(suggestedActions.map((item) => [item.actionKey, item]));
   const transcriptThinking = Boolean(state.busy || state.stopping || String(chat?.status || "").toLowerCase() === "running");
   const stableEntries = entries.map((entry) => {
+    const streamingAssistant = entry.kind === "assistant" && transcriptThinking && entry.pending;
     const content = entry.kind === "assistant" && transcriptThinking ? "" : entry.content;
-    return [entry.id, entry.kind, content, entry.status, entry.timestamp, entry.attachments?.length || 0, entry.actions?.length || 0];
+    const timestamp = streamingAssistant ? "streaming" : entry.timestamp;
+    const status = streamingAssistant ? "pending" : entry.status;
+    return [entry.id, entry.kind, content, status, timestamp, entry.attachments?.length || 0, entry.actions?.length || 0];
   });
   const signature = JSON.stringify([
     chat?.id || "none",
@@ -6277,6 +7537,9 @@ function renderTranscript() {
 
   elements.heroState.hidden = !showHero;
   elements.transcript.hidden = showHero;
+  if (!showHero) {
+    hideAmbientUi();
+  }
   if (showHero) {
     return;
   }
@@ -6533,6 +7796,7 @@ function rememberRuntimeActivity(payload = {}) {
   const chatId = String(payload?.chatId || currentChatId() || "");
   const now = Date.now();
   const action = event.action || (event.tool || event.name ? { type: event.tool || event.name, ...event.args } : {});
+  const actionKey = String(event.actionKey || event.id || event.toolCallId || event.tool_call_id || "");
   const kind = type === "agent_phase_changed" || type === "agent_reasoning_delta"
     ? "thinking"
     : type === "error"
@@ -6546,7 +7810,7 @@ function rememberRuntimeActivity(payload = {}) {
         ? "Error"
         : artifactLabelForKind(kind);
   const summary = type === "agent_reasoning_delta"
-    ? String(event.delta || "").trim()
+    ? String(event.delta || "")
     : type === "agent_phase_changed"
       ? String(event.summary || event.message || event.phase || "Hermes pensando").trim()
       : type === "tool_call_started"
@@ -6563,35 +7827,51 @@ function rememberRuntimeActivity(payload = {}) {
     for (let index = state.runtimeActivity.length - 1; index >= 0; index -= 1) {
       const existing = state.runtimeActivity[index];
       if (existing.chatId === chatId && existing.type === "agent_reasoning_delta" && now - existing.timestamp < 8000) {
-        existing.summary = shortText(`${existing.summary || ""}${summary}`, 900);
+        existing.summary = `${existing.summary || ""}${summary}`.slice(-1400);
         existing.timestamp = now;
+        state.renderCache.activity = "";
         return;
       }
+    }
+  }
+
+  let durationMs = Number(event.durationMs || event.elapsedMs || 0);
+  if ((!Number.isFinite(durationMs) || durationMs <= 0) && type === "tool_call_finished" && actionKey) {
+    const started = [...state.runtimeActivity]
+      .reverse()
+      .find((item) => item.chatId === chatId && item.actionKey === actionKey && item.type === "tool_call_started");
+    if (started?.timestamp) {
+      durationMs = Math.max(1, now - Number(started.timestamp));
     }
   }
 
   state.runtimeActivity.push({
     id: `${type}-${now}-${Math.random().toString(16).slice(2)}`,
     chatId,
+    actionKey,
     type,
     kind,
     label,
     icon: kind === "thinking" ? "th" : kind === "error" ? "!" : artifactIconForKind(kind),
     ok: type === "tool_call_started" ? null : event.ok,
     timestamp: now,
+    durationMs: Number.isFinite(durationMs) && durationMs > 0 ? durationMs : null,
     path: actionPath(action),
     imagePath: imagePathFromEvent({ action, result: event.result }),
-    summary: shortText(summary || type, 900)
+    summary: type === "agent_reasoning_delta" ? summary.slice(-1400) : shortText(summary || type, 900)
   });
 
   if (state.runtimeActivity.length > 80) {
     state.runtimeActivity = state.runtimeActivity.slice(-80);
   }
   state.renderCache.activity = "";
-  state.renderCache.transcript = "";
+  if (kind !== "thinking") {
+    state.renderCache.transcript = "";
+  }
 }
 
-function collectActivityItems(chat = currentChat()) {
+function collectActivityItems(chat = currentChat(), options = {}) {
+  const includeThinking = Boolean(options.includeThinking);
   const localItems = (chat?.localEvents || [])
     .slice(-16)
     .map((event) => {
@@ -6609,11 +7889,856 @@ function collectActivityItems(chat = currentChat()) {
         summary: artifactSummaryForEvent(event)
       };
     });
-  const runtimeItems = runtimeActivityForChat(chat).slice(-24);
+  const runtimeItems = runtimeActivityForChat(chat)
+    .filter((item) => includeThinking || item.kind !== "thinking")
+    .slice(-24);
   return [...localItems, ...runtimeItems]
     .filter((item) => item && item.summary)
     .sort((left, right) => Number(right.timestamp || 0) - Number(left.timestamp || 0))
     .slice(0, 24);
+}
+
+const GATEWAY_ICON_ASSETS = Object.freeze({
+  telegram: "assets/gateways/telegram.jpg",
+  discord: "assets/gateways/discord.png",
+  whatsapp: "assets/gateways/whatsapp.png"
+});
+
+const GATEWAY_ACCENT_COLORS = Object.freeze({
+  telegram: "#27b9f2",
+  discord: "#5865f2",
+  whatsapp: "#25d366",
+  slack: "#36c5f0",
+  matrix: "#7bf0b1",
+  signal: "#3a76f0"
+});
+
+function gatewayMonitorPlatforms() {
+  const gateway = state.app?.gateway || {};
+  const platforms = Array.isArray(gateway.platforms) ? gateway.platforms : [];
+  return platforms.filter((platform) => platform.enabled);
+}
+
+function gatewayPlatformAccent(platformId = "") {
+  return GATEWAY_ACCENT_COLORS[String(platformId || "").toLowerCase()] || "var(--acc-hi)";
+}
+
+function gatewayPlatformIcon(platform = {}, className = "gateway-monitor-icon") {
+  const id = String(platform.id || "").toLowerCase();
+  const asset = GATEWAY_ICON_ASSETS[id];
+  if (asset) {
+    return `<span class="${className} gateway-icon-${escapeHtml(id)}" style="--gateway-accent:${escapeHtml(gatewayPlatformAccent(id))}"><img src="${escapeHtml(asset)}" alt="${escapeHtml(platform.label || id)}"></span>`;
+  }
+  const initials = String(platform.label || id || "?")
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+  return `<span class="${className} gateway-icon-generic" style="--gateway-accent:${escapeHtml(gatewayPlatformAccent(id))}">${escapeHtml(initials || "?")}</span>`;
+}
+
+function gatewayPlatformConfig(platformId = "") {
+  const settings = state.app?.settings || {};
+  const platforms = settings.gatewayPlatforms && typeof settings.gatewayPlatforms === "object"
+    ? settings.gatewayPlatforms
+    : {};
+  return platforms[String(platformId || "").toLowerCase()] || {};
+}
+
+function gatewayPlatformSpec(platform = {}) {
+  const id = String(platform.id || "").toLowerCase();
+  const setup = platform.setup || {};
+  const operations = platform.operations || {};
+  const direct = Array.isArray(operations.direct) ? operations.direct : [];
+  const lifecycle = Array.isArray(operations.lifecycle) ? operations.lifecycle : [];
+  const config = gatewayPlatformConfig(id);
+  const base = {
+    primaryIdLabel: "Home channel",
+    primaryId: platform.homeChannel || config.homeChannel || config.homeAddress || "",
+    connectionLabel: setup.connectionMode || `${id}_adapter`,
+    eventShape: {
+      event: "gateway_status",
+      platform: id,
+      process: "running"
+    },
+    insightTemplates: [],
+    chartOperations: direct.length ? direct : lifecycle,
+    metricLabels: {
+      sent: "Mensagens Enviadas",
+      target: "Alvo principal",
+      tools: "Operações"
+    }
+  };
+  if (id === "telegram") {
+    return {
+      ...base,
+      primaryIdLabel: "Chat autorizado",
+      connectionLabel: "Telegram Bot API",
+      eventCaption: "Atualização processada pela Bot API / PairingStore",
+      eventShape: {
+        update_id: "aguardando update",
+        message: {
+          chat: { id: base.primaryId || "homeChannel pendente", type: "private|group" },
+          from: { id: "aprovado via pairing", username: "usuario" },
+          text: "/status"
+        }
+      },
+      insightTemplates: [
+        setup.usesPairingApproval ? "aprovação por código curto ativa para usuários" : "",
+        direct.includes("identity") ? "identidade do bot consultável via getMe" : "",
+        direct.includes("chats") ? "chats conhecidos vêm do diretório/sessões Hermes" : ""
+      ],
+      chartOperations: ["pairing_status", "approve_pairing", "identity", "chats", "send", "send_media", "typing"].filter((op) => direct.includes(op)),
+      metricLabels: { sent: "Respostas do Bot", target: "Chat/Home", tools: "Bot API" }
+    };
+  }
+  if (id === "discord") {
+    return {
+      ...base,
+      primaryIdLabel: "Canal/Guild",
+      connectionLabel: "Discord REST v10",
+      eventCaption: "Evento de guild/channel via Discord REST",
+      eventShape: {
+        gateway: "discord",
+        guild: config.guildId || "guild auto/pendente",
+        channel: base.primaryId || "homeChannel pendente",
+        route: "/users/@me/guilds",
+        message: { content: "/status" }
+      },
+      insightTemplates: [
+        setup.usesPairingApproval ? "usuários autorizados por PairingStore Hermes" : "",
+        direct.includes("guilds") ? "guilds podem ser listadas pela REST API" : "",
+        direct.includes("channels") ? "canais são resolvidos por guild ou diretório conhecido" : ""
+      ],
+      chartOperations: ["pairing_status", "approve_pairing", "identity", "guilds", "channels", "send", "send_media", "typing"].filter((op) => direct.includes(op)),
+      metricLabels: { sent: "Mensagens em Canais", target: "Guild/Canal", tools: "Discord REST" }
+    };
+  }
+  if (id === "whatsapp") {
+    return {
+      ...base,
+      primaryIdLabel: "Chat/Grupo",
+      connectionLabel: "WhatsApp bridge",
+      eventCaption: "Estado da bridge WhatsApp vendorizada pelo Hermes",
+      eventShape: {
+        bridge: "whatsapp",
+        status: "connected|pairing|starting",
+        chat: base.primaryId || "homeChannel recomendado",
+        policy: {
+          dm: config.dmPolicy || "default",
+          group: config.groupPolicy || "default"
+        }
+      },
+      insightTemplates: [
+        setup.usesQr ? "pareamento por QR vem da bridge, não do preview web" : "",
+        direct.includes("groups") ? "grupos podem ser listados pela bridge conectada" : "",
+        config.homeChannel ? "chat principal configurado para respostas" : "homeChannel recomendado para roteamento"
+      ],
+      chartOperations: ["capabilities", "groups", "chats", "recent_messages", "send", "send_media", "typing"].filter((op) => direct.includes(op)),
+      metricLabels: { sent: "Mensagens WhatsApp", target: "Chat/Grupo", tools: "Bridge API" }
+    };
+  }
+  return {
+    ...base,
+    eventCaption: "Status do adaptador Hermes Gateway",
+    insightTemplates: [
+      setup.summary || "",
+      direct.length ? "operações diretas expostas no Electron" : "adaptador gerenciado pelo processo Hermes Gateway",
+      setup.nextAction || ""
+    ].filter(Boolean)
+  };
+}
+
+function selectedGatewayMonitorPlatform() {
+  const platforms = gatewayMonitorPlatforms();
+  if (!platforms.length) {
+    return null;
+  }
+  const selectedId = String(state.selectedGatewayMonitorPlatform || "").toLowerCase();
+  const selected = selectedId ? platforms.find((platform) => String(platform.id || "").toLowerCase() === selectedId) : null;
+  if (selected) {
+    return selected;
+  }
+  const preferred = platforms.find((platform) => platform.enabled && platform.configured)
+    || platforms.find((platform) => platform.enabled)
+    || platforms[0];
+  state.selectedGatewayMonitorPlatform = String(preferred?.id || "");
+  if (state.selectedGatewayMonitorPlatform) {
+    localStorage.setItem("dream.workbench.gatewayPlatform", state.selectedGatewayMonitorPlatform);
+  }
+  return preferred || null;
+}
+
+function gatewayMonitorRelativeTime(timestamp) {
+  const value = Number(timestamp || 0);
+  if (!value) return "agora";
+  const seconds = Math.max(0, Math.round((Date.now() - value) / 1000));
+  if (seconds < 60) return `há ${seconds || 1}s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `há ${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `há ${hours}h`;
+  return `há ${Math.round(hours / 24)}d`;
+}
+
+function gatewayMonitorActiveSince(gateway = state.app?.gateway || {}, platform = selectedGatewayMonitorPlatform()) {
+  const activity = platform?.sessionActivity || {};
+  const candidates = [
+    Number(gateway.startedAt || 0),
+    Number(activity.firstUpdatedAt || 0),
+    ...(Array.isArray(activity.recentMessages)
+      ? activity.recentMessages.map((message) => Number(message.timestamp || 0))
+      : [])
+  ].filter((value) => Number.isFinite(value) && value > 0);
+  return candidates.length ? Math.min(...candidates) : 0;
+}
+
+function gatewayMonitorUptime(gateway = state.app?.gateway || {}, platform = selectedGatewayMonitorPlatform()) {
+  const startedAt = gatewayMonitorActiveSince(gateway, platform);
+  if (!startedAt) {
+    return "00:00:00";
+  }
+  const totalSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds].map((part) => String(part).padStart(2, "0")).join(":");
+}
+
+function gatewayMonitorAverageLatency(events = [], telemetry = currentTokenTelemetry()) {
+  const durations = events
+    .map((event) => Number(event.durationMs || event.elapsedMs || 0))
+    .filter((value) => Number.isFinite(value) && value > 0 && value < 10 * 60 * 1000);
+  if (durations.length) {
+    const average = durations.reduce((sum, value) => sum + value, 0) / durations.length;
+    return `${Math.round(average)}ms`;
+  }
+  const telemetryLatency = Number(telemetry?.serverLatencyMs || telemetry?.latencyMs || 0);
+  if (Number.isFinite(telemetryLatency) && telemetryLatency > 0) {
+    return `${Math.round(telemetryLatency)}ms`;
+  }
+  return "--";
+}
+
+function gatewayMonitorFullTime(timestamp) {
+  const value = Number(timestamp || 0);
+  if (!value) return "--";
+  return new Intl.DateTimeFormat(effectiveLocale(), {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(value));
+}
+
+function gatewayEventMatchesPlatform(event = {}, platform = {}) {
+  const id = String(platform.id || "").toLowerCase();
+  const label = String(platform.label || "").toLowerCase();
+  const action = event.action || {};
+  const explicitPlatform = String(action.platform || action.platformId || event.platform || "").toLowerCase();
+  if (explicitPlatform) {
+    return explicitPlatform === id;
+  }
+  const haystack = [
+    event.type,
+    event.kind,
+    event.label,
+    event.summary,
+    event.result,
+    event.content,
+    action.type,
+    action.command,
+    action.platform,
+    action.platformId
+  ].map((value) => String(value || "").toLowerCase()).join(" ");
+  if ((id && haystack.includes(id)) || (label && haystack.includes(label))) {
+    return true;
+  }
+  const activePlatforms = gatewayMonitorPlatforms();
+  return activePlatforms.length === 1 && haystack.includes("gateway");
+}
+
+function gatewayMonitorEvents(platform = selectedGatewayMonitorPlatform()) {
+  const chat = currentChat();
+  const localEvents = (chat?.localEvents || []).map((event) => ({
+    source: "local",
+    timestamp: event.timestamp || 0,
+    ok: event.ok,
+    action: event.action || {},
+    summary: artifactSummaryForEvent(event),
+    result: event.result || event.content || ""
+  }));
+  const runtimeEvents = runtimeActivityForChat(chat).map((event) => ({
+    source: "runtime",
+    timestamp: event.timestamp || 0,
+    ok: event.ok,
+    action: { type: event.type },
+    actionKey: event.actionKey || "",
+    durationMs: event.durationMs || null,
+    type: event.type,
+    kind: event.kind,
+    label: event.label,
+    summary: event.summary || ""
+  }));
+  const sessionEvents = gatewayMonitorSessionEvents(platform);
+  return [...localEvents, ...runtimeEvents, ...sessionEvents]
+    .filter((event) => gatewayEventMatchesPlatform(event, platform))
+    .sort((left, right) => Number(right.timestamp || 0) - Number(left.timestamp || 0));
+}
+
+function gatewayMonitorSessionEvents(platform = selectedGatewayMonitorPlatform()) {
+  const id = String(platform?.id || "").toLowerCase();
+  const activity = platform?.sessionActivity || {};
+  const messages = Array.isArray(activity.recentMessages) ? activity.recentMessages : [];
+  return messages.map((message) => {
+    const role = String(message.role || "message").toLowerCase();
+    const command = role === "assistant" ? "send" : role === "tool" ? "tool" : "message";
+    const label = role === "assistant" ? "resposta enviada" : role === "user" ? "mensagem recebida" : "atividade da sessão";
+    return {
+      source: "gateway-session",
+      timestamp: Number(message.timestamp || activity.lastUpdatedAt || 0),
+      ok: true,
+      action: { type: "gateway_session", command, platform: id },
+      type: "gateway_session",
+      kind: role,
+      label,
+      summary: `${label}: ${shortText(message.text || "", 180)}`,
+      result: message.text || "",
+      durationMs: null
+    };
+  });
+}
+
+function gatewayMonitorEndpointForEvent(event = {}) {
+  const action = event.action || {};
+  const raw = String(action.command || action.type || event.type || "status")
+    .trim()
+    .toLowerCase()
+    .replace(/^gateway_/, "")
+    .replace(/^dream_/, "")
+    .replace(/[^a-z0-9_/-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  const normalized = raw || "status";
+  if (normalized === "gateway_control" || normalized === "control") {
+    return `/${String(action.command || "status").toLowerCase().replace(/[^a-z0-9_-]+/g, "_")}`;
+  }
+  return normalized.startsWith("/") ? normalized : `/${normalized}`;
+}
+
+function gatewayOperationEndpointLabel(operation = "") {
+  const op = String(operation || "").trim();
+  return op ? `/${op.replace(/^\//, "")}` : "/status";
+}
+
+function gatewayMonitorCallRows(platform = selectedGatewayMonitorPlatform(), events = gatewayMonitorEvents(platform)) {
+  const counts = new Map();
+  for (const event of events) {
+    const endpoint = gatewayMonitorEndpointForEvent(event);
+    counts.set(endpoint, (counts.get(endpoint) || 0) + 1);
+  }
+  const rows = [...counts.entries()]
+    .map(([label, value]) => ({ label, value }))
+    .sort((left, right) => right.value - left.value)
+    .slice(0, 6);
+  if (rows.length) {
+    return rows;
+  }
+  const spec = gatewayPlatformSpec(platform);
+  return (spec.chartOperations || [])
+    .slice(0, 6)
+    .map((operation) => ({ label: gatewayOperationEndpointLabel(operation), value: 0, availableOnly: true }));
+}
+
+function gatewayMonitorLatestEvent(platform = selectedGatewayMonitorPlatform(), events = gatewayMonitorEvents(platform)) {
+  const latest = events[0] || null;
+  const gateway = state.app?.gateway || {};
+  const log = gatewayMonitorRelevantLogs(platform)[0] || null;
+  const action = latest?.action || {};
+  const spec = gatewayPlatformSpec(platform);
+  const operations = gatewayMonitorOperationNames(platform);
+  const text = shortText(latest?.summary || latest?.result || log?.text || platform?.setup?.summary || "sem evento real nesta sessão", 220);
+  const eventShape = latest
+    ? {
+        platform: platform?.id || "",
+        source: latest.source || "workbench",
+        event: action.type || latest.type || "gateway_event",
+        command: action.command || gatewayMonitorEndpointForEvent(latest).replace(/^\//, ""),
+        ok: latest.ok !== false,
+        text
+      }
+    : log
+      ? {
+          platform: platform?.id || "",
+          source: log.stream || "gateway",
+          event: "gateway_log",
+          process: gateway.running ? "running" : "stopped",
+          text
+        }
+    : {
+        platform: platform?.id || "",
+        connection: spec.connectionLabel || platform?.setup?.connectionMode || "",
+        process: gateway.running ? "running" : "stopped",
+        configured: Boolean(platform?.configured),
+        target: gatewayMonitorPrimaryTarget(spec, platform?.homeChannel, platform),
+        operations: `${operations.length} disponíveis`,
+        missing: [...(platform?.missing || []), ...(platform?.missingRecommended || [])].filter(Boolean).slice(0, 3)
+      };
+  return {
+    timestamp: latest?.timestamp || log?.time || gateway.startedAt || Date.now(),
+    code: eventShape,
+    caption: latest
+      ? "Evento real recebido pelo Workbench"
+      : log
+        ? "Log recente do processo Hermes Gateway"
+        : "Snapshot real do status; aguardando evento específico deste gateway"
+  };
+}
+
+function gatewayMonitorExecutions(platform = selectedGatewayMonitorPlatform(), events = gatewayMonitorEvents(platform)) {
+  const rows = events.slice(0, 5).map((event) => {
+    const action = event.action || {};
+    const command = action.command
+      ? `/${String(action.command).replace(/^\//, "")}`
+      : gatewayMonitorEndpointForEvent(event);
+    return {
+      time: homeActivityTime(event.timestamp),
+      command,
+      duration: event.durationMs || event.elapsedMs ? formatDurationMs(event.durationMs || event.elapsedMs) : "--",
+      ok: event.ok !== false
+    };
+  });
+  if (rows.length) {
+    return rows;
+  }
+  return gatewayMonitorRelevantLogs(platform)
+    .slice(0, 5)
+    .map((log) => ({
+      time: homeActivityTime(log.time),
+      command: `/${String(platform?.id || "gateway").toLowerCase()}_log`,
+      duration: "--",
+      ok: !/error|erro|exception|failed|falha/i.test(String(log.text || ""))
+    }));
+}
+
+function gatewayMonitorIsNoisyLog(text = "") {
+  return /no user allowlists configured|gateway_allow_all_users|unauthorized users will be denied|warning\s+main/i.test(String(text || ""));
+}
+
+function gatewayMonitorRelevantLogs(platform = selectedGatewayMonitorPlatform()) {
+  const gateway = state.app?.gateway || {};
+  const logs = Array.isArray(gateway.logs) ? gateway.logs : [];
+  const id = String(platform?.id || "").toLowerCase();
+  const label = String(platform?.label || "").toLowerCase();
+  const activePlatforms = gatewayMonitorPlatforms();
+  return logs
+    .slice()
+    .reverse()
+    .filter((log) => {
+      const text = String(log.text || "");
+      if (!text || gatewayMonitorIsNoisyLog(text)) {
+        return false;
+      }
+      const lower = text.toLowerCase();
+      return activePlatforms.length === 1 || lower.includes(id) || (label && lower.includes(label)) || lower.includes("gateway");
+    });
+}
+
+function gatewayMonitorTokenTotal() {
+  const telemetry = currentTokenTelemetry();
+  const direct = Number(telemetry?.totalTokens || 0);
+  if (Number.isFinite(direct) && direct > 0) {
+    return direct;
+  }
+  const text = (currentChat()?.messages || []).map((message) => message.content || "").join("\n");
+  return estimateDashboardTokenCount(text);
+}
+
+function gatewayMonitorMetricNumber(value) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric)) return "0";
+  return new Intl.NumberFormat(effectiveLocale()).format(Math.round(numeric));
+}
+
+function gatewayMonitorModelLabel() {
+  const route = currentHermesRoute(state.app?.settings || {});
+  const provider = route.label || route.provider || "Hermes";
+  const model = route.model || "modelo atual";
+  return `${provider} (${model})`;
+}
+
+function gatewayMonitorOperationNames(platform = {}) {
+  const operations = platform.operations || {};
+  return [...new Set([
+    ...(Array.isArray(operations.direct) ? operations.direct : []),
+    ...(Array.isArray(operations.lifecycle) ? operations.lifecycle : [])
+  ].filter(Boolean))];
+}
+
+function gatewayMonitorOperationSummary(platform = {}) {
+  const operations = platform.operations || {};
+  const direct = Array.isArray(operations.direct) ? operations.direct.length : 0;
+  const lifecycle = Array.isArray(operations.lifecycle) ? operations.lifecycle.length : 0;
+  if (direct && lifecycle) return `${direct} diretas / ${lifecycle} controle`;
+  if (direct) return `${direct} diretas`;
+  if (lifecycle) return `${lifecycle} controle`;
+  return "nenhuma operação exposta";
+}
+
+function gatewayMonitorKnownChannelLabel(platform = {}) {
+  const channels = Array.isArray(platform.knownChannels) ? platform.knownChannels : [];
+  const primary = channels[0] || null;
+  if (!primary) {
+    return "";
+  }
+  const name = String(primary.name || "").trim();
+  const id = String(primary.id || "").trim();
+  if (name && id && name !== id) {
+    return `${name} (${id})`;
+  }
+  return name || id;
+}
+
+function gatewayMonitorPrimaryTarget(spec = {}, fallback = "", platform = {}) {
+  return String(spec.primaryId || fallback || gatewayMonitorKnownChannelLabel(platform) || "").trim() || "não definido";
+}
+
+function gatewayMonitorStatusRows(platform = {}, gateway = {}, spec = {}) {
+  const id = String(platform.id || "").toLowerCase();
+  const config = gatewayPlatformConfig(id);
+  const setup = platform.setup || {};
+  const target = gatewayMonitorPrimaryTarget(spec, platform.homeChannel, platform);
+  const operations = gatewayMonitorOperationSummary(platform);
+  if (id === "telegram") {
+    return [
+      { label: "Bot", value: platform.hasSecret ? "token configurado" : "botToken pendente" },
+      { label: "Home", value: target },
+      { label: "Pairing", value: setup.usesPairingApproval ? "código Hermes" : "não usa" },
+      { label: "Ops", value: operations },
+      { label: "Uptime", value: gatewayMonitorUptime(gateway, platform) },
+      { label: "Iniciado", value: gatewayMonitorFullTime(gatewayMonitorActiveSince(gateway, platform)) }
+    ];
+  }
+  if (id === "discord") {
+    return [
+      { label: "Bot", value: platform.hasSecret ? "token configurado" : "botToken pendente" },
+      { label: "Canal", value: target },
+      { label: "Guild", value: config.guildId || "auto/pendente" },
+      { label: "Ops", value: operations },
+      { label: "Uptime", value: gatewayMonitorUptime(gateway, platform) },
+      { label: "Iniciado", value: gatewayMonitorFullTime(gatewayMonitorActiveSince(gateway, platform)) }
+    ];
+  }
+  if (id === "whatsapp") {
+    return [
+      { label: "Bridge", value: setup.usesQr ? "QR pairing" : "bridge Hermes" },
+      { label: "Chat/Grupo", value: target },
+      { label: "DM policy", value: config.dmPolicy || "padrão" },
+      { label: "Grupo", value: config.groupPolicy || "padrão" },
+      { label: "Ops", value: operations },
+      { label: "Uptime", value: gatewayMonitorUptime(gateway, platform) }
+    ];
+  }
+  return [
+    { label: "Config", value: platform.configured ? "mínima completa" : "pendente" },
+    { label: spec.primaryIdLabel || "Alvo", value: target },
+    { label: "Modo", value: spec.connectionLabel || setup.connectionMode || "Hermes Gateway" },
+    { label: "Ops", value: operations },
+    { label: "Uptime", value: gatewayMonitorUptime(gateway, platform) },
+    { label: "Iniciado", value: gatewayMonitorFullTime(gatewayMonitorActiveSince(gateway, platform)) }
+  ];
+}
+
+function gatewayMonitorInsights(platform = {}, gateway = {}, spec = {}, events = []) {
+  const missing = [...(platform.missing || []), ...(platform.missingRecommended || [])].filter(Boolean);
+  const operations = gatewayMonitorOperationNames(platform);
+  const insights = [];
+  if (gateway.running && platform.configured) {
+    insights.push({ text: `${platform.label || platform.id} habilitado no processo Hermes Gateway`, tone: "ok" });
+  } else if (gateway.running) {
+    insights.push({ text: `${platform.label || platform.id} está habilitado, mas a configuração ainda tem pendências`, tone: "warn" });
+  } else {
+    insights.push({ text: "processo Hermes Gateway parado; dados abaixo são snapshot de configuração", tone: "warn" });
+  }
+  if (operations.length) {
+    insights.push({ text: `${operations.length} operações reais expostas para este gateway`, tone: "ok" });
+  }
+  for (const template of spec.insightTemplates || []) {
+    if (template) insights.push({ text: template, tone: "ok" });
+  }
+  if (events.length) {
+    const failed = events.filter((event) => event.ok === false).length;
+    insights.push({ text: failed ? `${failed} evento(s) com falha nesta sessão` : "eventos recentes deste gateway não registram falha", tone: failed ? "warn" : "ok" });
+  } else {
+    insights.push({ text: "nenhuma chamada real registrada para este gateway nesta sessão", tone: "neutral" });
+  }
+  if (gateway.lastError) {
+    insights.push({ text: `último erro do processo: ${shortText(gateway.lastError, 88)}`, tone: "warn" });
+  } else if (!missing.length) {
+    insights.push({ text: "configuração mínima completa para o gateway selecionado", tone: "ok" });
+  }
+  if (missing.length) {
+    insights.push({ text: `campos pendentes: ${missing.slice(0, 3).join(", ")}`, tone: "warn" });
+  }
+  return insights.slice(0, 5);
+}
+
+function renderGatewayMonitorPanel() {
+  const surface = elements.gatewayMonitorSurface;
+  if (!surface) {
+    return;
+  }
+  const gateway = state.app?.gateway || {};
+  const platforms = gatewayMonitorPlatforms();
+  const selected = selectedGatewayMonitorPlatform();
+  const selectedId = String(selected?.id || "");
+  const spec = selected ? gatewayPlatformSpec(selected) : {};
+  const events = selected ? gatewayMonitorEvents(selected) : [];
+  const rows = selected ? gatewayMonitorCallRows(selected, events) : [];
+  const executions = selected ? gatewayMonitorExecutions(selected, events) : [];
+  const latest = selected ? gatewayMonitorLatestEvent(selected, events) : null;
+  const telemetry = currentTokenTelemetry();
+  const totalCalls = rows.reduce((sum, row) => sum + Number(row.value || 0), 0);
+  const maxCalls = Math.max(1, ...rows.map((row) => Number(row.value || 0)));
+  const messagesSent = events.filter((event) => {
+    const endpoint = gatewayMonitorEndpointForEvent(event);
+    return /\/(send|send_media|edit|typing)$/.test(endpoint);
+  }).length;
+  const tokenTotal = gatewayMonitorTokenTotal();
+  const operationNames = selected ? gatewayMonitorOperationNames(selected) : [];
+  const toolCount = operationNames.length;
+  const successRate = events.length
+    ? `${Math.round((events.filter((event) => event.ok !== false).length / events.length) * 100)}%`
+    : "--";
+  const averageLatency = gatewayMonitorAverageLatency(events, telemetry);
+  const statusRows = selected ? gatewayMonitorStatusRows(selected, gateway, spec) : [];
+  const insights = selected ? gatewayMonitorInsights(selected, gateway, spec, events) : [];
+  const chartSubtitle = totalCalls
+    ? "Volume real por endpoint/função do gateway selecionado"
+    : "Operações expostas; aguardando chamadas reais nesta sessão";
+  const chartSummaryLast = totalCalls
+    ? "Dados reais da sessão"
+    : "Sem chamadas registradas ainda";
+  const signature = JSON.stringify([
+    gateway.running,
+    gateway.pid,
+    gateway.startedAt,
+    gateway.lastError,
+    selectedId,
+    platforms.map((platform) => [
+      platform.id,
+      platform.enabled,
+      platform.configured,
+      platform.missing?.join(","),
+      platform.homeChannel,
+      (platform.knownChannels || []).map((channel) => [channel.id, channel.name, channel.type]).join("|"),
+      platform.sessionActivity?.firstUpdatedAt,
+      platform.sessionActivity?.messageCount,
+      platform.sessionActivity?.lastUpdatedAt,
+      (platform.sessionActivity?.recentMessages || []).map((message) => [message.role, message.text, message.timestamp, message.index]).join("|")
+    ]),
+    rows,
+    executions,
+    latest,
+    messagesSent,
+    tokenTotal,
+    toolCount,
+    successRate,
+    averageLatency,
+    statusRows,
+    insights,
+    spec.connectionLabel
+  ]);
+  if (state.renderCache.gatewayMonitor === signature) {
+    return;
+  }
+  state.renderCache.gatewayMonitor = signature;
+
+  if (!selected) {
+    surface.innerHTML = `
+      <div class="gateway-monitor-empty">
+        <strong>Nenhum gateway ativo</strong>
+        <span>Habilite Telegram, Discord, WhatsApp ou outro gateway em Settings para acompanhar a sessão aqui.</span>
+      </div>
+    `;
+    return;
+  }
+
+  const statusLabel = gateway.running && selected.enabled
+    ? selected.configured ? "Conectado" : "Pendente"
+    : "Parado";
+  const live = Boolean(gateway.running && selected.enabled);
+  const latestJson = JSON.stringify(latest.code, null, 2)
+    .replace(/"([^"]+)":/g, "$1:")
+    .replace(/"/g, "");
+  const platformButtons = platforms.map((platform) => {
+    const id = String(platform.id || "");
+    const active = id === selectedId;
+    return `
+      <button type="button" class="gateway-picker-btn ${active ? "is-active" : ""}" data-gateway-monitor-platform="${escapeHtml(id)}" title="${escapeHtml(platform.label || id)}">
+        ${gatewayPlatformIcon(platform, "gateway-picker-icon")}
+      </button>
+    `;
+  }).join("");
+  surface.innerHTML = `
+    <div class="gateway-monitor-shell" style="--gateway-accent:${escapeHtml(gatewayPlatformAccent(selectedId))}">
+      <header class="gateway-monitor-topline">
+        <div>
+          <p class="gateway-monitor-kicker">Live Monitoring · Gateway ${escapeHtml(selected.label || selectedId)}</p>
+        </div>
+        <div class="gateway-monitor-switcher" aria-label="Selecionar gateway">
+          ${platformButtons}
+          <span class="gateway-live-badge ${live ? "is-live" : "is-idle"}">${live ? "AO VIVO" : "OFFLINE"}</span>
+        </div>
+      </header>
+
+      <div class="gateway-monitor-grid gateway-monitor-grid-top">
+        <article class="gateway-monitor-card gateway-status-card">
+          <div class="gateway-card-head">
+            <h3>Status da Conexão</h3>
+            <span class="gateway-status-pill ${live ? "is-connected" : "is-stopped"}">${escapeHtml(statusLabel)}</span>
+          </div>
+          <div class="gateway-status-main">
+            ${gatewayPlatformIcon(selected)}
+            <dl class="gateway-status-list">
+              ${statusRows.map((row) => `<div><dt>${escapeHtml(row.label)}</dt><dd${row.label === "Uptime" ? " data-gateway-uptime" : ""}>${escapeHtml(row.value)}</dd></div>`).join("")}
+            </dl>
+          </div>
+        </article>
+
+        <article class="gateway-monitor-card gateway-event-card">
+          <div class="gateway-card-head">
+            <h3>Último Evento</h3>
+            <time data-gateway-relative-time="${escapeHtml(String(latest.timestamp || ""))}">${escapeHtml(gatewayMonitorRelativeTime(latest.timestamp))}</time>
+          </div>
+          <pre class="gateway-event-log">${escapeHtml(latestJson)}</pre>
+          <p>${escapeHtml(latest.caption)}</p>
+        </article>
+      </div>
+
+      <div class="gateway-monitor-grid gateway-monitor-grid-mid">
+        <article class="gateway-monitor-card">
+          <div class="gateway-card-head">
+            <h3>Insights do agente</h3>
+          </div>
+          <ul class="gateway-insight-list">
+            ${insights.map((item) => `<li class="${item.tone === "warn" ? "is-warn" : item.tone === "neutral" ? "is-neutral" : ""}"><span></span>${escapeHtml(item.text)}</li>`).join("")}
+          </ul>
+        </article>
+
+        <article class="gateway-monitor-card">
+          <div class="gateway-card-head">
+            <h3>Execuções recentes</h3>
+            <button type="button" class="gateway-subtle-btn" data-gateway-monitor-show="executions">Ver todas</button>
+          </div>
+          <div class="gateway-execution-list">
+            ${executions.length ? executions.map((item) => `
+              <div class="gateway-execution-row">
+                <time>${escapeHtml(item.time)}</time>
+                <strong>${escapeHtml(item.command)}</strong>
+                <span>${escapeHtml(item.duration)}</span>
+                <i class="${item.ok ? "is-ok" : "is-failed"}">${item.ok ? "✓" : "!"}</i>
+              </div>
+            `).join("") : `<div class="gateway-execution-empty">Nenhuma execução real registrada para ${escapeHtml(selected.label || selectedId)} nesta sessão.</div>`}
+          </div>
+        </article>
+      </div>
+
+      <section class="gateway-monitor-card gateway-metrics-card">
+        <div class="gateway-card-head">
+          <h3>Métricas da sessão</h3>
+        </div>
+        <div class="gateway-metric-grid">
+          <div class="gateway-metric-tile"><span>${escapeHtml(spec.metricLabels?.sent || "Mensagens Enviadas")}</span><strong>${escapeHtml(gatewayMonitorMetricNumber(messagesSent))}</strong><small>eventos reais de envio</small></div>
+          <div class="gateway-metric-tile"><span>Tokens Utilizados</span><strong>${escapeHtml(gatewayMonitorMetricNumber(tokenTotal))}</strong><small>${escapeHtml(telemetry?.source || "estimativa local")}</small></div>
+          <div class="gateway-metric-tile"><span>Tempo Ativo</span><strong data-gateway-uptime>${escapeHtml(gatewayMonitorUptime(gateway, selected))}</strong><small>${live ? "gateway online" : "gateway parado"}</small></div>
+          <div class="gateway-metric-tile"><span>${escapeHtml(spec.metricLabels?.tools || "Operações")}</span><strong>${escapeHtml(gatewayMonitorMetricNumber(toolCount))}</strong><small>${selected.operations?.directApi ? "API direta + controle" : "controle do gateway"}</small></div>
+        </div>
+        <div class="gateway-technical-strip">
+          <span>Modelo: ${escapeHtml(gatewayMonitorModelLabel())}</span>
+          <span>Latencia media: ${escapeHtml(averageLatency)}</span>
+          <span>Taxa de sucesso: ${escapeHtml(successRate)}</span>
+          <span>${escapeHtml(spec.connectionLabel || "Hermes Gateway")}</span>
+        </div>
+      </section>
+
+      <section class="gateway-monitor-card gateway-calls-card">
+        <div class="gateway-card-head">
+          <div>
+            <h3>Chamadas da sessão</h3>
+            <p>${escapeHtml(chartSubtitle)}</p>
+          </div>
+          <span class="gateway-chart-total">${escapeHtml(gatewayMonitorMetricNumber(totalCalls))} chamadas</span>
+        </div>
+        <div class="gateway-call-chart">
+          ${rows.map((row, index) => {
+            const width = totalCalls ? Math.max(8, Math.round((Number(row.value || 0) / maxCalls) * 100)) : 0;
+            return `
+              <div class="gateway-call-row ${row.availableOnly ? "is-available" : ""}" style="--bar-width:${width}%;--bar-delay:${index * 34}ms">
+                <span class="gateway-call-label">${escapeHtml(row.label)}</span>
+                <div class="gateway-call-track"><i></i></div>
+                <strong>${row.availableOnly ? "0" : escapeHtml(gatewayMonitorMetricNumber(row.value))}</strong>
+              </div>
+            `;
+          }).join("") || `<div class="gateway-call-empty">Este adaptador ainda não expõe operações monitoráveis no Electron.</div>`}
+        </div>
+        <div class="gateway-chart-summary">
+          <span>Total de chamadas: ${escapeHtml(gatewayMonitorMetricNumber(totalCalls))}</span>
+          <span>${totalCalls ? "Endpoint mais usado" : "Operação disponível"}: ${escapeHtml(rows[0]?.label || "--")}</span>
+          <span>${escapeHtml(chartSummaryLast)}</span>
+        </div>
+      </section>
+
+    </div>
+  `;
+}
+
+function updateGatewayMonitorLiveText() {
+  if (state.workbenchView !== "gateway" || !elements.gatewayMonitorSurface) {
+    return;
+  }
+  const uptime = gatewayMonitorUptime(state.app?.gateway || {}, selectedGatewayMonitorPlatform());
+  elements.gatewayMonitorSurface.querySelectorAll("[data-gateway-uptime]").forEach((node) => {
+    node.textContent = uptime;
+  });
+  elements.gatewayMonitorSurface.querySelectorAll("[data-gateway-relative-time]").forEach((node) => {
+    node.textContent = gatewayMonitorRelativeTime(node.getAttribute("data-gateway-relative-time"));
+  });
+}
+
+async function pollGatewayMonitorState() {
+  if (state.gatewayMonitorLive.polling || state.workbenchView !== "gateway") {
+    return;
+  }
+  const gateway = state.app?.gateway || {};
+  if (!gateway.enabled && !gateway.running) {
+    return;
+  }
+  state.gatewayMonitorLive.polling = true;
+  try {
+    state.app = await window.manusDesktop.loadState();
+    renderWorkbenchPanel();
+  } catch {
+    // Keep the existing snapshot visible; transient polling failures should not spam the UI.
+  } finally {
+    state.gatewayMonitorLive.polling = false;
+  }
+}
+
+function startGatewayMonitorLiveLoop() {
+  if (state.gatewayMonitorLive.timer) {
+    return;
+  }
+  state.gatewayMonitorLive.timer = setInterval(() => {
+    updateGatewayMonitorLiveText();
+    const now = Date.now();
+    if (now - Number(state.gatewayMonitorLive.lastPollAt || 0) >= 1600) {
+      state.gatewayMonitorLive.lastPollAt = now;
+      void pollGatewayMonitorState();
+    }
+  }, 1000);
 }
 
 function detectCodeLanguage(filePath = "", content = "") {
@@ -8010,8 +10135,9 @@ function renderWorkbenchPanel() {
     codePreview.pending ||
     String(chat?.status || "").toLowerCase() === "running"
   ));
-  const validViews = new Set(["preview", "files", "code", "changes", "terminal"]);
-  const defaultView = isLiveCoding && codePreview ? "code" : hasPreview ? "preview" : codePreview ? "code" : hasFiles ? "files" : hasTerminal ? "terminal" : hasChanges ? "changes" : "preview";
+  const hasGateways = (state.app?.gateway?.platforms || []).some((platform) => platform.enabled);
+  const validViews = new Set(["gateway", "preview", "files", "code", "changes", "terminal"]);
+  const defaultView = isLiveCoding && codePreview ? "code" : hasPreview ? "preview" : hasGateways ? "gateway" : codePreview ? "code" : hasFiles ? "files" : hasTerminal ? "terminal" : hasChanges ? "changes" : "preview";
   if (isLiveCoding && state.workbenchView === "preview" && codePreview) {
     state.workbenchView = "code";
   } else if (!hasPreview && state.workbenchView === "preview" && codePreview) {
@@ -8048,6 +10174,29 @@ function renderWorkbenchPanel() {
     terminals.map((item) => [item.id, item.alive, item.updatedAt, item.currentCommand, item.stdoutTail, item.stderrTail]),
     jobs.map((item) => [item.id, item.status, item.updatedAt, item.stdoutTail, item.stderrTail]),
     state.workbenchView,
+    state.selectedGatewayMonitorPlatform,
+    state.app?.gateway ? JSON.stringify([
+      state.app.gateway.running,
+      state.app.gateway.pid,
+      state.app.gateway.startedAt,
+      state.app.gateway.lastError,
+      state.app.gateway.enabledCount,
+      state.app.gateway.configuredCount,
+      (state.app.gateway.platforms || []).map((platform) => [
+        platform.id,
+        platform.enabled,
+        platform.configured,
+        platform.homeChannel,
+        platform.missing?.join(","),
+        platform.missingRecommended?.join(","),
+        (platform.knownChannels || []).map((channel) => [channel.id, channel.name, channel.type]).join("|"),
+        platform.sessionActivity?.firstUpdatedAt,
+        platform.sessionActivity?.messageCount,
+        platform.sessionActivity?.lastUpdatedAt,
+        (platform.sessionActivity?.recentMessages || []).map((message) => [message.role, message.text, message.timestamp, message.index]).join("|")
+      ]),
+      (state.app.gateway.logs || []).slice(-8).map((entry) => [entry.time, entry.stream, entry.text])
+    ]) : "",
     state.previewDeviceMode,
     mobilePreviewPayload,
     state.mobilePreview.loading,
@@ -8101,21 +10250,32 @@ function renderWorkbenchPanel() {
         ? "inline"
         : "";
 
+  elements.workbenchGatewayTab?.classList.toggle("is-active", state.workbenchView === "gateway");
   elements.workbenchPreviewTab?.classList.toggle("is-active", state.workbenchView === "preview");
   elements.workbenchFilesTab?.classList.toggle("is-active", state.workbenchView === "files");
   elements.workbenchCodeTab?.classList.toggle("is-active", state.workbenchView === "code");
   elements.workbenchChangesTab?.classList.toggle("is-active", state.workbenchView === "changes");
   elements.workbenchTerminalTab?.classList.toggle("is-active", state.workbenchView === "terminal");
+  if (elements.workbenchGatewayTab) {
+    const activeGatewayCount = (state.app?.gateway?.platforms || []).filter((platform) => platform.enabled).length;
+    elements.workbenchGatewayTab.textContent = activeGatewayCount ? `Gateways ${activeGatewayCount}` : "Gateways";
+    elements.workbenchGatewayTab.disabled = false;
+    elements.workbenchGatewayTab.removeAttribute("disabled");
+  }
   elements.workbenchPreviewTab.disabled = !hasPreview;
   elements.workbenchFilesTab.disabled = !hasFiles;
   elements.workbenchCodeTab.disabled = !codePreview;
   elements.workbenchChangesTab.disabled = false;
   elements.workbenchTerminalTab.disabled = false;
   elements.previewPanelSection.hidden = state.workbenchView !== "preview";
+  elements.gatewayPanelSection.hidden = state.workbenchView !== "gateway";
   elements.filesPanelSection.hidden = state.workbenchView !== "files";
   elements.codePanelSection.hidden = state.workbenchView !== "code";
   elements.changesPanelSection.hidden = state.workbenchView !== "changes";
   elements.terminalPanelSection.hidden = state.workbenchView !== "terminal";
+  if (state.workbenchView === "gateway") {
+    renderGatewayMonitorPanel();
+  }
   renderWorkbenchFiles(files, state.selectedWorkbenchFilePath);
 
   const isWorkbenchLivePreview = hasExternalPreview && target?.source === "preview-harness";
@@ -8220,6 +10380,68 @@ function renderWorkbenchPanel() {
     elements.codeSurface.innerHTML = `<div class="code-empty">Quando a resposta trouxer código ou o agente editar arquivos, o conteúdo aparece aqui.</div>`;
   }
   renderWorkbenchChanges(chat);
+}
+
+function setWorkbenchView(view = "preview") {
+  const normalized = String(view || "").trim().toLowerCase();
+  const allowed = new Set(["gateway", "preview", "files", "code", "changes", "terminal"]);
+  if (!allowed.has(normalized)) {
+    return;
+  }
+  if (normalized === "preview" && elements.workbenchPreviewTab?.disabled) return;
+  if (normalized === "files" && elements.workbenchFilesTab?.disabled) return;
+  if (normalized === "code" && elements.workbenchCodeTab?.disabled) return;
+  state.panelOpen = true;
+  state.workbenchView = normalized;
+  state.renderCache.workbench = "";
+  applyWorkbenchViewVisibility(normalized);
+  renderShell();
+  renderWorkbenchPanel();
+}
+
+function applyWorkbenchViewVisibility(view = state.workbenchView) {
+  const normalized = String(view || "").trim().toLowerCase();
+  const pairs = [
+    [elements.gatewayPanelSection, "gateway", elements.workbenchGatewayTab],
+    [elements.previewPanelSection, "preview", elements.workbenchPreviewTab],
+    [elements.filesPanelSection, "files", elements.workbenchFilesTab],
+    [elements.codePanelSection, "code", elements.workbenchCodeTab],
+    [elements.changesPanelSection, "changes", elements.workbenchChangesTab],
+    [elements.terminalPanelSection, "terminal", elements.workbenchTerminalTab]
+  ];
+  for (const [section, name, tab] of pairs) {
+    if (section) {
+      section.hidden = normalized !== name;
+      section.toggleAttribute("hidden", normalized !== name);
+    }
+    tab?.classList.toggle("is-active", normalized === name);
+  }
+  if (normalized === "gateway") {
+    state.renderCache.gatewayMonitor = "";
+    renderGatewayMonitorPanel();
+  }
+  syncGatewayPerformanceMode();
+}
+
+window.__dreamWorkbenchView = (view, event) => {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  setWorkbenchView(view);
+  return false;
+};
+
+function handleWorkbenchTabPointer(event) {
+  const tab = event.target?.closest?.("[data-workbench-view]");
+  if (!tab) {
+    return;
+  }
+  const view = tab.dataset.workbenchView || "";
+  if (view !== "gateway" && tab.disabled) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  setWorkbenchView(view);
 }
 
 function renderRouteFeed() {
@@ -8573,31 +10795,47 @@ function renderHermesCatalog() {
   const catalog = state.app?.hermesCatalog || {};
   const counts = catalog.counts || {};
   const skills = Array.isArray(catalog.skills) ? catalog.skills : [];
-  const gateways = Array.isArray(catalog.gateways) ? catalog.gateways : [];
-  const skillsHtml = [
-    `<span class="action-pill">commands: ${escapeHtml(counts.commands || 0)}</span>`,
-    `<span class="action-pill">providers: ${escapeHtml(counts.providers || 0)}</span>`,
-    `<span class="action-pill">skills: ${escapeHtml(counts.skills || skills.length)}</span>`,
-    ...skills.slice(0, 18).map((skill) =>
-      `<span class="action-pill" title="${escapeHtml(skill.description || "")}">${escapeHtml(skill.name || skill.label)}</span>`
-    )
-  ].join("");
-  const gatewaysHtml = gateways.length
-    ? gateways.slice(0, 28).map((gateway) => {
-        const env = Array.isArray(gateway.env) && gateway.env.length ? ` env: ${gateway.env.join(", ")}` : "";
-        return `<span class="action-pill" title="${escapeHtml(env)}">${escapeHtml(gateway.label || gateway.id)}</span>`;
-      }).join("")
-    : `<span class="note">Nenhum gateway Hermes detectado.</span>`;
-  const html = `${skillsHtml}|${gatewaysHtml}`;
+  const commands = Array.isArray(catalog.commands) ? catalog.commands : [];
+  const items = [
+    ...skills.map((skill) => ({
+      type: "Skill",
+      name: skill.name || skill.label || "skill",
+      description: skill.description || "Skill Hermes disponivel no runtime."
+    })),
+    ...commands.map((command) => ({
+      type: "Command",
+      name: command.name || command.id || command.label || "command",
+      description: command.description || "Slash command Hermes disponivel no runtime."
+    }))
+  ];
+  const pageSize = 4;
+  const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
+  state.skillCatalogPage = Math.max(0, Math.min(pageCount - 1, Number(state.skillCatalogPage || 0)));
+  const pageItems = items.slice(state.skillCatalogPage * pageSize, state.skillCatalogPage * pageSize + pageSize);
+  const skillsHtml = pageItems.length
+    ? pageItems.map((item) => `
+      <article class="skill-catalog-card">
+        <span>${escapeHtml(item.type)}</span>
+        <strong>${escapeHtml(item.name)}</strong>
+        <p>${escapeHtml(shortText(item.description || "", 120))}</p>
+      </article>
+    `).join("")
+    : `<div class="skill-catalog-empty">Catalogo Hermes ainda nao carregado.</div>`;
+  const html = `${state.skillCatalogPage}|${pageCount}|${skillsHtml}|${counts.commands || 0}|${counts.providers || 0}`;
   if (state.renderCache.hermesCatalog !== html) {
     state.renderCache.hermesCatalog = html;
     if (elements.hermesSkillSummary) {
       elements.hermesSkillSummary.innerHTML = skillsHtml;
     }
-    if (elements.hermesGatewayList) {
-      elements.hermesGatewayList.innerHTML = gatewaysHtml;
+    setElementText(elements.skillCatalogPageMeta, `${state.skillCatalogPage + 1}/${pageCount}`);
+    if (elements.skillCatalogPrevButton) {
+      elements.skillCatalogPrevButton.disabled = state.skillCatalogPage <= 0;
+    }
+    if (elements.skillCatalogNextButton) {
+      elements.skillCatalogNextButton.disabled = state.skillCatalogPage >= pageCount - 1;
     }
   }
+  renderSkillsSettingsSummary(state.app?.settings || {});
 }
 
 function renderAppSurface() {
@@ -8632,6 +10870,7 @@ function renderAppSurface() {
   elements.appShell?.classList.toggle("aperant-utility-mode", isUtilityMode);
   elements.appShell?.classList.toggle("home-mode", isHome);
   document.body.classList.toggle("home-mode", isHome);
+  syncSurfaceModeClass();
   if (elements.homeScreen) {
     elements.homeScreen.hidden = false;
     elements.homeScreen.classList.toggle("is-visible", isHome);
@@ -8657,12 +10896,12 @@ function renderAppSurface() {
   }
 
   if (isKanban) {
-    elements.threadEyebrow.textContent = "Aperant Kanban";
+    elements.threadEyebrow.textContent = "Hermes Kanban";
     elements.chatTitle.textContent = "Kanban Hermes";
     elements.chatSubtitle.textContent = "Planeje, mova e dispare agentes sem sair da base Dream/Hermes.";
     renderKanbanBoard();
   } else if (isTerminals) {
-    elements.threadEyebrow.textContent = "Aperant Multiagente";
+    elements.threadEyebrow.textContent = "Hermes Multiagente";
     elements.chatTitle.textContent = "Agent Terminals";
     elements.chatSubtitle.textContent = "Execucao paralela com terminal_exec, agent_spawn e worktrees pelo Hermes.";
     renderMultiAgentDeck();
@@ -8677,50 +10916,20 @@ function renderAppSurface() {
 
 function aperantUtilityMeta(mode = state.appMode) {
   const map = {
-    insights: {
-      eyebrow: "Aperant Insights",
-      title: "Insights",
-      subtitle: "Resumo operacional das tasks, agentes, reviews e bloqueios.",
-      action: "Generate insight"
-    },
-    roadmap: {
-      eyebrow: "Aperant Roadmap",
-      title: "Roadmap",
-      subtitle: "Transforma o estado atual do projeto em proximos passos executaveis.",
-      action: "Generate roadmap"
-    },
-    ideation: {
-      eyebrow: "Aperant Ideation",
-      title: "Ideation",
-      subtitle: "Converte ideias soltas em cards e subagentes usando Hermes.",
-      action: "Run ideation"
-    },
-    changelog: {
-      eyebrow: "Aperant Changelog",
-      title: "Changelog",
-      subtitle: "Linha do tempo das alteracoes concluidas e prontas para review.",
-      action: "Draft changelog"
-    },
-    context: {
-      eyebrow: "Aperant Context",
-      title: "Context",
-      subtitle: "Contexto do workspace, provider e regras que todos os agentes recebem.",
-      action: "Refresh context"
-    },
     github: {
-      eyebrow: "Aperant GitHub Issues",
+      eyebrow: "Hermes GitHub Issues",
       title: "GitHub Issues",
       subtitle: "Cria triagem e correcoes via Hermes, respeitando git/worktree quando ligado.",
       action: "Sync issues"
     },
     worktrees: {
-      eyebrow: "Aperant Worktrees",
+      eyebrow: "Hermes Worktrees",
       title: "Worktrees",
       subtitle: "Mostra worktrees vinculados as tasks e fluxos de cleanup/PR.",
       action: "Audit worktrees"
     }
   };
-  return map[mode] || map.insights;
+  return map[mode] || map.github;
 }
 
 function aperantTaskStatusCounts(tasks = state.app?.tasks || []) {
@@ -8763,16 +10972,11 @@ function aperantUtilityObjective(mode, extra = "") {
   const counts = aperantTaskStatusCounts(tasks);
   const chat = currentChat();
   const project = projectForChat(chat) || (state.app?.projects || [])[0] || null;
-  const root = chat?.workspaceRoot || project?.path || project?.root || project?.workspaceRoot || "C:\\Users\\Gabriel\\Documents\\Playground\\dream-server-hermes";
+  const root = currentWorkspaceRootFallback(chat, project);
   const taskDigest = tasks.slice(0, 12).map((task) =>
     `- ${task.title || task.id}: ${statusLabel(task.status)} - ${shortText(task.objective || task.result || "", 140)}`
   ).join("\n") || "- No tasks yet.";
   const modePrompts = {
-    insights: "Analyze current Kanban execution, agent health, stalled work, review load, and concrete next actions.",
-    roadmap: "Create a practical roadmap from the current Kanban state. Convert vague items into ordered implementation cards.",
-    ideation: "Turn the user's idea into concrete Dream-Hermes tasks with acceptance criteria and implementation order.",
-    changelog: "Draft a changelog from completed work, PR-ready work, and recent task logs. Keep it concise and actionable.",
-    context: "Audit project context for Hermes agents: workspace, provider, routes, constraints, risks, and missing configuration.",
     github: "Inspect or prepare GitHub issue triage for this workspace. If GitHub is not configured, produce setup steps and issue templates.",
     worktrees: "Audit task worktrees, branches, cleanup state, and PR readiness. Recommend safe cleanup or PR actions."
   };
@@ -8781,7 +10985,7 @@ function aperantUtilityObjective(mode, extra = "") {
     `Workspace: ${root}`,
     `Provider: ${selectedAperantProvider()}`,
     `Kanban counts: planning ${counts.planning}, in_progress ${counts.in_progress}, ai_review ${counts.ai_review}, human_review ${counts.human_review}, done ${counts.done}.`,
-    modePrompts[mode] || modePrompts.insights,
+    modePrompts[mode] || modePrompts.github,
     extra ? `User input: ${extra}` : "",
     "Current task digest:",
     taskDigest,
@@ -8803,7 +11007,7 @@ async function runAperantUtilityTask(mode, extra = "") {
     type: "agent_spawn",
     name: meta.title,
     objective: aperantUtilityObjective(mode, extra),
-    routeId: mode === "github" || mode === "worktrees" ? "bugfix" : "research",
+    routeId: "bugfix",
     provider,
     useGit: kanbanGitEnabled(),
     useWorktree: kanbanGitEnabled(),
@@ -8824,10 +11028,9 @@ function renderAperantUtilityView() {
   const settings = state.app?.settings || {};
   const chat = currentChat();
   const project = projectForChat(chat) || (state.app?.projects || [])[0] || null;
-  const root = chat?.workspaceRoot || project?.path || project?.root || project?.workspaceRoot || "C:\\Users\\Gabriel\\Documents\\Playground\\dream-server-hermes";
+  const root = currentWorkspaceRootFallback(chat, project);
   const worktreeTasks = tasks.filter((task) => task.worktreePath || task.worktreeBranch);
   const reviewTasks = tasks.filter((task) => ["ai_review", "human_review"].includes(visualTaskStatus(task.status)));
-  const doneTasks = tasks.filter((task) => visualTaskStatus(task.status) === "done");
   const activeTasks = tasks.filter((task) => visualTaskStatus(task.status) === "in_progress");
   const signature = JSON.stringify([
     mode,
@@ -8869,83 +11072,8 @@ function renderAperantUtilityView() {
   `;
 
   const panels = {
-    insights: `
-      ${metrics}
-      <div class="aperant-utility-grid">
-        <section class="aperant-utility-panel">
-          <div class="view-list-head"><strong>Needs attention</strong><span>${reviewTasks.length}</span></div>
-          <div class="aperant-mini-list">${aperantMiniTaskList(reviewTasks, "No review queue.")}</div>
-        </section>
-        <section class="aperant-utility-panel">
-          <div class="view-list-head"><strong>Recent activity</strong><span>${tasks.length}</span></div>
-          <div class="aperant-mini-list">${aperantMiniTaskList(tasks, "No activity yet.", 7)}</div>
-        </section>
-      </div>
-    `,
-    roadmap: `
-      ${metrics}
-      <div class="aperant-roadmap-lanes">
-        ${["planning", "in_progress", "ai_review", "human_review", "done"].map((status) => `
-          <section class="aperant-utility-panel">
-            <div class="view-list-head"><strong>${escapeHtml(kanbanColumnLabel(status))}</strong><span>${counts[status] || 0}</span></div>
-            <div class="aperant-mini-list">${aperantMiniTaskList(tasks.filter((task) => visualTaskStatus(task.status) === status), "Empty lane.", 4)}</div>
-          </section>
-        `).join("")}
-      </div>
-    `,
-    ideation: `
-      <form class="aperant-idea-form" data-utility-form="ideation">
-        <label class="aperant-task-field">
-          <span>Idea</span>
-          <textarea name="idea" rows="5" placeholder="Describe the feature or experiment. Hermes will turn it into an execution plan."></textarea>
-        </label>
-        <button type="submit" class="aperant-new-task-btn">Run ideation with Hermes</button>
-      </form>
-      <div class="aperant-utility-grid">
-        <section class="aperant-utility-panel">
-          <div class="view-list-head"><strong>Source tasks</strong><span>${tasks.length}</span></div>
-          <div class="aperant-mini-list">${aperantMiniTaskList(tasks, "Create a task first.", 7)}</div>
-        </section>
-        <section class="aperant-utility-panel">
-          <div class="view-list-head"><strong>Hermes routes</strong><span>4</span></div>
-          <div class="aperant-chip-list"><span>frontend</span><span>bugfix</span><span>research</span><span>ios</span></div>
-        </section>
-      </div>
-    `,
-    changelog: `
-      <div class="aperant-utility-grid">
-        <section class="aperant-utility-panel">
-          <div class="view-list-head"><strong>Completed</strong><span>${doneTasks.length}</span></div>
-          <div class="aperant-mini-list">${aperantMiniTaskList(doneTasks, "No completed tasks.", 9)}</div>
-        </section>
-        <section class="aperant-utility-panel">
-          <div class="view-list-head"><strong>PR ready</strong><span>${tasks.filter((task) => task.prUrl || visualTaskStatus(task.status) === "ai_review").length}</span></div>
-          <div class="aperant-mini-list">${aperantMiniTaskList(tasks.filter((task) => task.prUrl || visualTaskStatus(task.status) === "ai_review"), "No PR-ready work.", 7)}</div>
-        </section>
-      </div>
-    `,
-    context: `
-      <div class="aperant-context-stack">
-        <section class="aperant-utility-panel">
-          <div class="view-list-head"><strong>Workspace</strong><span>C</span></div>
-          <div class="aperant-context-row"><span>Root</span><strong title="${escapeHtml(root)}">${escapeHtml(root)}</strong></div>
-          <div class="aperant-context-row"><span>Provider</span><strong>${escapeHtml(selectedAperantProvider())}</strong></div>
-          <div class="aperant-context-row"><span>Health</span><strong>${escapeHtml(aperantProviderHealth(selectedAperantProvider()).label)}</strong></div>
-        </section>
-        <section class="aperant-utility-panel">
-          <div class="view-list-head"><strong>Hermes rules</strong><span>${settings.fullAccessMode ? "On" : "Off"}</span></div>
-          <div class="aperant-chip-list">
-            <span>${settings.fullAccessMode ? "full access" : "limited mode"}</span>
-            <span>${kanbanGitEnabled() ? "git/worktree" : "PC workspace"}</span>
-            <span>${settings.kanbanAutoSchedulerEnabled === false ? "scheduler off" : "scheduler on"}</span>
-            <span>${settings.kanbanAutoRecoverEnabled === false ? "recover off" : "recover on"}</span>
-            <span>${settings.kanbanAutoCleanupEnabled === false ? "cleanup off" : "cleanup on"}</span>
-            <span>${settings.kanbanAutoPrEnabled ? "PR auto" : "PR manual"}</span>
-          </div>
-        </section>
-      </div>
-    `,
     github: `
+      ${metrics}
       <div class="aperant-utility-grid">
         <section class="aperant-utility-panel">
           <div class="view-list-head"><strong>Issue triage</strong><span>G</span></div>
@@ -8959,6 +11087,7 @@ function renderAperantUtilityView() {
       </div>
     `,
     worktrees: `
+      ${metrics}
       <div class="aperant-utility-grid">
         <section class="aperant-utility-panel">
           <div class="view-list-head"><strong>Worktrees</strong><span>${worktreeTasks.length}</span></div>
@@ -8988,7 +11117,7 @@ function renderAperantUtilityView() {
   elements.aperantUtilityView.innerHTML = `
     ${toolbar}
     <div class="aperant-utility-body">
-      ${panels[mode] || panels.insights}
+      ${panels[mode] || panels.github}
     </div>
   `;
 }
@@ -9001,45 +11130,11 @@ function taskOverallProgress(task, fallbackStatus) {
   return kanbanProgress(fallbackStatus);
 }
 
-function taskHasCompletedResult(task) {
-  const visual = visualTaskStatus(task?.status);
-  const raw = String(task?.status || "").toLowerCase();
-  return Boolean(task?.result && (["done", "archived"].includes(visual) || ["done", "pr_created", "archived"].includes(raw)));
-}
-
 function latestTaskLog(task) {
   const entries = ["planning", "coding", "validation"]
     .flatMap((phase) => Array.isArray(task?.logs?.[phase]) ? task.logs[phase].map((entry) => ({ ...entry, phase })) : [])
     .sort((left, right) => Number(right.timestamp || 0) - Number(left.timestamp || 0));
   return entries[0] || null;
-}
-
-function taskPhaseLogMarkup(task) {
-  const phaseLabels = {
-    planning: "Planning",
-    coding: "Coding",
-    validation: "Validation"
-  };
-  return `
-    <details class="kanban-phase-log">
-      <summary>Phase logs</summary>
-      <div class="kanban-phase-grid">
-        ${["planning", "coding", "validation"].map((phase) => {
-          const entries = Array.isArray(task?.logs?.[phase]) ? task.logs[phase].slice(-4) : [];
-          return `
-            <section>
-              <strong>${escapeHtml(phaseLabels[phase])}</strong>
-              ${entries.length
-                ? entries.map((entry) => `
-                  <p><span>${escapeHtml(formatRelativeTime(entry.timestamp))}</span>${escapeHtml(shortText(entry.content || entry.type || "event", 120))}</p>
-                `).join("")
-                : `<p><span>-</span>sem logs</p>`}
-            </section>
-          `;
-        }).join("")}
-      </div>
-    </details>
-  `;
 }
 
 function taskLooksStale(task, agent, terminal) {
@@ -9075,7 +11170,7 @@ function taskActionButtons(task, fullAccessMode, isStarting = false, isStale = f
     return [startButton("Start"), moveButton("human_review", "Review"), moveButton("done", "Done"), cleanupButton()].join("");
   }
   if (status === "in_progress") {
-    return [isStale ? recoverButton() : "", moveButton("ai_review", "AI Review"), moveButton("human_review", "Human Review"), moveButton("done", "Done"), stopButton()].join("");
+    return [isStale ? recoverButton() : "", moveButton("ai_review", "AI Review"), moveButton("done", "Done"), stopButton()].join("");
   }
   if (status === "ai_review") {
     return [prButton(), moveButton("human_review", "Human Review"), moveButton("done", "Done"), startButton("Resume"), cleanupButton()].join("");
@@ -9098,13 +11193,14 @@ function renderAperantSidebar() {
 
   const chat = currentChat();
   const project = projectForChat(chat) || (state.app?.projects || [])[0] || null;
-  const root = chat?.workspaceRoot || project?.path || project?.root || project?.workspaceRoot || "C:\\Users\\Gabriel\\Documents\\Playground\\dream-server-hermes";
+  const root = currentWorkspaceRootFallback(chat, project);
   const name = project?.name || project?.slug || pathBaseName(root) || "autonomous-coding";
   const provider = selectedAperantProvider();
   const maxParallel = kanbanMaxParallelAgents();
   const runningCount = runningKanbanTaskCount();
   const pendingCount = pendingKanbanTasks().length;
   const taskCount = (state.app?.tasks || []).length;
+  const health = aperantProviderHealth(provider);
 
   if (elements.aperantProjectName) elements.aperantProjectName.textContent = name;
   if (elements.aperantProjectPath) {
@@ -9112,7 +11208,12 @@ function renderAperantSidebar() {
     elements.aperantProjectPath.title = root;
   }
   if (elements.aperantTaskCount) elements.aperantTaskCount.textContent = String(taskCount);
-  if (elements.aperantProviderState) elements.aperantProviderState.textContent = `Hermes ${provider}`;
+  if (elements.aperantProviderState) {
+    elements.aperantProviderState.textContent = provider === "cloud"
+      ? `Remoto · ${health.label}`
+      : `Local · ${health.label}`;
+    elements.aperantProviderState.title = health.detail || "";
+  }
   if (elements.aperantAgentState) elements.aperantAgentState.textContent = `${runningCount}/${maxParallel} agents`;
   if (elements.aperantPendingState) elements.aperantPendingState.textContent = `${pendingCount} pending`;
 
@@ -9175,6 +11276,12 @@ function renderKanbanBoard() {
       task.prState,
       task.cleanupState,
       task.executionProgress,
+      task.assignee,
+      task.tenant,
+      task.priority,
+      task.comments?.length || 0,
+      task.links?.parents?.length || 0,
+      task.links?.children?.length || 0,
       task.logs
     ])
   ]);
@@ -9210,32 +11317,36 @@ function renderKanbanBoard() {
                 const isStarting = state.kanbanStartingTaskIds.has(task.id);
                 const isStale = taskLooksStale(task, agent, terminal);
                 const agentStatus = isStarting ? "pending" : String(agent?.status || "");
+                const showAgentStatus = agentStatus && !["complete", "completed", "done"].includes(agentStatus.toLowerCase());
                 const progress = taskOverallProgress(task, visualTaskStatus(task.status));
-                const filledDots = Math.max(0, Math.min(10, Math.round(progress / 10)));
                 const executionPhase = task.executionProgress?.phase || status;
                 const executionMessage = task.executionProgress?.message || "";
                 const latestLog = latestTaskLog(task);
-                const dots = Array.from({ length: 10 }, (_, index) =>
-                  `<span class="${index < filledDots ? "is-filled" : ""}"></span>`
-                ).join("");
+                const commentCount = Array.isArray(task.comments) ? task.comments.length : 0;
+                const parentCount = Array.isArray(task.links?.parents) ? task.links.parents.length : 0;
+                const childCount = Array.isArray(task.links?.children) ? task.links.children.length : 0;
                 return `
                 <article class="kanban-card" draggable="true" data-task-card-id="${escapeHtml(task.id)}">
                   <div class="kanban-card-top">
                     <strong>${escapeHtml(task.title || "Untitled task")}</strong>
                     <div class="kanban-card-badges">
                       <span class="kanban-status kanban-status-${escapeHtml(status)}">${escapeHtml(statusLabel(status))}</span>
-                      ${agentStatus ? `<span class="kanban-status kanban-status-${escapeHtml(agentStatus)}">Agent ${escapeHtml(statusLabel(agentStatus))}</span>` : ""}
-                      ${visualTaskStatus(task.status) !== String(task.status || "").toLowerCase() ? `<span class="kanban-status kanban-status-${escapeHtml(String(task.status || ""))}">${escapeHtml(statusLabel(task.status))}</span>` : ""}
+                      ${showAgentStatus ? `<span class="kanban-status kanban-status-${escapeHtml(agentStatus)}">Agent ${escapeHtml(statusLabel(agentStatus))}</span>` : ""}
+                      ${visualTaskStatus(task.status) !== String(task.status || "").toLowerCase() && !["complete", "completed", "done"].includes(String(task.status || "").toLowerCase()) ? `<span class="kanban-status kanban-status-${escapeHtml(String(task.status || ""))}">${escapeHtml(statusLabel(task.status))}</span>` : ""}
                       ${terminal?.alive ? `<span class="kanban-status kanban-status-running" title="PTY ${escapeHtml(terminal.id)}">PTY ${escapeHtml(compactKanbanId(terminal.id, 18))}</span>` : ""}
                       ${isStale || task.stuckAt ? `<span class="kanban-status kanban-status-error">Stuck</span>` : ""}
                       ${task.prUrl ? `<span class="kanban-status kanban-status-done">PR</span>` : ""}
                       ${task.cleanupState ? `<span class="kanban-status kanban-status-stopped">${escapeHtml(task.cleanupState)}</span>` : ""}
-                      ${taskHasCompletedResult(task) ? `<span class="kanban-status kanban-status-done">Completed</span>` : ""}
                     </div>
                   </div>
                   <p>${escapeHtml(shortText(task.objective || task.result || "No objective registered.", 220))}</p>
                   <div class="kanban-card-meta">
                     ${kanbanMetaPill(task.routeId, 22)}
+                    ${kanbanMetaPill(task.assignee ? `@${task.assignee}` : "", 24)}
+                    ${kanbanMetaPill(task.priority ? `P${task.priority}` : "", 8)}
+                    ${kanbanMetaPill(task.tenant, 20)}
+                    ${kanbanMetaPill(commentCount ? `${commentCount} comments` : "", 18)}
+                    ${kanbanMetaPill(parentCount || childCount ? `${parentCount} parents / ${childCount} children` : "", 28)}
                     ${kanbanMetaPill(task.worktreeBranch, 26)}
                     ${kanbanMetaPill(task.terminalSessionId, 22)}
                     ${kanbanMetaPill(agent?.id || task.agentId, 24)}
@@ -9246,11 +11357,8 @@ function renderKanbanBoard() {
                     <span>${escapeHtml(statusLabel(executionPhase))}</span>
                     <strong>${escapeHtml(shortText(executionMessage || latestLog?.content || "Hermes state machine", 90))}</strong>
                   </div>
-                  ${latestLog ? `<p class="kanban-latest-log"><span>${escapeHtml(latestLog.phase || "log")}</span>${escapeHtml(shortText(latestLog.content || latestLog.type, 150))}</p>` : ""}
-                  ${taskPhaseLogMarkup(task)}
                   <div class="kanban-progress-row"><span>Progress</span><strong>${progress}%</strong></div>
                   <div class="kanban-progress-track" style="--progress:${progress}%"><span></span></div>
-                  <div class="kanban-progress-dots">${dots}${progress === 100 ? "" : `<em>+${Math.max(0, 10 - filledDots)}</em>`}</div>
                   <div class="kanban-card-footer">
                     <span class="kanban-time">${escapeHtml(formatRelativeTime(task.updatedAt || task.createdAt))}</span>
                     <div class="kanban-card-actions">${taskActionButtons(task, fullAccessMode, isStarting, isStale)}</div>
@@ -9274,6 +11382,75 @@ async function moveKanbanTask(taskId, status) {
     status
   }, {
     successMessage: "Card atualizado pelo Hermes."
+  });
+}
+
+async function commentKanbanTask(taskId) {
+  const body = window.prompt("Comentario duravel para esta task:");
+  if (!String(body || "").trim()) return null;
+  return await runHermesDirectAction({
+    type: "task_update",
+    id: taskId,
+    comment: String(body).trim(),
+    author: "dashboard"
+  }, {
+    successMessage: "Comentario registrado no Kanban."
+  });
+}
+
+async function blockKanbanTask(taskId) {
+  const reason = window.prompt("Motivo do bloqueio:");
+  if (!String(reason || "").trim()) return null;
+  return await runHermesDirectAction({
+    type: "task_update",
+    id: taskId,
+    status: "human_review",
+    reviewReason: "blocked",
+    result: String(reason).trim(),
+    event: "HUMAN_REVIEW",
+    message: `Bloqueada: ${String(reason).trim()}`
+  }, {
+    successMessage: "Task bloqueada no Kanban."
+  });
+}
+
+async function heartbeatKanbanTask(taskId) {
+  const note = window.prompt("Nota de heartbeat:", "Worker ainda ativo.");
+  if (note === null) return null;
+  return await runHermesDirectAction({
+    type: "task_update",
+    id: taskId,
+    event: "HEARTBEAT",
+    message: String(note || "Worker ainda ativo.").trim()
+  }, {
+    successMessage: "Heartbeat registrado."
+  });
+}
+
+async function assignKanbanTask(taskId) {
+  const assignee = window.prompt("Assignee/profile para esta task:");
+  if (assignee === null) return null;
+  return await runHermesDirectAction({
+    type: "task_update",
+    id: taskId,
+    assignee: String(assignee || "").trim()
+  }, {
+    successMessage: "Assignee atualizado."
+  });
+}
+
+async function linkKanbanTask(taskId) {
+  const targetId = window.prompt("ID da task relacionada:");
+  if (!String(targetId || "").trim()) return null;
+  const relation = window.prompt("Relacao: parent ou child?", "child");
+  const normalized = String(relation || "child").trim().toLowerCase();
+  return await runHermesDirectAction({
+    type: "task_update",
+    id: taskId,
+    linkParentId: normalized === "parent" ? String(targetId).trim() : taskId,
+    linkChildId: normalized === "parent" ? taskId : String(targetId).trim()
+  }, {
+    successMessage: "Link registrado no Kanban."
   });
 }
 
@@ -10192,6 +12369,20 @@ function deriveThemeFromAccent(theme, accentHex) {
   return next;
 }
 
+function clampThemeBlur(value, fallback = 30) {
+  const numeric = Number(value);
+  const selected = Number.isFinite(numeric) ? numeric : fallback;
+  return Math.max(0, Math.min(400, Math.round(selected)));
+}
+
+function blurRatio(value) {
+  return Math.min(1, Math.max(0, value) / 400);
+}
+
+function frostOpacityForBlur(value, min = 0.015, max = 0.34) {
+  return Math.max(min, Math.min(max, 0.028 + blurRatio(value) * 0.24));
+}
+
 function applyTheme(theme) {
   if (!theme) return;
   const root = document.documentElement;
@@ -10211,8 +12402,54 @@ function applyTheme(theme) {
   set("--bg-stop-e", theme.stopE);
   set("--bg-base", theme.base);
   set("--glass-tint", theme.tint);
-  if (Number.isFinite(theme.blur)) {
-    set("--glass-blur", `${theme.blur}px`);
+  const blur = Number(theme.blur);
+  if (Number.isFinite(blur)) {
+    const clampedBlur = clampThemeBlur(blur);
+    const tintColor = theme.tint || theme.base || theme.accent || "#080202";
+    const baseColor = theme.base || theme.tint || "#080202";
+    const legacyRatio = blurRatio(clampedBlur);
+    const paneAlpha = Math.max(0.045, Math.min(0.26, 0.055 + legacyRatio * 0.12));
+    const stageAlpha = Math.max(0.012, Math.min(0.12, 0.018 + legacyRatio * 0.06));
+    const ambientBlur = Math.round(clampedBlur * 0.58);
+    const ambientScale = 1 + Math.min(0.08, clampedBlur / 4200);
+    const frostOpacity = frostOpacityForBlur(clampedBlur);
+    const stageFrostOpacity = Math.max(0.004, Math.min(0.075, frostOpacity * 0.22));
+    const liquidRatio = Math.min(1, clampedBlur / 80);
+    const liquidBlur = Math.max(0, Math.min(12, clampedBlur * 0.10));
+    const liquidFill = Math.max(0, Math.min(18, liquidRatio * 12));
+    const liquidFillDeep = Math.max(0, Math.min(10, liquidRatio * 5));
+    const refractionOpacity = Math.max(0, Math.min(0.72, liquidRatio * 0.56));
+    const videoRefractionOpacity = liquidRatio <= 0.56
+      ? 0
+      : Math.max(0, Math.min(0.52, ((liquidRatio - 0.56) / 0.44) * 0.52));
+    const refractionScale = 1 + liquidRatio * 0.006;
+    set("--glass-blur", `${clampedBlur}px`);
+    set("--glass-blur-soft", `${Math.max(2, Math.round(clampedBlur * 0.45))}px`);
+    set("--glass-blur-mid", `${Math.max(4, Math.round(clampedBlur * 0.72))}px`);
+    set("--glass-blur-strong", `${Math.max(8, Math.round(clampedBlur * 1.15))}px`);
+    set("--chat-glass-blur", `${clampedBlur}px`);
+    set("--chat-glass-blur-soft", `${Math.max(2, Math.round(clampedBlur * 0.58))}px`);
+    set("--stage-glass-blur", `${clampedBlur}px`);
+    set("--sidebar-glass-blur", `${clampedBlur}px`);
+    set("--topbar-glass-blur", `${clampedBlur}px`);
+    set("--composer-glass-blur", `${clampedBlur}px`);
+    set("--ambient-chat-blur", `${ambientBlur}px`);
+    set("--ambient-chat-scale", ambientScale.toFixed(4));
+    set("--chat-frost-opacity", frostOpacity.toFixed(3));
+    set("--sidebar-frost-opacity", frostOpacity.toFixed(3));
+    set("--topbar-frost-opacity", frostOpacity.toFixed(3));
+    set("--composer-frost-opacity", frostOpacity.toFixed(3));
+    set("--chat-stage-frost-opacity", stageFrostOpacity.toFixed(3));
+    set("--liquid-blur", `${liquidBlur.toFixed(1)}px`);
+    set("--liquid-fill", `color-mix(in srgb, var(--liquid-glass) ${liquidFill.toFixed(1)}%, transparent)`);
+    set("--liquid-fill-deep", `color-mix(in srgb, var(--liquid-glass) ${liquidFillDeep.toFixed(1)}%, transparent)`);
+    set("--liquid-refraction-opacity", refractionOpacity.toFixed(3));
+    set("--liquid-video-refraction-opacity", videoRefractionOpacity.toFixed(3));
+    set("--liquid-refraction-blur", `${Math.max(0, liquidRatio * 1.5).toFixed(2)}px`);
+    set("--liquid-refraction-scale", refractionScale.toFixed(4));
+    set("--chat-glass-tint", hexToRgba(tintColor, paneAlpha) || `rgba(8,7,20,${paneAlpha.toFixed(3)})`);
+    set("--chat-glass-tint-deep", hexToRgba(tintColor, Math.min(0.46, paneAlpha + 0.12)) || `rgba(8,7,20,${Math.min(0.46, paneAlpha + 0.12).toFixed(3)})`);
+    set("--chat-stage-tint", hexToRgba(baseColor, stageAlpha) || `rgba(8,7,20,${stageAlpha.toFixed(3)})`);
   }
   markCodeShaderTextureDirty();
   requestAnimationFrame(() => applyCodeShaderToEditor());
@@ -10220,6 +12457,7 @@ function applyTheme(theme) {
     drawThroughputChart();
     drawSignalChart();
   });
+  requestAnimationFrame(syncLiquidGlassBackdrops);
 }
 
 function renderThemeGrid() {
@@ -10258,8 +12496,9 @@ function syncThemePickersFromState() {
   bindHex(elements.themeTintPicker, elements.themeTintText, themeState.tint || "#170505");
   bindHex(elements.themeStopAPicker, elements.themeStopAText, rgbaToHex(themeState.stopA));
   bindHex(elements.themeStopBPicker, elements.themeStopBText, rgbaToHex(themeState.stopB));
-  if (elements.themeBlurSlider) elements.themeBlurSlider.value = String(themeState.blur ?? 30);
-  if (elements.themeBlurValue) elements.themeBlurValue.textContent = `${themeState.blur ?? 30}px`;
+  const blur = clampThemeBlur(themeState.blur, 30);
+  if (elements.themeBlurSlider) elements.themeBlurSlider.value = String(blur);
+  if (elements.themeBlurValue) elements.themeBlurValue.textContent = `${blur}px`;
 }
 
 function bindColorField(picker, text, onChange) {
@@ -10300,7 +12539,9 @@ function initSettingsUI() {
             general: "Runtime Hermes",
             aperant: "Kanban e multiagente",
             cloud: "Provider remoto",
-            local: "Provider local",
+            system: "Detecção e setup",
+            models: "Modelos locais",
+            local: "Runtime local",
             desktop: "Desktop bridge",
             appearance: "Tela e tema",
             advanced: "Diagnóstico"
@@ -10368,15 +12609,23 @@ function initSettingsUI() {
       applyTheme(themeState);
       updateCustomSelection();
     });
-    if (elements.themeBlurSlider) {
-      elements.themeBlurSlider.addEventListener("input", () => {
-        const v = Number(elements.themeBlurSlider.value) || 30;
+    const bindBlurSlider = (slider, label, key) => {
+      if (!slider || slider.dataset.ready === "true") return;
+      slider.dataset.ready = "true";
+      slider.addEventListener("input", () => {
+        const v = clampThemeBlur(slider.value);
         themeState = themeState || {};
-        themeState.blur = v;
-        if (elements.themeBlurValue) elements.themeBlurValue.textContent = `${v}px`;
+        themeState[key] = v;
+        if (key !== "blur") {
+          themeState.blur = clampThemeBlur(themeState.blur, v);
+        }
+        themeState.preset = "custom";
+        if (label) label.textContent = `${v}px`;
         applyTheme(themeState);
+        updateCustomSelection();
       });
-    }
+    };
+    bindBlurSlider(elements.themeBlurSlider, elements.themeBlurValue, "blur");
     if (elements.themeResetButton) {
       elements.themeResetButton.addEventListener("click", () => {
         const preset = THEME_PRESETS.find((item) => item.id === DEFAULT_THEME_PRESET_ID) || THEME_PRESETS[0];
@@ -11143,6 +13392,7 @@ function openSettingsModal() {
   initSettingsUI();
   elements.settingsModal.hidden = false;
   document.body.classList.add("settings-open");
+  setSettingsSaveState("idle", "Sem alteracoes");
   hydrateSettings(true);
   hydrateThemeFromState();
   requestAnimationFrame(() => {
@@ -11156,10 +13406,8 @@ async function closeSettingsModal(options = {}) {
   }
   const persist = options?.persist !== false;
   if (persist && state.app && window.manusDesktop?.saveSettings) {
-    try {
-      state.app = await window.manusDesktop.saveSettings(collectSettingsPayload());
-    } catch (error) {
-      showToast(error.message || "Nao consegui salvar as configuracoes.");
+    const saved = await saveSettingsFromForm({ showToast: false });
+    if (!saved) {
       return;
     }
   }
@@ -11255,7 +13503,7 @@ function scheduleAperantLiveRefresh() {
       renderAll();
       await processKanbanQueue();
     } catch (error) {
-      showToast(error.message || "Falha ao sincronizar Aperant.");
+      showToast(error.message || "Falha ao sincronizar Kanban Hermes.");
     }
   }, state.kanbanQueueActive ? 900 : 1800);
 }
@@ -11345,6 +13593,36 @@ function fieldChecked(element, fallback = false) {
   return element ? Boolean(element.checked) : Boolean(fallback);
 }
 
+function collectGatewayPayload(settings = state.app?.settings || {}) {
+  const gatewayPlatforms = { ...(settings.gatewayPlatforms || {}) };
+  const gatewaySecrets = {};
+  document.querySelectorAll("[data-gateway-platform]").forEach((card) => {
+    const id = card.dataset.gatewayPlatform;
+    if (!id) {
+      return;
+    }
+    const config = { ...(gatewayPlatforms[id] || {}) };
+    config.enabled = Boolean(card.querySelector("[data-gateway-enabled]")?.checked);
+    card.querySelectorAll("[data-gateway-field]").forEach((input) => {
+      config[input.dataset.gatewayField] = fieldValue(input, "");
+    });
+    card.querySelectorAll("[data-gateway-secret]").forEach((input) => {
+      const value = fieldValue(input, "");
+      if (value) {
+        gatewaySecrets[id] = gatewaySecrets[id] || {};
+        gatewaySecrets[id][input.dataset.gatewaySecret] = value;
+      }
+    });
+    gatewayPlatforms[id] = config;
+  });
+  return {
+    gatewayEnabled: fieldChecked(elements.gatewayEnabledInput, settings.gatewayEnabled),
+    gatewayAutoStart: fieldChecked(elements.gatewayAutoStartInput, settings.gatewayAutoStart),
+    gatewayPlatforms,
+    gatewaySecrets
+  };
+}
+
 function collectSettingsPayload(providerMode = activeProvider()) {
   const settings = state.app?.settings || {};
   const managedAvailable = managedLlamaAvailable();
@@ -11400,15 +13678,68 @@ function collectSettingsPayload(providerMode = activeProvider()) {
     kanbanMaxParallelAgents: fieldValue(elements.kanbanMaxParallelAgentsInput, settings.kanbanMaxParallelAgents || APERANT_MAX_PARALLEL_TASKS),
     kanbanSchedulerIntervalMs: fieldValue(elements.kanbanSchedulerIntervalMsInput, settings.kanbanSchedulerIntervalMs || 2500),
     backgroundMediaPath: String(settings.backgroundMediaPath || ""),
-    connectorIds: parseList(fieldValue(elements.connectorIdsInput, (settings.connectorIds || []).join(", "))),
-    enableSkillIds: parseList(fieldValue(elements.enableSkillsInput, (settings.enableSkillIds || []).join(", "))),
-    forceSkillIds: parseList(fieldValue(elements.forceSkillsInput, (settings.forceSkillIds || []).join(", "))),
+    dreamPetEnabled: fieldChecked(elements.dreamPetEnabledInput, settings.dreamPetEnabled === true),
+    dreamPetBubbleEnabled: fieldChecked(elements.dreamPetBubbleEnabledInput, settings.dreamPetBubbleEnabled !== false),
+    dreamPetVoiceEnabled: fieldChecked(elements.dreamPetVoiceEnabledInput, settings.dreamPetVoiceEnabled === true),
+    dreamPetVoiceName: String(fieldValue(elements.dreamPetVoiceInput, settings.dreamPetVoiceName || "") || "").trim(),
+    connectorIds: [],
+    enableSkillIds: [],
+    forceSkillIds: [],
+    ...collectGatewayPayload(settings),
     ...collectCodeShaderPayload(settings),
     theme: collectThemePayload(settings.theme)
   };
 }
 
+async function saveSettingsFromForm(options = {}) {
+  if (!window.manusDesktop?.saveSettings) {
+    return false;
+  }
+  const showSuccessToast = options.showToast !== false;
+  const previousDisabled = Boolean(elements.settingsSaveButton?.disabled);
+  try {
+    if (elements.settingsSaveButton) {
+      elements.settingsSaveButton.disabled = true;
+    }
+    setSettingsSaveState("saving", "Salvando...");
+    const payload = collectSettingsPayload();
+    state.app = await window.manusDesktop.saveSettings(payload);
+    document.querySelectorAll("[data-gateway-secret]").forEach((input) => {
+      input.value = "";
+    });
+    hydrateThemeFromState();
+    renderAll({ forceSettings: true });
+    applyCodeShaderSettings(state.app?.settings || {});
+    applyCodeShaderToEditor();
+    const route = currentHermesRoute(state.app?.settings || {});
+    setSettingsSaveState("saved", `Salvo · ${executionProviderForSettings(state.app?.settings || {})} · ${route.label}`);
+    if (showSuccessToast) {
+      showToast("Configuracoes salvas.");
+    }
+    return true;
+  } catch (error) {
+    const message = error.message || "Nao consegui salvar as configuracoes.";
+    setSettingsSaveState("error", message);
+    showToast(message);
+    return false;
+  } finally {
+    if (elements.settingsSaveButton) {
+      elements.settingsSaveButton.disabled = previousDisabled;
+    }
+  }
+}
+
 function collectThemePayload(fallback = {}) {
+  const numericFallbackBlur = Number(fallback.blur);
+  const numericStateBlur = Number(themeState?.blur);
+  const numericInputBlur = Number(elements.themeBlurSlider?.value);
+  const normalizedFallbackBlur = Number.isFinite(numericFallbackBlur) ? numericFallbackBlur : 30;
+  const selectedBlur = Number.isFinite(numericInputBlur)
+    ? numericInputBlur
+    : Number.isFinite(numericStateBlur)
+      ? numericStateBlur
+      : normalizedFallbackBlur;
+  const clampedBlur = clampThemeBlur(selectedBlur);
   const defaults = {
     preset: fallback.preset || DEFAULT_THEME_PRESET_ID,
     accent: fallback.accent || "#8a0000",
@@ -11420,7 +13751,7 @@ function collectThemePayload(fallback = {}) {
     stopE: fallback.stopE || "rgba( 70,  0,  0,0.45)",
     base: fallback.base || "#080202",
     tint: fallback.tint || "#170505",
-    blur: Number.isFinite(fallback.blur) ? fallback.blur : 30
+    blur: clampedBlur
   };
   if (!themeState) return defaults;
   return {
@@ -11434,7 +13765,7 @@ function collectThemePayload(fallback = {}) {
     stopE: themeState.stopE || defaults.stopE,
     base: themeState.base || defaults.base,
     tint: themeState.tint || defaults.tint,
-    blur: Number.isFinite(themeState.blur) ? themeState.blur : defaults.blur
+    blur: clampedBlur
   };
 }
 
@@ -11478,6 +13809,7 @@ async function sendMessage() {
     return;
   }
 
+  hideAmbientUi();
   state.busy = true;
   renderAll();
   try {
@@ -11568,6 +13900,14 @@ async function closeTerminalSession(sessionId) {
 
 async function refreshLocalModels() {
   try {
+    const settings = state.app?.settings || {};
+    const provider = normalizeHermesProvider(elements.hermesProviderInput?.value || settings.hermesProvider || "custom");
+    if (providerUsesLocalEndpoint(provider) && window.manusDesktop?.probeOpenAiModels) {
+      const result = await detectEndpointModel({ showToast: true, markDirty: true, timeoutMs: 2500 });
+      if (result?.models?.length) {
+        return;
+      }
+    }
     state.localModels = await window.manusDesktop.listLocalModels();
     if (state.localModels.length && elements.localModelInput && !elements.localModelInput.value.trim()) {
       elements.localModelInput.value = state.localModels[0].id;
@@ -11601,116 +13941,98 @@ async function stopLocalLlama() {
   }
 }
 
-function showSetupOverlay(message = "") {
-  if (!elements.setupOverlay) {
-    return;
-  }
-  elements.setupOverlay.hidden = false;
-  if (elements.setupActions) {
-    elements.setupActions.hidden = true;
-  }
-  if (elements.setupIcon) {
-    elements.setupIcon.className = "setup-card__icon";
-  }
-  if (elements.setupSub) {
-    elements.setupSub.textContent = message || "Preparando ambiente Hermes Agent...";
-  }
-}
-
-function setupOverlayAddLog(message = "") {
-  if (!elements.setupLog || !message) {
-    return;
-  }
-  const item = document.createElement("li");
-  item.textContent = message;
-  elements.setupLog.appendChild(item);
-  while (elements.setupLog.children.length > 8) {
-    elements.setupLog.removeChild(elements.setupLog.firstElementChild);
+async function startGateway() {
+  try {
+    state.app = await window.manusDesktop.saveSettings(collectSettingsPayload("local"));
+    document.querySelectorAll("[data-gateway-secret]").forEach((input) => {
+      input.value = "";
+    });
+    state.app = await window.manusDesktop.startGateway();
+    renderAll({ forceSettings: true });
+    showToast(state.app?.gateway?.running ? "Gateway Hermes iniciado." : (state.app?.gateway?.lastError || "Gateway Hermes atualizado."));
+  } catch (error) {
+    showToast(error.message || "Nao consegui iniciar o gateway Hermes.");
+    renderAll({ forceSettings: true });
   }
 }
 
-function resolveSetupOverlay(message = "") {
-  if (elements.setupIcon) {
-    elements.setupIcon.className = "setup-card__icon is-done";
+async function stopGateway() {
+  try {
+    state.app = await window.manusDesktop.stopGateway();
+    renderAll({ forceSettings: true });
+    showToast("Gateway Hermes parado.");
+  } catch (error) {
+    showToast(error.message || "Nao consegui parar o gateway Hermes.");
   }
-  if (elements.setupSub) {
-    elements.setupSub.textContent = message || "Hermes Agent pronto.";
-  }
-  setTimeout(() => {
-    if (elements.setupOverlay) {
-      elements.setupOverlay.hidden = true;
+}
+
+function initDreamPetControls() {
+  const savePetSettings = async (successMessage) => {
+    if (!window.manusDesktop?.saveSettings) {
+      return;
     }
-  }, 700);
-}
+    try {
+      state.app = await window.manusDesktop.saveSettings(collectSettingsPayload());
+      renderAll({ forceSettings: true });
+      if (successMessage) {
+        showToast(successMessage);
+      }
+    } catch (error) {
+      showToast(error.message || "Nao consegui salvar o pet.");
+    }
+  };
 
-function errorSetupOverlay(message = "") {
-  if (!elements.setupOverlay) {
-    return;
-  }
-  elements.setupOverlay.hidden = false;
-  if (elements.setupIcon) {
-    elements.setupIcon.className = "setup-card__icon is-error";
-  }
-  if (elements.setupSub) {
-    elements.setupSub.textContent = "Nao foi possivel preparar o Hermes Agent.";
-  }
-  if (elements.setupLog) {
-    const item = document.createElement("li");
-    item.className = "is-error";
-    item.textContent = message || "Falha desconhecida durante o setup.";
-    elements.setupLog.appendChild(item);
-  }
-  if (elements.setupHint) {
-    elements.setupHint.textContent = [
-      "Verifique a conexao, Python 3.10+ e permissao de escrita no diretorio de dados do app.",
-      "No Windows, instale Git for Windows ou configure HERMES_GIT_BASH_PATH."
-    ].join("\n");
-  }
-  if (elements.setupActions) {
-    elements.setupActions.hidden = false;
-  }
+  elements.dreamPetWakeButton?.addEventListener("click", async () => {
+    if (elements.dreamPetEnabledInput) {
+      elements.dreamPetEnabledInput.checked = true;
+    }
+    await savePetSettings("Pet Dreamserver ativado.");
+    try {
+      await window.manusDesktop?.wakeDreamPet?.();
+    } catch (error) {
+      showToast(error.message || "Nao consegui chamar a Dreamserver.");
+    }
+  });
+  elements.dreamPetResetButton?.addEventListener("click", async () => {
+    try {
+      await window.manusDesktop?.resetDreamPet?.();
+      showToast("Dreamserver reposicionada.");
+    } catch (error) {
+      showToast(error.message || "Nao consegui reposicionar a Dreamserver.");
+    }
+  });
+  elements.dreamPetEnabledInput?.addEventListener("change", () => {
+    void savePetSettings(elements.dreamPetEnabledInput.checked ? "Pet Dreamserver ativado." : "Pet Dreamserver desativado.");
+  });
+  elements.dreamPetBubbleEnabledInput?.addEventListener("change", () => {
+    void savePetSettings(elements.dreamPetBubbleEnabledInput.checked ? "Balao da Dreamserver ligado." : "Balao da Dreamserver desligado.");
+  });
+  elements.dreamPetVoiceEnabledInput?.addEventListener("change", () => {
+    void savePetSettings(elements.dreamPetVoiceEnabledInput.checked ? "Som da Dreamserver ligado." : "Som da Dreamserver desligado.");
+  });
+  elements.dreamPetVoiceInput?.addEventListener("change", () => {
+    void savePetSettings("Voz da Dreamserver atualizada.");
+  });
+  window.speechSynthesis?.addEventListener?.("voiceschanged", () => {
+    hydrateDreamPetVoiceOptions(state.app?.settings || {});
+  });
 }
 
 async function init() {
   state.app = await window.manusDesktop.loadState();
+  syncViewportLayoutVars();
   syncPreviewDeviceModeFromApp();
   initSettingsUI();
+  bindInstallerUI();
+  initDreamPetControls();
   hydrateThemeFromState();
   startThinkingAnimationLoop();
-  elements.setupRetryBtn?.addEventListener("click", async () => {
-    if (elements.setupActions) {
-      elements.setupActions.hidden = true;
-    }
-    if (elements.setupLog) {
-      elements.setupLog.innerHTML = "";
-    }
-    if (elements.setupIcon) {
-      elements.setupIcon.className = "setup-card__icon";
-    }
-    if (elements.setupSub) {
-      elements.setupSub.textContent = "Tentando novamente...";
-    }
-    await window.manusDesktop.setupHermes();
-  });
+  startGatewayMonitorLiveLoop();
+  initAmbientMouseUi();
+  document.addEventListener("pointerdown", handleWorkbenchTabPointer, true);
+  document.addEventListener("mousedown", handleWorkbenchTabPointer, true);
+  document.addEventListener("click", handleWorkbenchTabPointer, true);
   window.manusDesktop.onRuntimeEvent((event) => {
-    const type = event?.event?.type;
-    const message = event?.event?.message || "";
-    if (type === "hermes_setup_required") {
-      showSetupOverlay(message);
-      return;
-    }
-    if (type === "hermes_setup_progress") {
-      setupOverlayAddLog(message);
-      return;
-    }
-    if (type === "hermes_setup_done") {
-      resolveSetupOverlay(message);
-      return;
-    }
-    if (type === "hermes_setup_error") {
-      errorSetupOverlay(message);
-      return;
-    }
     updateHomeTokenTelemetryFromRuntimeEvent(event);
     scheduleRuntimeRefresh(event);
   });
@@ -11731,6 +14053,12 @@ async function init() {
     }
   });
   renderAll({ forceSettings: true });
+  await refreshInstallerStatus();
+  const installerStatus = String(currentInstallerState().status || "not_started");
+  if (!state.installer.firstRunShown && installerStatus === "not_started" && localStorage.getItem("dream.setupWizard.dismissed") !== "true") {
+    state.installer.firstRunShown = true;
+    openSetupWizard("welcome");
+  }
   resizeComposer();
 
   elements.newChatButton.addEventListener("click", async () => {
@@ -11919,6 +14247,36 @@ async function init() {
     if (recoverButton) {
       if (recoverButton.disabled) return;
       await recoverKanbanTask(recoverButton.dataset.recoverTask);
+      return;
+    }
+
+    const commentButton = event.target.closest("[data-comment-task]");
+    if (commentButton) {
+      await commentKanbanTask(commentButton.dataset.commentTask);
+      return;
+    }
+
+    const blockButton = event.target.closest("[data-block-task]");
+    if (blockButton) {
+      await blockKanbanTask(blockButton.dataset.blockTask);
+      return;
+    }
+
+    const heartbeatButton = event.target.closest("[data-heartbeat-task]");
+    if (heartbeatButton) {
+      await heartbeatKanbanTask(heartbeatButton.dataset.heartbeatTask);
+      return;
+    }
+
+    const assignButton = event.target.closest("[data-assign-task]");
+    if (assignButton) {
+      await assignKanbanTask(assignButton.dataset.assignTask);
+      return;
+    }
+
+    const linkButton = event.target.closest("[data-link-task]");
+    if (linkButton) {
+      await linkKanbanTask(linkButton.dataset.linkTask);
       return;
     }
 
@@ -12376,12 +14734,19 @@ async function init() {
 
   elements.settingsForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    state.app = await window.manusDesktop.saveSettings(collectSettingsPayload());
-    renderAll({ forceSettings: true });
-    hydrateThemeFromState();
-    applyCodeShaderSettings(state.app?.settings || {});
-    applyCodeShaderToEditor();
-    showToast("Configuracoes salvas.");
+    await saveSettingsFromForm({ showToast: true });
+  });
+  elements.settingsForm?.addEventListener("input", (event) => {
+    markSettingsDirty();
+    if (event.target?.id === "localBaseUrlInput") {
+      scheduleEndpointModelDetection({ delayMs: 700 });
+    }
+  });
+  elements.settingsForm?.addEventListener("change", (event) => {
+    markSettingsDirty();
+    if (event.target?.id === "localBaseUrlInput" || event.target?.id === "hermesProviderInput") {
+      scheduleEndpointModelDetection({ delayMs: 0 });
+    }
   });
 
   elements.clearApiKeyButton?.addEventListener("click", async () => {
@@ -12400,6 +14765,22 @@ elements.localProviderButton?.addEventListener("click", () => switchProviderMode
       ...(state.app?.settings || {}),
       hermesProvider: elements.hermesProviderInput.value
     }, { applyDefaults: true, providerChanged: true });
+    scheduleEndpointModelDetection({ delayMs: 0, showToast: true });
+  });
+  elements.localBaseUrlInput?.addEventListener("input", () => {
+    scheduleEndpointModelDetection({ delayMs: 700 });
+  });
+  elements.localBaseUrlInput?.addEventListener("change", () => {
+    scheduleEndpointModelDetection({ delayMs: 0 });
+  });
+  elements.localBaseUrlInput?.addEventListener("blur", () => {
+    scheduleEndpointModelDetection({ delayMs: 0 });
+  });
+  elements.localModelInput?.addEventListener("input", () => {
+    const current = fieldValue(elements.localModelInput, "");
+    if (current && current !== state.endpointModelProbe.autofilledValue) {
+      state.endpointModelProbe.autofilledValue = "";
+    }
   });
   elements.localLlamaEnabledInput?.addEventListener("change", () => {
     syncPlatformSettingsHints({
@@ -12410,6 +14791,18 @@ elements.localProviderButton?.addEventListener("click", () => switchProviderMode
   elements.refreshLocalModelsButton?.addEventListener("click", refreshLocalModels);
   elements.startLocalLlamaButton?.addEventListener("click", startLocalLlama);
   elements.stopLocalLlamaButton?.addEventListener("click", stopLocalLlama);
+  elements.gatewayStartButton?.addEventListener("click", startGateway);
+  elements.gatewayStopButton?.addEventListener("click", stopGateway);
+  elements.skillCatalogPrevButton?.addEventListener("click", () => {
+    state.skillCatalogPage = Math.max(0, Number(state.skillCatalogPage || 0) - 1);
+    state.renderCache.hermesCatalog = "";
+    renderHermesCatalog();
+  });
+  elements.skillCatalogNextButton?.addEventListener("click", () => {
+    state.skillCatalogPage = Number(state.skillCatalogPage || 0) + 1;
+    state.renderCache.hermesCatalog = "";
+    renderHermesCatalog();
+  });
   elements.togglePanelButton?.addEventListener("click", () => {
     openSettingsModal();
   });
@@ -12438,30 +14831,43 @@ elements.localProviderButton?.addEventListener("click", () => switchProviderMode
     renderShell();
   });
   elements.headerTerminalButton?.addEventListener("click", () => {
-    state.panelOpen = true;
-    state.workbenchView = "terminal";
-    renderShell();
-    renderWorkbenchPanel();
+    setWorkbenchView("terminal");
+  });
+  elements.workbenchGatewayTab?.addEventListener("click", () => {
+    setWorkbenchView("gateway");
   });
   elements.workbenchPreviewTab?.addEventListener("click", () => {
-    state.workbenchView = "preview";
-    renderWorkbenchPanel();
+    setWorkbenchView("preview");
   });
   elements.workbenchFilesTab?.addEventListener("click", () => {
-    state.workbenchView = "files";
-    renderWorkbenchPanel();
+    setWorkbenchView("files");
   });
   elements.workbenchCodeTab?.addEventListener("click", () => {
-    state.workbenchView = "code";
-    renderWorkbenchPanel();
+    setWorkbenchView("code");
   });
   elements.workbenchChangesTab?.addEventListener("click", () => {
-    state.workbenchView = "changes";
-    renderWorkbenchPanel();
+    setWorkbenchView("changes");
   });
   elements.workbenchTerminalTab?.addEventListener("click", () => {
-    state.workbenchView = "terminal";
-    renderWorkbenchPanel();
+    setWorkbenchView("terminal");
+  });
+  elements.gatewayMonitorSurface?.addEventListener("click", (event) => {
+    const platformButton = event.target.closest("[data-gateway-monitor-platform]");
+    if (platformButton) {
+      state.selectedGatewayMonitorPlatform = platformButton.dataset.gatewayMonitorPlatform || "";
+      localStorage.setItem("dream.workbench.gatewayPlatform", state.selectedGatewayMonitorPlatform);
+      state.renderCache.gatewayMonitor = "";
+      state.renderCache.workbench = "";
+      renderWorkbenchPanel();
+      return;
+    }
+    const showButton = event.target.closest("[data-gateway-monitor-show]");
+    if (showButton) {
+      const target = showButton.dataset.gatewayMonitorShow;
+      showToast(target === "logs"
+        ? "Logs recentes do gateway aparecem em Terminal e Atividade recente."
+        : "Execuções recentes já estão filtradas para o gateway selecionado.");
+    }
   });
   elements.filesSurface?.addEventListener("click", (event) => {
     const viewButton = event.target.closest("[data-workbench-files-view]");

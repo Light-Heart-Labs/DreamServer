@@ -1,6 +1,6 @@
 ---
 name: axolotl
-description: Expert guidance for fine-tuning LLMs with Axolotl - YAML configs, 100+ models, LoRA/QLoRA, DPO/KTO/ORPO/GRPO, multimodal support
+description: "Axolotl: YAML LLM fine-tuning (LoRA, DPO, GRPO)."
 version: 1.0.0
 author: Orchestra Research
 license: MIT
@@ -12,6 +12,10 @@ metadata:
 ---
 
 # Axolotl Skill
+
+## What's inside
+
+Expert guidance for fine-tuning LLMs with Axolotl — YAML configs, 100+ models, LoRA/QLoRA, DPO/KTO/ORPO/GRPO, multimodal support.
 
 Comprehensive assistance with axolotl development, generated from official documentation.
 
@@ -157,5 +161,3 @@ Add templates, boilerplate, or example projects here.
 To refresh this skill with updated documentation:
 1. Re-run the scraper with the same configuration
 2. The skill will be rebuilt with the latest information
-
-

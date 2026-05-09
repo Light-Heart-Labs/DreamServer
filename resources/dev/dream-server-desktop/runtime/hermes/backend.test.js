@@ -1,4 +1,5 @@
 const assert = require("assert");
+const { spawnSync } = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -349,6 +350,29 @@ console.log(JSON.stringify({ type: "final", ok: true, finalResponse: "final:" + 
   assert.ok(catalog.gateways.some((gateway) => gateway.id === "discord"));
   assert.ok(catalog.providers.some((provider) => provider.id === "nvidia" && provider.inferenceBaseUrl === "https://integrate.api.nvidia.com/v1"));
   assert.ok(catalog.providers.some((provider) => provider.id === "copilot-acp" && provider.inferenceBaseUrl === "acp://copilot"));
+
+  const projectRoot = path.resolve(__dirname, "..", "..");
+  const realHermesRoot = path.join(projectRoot, "vendor", "hermes-agent");
+  const transportBasePath = path.join(realHermesRoot, "agent", "transports", "base.py");
+  assert.ok(fs.existsSync(transportBasePath), "Hermes transport base.py must be vendored");
+  const pythonPath = process.platform === "win32"
+    ? path.join(projectRoot, ".venv-hermes", "Scripts", "python.exe")
+    : path.join(projectRoot, ".venv-hermes", "bin", "python");
+  if (fs.existsSync(pythonPath)) {
+    const registryCheck = spawnSync(
+      pythonPath,
+      ["-c", [
+        "import sys",
+        "sys.path.insert(0, r'" + realHermesRoot.replace(/\\/g, "\\\\").replace(/'/g, "\\'") + "')",
+        "from agent.transports import get_transport",
+        "modes = ['chat_completions', 'anthropic_messages', 'codex_responses', 'bedrock_converse']",
+        "missing = [mode for mode in modes if get_transport(mode) is None]",
+        "assert not missing, missing",
+      ].join("; ")],
+      { encoding: "utf8" }
+    );
+    assert.strictEqual(registryCheck.status, 0, registryCheck.stderr || registryCheck.stdout);
+  }
   console.log("hermes backend bridge tests passed");
 })().catch((error) => {
   console.error(error);

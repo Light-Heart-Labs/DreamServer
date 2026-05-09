@@ -2,6 +2,7 @@ const assert = require("assert/strict");
 const os = require("os");
 const path = require("path");
 const { expandPathInput, normalizePathText, resolveOpenUrlTarget } = require("./tools");
+const { maybeWindowsToWslPath, nativeWindowsPosixProblem } = require("./platform");
 
 function testHomePathExpansion() {
   const resolved = expandPathInput("~/ThreeJS-Shooter/index.html", process.cwd());
@@ -46,6 +47,27 @@ function testWindowsPosixDrivePathsAreNormalized() {
   assert.equal(resolved, path.normalize(expected));
 }
 
+function testWindowsDoesNotExposeWslPathsByDefault() {
+  if (process.platform !== "win32") {
+    return;
+  }
+  const previous = process.env.DREAM_EXPOSE_WSL_PATHS;
+  delete process.env.DREAM_EXPOSE_WSL_PATHS;
+  try {
+    assert.equal(maybeWindowsToWslPath("C:\\Users\\Gabriel\\Documents\\Project"), "");
+    assert.match(
+      nativeWindowsPosixProblem({ script: "cd /mnt/c/Users/Gabriel" }),
+      /Windows nativo/
+    );
+  } finally {
+    if (previous === undefined) {
+      delete process.env.DREAM_EXPOSE_WSL_PATHS;
+    } else {
+      process.env.DREAM_EXPOSE_WSL_PATHS = previous;
+    }
+  }
+}
+
 function main() {
   testHomePathExpansion();
   console.log("ok - testHomePathExpansion");
@@ -57,6 +79,8 @@ function main() {
   console.log("ok - testPrivateUseWindowsPathGlyphsAreNormalized");
   testWindowsPosixDrivePathsAreNormalized();
   console.log("ok - testWindowsPosixDrivePathsAreNormalized");
+  testWindowsDoesNotExposeWslPathsByDefault();
+  console.log("ok - testWindowsDoesNotExposeWslPathsByDefault");
 }
 
 main();

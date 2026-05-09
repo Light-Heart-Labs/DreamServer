@@ -107,10 +107,15 @@ function createDefaultState() {
       localLlamaBatchSize: 1024,
       localLlamaStartupTimeoutMs: 180000,
       hermesDesktopIntegrationEnabled: true,
+      hermesDoctorTimeoutMs: 60000,
       localMaxTokens: 4096,
       hermesMaxTokens: 8192,
       hermesMaxIterations: 16,
       hermesToolsets: [],
+      gatewayEnabled: false,
+      gatewayAutoStart: false,
+      gatewayDoctorTimeoutMs: 60000,
+      gatewayPlatforms: {},
       kanbanGitEnabled: false,
       kanbanAutoSchedulerEnabled: true,
       kanbanAutoRecoverEnabled: true,
@@ -119,24 +124,33 @@ function createDefaultState() {
       kanbanMultiAgentOrchestrationEnabled: false,
       kanbanMaxParallelAgents: 3,
       kanbanSchedulerIntervalMs: 2500,
-      backgroundMediaPath: "",
+      backgroundMediaPath: "./assets/default-wallpaper.png",
+      dreamPetEnabled: false,
+      dreamPetBubbleEnabled: true,
+      dreamPetVoiceEnabled: false,
+      dreamPetVoiceName: "",
+      dreamPetWindowBounds: null,
       connectorIds: [],
       enableSkillIds: [],
       forceSkillIds: [],
       trustMode: "ask",
       allowedPermissionClasses: [],
       theme: {
-        preset: "rose",
-        accent: "#8a0000",
-        accentHi: "#ff4b4b",
-        stopA: "rgba(138,  0,  0,0.80)",
-        stopB: "rgba( 86,  0,  0,0.75)",
-        stopC: "rgba( 96,  0,  0,0.50)",
-        stopD: "rgba(210, 28, 28,0.44)",
-        stopE: "rgba( 70,  0,  0,0.45)",
-        base: "#080202",
-        tint: "#170505",
-        blur: 30
+        preset: "roxo",
+        accent: "#7c6cfc",
+        accentHi: "#a89bff",
+        stopA: "rgba(130, 50,255,0.80)",
+        stopB: "rgba( 30, 60,240,0.75)",
+        stopC: "rgba( 80, 10,210,0.50)",
+        stopD: "rgba(210, 70,255,0.45)",
+        stopE: "rgba( 50, 30,200,0.45)",
+        base: "#04030b",
+        tint: "#0a081c",
+        blur: 30,
+        blurBackground: 30,
+        blurSidebar: 30,
+        blurTopbar: 30,
+        blurComposer: 30
       },
       codeShaderEnabled: true,
       codeShaderPreset: "bar",
@@ -179,6 +193,46 @@ function normalizeNumber(value, fallback, min, max) {
   return Math.max(min, Math.min(max, Math.round(parsed)));
 }
 
+const GATEWAY_PLATFORM_IDS = new Set([
+  "discord",
+  "telegram",
+  "slack",
+  "matrix",
+  "mattermost",
+  "signal",
+  "whatsapp",
+  "homeassistant",
+  "email",
+  "sms",
+  "api_server",
+  "webhook",
+  "dingtalk",
+  "feishu",
+  "wecom",
+  "weixin",
+  "bluebubbles",
+  "qqbot",
+  "yuanbao"
+]);
+
+function normalizeGatewayPlatforms(value = {}) {
+  const source = value && typeof value === "object" ? value : {};
+  const normalized = {};
+  for (const id of GATEWAY_PLATFORM_IDS) {
+    const entry = source[id] && typeof source[id] === "object" ? source[id] : {};
+    normalized[id] = {};
+    for (const [key, raw] of Object.entries(entry)) {
+      if (key === "enabled") {
+        normalized[id].enabled = Boolean(raw);
+      } else {
+        normalized[id][key] = String(raw || "").trim();
+      }
+    }
+    normalized[id].enabled = Boolean(normalized[id].enabled);
+  }
+  return normalized;
+}
+
 const DEFAULT_THEME = {
   preset: "rose",
   accent: "#8a0000",
@@ -190,7 +244,11 @@ const DEFAULT_THEME = {
   stopE: "rgba( 70,  0,  0,0.45)",
   base: "#080202",
   tint: "#170505",
-  blur: 30
+  blur: 30,
+  blurBackground: 30,
+  blurSidebar: 30,
+  blurTopbar: 30,
+  blurComposer: 30
 };
 
 const LEGACY_CODE_SHADER_PRESETS = Object.freeze({
@@ -240,7 +298,11 @@ function normalizeTheme(value) {
     stopE: normalizeColor(src.stopE, DEFAULT_THEME.stopE),
     base: normalizeColor(src.base, DEFAULT_THEME.base),
     tint: normalizeColor(src.tint, DEFAULT_THEME.tint),
-    blur: normalizeNumber(src.blur, DEFAULT_THEME.blur, 0, 80)
+    blur: normalizeNumber(src.blur, DEFAULT_THEME.blur, 0, 400),
+    blurBackground: normalizeNumber(src.blurBackground, src.blur ?? DEFAULT_THEME.blurBackground, 0, 400),
+    blurSidebar: normalizeNumber(src.blurSidebar, src.blur ?? DEFAULT_THEME.blurSidebar, 0, 400),
+    blurTopbar: normalizeNumber(src.blurTopbar, src.blur ?? DEFAULT_THEME.blurTopbar, 0, 400),
+    blurComposer: normalizeNumber(src.blurComposer, src.blur ?? DEFAULT_THEME.blurComposer, 0, 400)
   };
 }
 
@@ -454,6 +516,23 @@ function normalizeTask(task) {
     workspaceRoot: task?.workspaceRoot ? String(task.workspaceRoot) : null,
     worktreePath: task?.worktreePath ? String(task.worktreePath) : null,
     worktreeBranch: task?.worktreeBranch ? String(task.worktreeBranch) : null,
+    assignee: task?.assignee ? String(task.assignee) : "",
+    tenant: task?.tenant ? String(task.tenant) : "",
+    priority: Number.isFinite(Number(task?.priority)) ? Number(task.priority) : 0,
+    maxRuntimeSeconds: Number.isFinite(Number(task?.maxRuntimeSeconds)) ? Number(task.maxRuntimeSeconds) : null,
+    skills: Array.isArray(task?.skills) ? task.skills.map((entry) => String(entry || "")).filter(Boolean) : [],
+    comments: Array.isArray(task?.comments)
+      ? task.comments.slice(-200).map((entry) => ({
+          id: String(entry?.id || `comment-${crypto.randomUUID()}`),
+          author: String(entry?.author || "dashboard"),
+          body: String(entry?.body || ""),
+          createdAt: Number(entry?.createdAt || Date.now())
+        })).filter((entry) => entry.body)
+      : [],
+    links: {
+      parents: Array.isArray(task?.links?.parents) ? task.links.parents.map((entry) => String(entry || "")).filter(Boolean) : [],
+      children: Array.isArray(task?.links?.children) ? task.links.children.map((entry) => String(entry || "")).filter(Boolean) : []
+    },
     reviewReason: task?.reviewReason ? String(task.reviewReason) : null,
     prUrl: task?.prUrl ? String(task.prUrl) : "",
     prState: task?.prState ? String(task.prState) : "",
@@ -725,6 +804,21 @@ function normalizeState(state) {
     normalized.settings.hermesMaxTokens = 8192;
   }
   normalized.settings.hermesToolsets = normalizeStringArray(normalized.settings.hermesToolsets);
+  normalized.settings.hermesDoctorTimeoutMs = normalizeNumber(
+    normalized.settings.hermesDoctorTimeoutMs,
+    60000,
+    10000,
+    300000
+  );
+  normalized.settings.gatewayEnabled = Boolean(normalized.settings.gatewayEnabled);
+  normalized.settings.gatewayAutoStart = Boolean(normalized.settings.gatewayAutoStart);
+  normalized.settings.gatewayDoctorTimeoutMs = normalizeNumber(
+    normalized.settings.gatewayDoctorTimeoutMs,
+    normalized.settings.hermesDoctorTimeoutMs,
+    10000,
+    300000
+  );
+  normalized.settings.gatewayPlatforms = normalizeGatewayPlatforms(normalized.settings.gatewayPlatforms);
   normalized.settings.kanbanGitEnabled = Boolean(normalized.settings.kanbanGitEnabled);
   normalized.settings.kanbanAutoSchedulerEnabled = normalized.settings.kanbanAutoSchedulerEnabled !== false;
   normalized.settings.kanbanAutoRecoverEnabled = normalized.settings.kanbanAutoRecoverEnabled !== false;
@@ -746,6 +840,19 @@ function normalizeState(state) {
     30000
   );
   normalized.settings.backgroundMediaPath = String(normalized.settings.backgroundMediaPath || "").trim();
+  normalized.settings.dreamPetEnabled = normalized.settings.dreamPetEnabled === true;
+  normalized.settings.dreamPetBubbleEnabled = normalized.settings.dreamPetBubbleEnabled !== false;
+  normalized.settings.dreamPetVoiceEnabled = normalized.settings.dreamPetVoiceEnabled === true;
+  normalized.settings.dreamPetVoiceName = String(normalized.settings.dreamPetVoiceName || "").trim();
+  normalized.settings.dreamPetWindowBounds =
+    normalized.settings.dreamPetWindowBounds && typeof normalized.settings.dreamPetWindowBounds === "object"
+      ? {
+          x: normalizeNumber(normalized.settings.dreamPetWindowBounds.x, 0, -100000, 100000),
+          y: normalizeNumber(normalized.settings.dreamPetWindowBounds.y, 0, -100000, 100000),
+          width: normalizeNumber(normalized.settings.dreamPetWindowBounds.width, 230, 180, 320),
+          height: normalizeNumber(normalized.settings.dreamPetWindowBounds.height, 274, 220, 360)
+        }
+      : null;
   normalized.settings.trustMode = ["ask", "session", "always"].includes(
     String(normalized.settings.trustMode || "ask").toLowerCase()
   )
@@ -799,6 +906,9 @@ function getPublicState(state, extras = {}) {
     hermesCatalog: extras.hermesCatalog && typeof extras.hermesCatalog === "object"
       ? extras.hermesCatalog
       : { commands: [], skills: [], gateways: [], counts: { commands: 0, skills: 0, gateways: 0 } },
+    gateway: extras.gateway && typeof extras.gateway === "object"
+      ? extras.gateway
+      : { enabled: false, autoStart: false, running: false, pid: null, platforms: [], configuredCount: 0, enabledCount: 0 },
     mcpState: extras.mcpState && typeof extras.mcpState === "object" ? extras.mcpState : { configured: [], connected: [] },
     hostInfo: extras.hostInfo && typeof extras.hostInfo === "object"
       ? extras.hostInfo
@@ -844,6 +954,7 @@ module.exports = {
   normalizeTodo,
   normalizeState,
   normalizeStringArray,
+  normalizeGatewayPlatforms,
   normalizeCodeShaderPreset,
   normalizeTheme
 };

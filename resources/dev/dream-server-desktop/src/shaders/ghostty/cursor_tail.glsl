@@ -146,7 +146,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord){
     // normalization & setup(-1, 1 coords)
     vec2 vu = normalize(fragCoord, 1.);
     vec2 offsetFactor = vec2(-.5, 0.5);
-    
+
     vec4 currentCursor = vec4(normalize(iCurrentCursor.xy, 1.), normalize(iCurrentCursor.zw, 0.));
     vec4 previousCursor = vec4(normalize(iPreviousCursor.xy, 1.), normalize(iPreviousCursor.zw, 0.));
 
@@ -157,14 +157,14 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord){
     float lineLength = length(delta);
 
      float sdfCurrentCursor = getSdfRectangle(vu, centerCC, currentCursor.zw * 0.5);
-	
+
      vec4 newColor = vec4(fragColor);
-	
+
      float minDist = currentCursor.w * THRESHOLD_MIN_DISTANCE;
      float progress = clamp((iTime - iTimeCursorChange) / DURATION, 0.0, 1.0);
      if (lineLength > minDist) {
          // ANIMATION logic
-        
+
         float head_eased = 0.0;
         float tail_eased = 0.0;
 
@@ -181,7 +181,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord){
         tail_eased = mix(tail_eased_long, tail_eased_short, isLongMove);
 
         // detect straight moves
-        vec2 delta_abs = abs(centerCC - centerCP); 
+        vec2 delta_abs = abs(centerCC - centerCP);
         float threshold = 0.001;
         float isHorizontal = step(delta_abs.y, threshold);
         float isVertical = step(delta_abs.x, threshold);
@@ -195,11 +195,11 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord){
 
         float isTopRightLeading = determineIfTopRightIsLeading(currentCursor.xy, previousCursor.xy);
         float isBottomLeftLeading = 1.0 - isTopRightLeading;
-        
+
         // v0, v1 : "front" of the trail (head)
         vec2 v0 = vec2(head_pos_tl.x + currentCursor.z * isTopRightLeading, head_pos_tl.y - currentCursor.w);
         vec2 v1 = vec2(head_pos_tl.x + currentCursor.z * isBottomLeftLeading, head_pos_tl.y);
-        
+
         // v2, v3: "back" of the trail (tail)
         vec2 v2 = vec2(tail_pos_tl.x + currentCursor.z * isBottomLeftLeading, tail_pos_tl.y);
         vec2 v3 = vec2(tail_pos_tl.x + currentCursor.z * isTopRightLeading, tail_pos_tl.y - previousCursor.w);
@@ -213,7 +213,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord){
 
         vec2 min_center = min(head_center, tail_center);
         vec2 max_center = max(head_center, tail_center);
-        
+
         vec2 box_size = (max_center - min_center) + currentCursor.zw;
         vec2 box_center = (min_center + max_center) * 0.5;
 
@@ -221,7 +221,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord){
 
         // -- FINAL SELECTING AND DRAWING --
         float sdfTrail = mix(sdfTrail_diag, sdfTrail_rect, isStraightMove);
-        
+
         vec4 trail = TRAIL_COLOR;
         float trailAlpha = antialising(sdfTrail);
         newColor = mix(newColor, trail, trailAlpha);

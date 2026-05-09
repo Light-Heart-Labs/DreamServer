@@ -8,6 +8,28 @@ from pathlib import Path
 
 from tools.registry import registry
 
+GATEWAY_PLATFORMS = [
+    "whatsapp",
+    "discord",
+    "telegram",
+    "slack",
+    "matrix",
+    "mattermost",
+    "signal",
+    "homeassistant",
+    "email",
+    "sms",
+    "api_server",
+    "webhook",
+    "dingtalk",
+    "feishu",
+    "wecom",
+    "weixin",
+    "bluebubbles",
+    "qqbot",
+    "yuanbao",
+]
+
 
 def _project_root() -> Path:
     configured = os.environ.get("DREAM_DESKTOP_ROOT")
@@ -128,6 +150,41 @@ def _browser_control_action(args: dict) -> dict:
     }
 
 
+def _gateway_action(args: dict) -> dict:
+    command = str(args.get("command") or args.get("operation") or "status").strip().lower()
+    platform = str(args.get("platform") or args.get("gateway") or "").strip().lower()
+    timeout_ms = args.get("timeoutMs")
+    if timeout_ms is None and command in {"start", "restart"} and platform == "whatsapp":
+        timeout_ms = 90000
+    return {
+        "type": "gateway_control",
+        "command": command,
+        "platform": platform,
+        "timeoutMs": timeout_ms or 30000,
+        "token": args.get("token"),
+        "botToken": args.get("botToken") or args.get("bot_token"),
+        "secretField": args.get("secretField") or args.get("secret_field"),
+        "secretValue": args.get("secretValue") or args.get("secret_value"),
+        "secrets": args.get("secrets"),
+        "chatId": args.get("chatId") or args.get("chat_id") or args.get("id"),
+        "target": args.get("target"),
+        "threadId": args.get("threadId") or args.get("thread_id"),
+        "guildId": args.get("guildId") or args.get("guild_id") or args.get("serverId") or args.get("server_id"),
+        "message": args.get("message") or args.get("text"),
+        "messageId": args.get("messageId") or args.get("message_id"),
+        "filePath": args.get("filePath") or args.get("file_path"),
+        "mediaType": args.get("mediaType") or args.get("media_type"),
+        "caption": args.get("caption"),
+        "fileName": args.get("fileName") or args.get("file_name"),
+        "replyTo": args.get("replyTo") or args.get("reply_to"),
+        "code": args.get("code") or args.get("pairingCode") or args.get("approvalCode") or args.get("pairing_code") or args.get("approval_code"),
+        "pairingCode": args.get("pairingCode") or args.get("pairing_code"),
+        "approvalCode": args.get("approvalCode") or args.get("approval_code"),
+        "userId": args.get("userId") or args.get("user_id"),
+        "limit": args.get("limit"),
+    }
+
+
 registry.register(
     name="dream_launch_app",
     toolset="dream-desktop",
@@ -147,6 +204,85 @@ registry.register(
         "args": args.get("args") or [],
     }),
     description="Open Windows applications through the Dream Server desktop bridge.",
+)
+
+registry.register(
+    name="dream_gateway",
+    toolset="dream-desktop",
+    schema=_schema(
+        "dream_gateway",
+        (
+            "Control the real Dream Server Hermes Gateway through the running Electron runtime. "
+            "Use this for WhatsApp QR pairing, Telegram/Discord Hermes pairing approval, "
+            "Discord/Telegram/Slack/Matrix/Signal/email/SMS/webhook gateway start/stop/restart/status/logs. "
+            "Do not use terminal, delegate_task, browser tools, "
+            "or WhatsApp Web for gateway lifecycle."
+        ),
+        {
+            "command": {
+                "type": "string",
+                "enum": [
+                    "start",
+                    "stop",
+                    "restart",
+                    "status",
+                    "configure",
+                    "configure_secret",
+                    "set_secret",
+                    "capabilities",
+                    "identity",
+                    "groups",
+                    "guilds",
+                    "channels",
+                    "chats",
+                    "recent_messages",
+                    "pairing_status",
+                    "approve_pairing",
+                    "revoke_pairing",
+                    "clear_pairing",
+                    "chat",
+                    "send",
+                    "edit",
+                    "send_media",
+                    "typing",
+                ],
+                "description": "Gateway operation to execute in Dream Server. Use configure/configure_secret/set_secret to save gateway credentials through Electron safe storage; never use terminal or browser tools for gateway credentials. Messaging operations include capabilities, identity, groups/guilds/channels/chats, pairing_status, approve_pairing, revoke_pairing, chat, send, edit, send_media, typing, and recent_messages where supported. Telegram and Discord do not use QR; 8-character codes are Hermes pairing approvals.",
+            },
+            "platform": {
+                "type": "string",
+                "enum": GATEWAY_PLATFORMS,
+                "description": "Gateway platform. Omit only for global gateway status/start/stop.",
+            },
+            "timeoutMs": {
+                "type": "integer",
+                "description": "Optional timeout in milliseconds; WhatsApp QR pairing may wait up to 90000 by default.",
+            },
+            "token": {"type": "string", "description": "Token credential to save for configure/configure_secret. For Telegram/Discord this maps to botToken unless secretField is provided."},
+            "botToken": {"type": "string", "description": "Bot token credential for Telegram or Discord."},
+            "secretField": {"type": "string", "description": "Optional secret field name, such as botToken."},
+            "secretValue": {"type": "string", "description": "Optional secret value for secretField."},
+            "secrets": {"type": "object", "description": "Optional map of secret field names to values."},
+            "chatId": {"type": "string", "description": "Platform chat/channel/group ID for chat, send, edit, send_media, or typing. Telegram topics may use chatId:threadId."},
+            "target": {"type": "string", "description": "Optional Hermes-style target, such as telegram, telegram:chat_id, telegram:chat_id:thread_id, discord:#channel, or DiscordGuild/channel."},
+            "threadId": {"type": "string", "description": "Optional Telegram topic ID or Discord thread/channel ID."},
+            "guildId": {"type": "string", "description": "Optional Discord server/guild ID for channels."},
+            "message": {"type": "string", "description": "Text body for send/edit."},
+            "messageId": {"type": "string", "description": "Message ID for edit."},
+            "filePath": {"type": "string", "description": "Local file path for send_media."},
+            "mediaType": {"type": "string", "description": "Optional media type: image, video, audio, or document."},
+            "caption": {"type": "string", "description": "Optional media caption."},
+            "fileName": {"type": "string", "description": "Optional document filename."},
+            "replyTo": {"type": "string", "description": "Optional message ID to reply to when supported."},
+            "code": {"type": "string", "description": "Hermes 8-character pairing approval code for approve_pairing."},
+            "pairingCode": {"type": "string", "description": "Alias for code."},
+            "approvalCode": {"type": "string", "description": "Alias for code."},
+            "userId": {"type": "string", "description": "Platform user ID for revoke_pairing."},
+            "limit": {"type": "integer", "description": "Limit for recent_messages."},
+        },
+        ["command"],
+    ),
+    handler=lambda args, **kw: _run_dream_action(_gateway_action(args)),
+    description="Start, stop, restart, inspect, or list groups through the real Dream Server Hermes Gateway process.",
 )
 
 registry.register(

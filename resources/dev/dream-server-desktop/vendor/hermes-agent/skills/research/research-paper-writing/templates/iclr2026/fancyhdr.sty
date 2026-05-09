@@ -1,6 +1,6 @@
 % fancyhdr.sty version 3.2
 % Fancy headers and footers for LaTeX.
-% Piet van Oostrum, 
+% Piet van Oostrum,
 % Dept of Computer and Information Sciences, University of Utrecht,
 % Padualaan 14, P.O. Box 80.089, 3508 TB Utrecht, The Netherlands
 % Telephone: +31 30 2532180. Email: piet@cs.uu.nl
@@ -27,7 +27,7 @@
 % they exist (which should be true for all standard classes).
 % May 31, 1995:
 % version 1.9: The proposed \renewcommand{\headrulewidth}{\iffloatpage...
-% construction in the doc did not work properly with the fancyplain style. 
+% construction in the doc did not work properly with the fancyplain style.
 % June 1, 1995:
 % version 1.91: The definition of \@mkboth wasn't restored on subsequent
 % \pagestyle{fancy}'s.
@@ -48,7 +48,7 @@
 % define \@currsize. Unfortunately for latex209 calling \normalsize doesn't
 % work as this is optimized to do very little, so there \@normalsize should
 % be called. Hopefully this code works for all versions of LaTeX known to
-% mankind.  
+% mankind.
 % April 25, 1996:
 % version 1.96: initialize \headwidth to a magic (negative) value to catch
 % most common cases that people change it before calling \pagestyle{fancy}.
@@ -102,7 +102,7 @@
 %
 % A check for \headheight is added. An errormessage is given (once) if the
 % header is too large. Empty headers don't generate the error even if
-% \headheight is very small or even 0pt. 
+% \headheight is very small or even 0pt.
 % Warning added for the use of 'E' option when twoside option is not used.
 % In this case the 'E' fields will never be used.
 %
@@ -186,7 +186,7 @@
     \@forc\tmpf@ra{#2}%
         {\expandafter\if@in\tmpf@ra\temp@a{\edef#1{#1\tmpf@ra}}{}}%
     \ifx\@empty#1\def#1{#2}\fi}
-% 
+%
 % \if@in <char><set><truecase><falsecase>
 %
 \newcommand{\if@in}[4]{%
@@ -345,7 +345,7 @@
 \fi
 \fancyfoot[c]{\rm\thepage} % page number
 
-% Use box 0 as a temp box and dimen 0 as temp dimen. 
+% Use box 0 as a temp box and dimen 0 as temp dimen.
 % This can be done, because this code will always
 % be used inside another box, and therefore the changes are local.
 
@@ -416,7 +416,7 @@
 % case that the user added something to \headwidth in the expectation that
 % it was initialized to \textwidth. We compensate this now. This loses if
 % the user intended to multiply it by a factor. But that case is more
-% likely done by saying something like \headwidth=1.2\textwidth. 
+% likely done by saying something like \headwidth=1.2\textwidth.
 % The doc says you have to change \headwidth after the first call to
 % \pagestyle{fancy}. This code is just to catch the most common cases were
 % that requirement is violated.

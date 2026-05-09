@@ -613,7 +613,7 @@ def extract_visual_beat_timestamps(video_path, fps, brightness_jump=30):
     n_frames = n_pixels // ppf
     frames = frames[:n_frames * ppf].reshape(n_frames, ppf)
     means = frames.mean(axis=1)
-    
+
     timestamps = []
     for i in range(1, len(means)):
         if means[i] - means[i-1] > brightness_jump:
@@ -626,12 +626,12 @@ def extract_visual_beat_timestamps(video_path, fps, brightness_jump=30):
 ```python
 def sync_report(audio_beats, visual_beats, tolerance_ms=50):
     """Compare audio beat timestamps to visual beat timestamps.
-    
+
     Args:
         audio_beats: list of timestamps (seconds) from audio analysis
         visual_beats: list of timestamps (seconds) from video brightness analysis
         tolerance_ms: max acceptable drift in milliseconds
-    
+
     Returns:
         dict with matched/unmatched/drift statistics
     """
@@ -639,7 +639,7 @@ def sync_report(audio_beats, visual_beats, tolerance_ms=50):
     matched = []
     unmatched_audio = []
     unmatched_visual = list(visual_beats)
-    
+
     for at in audio_beats:
         best_match = None
         best_delta = float("inf")
@@ -653,7 +653,7 @@ def sync_report(audio_beats, visual_beats, tolerance_ms=50):
             unmatched_visual.remove(best_match)
         else:
             unmatched_audio.append(at)
-    
+
     drifts = [m["drift_ms"] for m in matched]
     return {
         "matched": len(matched),

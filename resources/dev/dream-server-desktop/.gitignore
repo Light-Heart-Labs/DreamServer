@@ -12,10 +12,10 @@ builder-debug.yml
 *.blockmap
 
 # Local runtime binaries/models
-resources/python/
-bin/llama/
-/models/
+models/
 *.gguf
+.venv-hermes/
+bin/llama/
 
 # Local state and logs
 .tmp-preview-control.json

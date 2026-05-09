@@ -20,7 +20,7 @@
 %% merlin.mbs  (with options: `ay,nat,pres,ed-au,keyxyr,blkyear,dt-beg,yr-per,note-yr,num-xser,pre-edn,xedn,nfss')
 %% ----------------------------------------
 %% *** Intended for ACL conferences ***
-%% 
+%%
 %% Copyright 1994-2011 Patrick W Daly
  % ===============================================================
  % IMPORTANT NOTICE:
@@ -1889,7 +1889,7 @@ FUNCTION {reverse.pass}
   extra.label
   duplicate$ empty$
     'skip$
-    { year field.or.null #-1 #1 substring$ chr.to.int$ #65 < 
+    { year field.or.null #-1 #1 substring$ chr.to.int$ #65 <
       { "{\natexlab{" swap$ * "}}" * }
       { "{(\natexlab{" swap$ * "})}" * }
     if$ }

@@ -1,53 +1,35 @@
 # Third Party Notices
 
-This directory is a source-first development tree for Dream Server DESKTOP.
-Packaged desktop artifacts intentionally include only the runtime source needed
-by the app, selected UI assets, and explicitly listed third-party runtime
-dependencies. Large development/reference upstream trees are not vendored in
-this repository unless they are required by the runtime.
+This experimental Dream Server Hermes branch vendors Hermes Agent as an
+architecture and implementation reference under `vendor/hermes-agent`.
 
-## Hermes Agent
-
-Dream Server DESKTOP uses Hermes Agent through the stdio bridge under
-`runtime/hermes`. The packaged desktop app includes `vendor/hermes-agent`
-because the runtime imports Hermes' own `AIAgent` and supporting Python modules
-rather than reimplementing the agent loop in Electron.
-
-License: MIT
+Hermes Agent is distributed under the MIT License:
 
 Copyright (c) 2025 Nous Research
 
-Full license text: `vendor/hermes-agent/LICENSE`
+The full license text is available at:
 
-## Browser Harness
+- `vendor/hermes-agent/LICENSE`
 
-Dream Server DESKTOP includes `vendor/browser-harness-upstream` so Hermes'
-browser tool fallback can retain the same browser-harness-compatible workbench
-skill/runtime material as the current desktop build.
+This branch uses Hermes through a stdio bridge under `runtime/hermes`, which
+launches the vendored Python runtime and imports Hermes' own `AIAgent` rather
+than reimplementing its agent loop inside the Electron renderer.
 
-License: MIT
-
-Copyright (c) 2026 Browser Use
-
-Full license text: `vendor/browser-harness-upstream/LICENSE`
-
-## Ghostty Shaders
-
-The code workbench shader controls use selected GLSL shader files copied under
-`src/shaders/ghostty`.
-
-Sources:
+The code workbench shader controls are inspired by Ghostty shader projects:
 
 - https://github.com/KroneCorylus/ghostty-shader-playground
 - https://github.com/sahaj-b/ghostty-cursor-shaders
 
-License: MIT, as documented in `src/shaders/ghostty/LICENSES.md`.
+Selected GLSL shader files from those MIT-licensed projects are bundled under
+`src/shaders/ghostty` and are wrapped at runtime for the Electron code
+workbench's WebGL renderer.
 
-## JetBrains Mono
+The code workbench also bundles JetBrains Mono Regular under `src/fonts` for
+Ghostty-like terminal typography. JetBrains Mono is distributed under the SIL
+Open Font License; the copied license is `src/fonts/OFL-JetBrainsMono.txt`.
 
-The code workbench bundles JetBrains Mono Regular under `src/fonts` for
-terminal typography.
+The app bundles the light variant of Jepri Creations' Windows 11 Cursor Concept
+pack under `src/assets/cursors/w11-light`. The original notice is copied at
+`src/assets/cursors/w11-light/NOTICE.txt`.
 
-License: SIL Open Font License
-
-Full license text: `src/fonts/OFL-JetBrainsMono.txt`
+- https://www.deviantart.com/jepricreations

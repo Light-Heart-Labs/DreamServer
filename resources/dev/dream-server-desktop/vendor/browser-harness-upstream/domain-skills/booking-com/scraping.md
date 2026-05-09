@@ -527,7 +527,7 @@ def get_hotel_urls_for_country(cc: str, lang: str = "en-gb", max_shards: int = 2
     idx = http_get(idx_url, headers=GOOGLEBOT)
     pattern = rf'<loc>(https://www\.booking\.com/sitembk-hotel-{lang}\.\d+\.xml\.gz)</loc>'
     shards = re.findall(pattern, idx)[:max_shards]
-    
+
     urls = []
     for shard_url in shards:
         req = urllib.request.Request(shard_url, headers=GOOGLEBOT)

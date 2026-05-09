@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024px" height="1024px" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <!-- Generator: Sketch 63.1 (92452) - https://sketch.com -->
+    <title>App Icon / Apple / Weather /@SVG</title>
+    <desc>Created with Sketch.</desc>
+    <defs>
+        <linearGradient x1="50%" y1="0%" x2="50%" y2="100%" id="linearGradient-1">
+            <stop stop-color="#1D62F0" offset="0%"></stop>
+            <stop stop-color="#19D5FD" offset="100%"></stop>
+        </linearGradient>
+    </defs>
+    <g id="App-Icon-/-Apple-/-Weather-/" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <rect id="Origin-Color" fill="url(#linearGradient-1)" x="0" y="0" width="1024" height="1024"></rect>
+        <g id="Icon" transform="translate(154.000000, 222.000000)">
+            <circle id="Sun" fill="#FFD800" cx="192" cy="192" r="192"></circle>
+            <path d="M716,371.205882 C716,284.058598 645.372919,213.411765 558.25,213.411765 C554.966325,213.411765 551.706083,213.512122 548.472172,213.709937 C519.952313,143.50281 451.083243,94 370.655405,94 C264.695098,94 178.797297,179.921824 178.797297,285.911765 C178.797297,290.845031 178.983387,295.734822 179.348927,300.574497 C125.684568,310.353914 85,357.350904 85,413.852941 C85,476.019119 134.250407,526.67903 195.851351,528.922487 L195.851351,529 L562.513514,529 L562.513514,528.943485 C647.665471,526.683472 716,456.927101 716,371.205882 Z" id="Cloud" fill="#FFFFFF" opacity="0.900536381"></path>
+        </g>
+    </g>
+</svg>

@@ -13,12 +13,19 @@ const { DreamRuntime } = require("./runtime/core");
 const { getLocalTokenTelemetry } = require("./runtime/providers/local");
 const { createDefaultState, normalizeState } = require("./runtime/state");
 const { normalizePathText } = require("./runtime/tools");
+const { isWslRuntime } = require("./runtime/platform");
+const { HermesGatewayManager } = require("./runtime/hermes/gateway-manager");
+const { formatGatewayChatResponse } = require("./runtime/hermes/gateway-chat");
+const { DesktopInstallerManager } = require("./src/main/installer");
 
 const execFileAsync = promisify(execFile);
 
 let storePath;
 let runtime;
 let secretBlob = null;
+let gatewaySecretBlob = {};
+let gatewayManager = null;
+let installerManager = null;
 let persistTimer = null;
 let previewControlPath = "";
 let desktopBridgePath = "";
@@ -46,7 +53,7 @@ let mobilePreviewService = {
 };
 
 function configureAppStorage() {
-  const userDataRoot = path.join(app.getPath("appData"), "DreamServerDesktop");
+  const userDataRoot = path.join(app.getPath("appData"), "DreamServerHermesDesktop");
   const cacheRoot = path.join(userDataRoot, "Cache");
 
   try {
@@ -350,6 +357,65 @@ async function probeLocalLlamaLatency(llama = {}) {
   }
 }
 
+function normalizeOpenAiBaseUrl(value = "") {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "";
+  }
+  return raw.replace(/\/+$/, "");
+}
+
+async function probeOpenAiCompatibleModels(baseUrl, options = {}) {
+  const normalizedBaseUrl = normalizeOpenAiBaseUrl(baseUrl);
+  if (!normalizedBaseUrl) {
+    return { ok: false, baseUrl: "", models: [], model: "", error: "Endpoint vazio." };
+  }
+  const controller = new AbortController();
+  const timeoutMs = Number.isFinite(Number(options.timeoutMs)) ? Number(options.timeoutMs) : 1800;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${normalizedBaseUrl}/models`, {
+      headers: {
+        Authorization: `Bearer ${String(options.apiKey || "not-needed")}`
+      },
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+    if (!response.ok) {
+      return {
+        ok: false,
+        baseUrl: normalizedBaseUrl,
+        models: [],
+        model: "",
+        error: `/models respondeu HTTP ${response.status}.`
+      };
+    }
+    const payload = await response.json().catch(() => ({}));
+    const rows = Array.isArray(payload?.data) ? payload.data : [];
+    const models = rows
+      .map((entry) => String(entry?.id || "").trim())
+      .filter(Boolean);
+    return {
+      ok: true,
+      baseUrl: normalizedBaseUrl,
+      models,
+      model: models[0] || "",
+      error: ""
+    };
+  } catch (error) {
+    clearTimeout(timer);
+    return {
+      ok: false,
+      baseUrl: normalizedBaseUrl,
+      models: [],
+      model: "",
+      error: error?.name === "AbortError"
+        ? `Endpoint nao respondeu em ${timeoutMs}ms.`
+        : (error?.message || "Falha ao consultar endpoint.")
+    };
+  }
+}
+
 function parsePrometheusSamples(text = "") {
   return String(text || "")
     .split(/\r?\n/)
@@ -620,7 +686,7 @@ function resolveBundledPath(...segments) {
 }
 
 function getMobilePreviewScriptPath() {
-  return resolveBundledPath("mobile-preview", "server.js");
+  return resolveBundledPath("vendor", "hermes-ios-panel-plugin", "server.js");
 }
 
 async function findAvailablePort(preferred = 8420, attempts = 40) {
@@ -798,6 +864,44 @@ function decodeSecret(blob) {
   return "";
 }
 
+function decodeSecretMap(blobMap = {}) {
+  const decoded = {};
+  if (!blobMap || typeof blobMap !== "object") {
+    return decoded;
+  }
+  for (const [platform, fields] of Object.entries(blobMap)) {
+    if (!fields || typeof fields !== "object") {
+      continue;
+    }
+    decoded[platform] = {};
+    for (const [field, blob] of Object.entries(fields)) {
+      decoded[platform][field] = decodeSecret(blob);
+    }
+  }
+  return decoded;
+}
+
+function mergeGatewaySecrets(payload = {}) {
+  if (!payload || typeof payload !== "object") {
+    return;
+  }
+  gatewaySecretBlob = gatewaySecretBlob && typeof gatewaySecretBlob === "object" ? gatewaySecretBlob : {};
+  for (const [platform, fields] of Object.entries(payload)) {
+    if (!fields || typeof fields !== "object") {
+      continue;
+    }
+    gatewaySecretBlob[platform] = gatewaySecretBlob[platform] && typeof gatewaySecretBlob[platform] === "object"
+      ? gatewaySecretBlob[platform]
+      : {};
+    for (const [field, value] of Object.entries(fields)) {
+      const secret = String(value || "").trim();
+      if (secret) {
+        gatewaySecretBlob[platform][field] = encodeSecret(secret);
+      }
+    }
+  }
+}
+
 function contentTypeForPath(filePath) {
   const ext = path.extname(String(filePath || "")).toLowerCase();
   return ({
@@ -854,14 +958,6 @@ function hostPlatformLabel(value = process.platform) {
     darwin: "macOS",
     linux: "Linux"
   }[value] || value || "unknown";
-}
-
-function isWslRuntime() {
-  if (process.platform !== "linux") {
-    return false;
-  }
-  const release = `${os.release()} ${process.env.WSL_DISTRO_NAME || ""} ${process.env.WSL_INTEROP || ""}`;
-  return /microsoft|wsl/i.test(release);
 }
 
 function appRuntimeRoot() {
@@ -938,7 +1034,8 @@ async function readPersistedStore() {
   if (!existsSync(storePath)) {
     return {
       runtimeState: createHostDefaultState(),
-      apiKeySecret: null
+      apiKeySecret: null,
+      gatewaySecrets: {}
     };
   }
 
@@ -950,12 +1047,14 @@ async function readPersistedStore() {
     }
     return {
       runtimeState,
-      apiKeySecret: raw.apiKeySecret || null
+      apiKeySecret: raw.apiKeySecret || null,
+      gatewaySecrets: raw.gatewaySecrets || {}
     };
   } catch {
     return {
       runtimeState: createHostDefaultState(),
-      apiKeySecret: null
+      apiKeySecret: null,
+      gatewaySecrets: {}
     };
   }
 }
@@ -972,7 +1071,8 @@ async function persistStore() {
     JSON.stringify(
       {
         ...snapshot,
-        apiKeySecret: secretBlob
+        apiKeySecret: secretBlob,
+        gatewaySecrets: gatewaySecretBlob
       },
       null,
       2
@@ -991,11 +1091,289 @@ function schedulePersist() {
 function buildPublicState() {
   return {
     ...runtime.getPublicState({
-    hasCloudApiKey: Boolean(decodeSecret(secretBlob)),
-    previewDeviceMode,
-    hostInfo: buildHostInfo()
+      hasCloudApiKey: Boolean(decodeSecret(secretBlob)),
+      previewDeviceMode,
+      hostInfo: buildHostInfo(),
+      gateway: gatewayManager
+        ? gatewayManager.status(runtime.state.settings, decodeSecretMap(gatewaySecretBlob))
+        : undefined,
+      installer: installerManager ? installerManager.store.snapshot() : undefined
     }),
     dreamPetExternalOverlay: true
+  };
+}
+
+function currentGatewaySecrets() {
+  return decodeSecretMap(gatewaySecretBlob);
+}
+
+function broadcastGatewaySnapshot() {
+  if (!runtime || !gatewayManager) {
+    return;
+  }
+  broadcastRuntimeEvent({
+    type: "gateway_status",
+    gateway: gatewayManager.status(runtime.state.settings, currentGatewaySecrets())
+  });
+}
+
+function broadcastInstallerEvent(event) {
+  broadcastRuntimeEvent(event);
+}
+
+function updateGatewayPlatformEnabled(platformId, enabled) {
+  const id = String(platformId || "").trim();
+  if (!id) {
+    return;
+  }
+  const settings = runtime?.state?.settings || {};
+  const gatewayPlatforms = {
+    ...(settings.gatewayPlatforms && typeof settings.gatewayPlatforms === "object" ? settings.gatewayPlatforms : {})
+  };
+  gatewayPlatforms[id] = {
+    ...(gatewayPlatforms[id] && typeof gatewayPlatforms[id] === "object" ? gatewayPlatforms[id] : {}),
+    enabled: Boolean(enabled)
+  };
+  runtime.updateSettings({
+    gatewayEnabled: enabled ? true : settings.gatewayEnabled,
+    gatewayPlatforms
+  });
+}
+
+function updateGatewayPlatformConfig(platformId, patch = {}) {
+  const id = String(platformId || "").trim();
+  if (!id || !patch || typeof patch !== "object") {
+    return;
+  }
+  const settings = runtime?.state?.settings || {};
+  const gatewayPlatforms = {
+    ...(settings.gatewayPlatforms && typeof settings.gatewayPlatforms === "object" ? settings.gatewayPlatforms : {})
+  };
+  gatewayPlatforms[id] = {
+    ...(gatewayPlatforms[id] && typeof gatewayPlatforms[id] === "object" ? gatewayPlatforms[id] : {}),
+    ...patch
+  };
+  runtime.updateSettings({
+    gatewayEnabled: patch.enabled === true ? true : settings.gatewayEnabled,
+    gatewayPlatforms
+  });
+}
+
+async function configureGatewayPlatform(platformId, request = {}) {
+  if (!platformId) {
+    throw new Error("Informe o gateway para configurar.");
+  }
+  if (!gatewayManager.hasPlatform(platformId)) {
+    throw new Error(`Gateway desconhecido: ${platformId}.`);
+  }
+  const secretPatch = {};
+  const token = String(request.botToken || request.token || request.secretValue || request.secret || "").trim();
+  const secretField = String(request.secretField || (token ? "botToken" : "")).trim();
+  if (token && secretField) {
+    secretPatch[secretField] = token;
+  }
+  if (request.secrets && typeof request.secrets === "object") {
+    for (const [field, value] of Object.entries(request.secrets)) {
+      const secret = String(value || "").trim();
+      if (field && secret) {
+        secretPatch[field] = secret;
+      }
+    }
+  }
+  if (Object.keys(secretPatch).length) {
+    mergeGatewaySecrets({ [platformId]: secretPatch });
+  }
+
+  const configPatch = { enabled: true };
+  for (const field of [
+    "homeChannel",
+    "replyToMode",
+    "dmPolicy",
+    "groupPolicy",
+    "allowedUsers",
+    "groupAllowedUsers",
+    "freeResponseChats",
+    "mentionPatterns",
+    "bridgePort",
+    "serverUrl",
+    "homeserver",
+    "userId",
+    "deviceId",
+    "room",
+    "account",
+    "httpUrl",
+    "address",
+    "imapHost",
+    "smtpHost",
+    "homeAddress"
+  ]) {
+    if (request[field] !== undefined) {
+      configPatch[field] = request[field];
+    }
+  }
+  updateGatewayPlatformConfig(platformId, configPatch);
+  if (gatewayManager) {
+    await gatewayManager.ensure(runtime.state.settings, currentGatewaySecrets());
+  }
+  schedulePersist();
+  broadcastGatewaySnapshot();
+  const snapshot = await gatewayManager.statusForPlatformAsync(platformId, runtime.state.settings, currentGatewaySecrets());
+  return {
+    command: "configure",
+    platformId,
+    status: snapshot.status,
+    platform: snapshot.platform,
+    diagnostics: snapshot.diagnostics,
+    configuredFields: Object.keys(configPatch).filter((field) => field !== "enabled"),
+    configuredSecrets: Object.keys(secretPatch)
+  };
+}
+
+async function handleGatewayChatRequest(request = {}) {
+  if (!runtime || !gatewayManager) {
+    throw new Error("Runtime do gateway ainda nao inicializado.");
+  }
+  const command = String(request.command || "status").trim().toLowerCase();
+  const platformId = String(request.platform || "").trim();
+  if (platformId && !gatewayManager.hasPlatform(platformId)) {
+    throw new Error(`Gateway desconhecido: ${platformId}.`);
+  }
+
+  if (command === "configure" || command === "configure_secret" || command === "set_secret") {
+    return await configureGatewayPlatform(platformId, request);
+  }
+
+  const bridgeOperations = new Set(["capabilities", "identity", "groups", "guilds", "channels", "chats", "recent_messages", "pairing_status", "approve_pairing", "revoke_pairing", "clear_pairing", "chat", "send", "edit", "send_media", "typing"]);
+  if (bridgeOperations.has(command)) {
+    const pairingOperations = new Set(["pairing_status", "approve_pairing"]);
+    if (!platformId && !pairingOperations.has(command)) {
+      throw new Error("Informe o gateway para executar a operacao.");
+    }
+    const snapshot = await gatewayManager.platformOperation(command, platformId, request, runtime.state.settings, currentGatewaySecrets());
+    return {
+      command,
+      platformId,
+      status: snapshot.status,
+      platform: snapshot.platform,
+      diagnostics: snapshot.diagnostics,
+      groups: snapshot.groups || [],
+      groupsError: snapshot.groupsError || "",
+      operation: snapshot.operation,
+      operationResult: snapshot.operationResult,
+      operationError: snapshot.operationError || ""
+    };
+  }
+
+  if (command === "stop") {
+    if (platformId) {
+      updateGatewayPlatformEnabled(platformId, false);
+      const hasEnabledPlatform = Object.values(runtime.state.settings.gatewayPlatforms || {})
+        .some((config) => config && typeof config === "object" && config.enabled);
+      if (hasEnabledPlatform) {
+        await gatewayManager.restart(runtime.state.settings, currentGatewaySecrets());
+      } else {
+        await gatewayManager.stop();
+      }
+    } else {
+      await gatewayManager.stop();
+      runtime.updateSettings({ gatewayEnabled: false });
+    }
+    schedulePersist();
+    broadcastGatewaySnapshot();
+    const snapshot = platformId
+      ? await gatewayManager.statusForPlatformAsync(platformId, runtime.state.settings, currentGatewaySecrets())
+      : { status: gatewayManager.status(runtime.state.settings, currentGatewaySecrets()), platform: null, diagnostics: null };
+    return {
+      command,
+      platformId,
+      status: snapshot.status,
+      platform: snapshot.platform,
+      diagnostics: snapshot.diagnostics
+    };
+  }
+
+  if (command === "start" || command === "restart") {
+    if (platformId) {
+      updateGatewayPlatformEnabled(platformId, true);
+    } else {
+      runtime.updateSettings({ gatewayEnabled: true });
+    }
+    if (command === "restart") {
+      await gatewayManager.restart(runtime.state.settings, currentGatewaySecrets());
+    } else {
+      await gatewayManager.start(runtime.state.settings, currentGatewaySecrets());
+    }
+    if (platformId !== "whatsapp") {
+      await sleep(1500);
+    }
+    schedulePersist();
+    broadcastGatewaySnapshot();
+    if (platformId === "whatsapp") {
+      const waitMs = Math.max(15000, Math.min(120000, Number(request.timeoutMs || 90000)));
+      const snapshot = await gatewayManager.waitForPlatformConnection(platformId, runtime.state.settings, currentGatewaySecrets(), {
+        timeoutMs: waitMs,
+        pollMs: 1500,
+        returnOnQr: true
+      });
+      return {
+        command,
+        platformId,
+        status: snapshot.status,
+        platform: snapshot.platform,
+        diagnostics: snapshot.diagnostics,
+        pairingCompleted: Boolean(snapshot.pairingCompleted),
+        pairingTimedOut: Boolean(snapshot.pairingTimedOut),
+        pairingAwaitingScan: Boolean(snapshot.pairingAwaitingScan)
+      };
+    }
+  }
+
+  const snapshot = platformId
+    ? await gatewayManager.statusForPlatformAsync(platformId, runtime.state.settings, currentGatewaySecrets())
+    : { status: gatewayManager.status(runtime.state.settings, currentGatewaySecrets()), platform: null, diagnostics: null };
+  return {
+    command,
+    platformId,
+    status: snapshot.status,
+    platform: snapshot.platform,
+    diagnostics: snapshot.diagnostics
+  };
+}
+
+async function handleGatewayBridgeAction(action = {}) {
+  const command = String(action.command || action.operation || "status").trim().toLowerCase();
+  if (![
+    "start",
+    "stop",
+    "restart",
+    "status",
+    "configure",
+    "configure_secret",
+    "set_secret",
+    "capabilities",
+    "identity",
+    "groups",
+    "guilds",
+    "channels",
+    "chats",
+    "recent_messages",
+    "pairing_status",
+    "approve_pairing",
+    "revoke_pairing",
+    "clear_pairing",
+    "chat",
+    "send",
+    "edit",
+    "send_media",
+    "typing"
+  ].includes(command)) {
+    throw new Error(`Comando de gateway invalido: ${command || "(vazio)"}.`);
+  }
+  const platform = String(action.platform || action.gateway || "").trim().toLowerCase();
+  const result = await handleGatewayChatRequest({ ...action, command, platform, timeoutMs: action.timeoutMs });
+  return {
+    ...result,
+    formatted: formatGatewayChatResponse(result)
   };
 }
 
@@ -1007,45 +1385,10 @@ function broadcastRuntimeEvent(event) {
   }
 }
 
-function getPreviewHarnessWindow() {
-  const focused = BrowserWindow.getFocusedWindow();
-  if (focused && !focused.isDestroyed()) {
-    return focused;
-  }
-  return BrowserWindow.getAllWindows().find((window) => !window.isDestroyed()) || null;
-}
-
-function requestPreviewHarness(command = {}, timeoutMs = 20000) {
-  const window = getPreviewHarnessWindow();
-  if (!window) {
-    return Promise.reject(new Error("Nenhuma janela do Dream Server esta aberta para controlar o preview."));
-  }
-
-  const id = `preview-harness-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const timeout = Math.max(1500, Math.min(Number(timeoutMs || 20000), 120000));
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      previewHarnessRequests.delete(id);
-      reject(new Error(`Preview harness nao respondeu em ${timeout}ms.`));
-    }, timeout);
-
-    previewHarnessRequests.set(id, {
-      resolve,
-      reject,
-      timer
-    });
-
-    window.webContents.send("preview-harness:command", {
-      id,
-      command
-    });
-  });
-}
-
 function dreamPetSettings() {
   const settings = runtime?.state?.settings || {};
   return {
-    enabled: settings.dreamPetEnabled !== false,
+    enabled: settings.dreamPetEnabled === true,
     bubbleEnabled: settings.dreamPetBubbleEnabled !== false,
     voiceEnabled: settings.dreamPetVoiceEnabled === true,
     voiceName: String(settings.dreamPetVoiceName || "").trim(),
@@ -1091,22 +1434,6 @@ function persistDreamPetBounds() {
   schedulePersist();
 }
 
-function dreamPetMood() {
-  const snapshot = runtime?.getSnapshot?.() || {};
-  const chat = selectedDreamPetChat(snapshot);
-  const status = String(chat?.status || "").toLowerCase();
-  if (/fail|error|erro|crash|timeout/.test(status)) {
-    return "failed";
-  }
-  if (status === "running" || status === "streaming") {
-    return "running";
-  }
-  if (chat && Array.isArray(chat.messages) && chat.messages.length > 0) {
-    return "waiting";
-  }
-  return "idle";
-}
-
 function selectedDreamPetChat(snapshot = runtime?.getSnapshot?.() || {}) {
   const selectedId = snapshot.selectedChatId;
   return (snapshot.chats || []).find((entry) => entry.id === selectedId) || snapshot.chats?.[0] || null;
@@ -1120,10 +1447,7 @@ function compactDreamPetText(value = "", maxLength = 86) {
     .replace(/[#*_>~]+/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  if (text.length <= maxLength) {
-    return text;
-  }
-  return `${text.slice(0, Math.max(12, maxLength - 1)).trim()}...`;
+  return text.length <= maxLength ? text : `${text.slice(0, Math.max(12, maxLength - 1)).trim()}...`;
 }
 
 function dreamPetChatTitle(chat) {
@@ -1151,6 +1475,22 @@ function dreamPetLastMessage(chat, preferredKinds = []) {
     }
   }
   return "";
+}
+
+function dreamPetMood() {
+  const snapshot = runtime?.getSnapshot?.() || {};
+  const chat = selectedDreamPetChat(snapshot);
+  const status = String(chat?.status || "").toLowerCase();
+  if (/fail|error|erro|crash|timeout/.test(status)) {
+    return "failed";
+  }
+  if (status === "running" || status === "streaming") {
+    return "running";
+  }
+  if (chat && Array.isArray(chat.messages) && chat.messages.length > 0) {
+    return "waiting";
+  }
+  return "idle";
 }
 
 function dreamPetLine(mode = "idle") {
@@ -1222,6 +1562,26 @@ function closeDreamPetWindow() {
   petWindow = null;
 }
 
+function showDreamPetWindow(options = {}) {
+  if (!petWindow || petWindow.isDestroyed()) {
+    return;
+  }
+  const currentBounds = petWindow.getBounds();
+  const clamped = clampDreamPetBounds(currentBounds);
+  if (
+    clamped.x !== currentBounds.x ||
+    clamped.y !== currentBounds.y ||
+    clamped.width !== currentBounds.width ||
+    clamped.height !== currentBounds.height
+  ) {
+    petWindow.setBounds(clamped);
+  }
+  petWindow.setOpacity(1);
+  petWindow.showInactive();
+  petWindow.moveTop?.();
+  sendDreamPetUpdate(options);
+}
+
 function ensureDreamPetWindow(options = {}) {
   const settings = dreamPetSettings();
   if (!settings.enabled) {
@@ -1229,10 +1589,7 @@ function ensureDreamPetWindow(options = {}) {
     return;
   }
   if (petWindow && !petWindow.isDestroyed()) {
-    if (!petWindow.isVisible()) {
-      petWindow.showInactive();
-    }
-    sendDreamPetUpdate(options);
+    showDreamPetWindow(options);
     return;
   }
   const bounds = clampDreamPetBounds(settings.bounds || defaultDreamPetBounds());
@@ -1255,19 +1612,65 @@ function ensureDreamPetWindow(options = {}) {
     webPreferences: {
       preload: path.join(__dirname, "pet-preload.js"),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      backgroundThrottling: false
     }
   });
   petWindow.setAlwaysOnTop(true, "floating");
   petWindow.setVisibleOnAllWorkspaces?.(true, { visibleOnFullScreen: true });
-  petWindow.loadFile(path.join(__dirname, "src", "pet-overlay.html"));
   petWindow.once("ready-to-show", () => {
-    petWindow?.showInactive();
-    sendDreamPetUpdate(options);
+    showDreamPetWindow(options);
   });
+  petWindow.webContents.once("did-finish-load", () => {
+    setTimeout(() => showDreamPetWindow(options), 40);
+  });
+  petWindow.webContents.on("did-fail-load", () => {
+    setTimeout(() => showDreamPetWindow({
+      ...options,
+      mode: "failed",
+      line: "Nao consegui carregar o visual do pet.",
+      forceLine: true
+    }), 40);
+  });
+  petWindow.loadFile(path.join(__dirname, "src", "pet-overlay.html"));
   petWindow.on("moved", persistDreamPetBounds);
   petWindow.on("closed", () => {
     petWindow = null;
+  });
+}
+
+function getPreviewHarnessWindow() {
+  const focused = BrowserWindow.getFocusedWindow();
+  if (focused && !focused.isDestroyed()) {
+    return focused;
+  }
+  return BrowserWindow.getAllWindows().find((window) => !window.isDestroyed()) || null;
+}
+
+function requestPreviewHarness(command = {}, timeoutMs = 20000) {
+  const window = getPreviewHarnessWindow();
+  if (!window) {
+    return Promise.reject(new Error("Nenhuma janela do Dream Server esta aberta para controlar o preview."));
+  }
+
+  const id = `preview-harness-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const timeout = Math.max(1500, Math.min(Number(timeoutMs || 20000), 120000));
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      previewHarnessRequests.delete(id);
+      reject(new Error(`Preview harness nao respondeu em ${timeout}ms.`));
+    }, timeout);
+
+    previewHarnessRequests.set(id, {
+      resolve,
+      reject,
+      timer
+    });
+
+    window.webContents.send("preview-harness:command", {
+      id,
+      command
+    });
   });
 }
 
@@ -1336,19 +1739,26 @@ async function startDesktopBridgeServer() {
   desktopBridgeToken = crypto.randomBytes(32).toString("hex");
 
   desktopBridgeServer = http.createServer(async (req, res) => {
-    if (req.method !== "POST" || req.url !== "/preview-harness") {
+    const route = String(req.url || "").split("?")[0];
+    if (req.method !== "POST" || !["/preview-harness", "/gateway-action"].includes(route)) {
       writeJsonResponse(res, 404, { ok: false, error: "Endpoint da ponte nao encontrado." });
       return;
     }
 
     const token = String(req.headers["x-dream-bridge-token"] || "");
     if (!desktopBridgeToken || token !== desktopBridgeToken) {
-      writeJsonResponse(res, 403, { ok: false, error: "Token invalido na ponte de preview." });
+      writeJsonResponse(res, 403, { ok: false, error: "Token invalido na ponte desktop." });
       return;
     }
 
     try {
       const payload = await readJsonRequestBody(req);
+      if (route === "/gateway-action") {
+        const action = payload?.action && typeof payload.action === "object" ? payload.action : {};
+        const result = await handleGatewayBridgeAction(action);
+        writeJsonResponse(res, 200, { ok: true, result });
+        return;
+      }
       const command = payload?.command && typeof payload.command === "object" ? payload.command : {};
       const timeoutMs = payload?.timeoutMs || command.timeoutMs || 20000;
       const result = await requestPreviewHarness(command, timeoutMs);
@@ -1400,7 +1810,7 @@ function createWindow() {
     minWidth: 960,
     minHeight: 660,
     backgroundColor: "#0a0a0d",
-    title: "Dream Server DESKTOP",
+    title: "Dream Server",
     icon: path.join(__dirname, "src", "assets", process.platform === "win32" ? "app-icon.ico" : "app-icon.png"),
     autoHideMenuBar: true,
     frame: false,
@@ -1532,6 +1942,7 @@ async function initRuntime() {
   previewControlPath = path.join(app.getPath("userData"), "preview-control.json");
   process.env.DREAM_PREVIEW_CONTROL_PATH = previewControlPath;
   secretBlob = loaded.apiKeySecret;
+  gatewaySecretBlob = loaded.gatewaySecrets || {};
   runtime = new DreamRuntime({
     initialState: repairPersistedWorkspaceRoots(loaded.runtimeState, defaultWorkspaceRoot),
     workspaceRoot: defaultWorkspaceRoot,
@@ -1561,22 +1972,65 @@ async function initRuntime() {
     broadcastRuntimeEvent(event);
     ensureDreamPetWindow();
   });
+  gatewayManager = new HermesGatewayManager();
+  gatewayManager.ensure(runtime.state.settings, currentGatewaySecrets()).catch(() => { });
+  installerManager = new DesktopInstallerManager({
+    appRoot: __dirname,
+    userDataPath: app.getPath("userData"),
+    broadcast: broadcastInstallerEvent
+  });
+  await installerManager.init();
 }
 
 ipcMain.handle("state:load", async () => buildPublicState());
 ipcMain.handle("system:dashboard", async () => getSystemDashboardSnapshot());
+ipcMain.handle("installer:scan", async (_, payload = {}) => installerManager.scan(payload));
+ipcMain.handle("installer:preflight", async (_, payload = {}) => installerManager.preflight(payload));
+ipcMain.handle("installer:start", async (_, payload = {}) => {
+  const result = await installerManager.start(payload);
+  if (runtime && result?.localRoute?.baseUrl && result?.localRoute?.model) {
+    runtime.updateSettings({
+      providerMode: "local",
+      hermesProvider: "custom",
+      localBaseUrl: result.localRoute.baseUrl,
+      localModel: result.localRoute.model,
+      localApiKey: "not-needed",
+      localLlamaEnabled: false,
+      localLlamaAutoStart: false
+    });
+    await persistStore();
+  }
+  return result;
+});
+ipcMain.handle("installer:cancel", async () => installerManager.cancel());
+ipcMain.handle("installer:retry", async () => installerManager.retry());
+ipcMain.handle("installer:status", async () => installerManager.status());
+ipcMain.handle("installer:logs", async (_, payload = {}) => installerManager.logs(payload));
+ipcMain.handle("installer:open-dashboard", async () => installerManager.openDashboard());
+ipcMain.handle("installer:open-logs", async () => installerManager.openLogs());
+ipcMain.handle("installer:open-data-folder", async () => installerManager.openDataFolder());
+ipcMain.handle("installer:diagnostic-report", async () => installerManager.diagnosticReport());
 ipcMain.handle("settings:save", async (_, payload) => {
   const cloudApiKey = String(payload?.apiKey || "").trim();
-  const wasPetEnabled = runtime?.state?.settings?.dreamPetEnabled !== false;
+  const wasPetEnabled = runtime?.state?.settings?.dreamPetEnabled === true;
   if (cloudApiKey) {
     secretBlob = encodeSecret(cloudApiKey);
   }
-  runtime.updateSettings({
+  mergeGatewaySecrets(payload?.gatewaySecrets);
+  const sanitizedPayload = {
     ...payload,
-    apiKey: undefined
+    apiKey: undefined,
+    gatewaySecrets: undefined
+  };
+  runtime.updateSettings({
+    ...sanitizedPayload
   });
+  if (gatewayManager) {
+    await gatewayManager.ensure(runtime.state.settings, currentGatewaySecrets());
+    broadcastGatewaySnapshot();
+  }
   await persistStore();
-  const isPetEnabled = payload?.dreamPetEnabled !== false;
+  const isPetEnabled = payload?.dreamPetEnabled === true;
   ensureDreamPetWindow({
     mode: isPetEnabled && !wasPetEnabled ? "waving" : dreamPetMood(),
     line: isPetEnabled && !wasPetEnabled ? "Pet ativado." : "",
@@ -1586,7 +2040,7 @@ ipcMain.handle("settings:save", async (_, payload) => {
   return buildPublicState();
 });
 ipcMain.handle("pet:ready", async () => {
-  sendDreamPetUpdate({ mode: "waving", line: "Dreamserver online.", forceLine: true, forceSpeech: false });
+  showDreamPetWindow({ mode: "waving", line: "Dreamserver online.", forceLine: true, forceSpeech: false });
   return { ok: true };
 });
 ipcMain.handle("pet:wake", async () => {
@@ -1641,9 +2095,8 @@ ipcMain.handle("pet:interact", async (_, payload = {}) => {
     hold: { mode: "jumping", line: "Segurou: soltei uma animacao especial." },
     drag: { mode: "waiting", line: "Fico bem aqui." }
   };
-  const response = responses[type] || responses.single;
   sendDreamPetUpdate({
-    ...response,
+    ...(responses[type] || responses.single),
     forceLine: true,
     forceSpeech: false
   });
@@ -1783,6 +2236,13 @@ ipcMain.handle("code:save-file", async (_, payload) => {
   };
 });
 ipcMain.handle("provider:list-local-models", async () => await runtime.listLocalModels());
+ipcMain.handle("provider:probe-openai-models", async (_, payload = {}) => {
+  const settings = runtime?.state?.settings || {};
+  return await probeOpenAiCompatibleModels(payload.baseUrl || settings.localBaseUrl, {
+    apiKey: payload.apiKey || settings.localApiKey || "not-needed",
+    timeoutMs: payload.timeoutMs
+  });
+});
 ipcMain.handle("provider:local-llama-status", async () => runtime.getLocalLlamaState());
 ipcMain.handle("provider:local-llama-start", async (_, payload = {}) => {
   await runtime.ensureManagedLocalLlama({
@@ -1795,6 +2255,17 @@ ipcMain.handle("provider:local-llama-start", async (_, payload = {}) => {
 ipcMain.handle("provider:local-llama-stop", async () => {
   await runtime.stopManagedLocalLlama();
   await persistStore();
+  return buildPublicState();
+});
+ipcMain.handle("gateway:status", async () => buildPublicState());
+ipcMain.handle("gateway:start", async () => {
+  await gatewayManager?.start(runtime.state.settings, currentGatewaySecrets());
+  broadcastGatewaySnapshot();
+  return buildPublicState();
+});
+ipcMain.handle("gateway:stop", async () => {
+  await gatewayManager?.stop();
+  broadcastGatewaySnapshot();
   return buildPublicState();
 });
 ipcMain.handle("preview:ensure-mobile-service", async (_, payload) => {
@@ -1900,84 +2371,16 @@ ipcMain.handle("desktop:close-terminal-session", async (_, sessionId) => {
   };
 });
 
-async function runHermesSetupIfNeeded({ force = false } = {}) {
-  const { needsSetup, ensureHermesVenv } = require("./runtime/hermes/setup");
-  if (!force && !needsSetup()) {
-    return false;
-  }
-
-  const sendSetupEvent = (payload) => {
-    for (const target of BrowserWindow.getAllWindows()) {
-      if (!target.isDestroyed()) {
-        target.webContents.send("runtime:event", payload);
-      }
-    }
-  };
-
-  sendSetupEvent({
-    type: "hermes_setup_required",
-    message: "Preparando Hermes Agent para este dispositivo..."
-  });
-
-  await ensureHermesVenv({
-    onProgress: (message) => {
-      sendSetupEvent({
-        type: "hermes_setup_progress",
-        message
-      });
-    }
-  });
-
-  sendSetupEvent({
-    type: "hermes_setup_done",
-    message: "Hermes Agent pronto."
-  });
-  return true;
-}
-
-ipcMain.handle("hermes:setup", async () => {
-  try {
-    await runHermesSetupIfNeeded({ force: true });
-    const { needsSetup } = require("./runtime/hermes/setup");
-    return { ok: !needsSetup() };
-  } catch (error) {
-    return {
-      ok: false,
-      error: error && error.message ? error.message : String(error)
-    };
-  }
-});
-
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   storePath = path.join(app.getPath("userData"), "dream-server-runtime.json");
   await initRuntime();
   await startDesktopBridgeServer();
   createWindow();
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.once("did-finish-load", () => {
-      runHermesSetupIfNeeded().catch((error) => {
-        mainWindow?.webContents?.send("runtime:event", {
-          type: "hermes_setup_error",
-          message: error && error.message ? error.message : String(error)
-        });
-      });
-    });
-  }
 
   app.on("activate", () => {
     if (!mainWindow || mainWindow.isDestroyed()) {
       createWindow();
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.once("did-finish-load", () => {
-          runHermesSetupIfNeeded().catch((error) => {
-            mainWindow?.webContents?.send("runtime:event", {
-              type: "hermes_setup_error",
-              message: error && error.message ? error.message : String(error)
-            });
-          });
-        });
-      }
     }
   });
 });
@@ -1987,6 +2390,7 @@ app.on("before-quit", () => {
   detachPreviewControlWatcher();
   stopMobilePreviewService().catch(() => { });
   stopDesktopBridgeServer().catch(() => { });
+  gatewayManager?.stop?.()?.catch(() => { });
   runtime?.stopManagedLocalLlama?.().catch(() => { });
 });
 

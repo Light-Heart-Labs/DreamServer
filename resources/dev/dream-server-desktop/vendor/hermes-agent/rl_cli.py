@@ -27,6 +27,8 @@ from pathlib import Path
 import fire
 import yaml
 
+from hermes_constants import OPENROUTER_BASE_URL, get_hermes_home
+
 # Load .env from ~/.hermes/.env first, then project root as dev fallback.
 # User-managed env files should override stale shell exports on restart.
 _hermes_home = get_hermes_home()
@@ -60,8 +62,6 @@ from tools.rl_training_tool import get_missing_keys
 # Config Loading
 # ============================================================================
 
-from hermes_constants import get_hermes_home, OPENROUTER_BASE_URL
-
 DEFAULT_MODEL = "anthropic/claude-opus-4.5"
 DEFAULT_BASE_URL = OPENROUTER_BASE_URL
 
@@ -69,36 +69,36 @@ DEFAULT_BASE_URL = OPENROUTER_BASE_URL
 def load_hermes_config() -> dict:
     """
     Load configuration from ~/.hermes/config.yaml.
-    
+
     Returns:
         dict: Configuration with model, base_url, etc.
     """
     config_path = _hermes_home / 'config.yaml'
-    
+
     config = {
         "model": DEFAULT_MODEL,
         "base_url": DEFAULT_BASE_URL,
     }
-    
+
     if config_path.exists():
         try:
             with open(config_path, "r") as f:
                 file_config = yaml.safe_load(f) or {}
-            
+
             # Get model from config
             if "model" in file_config:
                 if isinstance(file_config["model"], str):
                     config["model"] = file_config["model"]
                 elif isinstance(file_config["model"], dict):
                     config["model"] = file_config["model"].get("default", DEFAULT_MODEL)
-            
+
             # Get base_url if specified
             if "base_url" in file_config:
                 config["base_url"] = file_config["base_url"]
-                
+
         except Exception as e:
             print(f"⚠️  Warning: Failed to load config.yaml: {e}")
-    
+
     return config
 
 
@@ -180,39 +180,39 @@ RL_TOOLSETS = ["terminal", "web", "rl"]
 def check_requirements():
     """Check that all required environment variables and services are available."""
     errors = []
-    
+
     # Check API keys
     if not os.getenv("OPENROUTER_API_KEY"):
         errors.append("OPENROUTER_API_KEY not set - required for agent")
-    
+
     missing_rl_keys = get_missing_keys()
     if missing_rl_keys:
         errors.append(f"Missing RL API keys: {', '.join(missing_rl_keys)}")
-    
+
     if errors:
         print("❌ Missing requirements:")
         for error in errors:
             print(f"   - {error}")
         print("\nPlease set these environment variables in your .env file or shell.")
         return False
-    
+
     return True
 
 
 def check_tinker_atropos():
     """Check if tinker-atropos submodule is properly set up."""
     tinker_path = Path(__file__).parent / "tinker-atropos"
-    
+
     if not tinker_path.exists():
         return False, "tinker-atropos submodule not found. Run: git submodule update --init"
-    
+
     envs_path = tinker_path / "tinker_atropos" / "environments"
     if not envs_path.exists():
         return False, f"environments directory not found at {envs_path}"
-    
+
     env_files = list(envs_path.glob("*.py"))
     env_files = [f for f in env_files if not f.name.startswith("_")]
-    
+
     return True, {"path": str(tinker_path), "environments_count": len(env_files)}
 
 
@@ -220,11 +220,11 @@ def list_environments_sync():
     """List available environments (synchronous wrapper)."""
     from tools.rl_training_tool import rl_list_environments
     import json
-    
+
     async def _list():
         result = await rl_list_environments()
         return json.loads(result)
-    
+
     return asyncio.run(_list())
 
 
@@ -246,7 +246,7 @@ def main(
 ):
     """
     RL Training CLI - Dedicated runner for RL training workflows.
-    
+
     Args:
         task: The training task/goal (e.g., "Train a model on GSM8k for math")
         model: Model to use for the agent (reads from ~/.hermes/config.yaml if not provided)
@@ -258,32 +258,32 @@ def main(
         check_server: Check if RL API server is running and exit
         verbose: Enable verbose logging
         save_trajectories: Save conversation trajectories (default: True for RL)
-    
+
     Examples:
         # Train on a specific environment
         python rl_cli.py "Train a model on GSM8k math problems"
-        
+
         # Interactive mode
         python rl_cli.py --interactive
-        
+
         # List available environments
         python rl_cli.py --list-environments
-        
+
         # Check server status
         python rl_cli.py --check-server
     """
     # Load config from ~/.hermes/config.yaml
     config = load_hermes_config()
-    
+
     # Use config values if not explicitly provided
     if model is None:
         model = config["model"]
     if base_url is None:
         base_url = config["base_url"]
-    
+
     print("🎯 RL Training Agent")
     print("=" * 60)
-    
+
     # Handle setup check
     if check_server:
         print("\n🔍 Checking tinker-atropos setup...")
@@ -292,7 +292,7 @@ def main(
             print("✅ tinker-atropos submodule found")
             print(f"   Path: {result.get('path')}")
             print(f"   Environments found: {result.get('environments_count', 0)}")
-            
+
             # Also check API keys
             missing = get_missing_keys()
             if missing:
@@ -306,7 +306,7 @@ def main(
             print("  git submodule update --init")
             print("  pip install -e ./tinker-atropos")
         return
-    
+
     # Handle environment listing
     if list_environments:
         print("\n📋 Available RL Environments:")
@@ -316,14 +316,14 @@ def main(
             if "error" in data:
                 print(f"❌ Error: {data['error']}")
                 return
-            
+
             envs = data.get("environments", [])
             if not envs:
                 print("No environments found.")
                 print("\nMake sure tinker-atropos is set up:")
                 print("  git submodule update --init")
                 return
-            
+
             for env in envs:
                 print(f"\n  📦 {env['name']}")
                 print(f"     Class: {env['class_name']}")
@@ -331,7 +331,7 @@ def main(
                 if env.get('description'):
                     desc = env['description'][:100] + "..." if len(env.get('description', '')) > 100 else env.get('description', '')
                     print(f"     Description: {desc}")
-            
+
             print(f"\n📊 Total: {len(envs)} environments")
             print("\nUse `rl_select_environment(name)` to select an environment for training.")
         except Exception as e:
@@ -340,11 +340,11 @@ def main(
             print("  git submodule update --init")
             print("  pip install -e ./tinker-atropos")
         return
-    
+
     # Check requirements
     if not check_requirements():
         sys.exit(1)
-    
+
     # Set default task if none provided
     if not task and not interactive:
         print("\n⚠️  No task provided. Use --interactive for interactive mode or provide a task.")
@@ -353,18 +353,18 @@ def main(
         print('  python rl_cli.py "Create an RL environment for code generation"')
         print('  python rl_cli.py --interactive')
         return
-    
+
     # Get API key
     api_key = api_key or os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         print("❌ No API key provided. Set OPENROUTER_API_KEY or pass --api-key")
         sys.exit(1)
-    
+
     print(f"\n🤖 Model: {model}")
     print(f"🔧 Max iterations: {max_iterations}")
     print(f"📁 Toolsets: {', '.join(RL_TOOLSETS)}")
     print("=" * 60)
-    
+
     # Create agent with RL configuration
     agent = AIAgent(
         base_url=base_url,
@@ -377,25 +377,25 @@ def main(
         quiet_mode=False,
         ephemeral_system_prompt=RL_SYSTEM_PROMPT,
     )
-    
+
     if interactive:
         # Interactive mode - multiple conversations
         print("\n🔄 Interactive RL Training Mode")
         print("Type 'quit' or 'exit' to end the session.")
         print("Type 'status' to check active training runs.")
         print("-" * 40)
-        
+
         while True:
             try:
                 user_input = input("\n🎯 RL Task> ").strip()
-                
+
                 if not user_input:
                     continue
-                
+
                 if user_input.lower() in ('quit', 'exit', 'q'):
                     print("\n👋 Goodbye!")
                     break
-                
+
                 if user_input.lower() == 'status':
                     # Quick status check
                     from tools.rl_training_tool import rl_list_runs
@@ -409,12 +409,12 @@ def main(
                     else:
                         print("\nNo active runs.")
                     continue
-                
+
                 # Run the agent
                 print("\n" + "=" * 60)
-                response = agent.run_conversation(user_input)
+                agent.run_conversation(user_input)
                 print("\n" + "=" * 60)
-                
+
             except KeyboardInterrupt:
                 print("\n\n👋 Interrupted. Goodbye!")
                 break
@@ -427,9 +427,9 @@ def main(
         # Single task mode
         print(f"\n📝 Task: {task}")
         print("-" * 40)
-        
+
         try:
-            response = agent.run_conversation(task)
+            agent.run_conversation(task)
             print("\n" + "=" * 60)
             print("✅ Task completed")
         except KeyboardInterrupt:

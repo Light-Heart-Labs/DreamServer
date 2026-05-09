@@ -1,5 +1,5 @@
 %% File: `icml2025.bst'
-%% A modification of `plainnl.bst' for use with natbib package 
+%% A modification of `plainnl.bst' for use with natbib package
 %%
 %% Copyright 2010 Hal Daum\'e III
 %% Modified by J. Fürnkranz

@@ -375,18 +375,20 @@ class AgentRuntime {
           "Backend local legado desativado nesta build. Configure agentBackend=hermes para usar o Hermes Agent como cérebro único."
         );
       }
-      this._ingestHermesToolEvents(chat, runState, result?.hermes?.events || []);
+      const hermesEvents = result?.hermes?.events || [];
+      this._ingestHermesToolEvents(chat, runState, hermesEvents);
+      const assistantText = this._appendGatewayQrAppendix(result.assistantText || "", hermesEvents);
 
       const assistantMessage = this.runtime._finalizeAssistantMessage(
         chat,
         context.draft,
-        result.assistantText,
+        assistantText,
         result.actions
       );
-      runState.transcript?.provider("assistant", result.assistantText || "");
+      runState.transcript?.provider("assistant", assistantText || "");
 
       return {
-        assistantText: result.assistantText || "",
+        assistantText,
         actions: result.actions || [],
         status: result.status || "stopped",
         selfContained: Boolean(result.selfContained),
@@ -1827,6 +1829,35 @@ class AgentRuntime {
         steps: steps.length ? steps : undefined
       };
     }
+    if (name === "dream_gateway") {
+      return {
+        type: "gateway_control",
+        command: String(args.command || args.operation || "status").trim().toLowerCase(),
+        platform: String(args.platform || args.gateway || "").trim().toLowerCase(),
+        timeoutMs: args.timeoutMs,
+        token: args.token,
+        botToken: args.botToken || args.bot_token,
+        secretField: args.secretField || args.secret_field,
+        secretValue: args.secretValue || args.secret_value,
+        secrets: args.secrets,
+        chatId: args.chatId || args.chat_id || args.id,
+        target: args.target,
+        threadId: args.threadId || args.thread_id,
+        guildId: args.guildId || args.guild_id || args.serverId || args.server_id,
+        message: args.message || args.text,
+        messageId: args.messageId || args.message_id,
+        filePath: args.filePath || args.file_path,
+        mediaType: args.mediaType || args.media_type,
+        caption: args.caption,
+        fileName: args.fileName || args.file_name,
+        replyTo: args.replyTo || args.reply_to,
+        code: args.code || args.pairingCode || args.approvalCode || args.pairing_code || args.approval_code,
+        pairingCode: args.pairingCode || args.pairing_code,
+        approvalCode: args.approvalCode || args.approval_code,
+        userId: args.userId || args.user_id,
+        limit: args.limit
+      };
+    }
     if (name === "dream_open_path") {
       const resolvedPath = this._resolveHermesPath(args.path, runState);
       return resolvedPath ? { type: "open_path", path: resolvedPath } : null;
@@ -1926,13 +1957,14 @@ class AgentRuntime {
         "exitCode",
         "summary",
         "message",
+        "formatted",
         "error"
       ]) {
         if (typeof parsed[key] !== "undefined" && parsed[key] !== null && String(parsed[key]).trim()) {
           parts.push(`${key}: ${String(parsed[key])}`);
         }
       }
-      for (const key of ["stdout", "stderr", "output"]) {
+      for (const key of ["stdout", "stderr", "output", "result"]) {
         if (typeof parsed[key] === "string" && parsed[key].trim()) {
           parts.push(`${key.toUpperCase()}:\n${this._summarizeResult(parsed[key], 1500)}`);
         }
@@ -1945,6 +1977,39 @@ class AgentRuntime {
       } catch {}
     }
     return this._summarizeResult(event?.result || `${event?.name || "tool"} concluida.`, 2000);
+  }
+
+  _appendGatewayQrAppendix(assistantText = "", events = []) {
+    const text = String(assistantText || "").trim();
+    const appendix = this._gatewayQrAppendixFromEvents(events);
+    if (!appendix) {
+      return text;
+    }
+    const imageMatch = appendix.match(/!\[[^\]]*QR[^\]]*\]\(([^)]+)\)/i);
+    const imageTarget = imageMatch ? imageMatch[1] : "";
+    if (
+      /!\[[^\]]*QR[^\]]*\]\([^)]+\)/i.test(text) ||
+      (imageTarget && text.includes(imageTarget))
+    ) {
+      return text;
+    }
+    return [text, appendix].filter(Boolean).join("\n\n");
+  }
+
+  _gatewayQrAppendixFromEvents(events = []) {
+    const entries = Array.isArray(events) ? events.slice().reverse() : [];
+    for (const event of entries) {
+      const name = String(event?.name || event?.tool || "").trim();
+      if (name !== "dream_gateway") {
+        continue;
+      }
+      const result = this._formatHermesToolResult(event);
+      const image = String(result || "").match(/!\[[^\]]*QR[^\]]*\]\([^)]+\)/i)?.[0] || "";
+      if (image) {
+        return `QR Code do WhatsApp:\n\n${image}`;
+      }
+    }
+    return "";
   }
 
   _parseHermesToolResult(result) {

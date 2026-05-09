@@ -1,5 +1,6 @@
 const { HermesBackend } = require("../hermes/backend");
 const { getHermesCatalog } = require("../hermes/catalog");
+const { maybeWindowsToWslPath } = require("../platform");
 const os = require("os");
 const path = require("path");
 
@@ -356,7 +357,7 @@ function resolveHermesToolsets(settings = {}, context = {}) {
   return null;
 }
 
-function resolveHermesDisabledToolsets(settings = {}) {
+function resolveHermesDisabledToolsets(settings = {}, context = {}) {
   const disabled = Array.isArray(settings?.hermesDisabledToolsets)
     ? settings.hermesDisabledToolsets.map(String).filter(Boolean)
     : [];
@@ -364,15 +365,6 @@ function resolveHermesDisabledToolsets(settings = {}) {
     disabled.push("dream-desktop");
   }
   return [...new Set(disabled)];
-}
-
-function windowsToWslPath(value) {
-  const raw = String(value || "").trim();
-  const match = raw.match(/^([a-zA-Z]):[\\/](.*)$/);
-  if (!match) {
-    return "";
-  }
-  return `/mnt/${match[1].toLowerCase()}/${match[2].replace(/[\\/]+/g, "/")}`;
 }
 
 function hostPlatformLabel() {
@@ -454,7 +446,7 @@ function buildHermesChessInstruction(context = {}) {
 function buildHermesDesktopInstruction(route, context = {}) {
   const routeId = String(route?.id || "general-purpose");
   const workspaceRoot = context.workspaceRoot ? path.resolve(String(context.workspaceRoot)) : "";
-  const posixWorkspaceRoot = windowsToWslPath(workspaceRoot);
+  const posixWorkspaceRoot = maybeWindowsToWslPath(workspaceRoot, context);
   const actualHome = os.homedir();
   const locale = String(context.locale || "").trim();
   return [
@@ -463,11 +455,21 @@ function buildHermesDesktopInstruction(route, context = {}) {
     `- Host OS: ${hostPlatformLabel()}. Detect and respect this OS before choosing shell commands, path syntax, installers, browsers, and desktop automation.`,
     locale ? `- User locale/language: ${locale}. Reply and create user-facing copy in that locale unless the user asks for another language.` : "",
     process.platform === "win32"
-      ? "- This Windows build runs natively. Do not assume WSL is available; use Windows paths for file tools and use the provided POSIX /mnt path only when a Bash/WSL terminal explicitly needs it."
+      ? "- This Windows build runs natively. Do not assume WSL is available. Use Windows paths such as C:\\Users\\... and native Windows tools by default. Do not use /mnt/c, /usr/bin/bash, chmod, rm -rf, which, or POSIX cd syntax unless the active terminal is explicitly WSL."
       : "- Use this host's native POSIX paths for file tools and terminal commands unless the user explicitly targets a different environment.",
     "- Use Hermes native tools for filesystem, terminal, browser, web, code, todos and patches whenever they fit the task.",
     "- For research/search/questions about the public web, prefer Hermes web_search/web_extract or Dream web_search/web_fetch. Do not open the Workbench preview just to search or summarize pages.",
     "- Use the Dream Server Workbench browser surface only when the user asks to interact with a site/page, automate browser actions, test a local web app, capture/inspect a rendered page, or visually verify UI behavior. Do not open Chrome, Edge, Brave or the OS browser as a fallback for web pages.",
+    "- If the user asks to connect, configure, enable, authorize, approve, start, stop, restart, inspect status, read logs, get a WhatsApp QR code, or operate WhatsApp, Discord, Telegram, Slack, Matrix, Mattermost, Signal, email, SMS, webhook or another messaging gateway, call dream_gateway. Let your language understanding choose that tool from the request; do not ask the host to infer it for you.",
+    "- dream_gateway(command, platform, ...) is the native Dream Server gateway tool. It talks to the running Electron runtime, persists the Settings toggle, starts/stops/restarts the real vendored Hermes Gateway process, returns platform-specific status/log diagnostics, reads Hermes channel_directory/sessions, manages Hermes DM pairing approvals, and exposes real messaging operations where supported: capabilities, identity, groups/guilds/channels/chats, recent_messages, pairing_status, approve_pairing, revoke_pairing, chat, send, edit, send_media and typing. Discord can enumerate guilds/channels via the bot API; Telegram can only list known chats from Hermes directory/sessions because the Telegram Bot API does not expose a global chat list.",
+    "- For any gateway beyond WhatsApp/Telegram/Discord, call dream_gateway command='capabilities' or command='status' before claiming what it can do. If the tool says direct operations are not exposed, report that exact platform-specific limitation and the returned setup/next action; do not invent sends, QR codes, web previews, terminal commands, or generic setup steps.",
+    "- If the user provides a Telegram/Discord bot token or another gateway credential, call dream_gateway with command='configure' or command='configure_secret' and the credential fields. Do not print the token back, do not save it through terminal commands, do not edit ~/.hermes manually, and do not open filesystem paths.",
+    "- Platform rules are strict: WhatsApp uses QR pairing from dream_gateway; Telegram does NOT use QR and uses a BotFather bot token plus Hermes DM pairing approval; Discord does NOT use QR and uses bot token/invite/permissions plus Hermes DM pairing approval when required. Never transfer WhatsApp QR language to Telegram or Discord.",
+    "- A Telegram/Discord code like ZE2FV6XW is not a token and not a QR code. It is a Hermes DM pairing approval code. If the user says 'aprove ZE2FV6XW', 'aprovar codigo', 'approve code', or gives an 8-character pairing code while discussing Telegram or Discord, call dream_gateway with command='approve_pairing', the active platform, and code='ZE2FV6XW'. Then tell the user to message the bot again.",
+    "- After dream_gateway returns a WhatsApp QR code, Telegram/Discord pairing approval result, missing field, error, or log excerpt, include the relevant exact result in your chat response so the user does not need to open a collapsed tool event.",
+    "- Do not tell the user to install Hermes separately, visit external docs, or run hermes gateway start from a terminal for gateway setup.",
+    "- Never call delegate_task, terminal commands, shell commands, OS browser automation, WhatsApp Web, Telegram Web, Discord Web, Slack Web, or the Workbench preview to start or pair a messaging gateway. The Electron runtime owns gateway lifecycle and uses the vendored Hermes path.",
+    "- For WhatsApp specifically, Dream Server uses the Hermes WhatsApp bridge/gateway. QR pairing comes from dream_gateway status/log output; do not use WhatsApp Web in the Workbench preview as a substitute.",
     "- dream_open_url, dream_browser_control and Hermes browser_* tools are wired to the live Workbench preview. They return text/DOM/accessibility snapshots, element refs, labels, selectors and coordinates, so image/vision support is not required for normal page interaction.",
     "- Browser navigation is stateful: use browser_navigate/dream_open_url only for the first page load or when the user explicitly wants a different URL. After the page is open, continue with browser_snapshot, browser_click, browser_type/fill, browser_press and browser_scroll on the current Workbench page. Do not reload the same URL before every click.",
     "- For dream_browser_control, omit url after the first navigation. Steps without url operate on the active Workbench WebView; adding the same url again can reload the page and lose modal/game state.",
@@ -502,7 +504,7 @@ function buildHermesDesktopInstruction(route, context = {}) {
     "- For cross-platform machine tasks, detect the OS and use portable file/terminal operations when possible; only use OS-specific commands when needed.",
     workspaceRoot ? `- Current workspace root for files and projects: ${workspaceRoot}` : "",
     actualHome ? `- Actual user home directory: ${actualHome}` : "",
-    posixWorkspaceRoot ? `- If the active terminal is Bash/WSL, use this POSIX workspace path for cd/server commands: ${posixWorkspaceRoot}` : "",
+    posixWorkspaceRoot ? `- WSL is explicitly enabled for this session. Only inside a WSL terminal, use this POSIX workspace path for cd/server commands: ${posixWorkspaceRoot}` : "",
     "- Never use placeholder paths like C:\\Users\\usuario, C:\\Users\\User, /home/user, ~/Desktop, or paths inside the packaged app install directory.",
     "- Prefer workspace-relative paths for file tools. For terminal commands, first use the active shell's current working directory; only convert paths when the shell syntax requires it.",
     `- Active Dream route: ${routeId}.`
@@ -800,13 +802,15 @@ async function sendHermesTurn({
     taskId: chat?.taskId || chat?.id,
     conversationHistory: toHermesHistory(chat, overrides.historyOptions || normalHistoryOptions),
     enabledToolsets: toolsets,
-    disabledToolsets: resolveHermesDisabledToolsets(settings),
+    disabledToolsets: resolveHermesDisabledToolsets(settings, { chat, inputText }),
     ephemeralSystemPrompt: desktopIntegrationEnabled
       ? chessTask
         ? buildHermesChessInstruction({ workspaceRoot })
         : buildHermesDesktopInstruction(route, {
             workspaceRoot,
-            locale: settings?.locale
+            locale: settings?.locale,
+            chat,
+            inputText
           })
       : null,
     desktopIntegrationEnabled,
@@ -814,6 +818,7 @@ async function sendHermesTurn({
     maxIterations: limits.maxIterations,
     maxTokens: overrides.maxTokens || limits.maxTokens,
     timeoutMs,
+    doctorTimeoutMs: Number(settings?.hermesDoctorTimeoutMs || 0) || undefined,
     skipContextFiles: Boolean(overrides.skipContextFiles),
     requestOverrides: buildHermesRequestOverrides(settings, hermesRouting),
     reasoningConfig: {

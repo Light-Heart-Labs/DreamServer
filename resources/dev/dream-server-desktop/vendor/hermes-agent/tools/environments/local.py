@@ -12,6 +12,21 @@ from tools.environments.base import BaseEnvironment, _pipe_stdin
 _IS_WINDOWS = platform.system() == "Windows"
 
 
+def _resolve_safe_cwd(cwd: str) -> str:
+    """Return cwd if it exists, otherwise the nearest existing ancestor."""
+    if cwd and os.path.isdir(cwd):
+        return cwd
+    parent = os.path.dirname(cwd) if cwd else ""
+    while parent:
+        if os.path.isdir(parent):
+            return parent
+        next_parent = os.path.dirname(parent)
+        if next_parent == parent:
+            break
+        parent = next_parent
+    return tempfile.gettempdir()
+
+
 # Hermes-internal env vars that should NOT leak into terminal subprocesses.
 _HERMES_PROVIDER_ENV_FORCE_PREFIX = "_HERMES_FORCE_"
 
@@ -268,6 +283,7 @@ class LocalEnvironment(BaseEnvironment):
             stderr=subprocess.STDOUT,
             stdin=subprocess.PIPE if stdin_data is not None else subprocess.DEVNULL,
             preexec_fn=None if _IS_WINDOWS else os.setsid,
+            cwd=_resolve_safe_cwd(self.cwd),
         )
 
         if stdin_data is not None:

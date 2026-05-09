@@ -216,26 +216,26 @@ Qualification Task Design:
 def monitor_quality(annotations):
     """Check for annotation quality issues during collection."""
     issues = []
-    
+
     # 1. Check for straight-lining (same answer for everything)
     for annotator_id, items in annotations.groupby('annotator'):
         if items['rating'].nunique() <= 1:
             issues.append(f"Annotator {annotator_id}: straight-lining detected")
-    
+
     # 2. Check time per item (too fast = not reading)
     median_time = annotations['time_seconds'].median()
     fast_annotators = annotations.groupby('annotator')['time_seconds'].median()
     for ann_id, time in fast_annotators.items():
         if time < median_time * 0.3:
             issues.append(f"Annotator {ann_id}: suspiciously fast ({time:.0f}s vs median {median_time:.0f}s)")
-    
+
     # 3. Check attention check performance
     checks = annotations[annotations['is_attention_check']]
     for ann_id, items in checks.groupby('annotator'):
         accuracy = (items['rating'] == items['gold_rating']).mean()
         if accuracy < 0.80:
             issues.append(f"Annotator {ann_id}: failing attention checks ({accuracy:.0%})")
-    
+
     return issues
 ```
 
@@ -280,13 +280,13 @@ def compute_agreement(annotations_matrix):
     Values: ratings (int or float). Use np.nan for missing.
     """
     results = {}
-    
+
     # Krippendorff's alpha (handles missing data, any number of annotators)
     results['krippendorff_alpha'] = krippendorff.alpha(
         annotations_matrix.T,  # krippendorff expects (annotators, items)
         level_of_measurement='ordinal'  # or 'nominal', 'interval', 'ratio'
     )
-    
+
     # Pairwise Cohen's kappa (for 2 annotators at a time)
     n_annotators = annotations_matrix.shape[1]
     kappas = []
@@ -300,7 +300,7 @@ def compute_agreement(annotations_matrix):
                 )
                 kappas.append(k)
     results['mean_pairwise_kappa'] = np.mean(kappas) if kappas else None
-    
+
     # Raw percent agreement
     agree_count = 0
     total_count = 0
@@ -312,7 +312,7 @@ def compute_agreement(annotations_matrix):
                 agree_count += 1
             total_count += 1
     results['percent_agreement'] = agree_count / total_count if total_count > 0 else None
-    
+
     return results
 ```
 
@@ -333,10 +333,10 @@ def analyze_pairwise(wins_a, wins_b, ties=0):
     ties: number of ties (excluded from sign test)
     """
     n = wins_a + wins_b  # exclude ties
-    
+
     # Sign test (exact binomial)
     p_value = stats.binom_test(wins_a, n, 0.5, alternative='two-sided')
-    
+
     # Win rate with 95% CI (Wilson score interval)
     win_rate = wins_a / n if n > 0 else 0.5
     z = 1.96
@@ -345,7 +345,7 @@ def analyze_pairwise(wins_a, wins_b, ties=0):
     margin = z * np.sqrt((win_rate * (1 - win_rate) + z**2 / (4 * n)) / n) / denominator
     ci_lower = center - margin
     ci_upper = center + margin
-    
+
     return {
         'win_rate_a': win_rate,
         'win_rate_b': 1 - win_rate,
@@ -364,11 +364,11 @@ def analyze_likert(ratings_a, ratings_b):
     """Compare Likert ratings between two systems (paired)."""
     # Wilcoxon signed-rank test (non-parametric, paired)
     stat, p_value = stats.wilcoxon(ratings_a, ratings_b, alternative='two-sided')
-    
+
     # Effect size (rank-biserial correlation)
     n = len(ratings_a)
     r = 1 - (2 * stat) / (n * (n + 1))
-    
+
     return {
         'mean_a': np.mean(ratings_a),
         'mean_b': np.mean(ratings_b),

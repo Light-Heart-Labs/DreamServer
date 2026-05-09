@@ -184,7 +184,7 @@ if isinstance(ib, dict):
     # Each content item:
     # {"data_type": "string", "label": "Founded", "value": "December 08, 2015"}
     # {"data_type": "string", "label": "Founders", "value": "Sam Altman, Elon Musk, ..."}
-    
+
     meta = ib['meta']    # list of metadata items
     # {"data_type": "string", "label": "article_title", "value": "OpenAI"}
     # {"data_type": "string", "label": "template_name", "value": "infobox company"}

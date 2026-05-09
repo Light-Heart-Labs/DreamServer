@@ -655,6 +655,44 @@ async function testRecoveredDirectActionReturnsUpdatedState() {
   assert.equal(updatedTask.status, "in_progress");
 }
 
+async function testKanbanMetadataActionsPersist() {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "dream-kanban-metadata-"));
+  const runtime = new DreamRuntime({ workspaceRoot, disableTaskTerminals: true });
+  runtime.state.settings.fullAccessMode = true;
+  runtime.createChat("local");
+  const chat = runtime.state.chats[0];
+  const parent = runtime.createTaskRecord({
+    title: "Parent task",
+    objective: "Track parent metadata",
+    status: "backlog"
+  });
+  const child = runtime.createTaskRecord({
+    title: "Child task",
+    objective: "Track child metadata",
+    status: "backlog"
+  });
+
+  const state = await runtime.runSuggestedAction({
+    chatId: chat.id,
+    actionKey: `manual-${crypto.randomUUID()}:0`,
+    action: {
+      type: "task_update",
+      id: parent.id,
+      assignee: "builder",
+      priority: 2,
+      comment: "Needs browser harness coverage",
+      linkParentId: parent.id,
+      linkChildId: child.id
+    }
+  });
+  const updatedParent = state.tasks.find((entry) => entry.id === parent.id);
+  assert.equal(updatedParent.assignee, "builder");
+  assert.equal(updatedParent.priority, 2);
+  assert.equal(updatedParent.comments.length, 1);
+  assert.equal(updatedParent.comments[0].body, "Needs browser harness coverage");
+  assert.deepEqual(updatedParent.links.children, [child.id]);
+}
+
 async function testArchivedTaskCanBeDeletedFromKanban() {
   const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "dream-archive-delete-"));
   const runtime = new DreamRuntime({ workspaceRoot, disableTaskTerminals: true });
@@ -831,7 +869,17 @@ async function testSettingsPartialUpdatePreservesBooleansAndHermesDefaults() {
         desktopBridgeEnabled: true,
         autoRunLocalActions: true,
         hermesMaxTokens: 8192,
-        locale: "en-US"
+        locale: "en-US",
+        gatewayEnabled: true,
+        gatewayAutoStart: true,
+        gatewayPlatforms: {
+          whatsapp: {
+            enabled: true,
+            homeChannel: "120363000000000000@g.us",
+            groupPolicy: "mention"
+          }
+        },
+        dreamPetEnabled: true
       }
     }
   });
@@ -843,6 +891,22 @@ async function testSettingsPartialUpdatePreservesBooleansAndHermesDefaults() {
   assert.equal(runtime.state.settings.autoRunLocalActions, true);
   assert.equal(runtime.state.settings.hermesMaxTokens, 8192);
   assert.equal(runtime.state.settings.locale, "en-US");
+  assert.equal(runtime.state.settings.gatewayEnabled, true);
+  assert.equal(runtime.state.settings.gatewayAutoStart, true);
+  assert.equal(runtime.state.settings.gatewayPlatforms.whatsapp.enabled, true);
+  assert.equal(runtime.state.settings.gatewayPlatforms.whatsapp.homeChannel, "120363000000000000@g.us");
+  assert.equal(runtime.state.settings.dreamPetEnabled, true);
+
+  runtime.updateSettings({
+    gatewayEnabled: false,
+    gatewayPlatforms: { whatsapp: { enabled: false, homeChannel: "5511999999999@s.whatsapp.net" } },
+    dreamPetEnabled: false
+  });
+
+  assert.equal(runtime.state.settings.gatewayEnabled, false);
+  assert.equal(runtime.state.settings.gatewayPlatforms.whatsapp.enabled, false);
+  assert.equal(runtime.state.settings.gatewayPlatforms.whatsapp.homeChannel, "5511999999999@s.whatsapp.net");
+  assert.equal(runtime.state.settings.dreamPetEnabled, false);
 }
 
 async function testCloudHermesRouteDoesNotAutostartLocalLlama() {
@@ -884,6 +948,7 @@ async function main() {
     testTaskRecordDefaultsWorkspaceRoot,
     testAgentSpawnLinksExistingKanbanTask,
     testRecoveredDirectActionReturnsUpdatedState,
+    testKanbanMetadataActionsPersist,
     testArchivedTaskCanBeDeletedFromKanban,
     testRecoveredAgentSpawnReturnsInProgressTask,
     testHermesToolEventsPopulateWorkbenchArtifacts,

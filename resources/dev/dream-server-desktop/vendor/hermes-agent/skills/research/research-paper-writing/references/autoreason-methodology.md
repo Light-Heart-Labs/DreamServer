@@ -115,7 +115,7 @@ Every role is a **fresh, isolated agent** with no shared context:
 
 #### Critic
 ```
-System: You are a critical reviewer. Your only job is to find real problems. 
+System: You are a critical reviewer. Your only job is to find real problems.
 Be specific and concrete. Do not suggest fixes.
 
 User: Find real problems with this proposal. Focus on:
@@ -128,8 +128,8 @@ Do NOT propose fixes. Just the problems.
 
 #### Author B
 ```
-System: You are a senior consultant revising a proposal based on specific 
-criticisms. Address each valid criticism directly. Do not make changes not 
+System: You are a senior consultant revising a proposal based on specific
+criticisms. Address each valid criticism directly. Do not make changes not
 motivated by an identified problem.
 
 User: [TASK] + [VERSION A] + [CRITIC OUTPUT]
@@ -138,7 +138,7 @@ Revise to address these problems. For each change, state which problem it fixes.
 
 #### Synthesizer
 ```
-System: You are given two versions as equal inputs. Take the strongest elements 
+System: You are given two versions as equal inputs. Take the strongest elements
 from each and produce a coherent synthesis. This is not a compromise.
 
 User: [TASK] + [VERSION X] + [VERSION Y]
@@ -354,12 +354,12 @@ The paper itself was refined using autoreason (Section 8 of the paper):
 ### Recommended Setup for Paper Refinement
 
 ```
-Critic prompt: "You are reviewing a research paper draft. You have access to the 
-actual experimental results [GROUND TRUTH DATA]. Find factual errors, unsupported 
+Critic prompt: "You are reviewing a research paper draft. You have access to the
+actual experimental results [GROUND TRUTH DATA]. Find factual errors, unsupported
 claims, hallucinated results, and structural problems. Do not suggest fixes."
 
-Author B prompt: "Revise this paper draft to fix the identified problems. For each 
-change, cite the specific problem it addresses. Do not add claims not supported by 
+Author B prompt: "Revise this paper draft to fix the identified problems. For each
+change, cite the specific problem it addresses. Do not add claims not supported by
 the provided experimental data."
 
 Judge prompt (CoT): "Compare three versions of this paper. For each, evaluate:

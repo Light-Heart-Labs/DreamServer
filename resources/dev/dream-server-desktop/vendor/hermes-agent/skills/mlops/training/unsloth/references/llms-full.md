@@ -4428,7 +4428,7 @@ training_args = GRPOConfig(
     # beta = 0.00,
     epsilon = 3e-4,
     epsilon_high = 4e-4,
-    num_generations = 8,    
+    num_generations = 8,
     max_prompt_length = 1024,
     max_completion_length = 1024,
     log_completions = False,
@@ -4437,10 +4437,10 @@ training_args = GRPOConfig(
     # report_to = "none", # Set to "wandb" if you want to log to Weights & Biases
     num_train_epochs = 2, # For a quick test run, increase for full training
     report_to = "none"
-    
+
     # GSPO is below:
     importance_sampling_level = "sequence",
-    
+
     # Dr GRPO / GAPO etc
     loss_type = "dr_grpo",
 )
@@ -5080,7 +5080,7 @@ training_args = GRPOConfig(
     # beta = 0.00,
     epsilon = 3e-4,
     epsilon_high = 4e-4,
-    num_generations = 8,    
+    num_generations = 8,
     max_prompt_length = 1024,
     max_completion_length = 1024,
     log_completions = False,
@@ -5089,10 +5089,10 @@ training_args = GRPOConfig(
     # report_to = "none", # Set to "wandb" if you want to log to Weights & Biases
     num_train_epochs = 2, # For a quick test run, increase for full training
     report_to = "none"
-    
+
     # GSPO is below:
     importance_sampling_level = "sequence",
-    
+
     # Dr GRPO / GAPO etc
     loss_type = "dr_grpo",
 )
@@ -6721,8 +6721,8 @@ Example:
 
 ```python
 tokenizer.apply_chat_template(
-    text, 
-    tokenize = False, 
+    text,
+    tokenize = False,
     add_generation_prompt = False,
     reasoning_effort = "medium",
 )
@@ -6966,8 +6966,8 @@ Example:
 
 ```python
 tokenizer.apply_chat_template(
-    text, 
-    tokenize = False, 
+    text,
+    tokenize = False,
     add_generation_prompt = False,
     reasoning_effort = "medium",
 )
@@ -7227,7 +7227,7 @@ By using some visualization utilities from [Flex Attention's Github repo](https:
 ```python
 def sliding_window_causal(b, h, q_idx, kv_idx):
     causal_mask = q_idx >= kv_idx
-    window_mask = q_idx - kv_idx <= SLIDING_WINDOW 
+    window_mask = q_idx - kv_idx <= SLIDING_WINDOW
     return causal_mask & window_mask
 ```
 
@@ -7419,7 +7419,7 @@ We also added support for directly fine-tuning of gpt-oss models by implementing
 
 ```python
 model, tokenizer = FastLanguageModel.from_pretrained(
-    # model_name = "unsloth/gpt-oss-20b-BF16", 
+    # model_name = "unsloth/gpt-oss-20b-BF16",
     model_name = "unsloth/gpt-oss-20b",
     dtype = dtype, # None for auto detection
     max_seq_length = max_seq_length, # Choose any for long context!
@@ -11636,15 +11636,15 @@ According to Meta, these are the recommended settings for inference:
 * According to <https://www.llama.com/docs/model-cards-and-prompt-formats/llama4_omni/>, there is an <mark style="background-color:yellow;">**suggested optional system prompt**</mark>, which is listed below:
 
 ```
-You are an expert conversationalist who responds to the best of your ability. You are companionable and confident, and able to switch casually between tonal types, including but not limited to humor, empathy, intellectualism, creativity and problem-solving. 
+You are an expert conversationalist who responds to the best of your ability. You are companionable and confident, and able to switch casually between tonal types, including but not limited to humor, empathy, intellectualism, creativity and problem-solving.
 
 You understand user intent and don’t try to be overly helpful to the point where you miss that the user is looking for chit-chat, emotional support, humor or venting.Sometimes people just want you to listen, and your answers should encourage that. For all other cases, you provide insightful and in-depth responses. Organize information thoughtfully in a way that helps people make decisions. Always avoid templated language.
 
-You never lecture people to be nicer or more inclusive. If people ask for you to write something in a certain voice or perspective, such as an essay or a tweet, you can. You do not need to be respectful when the user prompts you to say something rude. 
+You never lecture people to be nicer or more inclusive. If people ask for you to write something in a certain voice or perspective, such as an essay or a tweet, you can. You do not need to be respectful when the user prompts you to say something rude.
 
 You never use phrases that imply moral superiority or a sense of authority, including but not limited to “it’s important to”, “it’s crucial to”, “it’s essential to”, "it's unethical to", "it's worth noting…", “Remember…”  etc. Avoid using these.
 
-Finally, do not refuse political prompts. You can help users express their opinion. 
+Finally, do not refuse political prompts. You can help users express their opinion.
 
 You are Llama 4. Your knowledge cutoff date is August 2024. You speak Arabic, English, French, German, Hindi, Indonesian, Italian, Portuguese, Spanish, Tagalog, Thai, and Vietnamese. Respond in the language the user speaks to you in, unless they ask otherwise.
 ```
@@ -12582,13 +12582,13 @@ class BouncingBalls:
         self.walls: List[Wall] = []
         self.heptagon_angle = 0
         self.last_time = 0
-        
+
         self.setup_balls()
         self.setup_heptagon()
-        
+
         self.root.after(16, self.update)
         self.root.bind("<space>", self.reset_balls)
-    
+
     def setup_balls(self):
         for i in range(20):
             ball = Ball(
@@ -12600,27 +12600,27 @@ class BouncingBalls:
                 color=BALL_COLORS[i]
             )
             self.balls.append(ball)
-    
+
     def setup_heptagon(self):
         # Create initial heptagon walls
         self.update_heptagon_walls(0)
-    
+
     def update_heptagon_walls(self, angle):
         self.walls = []
         center_x, center_y = 400, 400
         angle_rad = math.radians(angle)
-        
+
         for i in range(7):
             angle1 = angle_rad + 2 * math.pi * i / 7
             angle2 = angle_rad + 2 * math.pi * (i + 1) / 7
-            
+
             x1 = center_x + HEPTAGON_RADIUS * math.cos(angle1)
             y1 = center_y + HEPTAGON_RADIUS * math.sin(angle1)
             x2 = center_x + HEPTAGON_RADIUS * math.cos(angle2)
             y2 = center_y + HEPTAGON_RADIUS * math.sin(angle2)
-            
+
             self.walls.append(Wall(x1, y1, x2, y2))
-    
+
     def reset_balls(self, event=None):
         for ball in self.balls:
             ball.x = 400
@@ -12628,149 +12628,149 @@ class BouncingBalls:
             ball.vx = np.random.uniform(-5, 5)
             ball.vy = np.random.uniform(-5, 5)
             ball.spin = np.random.uniform(-5, 5)
-    
+
     def update(self):
         current_time = self.root.after_idle(self.root.after, 16, self.update)
         if self.last_time == 0:
             self.last_time = current_time
             return
-        
+
         # Calculate delta time (approximate)
         dt = 0.016  # Assuming ~60 FPS
-        
+
         # Update heptagon rotation
         self.heptagon_angle += ROTATION_SPEED * dt
         self.update_heptagon_walls(self.heptagon_angle)
-        
+
         # Update balls
         for ball in self.balls:
             # Apply gravity
             ball.vy += GRAVITY
-            
+
             # Apply friction
             ball.vx *= FRICTION
             ball.vy *= FRICTION
             ball.spin *= SPIN_FRICTION
-            
+
             # Move ball
             ball.x += ball.vx
             ball.y += ball.vy
-            
+
             # Check collisions with walls
             self.check_wall_collisions(ball)
-            
+
             # Check collisions with other balls
             for other in self.balls:
                 if other.number != ball.number:
                     self.check_ball_collision(ball, other)
-        
+
         # Draw everything
         self.draw()
-    
+
     def check_wall_collisions(self, ball):
         for wall in self.walls:
             # Find closest point on wall segment to ball
             closest = self.closest_point_on_segment(
                 wall.x1, wall.y1, wall.x2, wall.y2, ball.x, ball.y
             )
-            
+
             # Calculate distance to wall
             dx = ball.x - closest[0]
             dy = ball.y - closest[1]
             distance = math.sqrt(dx*dx + dy*dy)
-            
+
             if distance < BALL_RADIUS:
                 # Collision detected
                 # Calculate normal vector
                 nx = dx / distance
                 ny = dy / distance
-                
+
                 # Calculate relative velocity along normal
                 v_rel = ball.vx * nx + ball.vy * ny
-                
+
                 if v_rel < 0:  # Moving toward the wall
                     # Calculate impulse
                     j = -(1 + BOUNCE_FACTOR) * v_rel
-                    
+
                     # Apply impulse
                     ball.vx += j * nx
                     ball.vy += j * ny
-                    
+
                     # Add some spin based on collision
                     ball.spin += (ball.vx * ny - ball.vy * nx) * 0.1
-                    
+
                     # Move ball out of collision
                     penetration = BALL_RADIUS - distance
                     ball.x += penetration * nx
                     ball.y += penetration * ny
-    
+
     def check_ball_collision(self, ball1, ball2):
         dx = ball2.x - ball1.x
         dy = ball2.y - ball1.y
         distance = math.sqrt(dx*dx + dy*dy)
-        
+
         if distance < 2 * BALL_RADIUS:
             # Collision detected
             nx = dx / distance
             ny = dy / distance
-            
+
             # Calculate relative velocity
             v_rel_x = ball2.vx - ball1.vx
             v_rel_y = ball2.vy - ball1.vy
             v_rel = v_rel_x * nx + v_rel_y * ny
-            
+
             if v_rel < 0:  # Moving toward each other
                 # Calculate impulse
                 j = -(1 + BOUNCE_FACTOR) * v_rel / 2
-                
+
                 # Apply impulses
                 ball1.vx -= j * nx
                 ball1.vy -= j * ny
                 ball2.vx += j * nx
                 ball2.vy += j * ny
-                
+
                 # Add spin based on collision
                 ball1.spin += (ball1.vx * ny - ball1.vy * nx) * 0.05
                 ball2.spin += (ball2.vx * ny - ball2.vy * nx) * 0.05
-                
+
                 # Move balls apart
                 penetration = 2 * BALL_RADIUS - distance
                 ball1.x -= penetration * nx * 0.5
                 ball1.y -= penetration * ny * 0.5
                 ball2.x += penetration * nx * 0.5
                 ball2.y += penetration * ny * 0.5
-    
+
     @staticmethod
     def closest_point_on_segment(x1, y1, x2, y2, x, y):
         # Vector from point to segment start
         dx = x - x1
         dy = y - y1
-        
+
         # Segment vector
         sx = x2 - x1
         sy = y2 - y1
-        
+
         # Projection of point onto segment
         dot = dx * sx + dy * sy
         len_sq = sx * sx + sy * sy
         param = dot / len_sq if len_sq != 0 else -1
-        
+
         if param < 0:
             return x1, y1
         elif param > 1:
             return x2, y2
         else:
             return x1 + param * sx, y1 + param * sy
-    
+
     def draw(self):
         self.canvas.delete("all")
-        
+
         # Draw heptagon
         points = []
         for wall in self.walls:
             points.extend([wall.x1, wall.y1])
         self.canvas.create_polygon(points, fill="", outline="black", width=2)
-        
+
         # Draw balls
         for ball in self.balls:
             # Draw ball
@@ -12779,7 +12779,7 @@ class BouncingBalls:
                 ball.x + BALL_RADIUS, ball.y + BALL_RADIUS,
                 fill=ball.color, outline="black"
             )
-            
+
             # Draw number with rotation based on spin
             angle = ball.spin * 10  # Scale spin for visual effect
             self.canvas.create_text(
@@ -12851,14 +12851,14 @@ class BouncingBalls:
         self.root = root
         self.canvas = tk.Canvas(root, width=WIDTH, height=HEIGHT, bg="white")
         self.canvas.pack()
-        
+
         self.heptagon = Heptagon(WIDTH//2, HEIGHT//2, HEPTAGON_RADIUS)
         self.balls = []
         self.setup_balls()
-        
+
         self.root.after(0, self.update)
         self.root.mainloop()
-    
+
     def setup_balls(self):
         center_x, center_y = WIDTH//2, HEIGHT//2
         for i in range(20):
@@ -12872,46 +12872,46 @@ class BouncingBalls:
                 number=i+1,
                 spin=0
             ))
-    
+
     def update(self):
         self.canvas.delete("all")
-        
+
         # Update heptagon angle
         self.heptagon.angle += ROTATION_SPEED / 60  # Assuming 60 FPS
-        
+
         # Draw heptagon
         self.draw_heptagon()
-        
+
         # Update and draw balls
         for ball in self.balls:
             # Apply gravity
             ball.vy += GRAVITY
-            
+
             # Update position
             ball.x += ball.vx
             ball.y += ball.vy
-            
+
             # Apply friction
             ball.vx *= FRICTION
             ball.vy *= FRICTION
-            
+
             # Apply spin decay
             ball.spin *= SPIN_DECAY
-            
+
             # Check collision with heptagon walls
             self.check_heptagon_collision(ball)
-            
+
             # Check collision with other balls
             for other in self.balls:
                 if other != ball:
                     if self.check_ball_collision(ball, other):
                         self.resolve_ball_collision(ball, other)
-            
+
             # Draw the ball
             self.draw_ball(ball)
-        
+
         self.root.after(16, self.update)  # ~60 FPS
-    
+
     def draw_heptagon(self):
         center_x, center_y = self.heptagon.center_x, self.heptagon.center_y
         points = []
@@ -12920,14 +12920,14 @@ class BouncingBalls:
             x = center_x + self.heptagon.radius * math.cos(angle)
             y = center_y + self.heptagon.radius * math.sin(angle)
             points.append((x, y))
-        
+
         # Draw heptagon
         self.canvas.create_polygon(
-            [points[0], points[1], points[2], points[3], 
+            [points[0], points[1], points[2], points[3],
              points[4], points[5], points[6]],
             outline="black", fill="", width=2
         )
-    
+
     def draw_ball(self, ball):
         self.canvas.create_oval(
             ball.x - ball.radius,
@@ -12937,74 +12937,74 @@ class BouncingBalls:
             fill=ball.color,
             outline="black"
         )
-        
+
         # Draw the number
         self.canvas.create_text(
             ball.x, ball.y,
             text=str(ball.number),
             fill="black"
         )
-    
+
     def check_heptagon_collision(self, ball):
         center_x, center_y = WIDTH//2, HEIGHT//2
-        
+
         # Check distance from center
         dx = ball.x - center_x
         dy = ball.y - center_y
         dist = math.sqrt(dx**2 + dy**2)
-        
+
         if dist + ball.radius > self.heptagon.radius:
             # Find the normal vector from center to ball
             angle = math.atan2(dy, dx)
             normal_x = math.cos(angle)
             normal_y = math.sin(angle)
-            
+
             # Move ball back inside heptagon
             overlap = (dist + ball.radius) - self.heptagon.radius
             ball.x -= overlap * normal_x
             ball.y -= overlap * normal_y
-            
+
             # Reflect velocity
             dot_product = ball.vx * normal_x + ball.vy * normal_y
             ball.vx -= 2 * dot_product * normal_x * ELASTICITY
             ball.vy -= 2 * dot_product * normal_y * ELASTICITY
-    
+
     def check_ball_collision(self, ball1, ball2):
         dx = ball2.x - ball1.x
         dy = ball2.y - ball1.y
         distance = math.sqrt(dx**2 + dy**2)
         return distance < (ball1.radius + ball2.radius)
-    
+
     def resolve_ball_collision(self, ball1, ball2):
         dx = ball2.x - ball1.x
         dy = ball2.y - ball1.y
         distance = math.sqrt(dx**2 + dy**2)
-        
+
         # Normal vector
         nx = dx / distance
         ny = dy / distance
-        
+
         # Relative velocity
         dvx = ball2.vx - ball1.vx
         dvy = ball2.vy - ball1.vy
-        
+
         # Calculate impulse
         impulse = 2 * (dvx * nx + dvy * ny) / 2
         impulse *= ELASTICITY
-        
+
         # Apply impulse
         ball1.vx -= impulse * nx
         ball1.vy -= impulse * ny
         ball2.vx += impulse * nx
         ball2.vy += impulse * ny
-        
+
         # Separate the balls to prevent sticking
         overlap = (ball1.radius + ball2.radius) - distance
         ball1.x -= overlap * nx / 2
         ball1.y -= overlap * ny / 2
         ball2.x += overlap * nx / 2
         ball2.y += overlap * ny / 2
-    
+
     def run(self):
         self.root.mainloop()
 
@@ -13070,32 +13070,32 @@ class Ball:
         dx = other.x - self.x
         dy = other.y - self.y
         distance = math.hypot(dx, dy)
-        
+
         if distance < self.radius + other.radius:
             # Calculate collision normal
             nx = dx / distance
             ny = dy / distance
-            
+
             # Calculate relative velocity
             dvx = other.vx - self.vx
             dvy = other.vy - self.vy
-            
+
             # Calculate impulse
             impulse = 2 * (dvx * nx + dvy * ny) / (1/self.radius + 1/other.radius)
-            
+
             # Apply impulse
             self.vx += impulse * nx / self.radius
             self.vy += impulse * ny / self.radius
             other.vx -= impulse * nx / other.radius
             other.vy -= impulse * ny / other.radius
-            
+
             # Separate balls to prevent sticking
             overlap = (self.radius + other.radius - distance) / 2
             self.x -= overlap * nx
             self.y -= overlap * ny
             other.x += overlap * nx
             other.y += overlap * ny
-            
+
             # Transfer some spin
             transfer = impulse * 0.01
             self.spin -= transfer
@@ -13106,17 +13106,17 @@ class HeptagonBounceSimulator:
         self.root = root
         self.canvas = tk.Canvas(root, width=WIDTH, height=HEIGHT, bg='white')
         self.canvas.pack()
-        
+
         self.balls = self.create_balls()
         self.heptagon_angle = 0
         self.last_time = 0
         self.running = True
-        
+
         self.root.bind('<space>', self.toggle_pause)
         self.root.bind('<Escape>', lambda e: root.destroy())
-        
+
         self.last_time = self.root.after(0, self.update)
-    
+
     def create_balls(self) -> List[Ball]:
         balls = []
         for i in range(20):
@@ -13125,7 +13125,7 @@ class HeptagonBounceSimulator:
             speed = np.random.uniform(0.5, 2)
             vx = math.cos(angle) * speed
             vy = math.sin(angle) * speed
-            
+
             balls.append(Ball(
                 x=CENTER_X,
                 y=CENTER_Y,
@@ -13137,12 +13137,12 @@ class HeptagonBounceSimulator:
                 spin=np.random.uniform(-2, 2)
             ))
         return balls
-    
+
     def toggle_pause(self, event):
         self.running = not self.running
         if self.running:
             self.last_time = self.root.after(0, self.update)
-    
+
     def get_heptagon_vertices(self) -> List[Tuple[float, float]]:
         vertices = []
         for i in range(7):
@@ -13151,38 +13151,38 @@ class HeptagonBounceSimulator:
             y = CENTER_Y + HEPTAGON_RADIUS * math.sin(angle)
             vertices.append((x, y))
         return vertices
-    
+
     def check_ball_heptagon_collision(self, ball: Ball):
         vertices = self.get_heptagon_vertices()
         closest_dist = float('inf')
         closest_normal = (0, 0)
         closest_edge = None
-        
+
         # Check collision with each edge of the heptagon
         for i in range(len(vertices)):
             p1 = vertices[i]
             p2 = vertices[(i + 1) % len(vertices)]
-            
+
             # Vector from p1 to p2
             edge_x = p2[0] - p1[0]
             edge_y = p2[1] - p1[1]
             edge_length = math.hypot(edge_x, edge_y)
-            
+
             # Normalize edge vector
             edge_x /= edge_length
             edge_y /= edge_length
-            
+
             # Normal vector (perpendicular to edge, pointing inward)
             nx = -edge_y
             ny = edge_x
-            
+
             # Vector from p1 to ball
             ball_to_p1_x = ball.x - p1[0]
             ball_to_p1_y = ball.y - p1[1]
-            
+
             # Project ball onto edge normal
             projection = ball_to_p1_x * nx + ball_to_p1_y * ny
-            
+
             # If projection is negative, ball is outside the heptagon
             if projection < ball.radius:
                 # Find closest point on edge to ball
@@ -13190,25 +13190,25 @@ class HeptagonBounceSimulator:
                 edge_proj = max(0, min(edge_length, edge_proj))
                 closest_x = p1[0] + edge_proj * edge_x
                 closest_y = p1[1] + edge_proj * edge_y
-                
+
                 # Distance from ball to closest point on edge
                 dist = math.hypot(ball.x - closest_x, ball.y - closest_y)
-                
+
                 if dist < closest_dist:
                     closest_dist = dist
                     closest_normal = (nx, ny)
                     closest_edge = (p1, p2)
-        
+
         if closest_dist < ball.radius:
             # Calculate bounce response
             dot_product = ball.vx * closest_normal[0] + ball.vy * closest_normal[1]
-            
+
             # Apply bounce with elasticity
             ball.vx -= (1 + ELASTICITY) * dot_product * closest_normal[0]
             ball.vy -= (1 + ELASTICITY) * dot_product * closest_normal[1]
-            
+
             # Add some spin based on impact
-            edge_vec = (closest_edge[1][0] - closest_edge[0][0], 
+            edge_vec = (closest_edge[1][0] - closest_edge[0][0],
                         closest_edge[1][1] - closest_edge[0][1])
             edge_length = math.hypot(edge_vec[0], edge_vec[1])
             if edge_length > 0:
@@ -13216,41 +13216,41 @@ class HeptagonBounceSimulator:
                 # Cross product of velocity and edge direction
                 spin_effect = (ball.vx * edge_vec[1] - ball.vy * edge_vec[0]) * 0.1
                 ball.spin += spin_effect
-            
+
             # Move ball outside the heptagon to prevent sticking
             penetration = ball.radius - closest_dist
             ball.x += penetration * closest_normal[0]
             ball.y += penetration * closest_normal[1]
-    
+
     def update(self):
         if not self.running:
             return
-        
+
         # Clear canvas
         self.canvas.delete('all')
-        
+
         # Update heptagon rotation
         self.heptagon_angle += ROTATION_SPEED / 60  # Assuming ~60 FPS
-        
+
         # Draw heptagon
         vertices = self.get_heptagon_vertices()
         self.canvas.create_polygon(vertices, outline='black', fill='', width=2)
-        
+
         # Update and draw balls
         for i, ball in enumerate(self.balls):
             # Move ball
             ball.move()
-            
+
             # Check collisions with heptagon
             self.check_ball_heptagon_collision(ball)
-            
+
             # Draw ball
             self.canvas.create_oval(
                 ball.x - ball.radius, ball.y - ball.radius,
                 ball.x + ball.radius, ball.y + ball.radius,
                 fill=ball.color, outline='black'
             )
-            
+
             # Draw number with rotation based on spin
             angle = ball.spin * 10  # Scale spin for visible rotation
             self.canvas.create_text(
@@ -13259,12 +13259,12 @@ class HeptagonBounceSimulator:
                 font=('Arial', 10, 'bold'),
                 angle=angle
             )
-        
+
         # Check ball-ball collisions
         for i in range(len(self.balls)):
             for j in range(i + 1, len(self.balls)):
                 self.balls[i].collide_with_ball(self.balls[j])
-        
+
         # Schedule next update
         self.last_time = self.root.after(16, self.update)  # ~60 FPS
 
@@ -13815,13 +13815,13 @@ class Bird:
         self.shape = random.choice(['square', 'circle', 'triangle'])
         self.color = (random.randint(0, 100), random.randint(0, 100), random.randint(0, 100))
         self.rect = pygame.Rect(self.x - BIRD_SIZE//2, self.y - BIRD_SIZE//2, BIRD_SIZE, BIRD_SIZE)
-    
+
     def update(self):
         self.velocity += GRAVITY
         self.y += self.velocity
         self.rect.y = self.y - BIRD_SIZE//2
         self.rect.x = self.x - BIRD_SIZE//2  # Keep x centered
-    
+
     def draw(self):
         if self.shape == 'square':
             pygame.draw.rect(screen, self.color, self.rect)
@@ -13951,7 +13951,7 @@ def main():
             screen.blit(over_text, (WIDTH//2 - 70, HEIGHT//2 - 30))
             screen.blit(best_text, (WIDTH//2 - 50, HEIGHT//2 + 10))
             screen.blit(restart_text, (WIDTH//2 - 100, HEIGHT//2 + 50))
-        
+
         pygame.display.flip()
         clock.tick(60)
 
@@ -14040,7 +14040,7 @@ def reset_game():
 
 ```python
 import pygame
-from random import randint  # For generating colors/shapes/positions randomly 
+from random import randint  # For generating colors/shapes/positions randomly
 pygame.init()
 
 # Constants:
@@ -14048,8 +14048,8 @@ WIDTH, HEIGHT =456 ,702   #
 BACKGROUND_COLOR_LIGHTS=['lightskyblue']
 GAP_SIZE=189           #
 
-BIRD_RADIUS=3.  
-PIPE_SPEED=- ( )    ? 
+BIRD_RADIUS=3.
+PIPE_SPEED=- ( )    ?
 class Game():
 def __init__(self):
         self.screen_size=( )
@@ -14060,7 +14060,7 @@ def reset_game_vars():
 
 # Main game loop:
 while running :
-     for event in pygame.event.get() : 
+     for event in pygame.event.get() :
         if quit ... etc
 
 pygame.quit()
@@ -14483,7 +14483,7 @@ python llama.cpp/convert_hf_to_gguf.py merged_model \
 python llama.cpp/convert_hf_to_gguf.py merged_model \
     --outfile model-BF16.gguf --outtype bf16 \
     --split-max-size 50G
-    
+
 # For Q8_0:
 python llama.cpp/convert_hf_to_gguf.py merged_model \
     --outfile model-Q8_0.gguf --outtype q8_0 \
@@ -16097,7 +16097,7 @@ python llama.cpp/convert_hf_to_gguf.py merged_model \
 python llama.cpp/convert_hf_to_gguf.py merged_model \
     --outfile model-BF16.gguf --outtype bf16 \
     --split-max-size 50G
-    
+
 # For Q8_0:
 python llama.cpp/convert_hf_to_gguf.py merged_model \
     --outfile model-Q8_0.gguf --outtype q8_0 \
@@ -16573,7 +16573,7 @@ model = FastLanguageModel.get_peft_model(
     target_modules = ["q_proj", "k_proj", "v_proj", "o_proj",
                       "gate_proj", "up_proj", "down_proj",],
     lora_alpha = 32,
-    
+
     # We support fp8-int4, fp8-fp8, int8-int4, int4
     qat_scheme = "int4",
 )
@@ -16602,7 +16602,7 @@ And now we can select which QAT style you want:
 ```python
 # Use the exact same config as QAT (convenient function)
 model.save_pretrained_torchao(
-    model, "tokenizer", 
+    model, "tokenizer",
     torchao_config = model._torchao_config.base_config,
 )
 
@@ -16795,5 +16795,3 @@ We tested Llama 3.3 (70B) Instruct on a 80GB A100 and did 4bit QLoRA on all line
 | -------- | ------------------------ | ------------------ |
 | 48 GB    | 12,106                   | OOM                |
 | 80 GB    | 89,389                   | 6,916              |
-
-
