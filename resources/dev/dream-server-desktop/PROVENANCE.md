@@ -32,11 +32,34 @@ The desktop runtime is implemented in:
 
 The app integrates Hermes Agent through the bridge under `runtime/hermes`.
 
+## Snapshot Source
+
+This tree was refreshed from the local Dream Server Hermes workspace at
+`C:\Users\Gabriel\Documents\Playground\dream-server-hermes` on 2026-05-09.
+
+The vendored directories below are source snapshots used by this desktop
+runtime. Their original `.git` metadata is not committed. Reference upstream
+HEADs checked during this refresh:
+
+- `https://github.com/NousResearch/hermes-agent.git`:
+  `f1f42a7b9ffa83749f725cfdf76b121779859914`
+- `https://github.com/browser-use/browser-harness.git`:
+  `0e679e2c56bdc4add10befaada4674b85882e3a6`
+- `https://github.com/sahaj-b/ghostty-cursor-shaders.git`:
+  `06d4e90fb5410e9c4d0b3131584060adddf89406`
+- `https://github.com/KroneCorylus/ghostty-shader-playground.git`:
+  `7295ebf717f236f114912ec5de0d8ce91661448f`
+
+If maintainers want byte-for-byte upstream traceability, this directory should
+move to a submodule/subtree or artifact repository decision instead of a copied
+snapshot.
+
 ## Vendored Source Records
 
 ### Hermes Agent
 
 - Path: `vendor/hermes-agent`
+- Upstream: `https://github.com/NousResearch/hermes-agent.git`
 - License: MIT
 - Role: local agent runtime and tool/provider reference used by `runtime/hermes`
 - Packaging: included by the Electron build allowlist
@@ -45,6 +68,7 @@ The app integrates Hermes Agent through the bridge under `runtime/hermes`.
 ### Browser Harness
 
 - Path: `vendor/browser-harness-upstream`
+- Upstream: `https://github.com/browser-use/browser-harness.git`
 - License: MIT
 - Role: browser-harness-compatible support material for Workbench browser tooling
 - Packaging: included by the Electron build allowlist
@@ -53,7 +77,8 @@ The app integrates Hermes Agent through the bridge under `runtime/hermes`.
 ### Hermes iOS Panel Plugin
 
 - Path: `vendor/hermes-ios-panel-plugin`
-- License: upstream plugin source
+- Source: local Dream Server Hermes plugin snapshot
+- License: local plugin source
 - Role: optional local plugin material used during desktop development
 - Packaging: included by the Electron build allowlist
 
