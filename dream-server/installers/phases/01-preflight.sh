@@ -78,6 +78,19 @@ if [[ -n "$OPTIONAL_TOOLS_MISSING" ]]; then
     esac
 fi
 
+# Warn about host firewalls that commonly block LAN access to the dashboard or
+# WebUI. This is informational: loopback-only installs are fine, and users may
+# intentionally keep a firewall active.
+if command -v ufw >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet ufw; then
+    warn "UFW is active and may block Dream Server dashboard/WebUI ports."
+    echo "  Allow the configured Dream Server ports in UFW or keep BIND_ADDRESS on loopback."
+elif command -v firewall-cmd >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+    warn "firewalld is active and may block Dream Server dashboard/WebUI ports."
+    echo "  Allow the configured Dream Server ports in firewalld or keep BIND_ADDRESS on loopback."
+else
+    log "Host firewall: no active UFW/firewalld detected"
+fi
+
 # Check source files exist
 if [[ ! -f "$SCRIPT_DIR/docker-compose.yml" ]] && [[ ! -f "$SCRIPT_DIR/docker-compose.base.yml" ]]; then
     error "No compose files found in $SCRIPT_DIR. Please run from the dream-server directory."
@@ -116,6 +129,17 @@ leave the secrets file world-readable.
 
 Pick a path on a POSIX-native filesystem (ext4, btrfs, xfs, zfs) and
 re-run, e.g.:  INSTALL_DIR=\"\$HOME/dream-server\" $0"
+            ;;
+    esac
+
+    # Networked filesystems honour chmod 600 locally, but the real access
+    # control lives in the share's server-side ACL. Warn only — installs
+    # to network-mounted homes are common and not always insecure.
+    case "$fs_type" in
+        nfs|nfs4|cifs|fuse.smbnetfs|fuse.glusterfs|ocfs2)
+            warn "INSTALL_DIR ($INSTALL_DIR) is on a networked filesystem ($fs_type)."
+            warn ".env permissions (chmod 600) are advisory — actual access control is governed by the share's ACL on the server."
+            warn "If this share is exposed to other clients, sensitive credentials may be readable from those hosts."
             ;;
     esac
     log "INSTALL_DIR filesystem: ${INSTALL_FS_TYPE}"

@@ -28,7 +28,34 @@ Environment variables (set in `.env`):
 | `CTX_SIZE` | `16384` | Context window size in tokens |
 | `OLLAMA_PORT` | `8080` | External port (maps to internal 8080) |
 | `GPU_BACKEND` | `nvidia` | GPU backend: `nvidia` or `amd` |
+| `LLAMA_ARG_FLASH_ATTN` | `auto` | llama.cpp Flash Attention mode: `auto`, `on`, or `off` |
+| `LLAMA_ARG_CACHE_TYPE_K` | `f16` | KV cache key precision. Use `q8_0` to reduce long-context memory pressure |
+| `LLAMA_ARG_CACHE_TYPE_V` | `f16` | KV cache value precision. Use `q8_0` to reduce long-context memory pressure |
+| `LLAMA_ARG_N_CPU_MOE` | unset | Optional MoE-only CPU expert offload (`--n-cpu-moe`). Leave unset for dense models |
 | `LLAMA_SERVER_MEMORY_LIMIT` | `64G` | Docker memory limit for the container |
+
+### Long-context profile
+
+For larger context windows on memory-constrained GPUs, keep the model unchanged and tune the attention/KV cache first:
+
+```env
+CTX_SIZE=32768
+LLAMA_ARG_FLASH_ATTN=on
+LLAMA_ARG_CACHE_TYPE_K=q8_0
+LLAMA_ARG_CACHE_TYPE_V=q8_0
+```
+
+This is opt-in. The defaults remain `auto` Flash Attention and `f16` KV cache to preserve existing behavior.
+
+### MoE expert offload
+
+For Mixture-of-Experts GGUF models, llama.cpp can keep the first N MoE expert layers on CPU/RAM:
+
+```env
+LLAMA_ARG_N_CPU_MOE=25
+```
+
+Tune this value per machine. Lower values keep more work on GPU and can be faster if enough VRAM is available; higher values reduce VRAM pressure. Leave this unset for dense models.
 
 ### AMD-specific variables
 

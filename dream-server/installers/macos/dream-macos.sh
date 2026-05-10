@@ -281,14 +281,20 @@ start_native_llama() {
         *)    reasoning_fmt="$reasoning" ;;
     esac
 
-    "$LLAMA_SERVER_BIN" \
-        --host "${ENV_BIND_ADDRESS:-127.0.0.1}" --port 8080 \
-        --model "$model_path" \
-        --ctx-size "$ctx_size" \
-        --n-gpu-layers 999 \
-        --reasoning-format "$reasoning_fmt" \
-        --metrics \
-        > "$LLAMA_SERVER_LOG" 2>&1 &
+    local -a llama_args=(
+        --host "${ENV_BIND_ADDRESS:-127.0.0.1}" --port 8080
+        --model "$model_path"
+        --ctx-size "$ctx_size"
+        --n-gpu-layers 999
+        --reasoning-format "$reasoning_fmt"
+        --metrics
+    )
+    [[ -n "${ENV_LLAMA_ARG_FLASH_ATTN:-}" ]] && llama_args+=(--flash-attn "$ENV_LLAMA_ARG_FLASH_ATTN")
+    [[ -n "${ENV_LLAMA_ARG_CACHE_TYPE_K:-}" ]] && llama_args+=(--cache-type-k "$ENV_LLAMA_ARG_CACHE_TYPE_K")
+    [[ -n "${ENV_LLAMA_ARG_CACHE_TYPE_V:-}" ]] && llama_args+=(--cache-type-v "$ENV_LLAMA_ARG_CACHE_TYPE_V")
+    [[ -n "${ENV_LLAMA_ARG_N_CPU_MOE:-}" ]] && llama_args+=(--n-cpu-moe "$ENV_LLAMA_ARG_N_CPU_MOE")
+
+    "$LLAMA_SERVER_BIN" "${llama_args[@]}" > "$LLAMA_SERVER_LOG" 2>&1 &
     local pid=$!
     echo "$pid" > "$LLAMA_SERVER_PID_FILE"
 

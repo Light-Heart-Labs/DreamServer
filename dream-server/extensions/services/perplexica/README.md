@@ -33,7 +33,7 @@ Environment variables (set in `.env`):
 | `PERPLEXICA_PORT` | 3004 | External port for the Perplexica web UI |
 | `LLM_API_URL` | `http://llama-server:8080` | Base URL of the LLM backend (OpenAI-compatible) |
 
-> **LLM API key:** Perplexica is pre-configured with `OPENAI_API_KEY=no-key` because llama-server does not require authentication. No changes needed for local use.
+> **LLM API key:** Perplexica uses `LITELLM_KEY` automatically when LiteLLM auth is enabled, then falls back to `OPENAI_API_KEY`, then `no-key` for direct llama-server installs that do not require authentication. No changes needed for local use.
 
 > **SearXNG URL:** Perplexica connects to SearXNG internally at `http://searxng:8080`. This is fixed in `compose.yaml` and does not need to be changed.
 

@@ -1906,6 +1906,21 @@ class AgentHandler(BaseHTTPRequestHandler):
         models_ini = INSTALL_DIR / "config" / "llama-server" / "models.ini"
         lemonade_yaml = INSTALL_DIR / "config" / "litellm" / "lemonade.yaml"
 
+        # Hoisted so the outer except's rollback can reference them safely.
+        # None means the snapshot was not captured, so rollback must skip it.
+        env_backup: str | None = None
+        ini_backup: str | None = None
+        lemonade_backup = None
+        committed = False
+
+        def restore_backups():
+            if env_backup is not None:
+                env_path.write_text(env_backup, encoding="utf-8")
+            if ini_backup is not None:
+                models_ini.write_text(ini_backup, encoding="utf-8")
+            if lemonade_backup is not None:
+                lemonade_yaml.write_text(lemonade_backup, encoding="utf-8")
+
         try:
             # Read current env BEFORE modification — needed for gpu_backend guard
             env_pre = load_env(env_path)
@@ -2003,8 +2018,7 @@ class AgentHandler(BaseHTTPRequestHandler):
                 llama_log = INSTALL_DIR / "data" / "llama-server.log"
 
                 if not llama_bin.exists():
-                    env_path.write_text(env_backup, encoding="utf-8")
-                    models_ini.write_text(ini_backup, encoding="utf-8")
+                    restore_backups()
                     json_response(self, 500, {"error": "llama-server binary not found — re-run installer"})
                     return
 
@@ -2116,14 +2130,12 @@ class AgentHandler(BaseHTTPRequestHandler):
                 for svc in ["dream-litellm", "dream-dreamforge"]:
                     subprocess.run(["docker", "restart", svc],
                                    capture_output=True, timeout=60)
+                committed = True  # system state is committed before the response write
                 json_response(self, 200, {"status": "activated", "model_id": model_id})
             else:
                 # Rollback
                 logger.warning("Model activation failed — rolling back")
-                env_path.write_text(env_backup, encoding="utf-8")
-                models_ini.write_text(ini_backup, encoding="utf-8")
-                if lemonade_backup is not None:
-                    lemonade_yaml.write_text(lemonade_backup, encoding="utf-8")
+                restore_backups()
                 rollback_env = load_env(env_path)
                 if gpu_backend == "apple":
                     # Stop newly launched native process, re-launch with old params
@@ -2160,6 +2172,11 @@ class AgentHandler(BaseHTTPRequestHandler):
                 json_response(self, 500, {"error": "Health check failed — rolled back to previous model", "rolled_back": True})
 
         except Exception as exc:
+            if not committed:
+                try:
+                    restore_backups()
+                except OSError:
+                    logger.exception("Rollback write failed during model-activate failure handling")
             json_response(self, 500, {"error": f"Model activation failed: {exc}"})
 
     def _handle_model_delete(self):
@@ -2305,15 +2322,28 @@ def _launch_native_llama_server(env_path: Path, llama_bin: Path, llama_log: Path
     reasoning_fmt = {"off": "none", "on": "deepseek"}.get(reasoning, reasoning)
     # Honour the unified BIND_ADDRESS knob (PR #964); empty/missing → loopback.
     bind_addr = env.get("BIND_ADDRESS", "").strip() or "127.0.0.1"
+    args = [
+        str(llama_bin),
+        "--host", bind_addr, "--port", "8080",
+        "--model", str(model_path),
+        "--ctx-size", ctx_size,
+        "--n-gpu-layers", "999",
+        "--reasoning-format", reasoning_fmt,
+        "--metrics",
+    ]
+    optional_args = {
+        "LLAMA_ARG_FLASH_ATTN": "--flash-attn",
+        "LLAMA_ARG_CACHE_TYPE_K": "--cache-type-k",
+        "LLAMA_ARG_CACHE_TYPE_V": "--cache-type-v",
+        "LLAMA_ARG_N_CPU_MOE": "--n-cpu-moe",
+    }
+    for env_key, flag in optional_args.items():
+        value = env.get(env_key, "").strip()
+        if value:
+            args.extend([flag, value])
     with open(llama_log, "a") as log_f:
         proc = subprocess.Popen(
-            [str(llama_bin),
-             "--host", bind_addr, "--port", "8080",
-             "--model", str(model_path),
-             "--ctx-size", ctx_size,
-             "--n-gpu-layers", "999",
-             "--reasoning-format", reasoning_fmt,
-             "--metrics"],
+            args,
             stdout=log_f, stderr=log_f,
         )
     pid_file.write_text(str(proc.pid), encoding="utf-8")
