@@ -130,10 +130,10 @@ Both tiers use `qwen2.5:7b` as a bootstrap model for instant startup. The full m
 | Tier | VRAM | Model | Quant | Context | Example GPUs |
 |------|------|-------|-------|---------|--------------|
 | NV_ULTRA | 90GB+ | qwen3-coder-next | GGUF Q4_K_M | 128K | Multi-GPU A100/H100 |
-| 1 (Entry) | <12GB | qwen2.5-7b-instruct | GGUF Q4_K_M | 16K | RTX 3080, RTX 4070 |
-| 2 (Prosumer) | 12-20GB | qwen2.5-14b-instruct | GGUF Q4_K_M | 16K | RTX 3090, RTX 4080 |
-| 3 (Pro) | 20-40GB | qwen2.5-32b-instruct | GGUF Q4_K_M | 32K | RTX 4090, A6000 |
-| 4 (Enterprise) | 40GB+ | qwen2.5-72b-instruct | GGUF Q4_K_M | 32K | A100, H100, multi-GPU |
+| 1 (Entry) | <12GB | qwen3.5-9b | GGUF Q4_K_M | 16K | RTX 3080, RTX 4070 |
+| 2 (Prosumer) | 12-20GB | qwen3.5-9b | GGUF Q4_K_M | 32K | RTX 3090, RTX 4080 |
+| 3 (Pro) | 20-40GB | qwen3-30b-a3b | GGUF Q4_K_M | 32K | RTX 4090, A6000 |
+| 4 (Enterprise) | 40GB+ | qwen3-30b-a3b | GGUF Q4_K_M | 128K | A100, H100, multi-GPU |
 
 ### Apple Silicon (Unified Memory, Metal)
 
@@ -142,7 +142,7 @@ Both tiers use `qwen2.5:7b` as a bootstrap model for instant startup. The full m
 | 1 (Entry) | 8–24GB | qwen3.5-9b | GGUF Q4_K_M | 16K | M1/M2 base, M4 Mac Mini (16GB) |
 | 2 (Prosumer) | 32GB | qwen3.5-9b | GGUF Q4_K_M | 32K | M4 Pro Mac Mini, M3 Max MacBook Pro |
 | 3 (Pro) | 48GB | qwen3-30b-a3b | GGUF Q4_K_M | 32K | M4 Pro (48GB), M2 Max (48GB) |
-| 4 (Enterprise) | 64GB+ | qwen3-30b-a3b (30B MoE) | GGUF Q4_K_M | 131K | M2 Ultra Mac Studio, M4 Max (64GB+) |
+| 4 (Enterprise) | 64GB+ | qwen3-30b-a3b (30B MoE) | GGUF Q4_K_M | 128K | M2 Ultra Mac Studio, M4 Max (64GB+) |
 
 Override with: `./install.sh --tier 3`
 
@@ -188,7 +188,7 @@ See [docs/HARDWARE-GUIDE.md](docs/HARDWARE-GUIDE.md) for buying recommendations.
 ┌─────────────────────▼───────────────────────────┐
 │               llama-server (CUDA)               │
 │            (localhost:8080/v1/...)               │
-│            qwen2.5-32b-instruct                 │
+│            qwen3-30b-a3b                        │
 └─────────────────────────────────────────────────┘
          │                              │
 ┌────────▼────────┐            ┌───────▼────────┐
@@ -244,7 +244,7 @@ The installer generates `.env` automatically. Key settings:
 
 ```bash
 # NVIDIA
-LLM_MODEL=qwen2.5-32b-instruct            # Model (auto-set by installer)
+LLM_MODEL=qwen3-30b-a3b                   # Model (auto-set by installer)
 CTX_SIZE=32768                             # Context window
 
 # AMD Strix Halo

@@ -33,10 +33,10 @@ The installer will:
      - SH_LARGE (90GB+): qwen3-coder-next (80B MoE), 128K context
      - SH_COMPACT (64-89GB): qwen3-30b-a3b (30B MoE), 128K context
    - **NVIDIA (discrete GPU)**:
-     - Tier 1 (Entry): <12GB VRAM → qwen2.5-7b-instruct (GGUF Q4_K_M), 16K context
-     - Tier 2 (Prosumer): 12-20GB VRAM → qwen2.5-14b-instruct (GGUF Q4_K_M), 16K context
-     - Tier 3 (Pro): 20-40GB VRAM → qwen2.5-32b-instruct (GGUF Q4_K_M), 32K context
-     - Tier 4 (Enterprise): 40GB+ VRAM → qwen2.5-72b-instruct (GGUF Q4_K_M), 32K context
+     - Tier 1 (Entry): <12GB VRAM → qwen3.5-9b (GGUF Q4_K_M), 16K context
+     - Tier 2 (Prosumer): 12-20GB VRAM → qwen3.5-9b (GGUF Q4_K_M), 32K context
+     - Tier 3 (Pro): 20-40GB VRAM → qwen3-30b-a3b (GGUF Q4_K_M), 32K context
+     - Tier 4 (Enterprise): 40GB+ VRAM → qwen3-30b-a3b (GGUF Q4_K_M), 128K context
 2. Check Docker and GPU toolkit (NVIDIA Container Toolkit or ROCm devices)
 3. Ask which optional components to enable (voice, workflows, RAG)
 4. Generate secure passwords and configuration
@@ -100,7 +100,7 @@ Visit: **http://localhost:3000**
 curl http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "qwen2.5-32b-instruct",
+    "model": "qwen3-30b-a3b",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```
@@ -132,10 +132,10 @@ The installer auto-detects your GPU and selects the optimal configuration:
 
 | Tier | VRAM | Model | Example GPUs |
 |------|------|-------|--------------|
-| 1 (Entry) | <12GB | Qwen2.5-7B | RTX 3080, RTX 4070 |
-| 2 (Prosumer) | 12-20GB | Qwen2.5-14B (GGUF Q4_K_M) | RTX 3090, RTX 4080 |
-| 3 (Pro) | 20-40GB | Qwen2.5-32B (GGUF Q4_K_M) | RTX 4090, A6000 |
-| 4 (Enterprise) | 40GB+ | Qwen2.5-72B (GGUF Q4_K_M) | A100, H100 |
+| 1 (Entry) | <12GB | qwen3.5-9b (GGUF Q4_K_M) | RTX 3080, RTX 4070 |
+| 2 (Prosumer) | 12-20GB | qwen3.5-9b (GGUF Q4_K_M) | RTX 3090, RTX 4080 |
+| 3 (Pro) | 20-40GB | qwen3-30b-a3b (GGUF Q4_K_M) | RTX 4090, A6000 |
+| 4 (Enterprise) | 40GB+ | qwen3-30b-a3b (GGUF Q4_K_M) | A100, H100 |
 
 To check what tier you'd get without installing:
 
@@ -156,7 +156,7 @@ CTX_SIZE=4096  # or even 2048
 
 Or switch to a smaller model:
 ```
-LLM_MODEL=qwen2.5-7b-instruct
+LLM_MODEL=qwen3.5-9b
 ```
 
 ### AMD: llama-server crash loop

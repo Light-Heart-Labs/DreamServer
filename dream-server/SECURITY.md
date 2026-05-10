@@ -77,6 +77,30 @@ sudo ufw allow from 192.168.0.0/24 to any port 3001  # Dashboard
 sudo ufw allow from 192.168.0.0/24 to any port 8080  # LLM API
 ```
 
+### Host Agent Network Binding
+
+The host agent (`bin/dream-host-agent.py`) has its own bind address, separate from the Docker services above. It is controlled by `DREAM_AGENT_BIND` in `.env`:
+
+| Platform | Default | Behavior |
+|----------|---------|----------|
+| macOS / Windows | `127.0.0.1` | Docker Desktop routes container traffic via loopback — loopback is sufficient |
+| Linux | auto-detected | Detects the Docker bridge gateway IP (e.g. `172.17.0.1`) so containers can reach the agent; LAN devices cannot. Falls back to `127.0.0.1` if detection fails (since #988 — the prior `0.0.0.0` fallback exposed the agent to LAN unnecessarily). |
+
+To override the default, set `DREAM_AGENT_BIND` in `.env`:
+
+```bash
+# Restrict to loopback only (e.g. no-Docker Linux or extra hardening)
+DREAM_AGENT_BIND=127.0.0.1
+
+# Bind to Docker bridge only (explicit Linux default)
+DREAM_AGENT_BIND=172.17.0.1
+
+# Bind to all interfaces — exposes the host agent API on LAN (not recommended)
+DREAM_AGENT_BIND=0.0.0.0
+```
+
+> **Note:** If you bind to `0.0.0.0`, ensure `DREAM_AGENT_KEY` is set in `.env` — it protects the extension management endpoints with Bearer token authentication.
+
 ### Exposing to Internet (Not Recommended)
 
 If you must expose publicly, use a reverse proxy with TLS:
