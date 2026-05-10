@@ -65,11 +65,11 @@ services:
 
   # Services route through LiteLLM (DREAM_MODE=lemonade sets LLM_API_URL=http://litellm:4000).
   # LiteLLM handles the /api/v1 translation to Lemonade internally.
-  # Auth disabled via extensions/services/litellm/compose.amd.yaml (loads after compose.yaml).
+  # LiteLLM enforces auth via LITELLM_MASTER_KEY=${LITELLM_KEY}; clients must present LITELLM_KEY.
 
   open-webui:
     environment:
-      - OPENAI_API_KEY=no-key
+      - OPENAI_API_KEY=${LITELLM_KEY}
       - ENABLE_IMAGE_GENERATION=${ENABLE_IMAGE_GENERATION:-true}
 
   dashboard-api:

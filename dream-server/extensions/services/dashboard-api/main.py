@@ -706,9 +706,8 @@ def _render_env_from_values(values: dict[str, str]) -> str:
         if commented_assignment:
             key = commented_assignment.group(1)
             seen.add(key)
-            value = values.get(key, "")
-            if value != "":
-                output_lines.append(f"{key}={value}")
+            if key in values:
+                output_lines.append(f"{key}={values[key]}")
             else:
                 output_lines.append(line)
             continue
@@ -771,7 +770,7 @@ def _check_host_agent_available() -> bool:
     try:
         with urllib.request.urlopen(f"{AGENT_URL}/health", timeout=3) as response:
             return response.status == 200
-    except Exception:
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError):
         return False
 
 
@@ -1093,13 +1092,14 @@ async def status(api_key: str = Depends(verify_api_key)):
 async def api_status(api_key: str = Depends(verify_api_key)):
     """Dashboard-compatible status endpoint.
 
-    Wrapped in a top-level try/except so that a transient failure in any
-    sub-call (GPU, health checks, llama metrics …) never returns a raw 500
-    to the dashboard — the frontend would flash "0/17" otherwise.
+    Catches transient I/O failures from sub-calls (GPU, health checks,
+    llama metrics …) and returns a safe fallback. Programming errors
+    (AttributeError, KeyError, TypeError) propagate so they surface in
+    tests instead of being masked.
     """
     try:
         return await _build_api_status()
-    except Exception:
+    except (asyncio.TimeoutError, OSError):
         logger.exception("/api/status handler failed — returning safe fallback")
         return {
             "gpu": None, "services": [], "model": None,
@@ -1348,7 +1348,7 @@ async def api_settings_env_save(
         try:
             err_payload = json.loads(exc.read().decode("utf-8"))
             detail = err_payload.get("error", detail)
-        except Exception:
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
             pass
         raise HTTPException(status_code=503, detail={"message": detail}) from exc
     except urllib.error.URLError as exc:
@@ -1408,7 +1408,7 @@ async def api_settings_env_apply(
         try:
             payload = json.loads(exc.read().decode("utf-8"))
             detail = payload.get("error", detail)
-        except Exception:
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
             pass
         raise HTTPException(status_code=503, detail={"message": detail}) from exc
     except urllib.error.URLError as exc:

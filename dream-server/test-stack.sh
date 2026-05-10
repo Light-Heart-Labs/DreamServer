@@ -135,12 +135,12 @@ if $VOICE || $STRESS; then
     echo ""
     
     # Quick voice health
-    if curl -s http://localhost:3002/api/voice/status | grep -q '"available":true'; then
+    if curl -s http://127.0.0.1:3002/api/voice/status | grep -q '"available":true'; then
         echo -e "${GREEN}✓ Voice services available${NC}"
         
         # Check individual services
         for svc in stt tts livekit; do
-            if curl -s http://localhost:3002/api/voice/status | jq -e ".services.$svc.status == \"healthy\"" >/dev/null 2>&1; then
+            if curl -s http://127.0.0.1:3002/api/voice/status | jq -e ".services.$svc.status == \"healthy\"" >/dev/null 2>&1; then
                 echo -e "  ${GREEN}✓${NC} $svc healthy"
             else
                 echo -e "  ${RED}✗${NC} $svc unhealthy"

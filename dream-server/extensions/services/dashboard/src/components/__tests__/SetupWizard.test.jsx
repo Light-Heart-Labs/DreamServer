@@ -156,8 +156,30 @@ describe('SetupWizard diagnostics sentinel parser', () => {
       expect(screen.getByText(/Some tests failed/i)).toBeInTheDocument()
     })
     expect(screen.queryByText(/__DREAM_RESULT__/)).not.toBeInTheDocument()
-    // Complete Setup remains disabled because tested=false.
-    expect(screen.getByRole('button', { name: /Complete Setup/i })).toBeDisabled()
+    // After failure the bottom button flips from "Complete Setup" to
+    // "Continue Anyway" and is enabled — so a transient diagnostic failure
+    // doesn't lock the user out of the wizard. A "Re-run Diagnostics" button
+    // also appears next to the failure banner.
+    expect(screen.queryByRole('button', { name: /^Complete Setup$/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Continue Anyway/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /Re-run Diagnostics/i })).toBeEnabled()
+  })
+
+  test('clicking Continue Anyway after a failed diagnostic completes the wizard', async () => {
+    stubFetchWithSetupStream([
+      'bar\n',
+      '__DREAM_RESULT__:FAIL:3\n'
+    ])
+
+    const onComplete = vi.fn()
+    render(<SetupWizard onComplete={onComplete} />)
+    await navigateToStep6()
+
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: /Start Diagnostics/i })))
+    await waitFor(() => expect(screen.getByText(/Some tests failed/i)).toBeInTheDocument())
+
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: /Continue Anyway/i })))
+    expect(onComplete).toHaveBeenCalledTimes(1)
   })
 
   test('falls back to "All tests passed!" trailer when sentinel missing (older backend)', async () => {
