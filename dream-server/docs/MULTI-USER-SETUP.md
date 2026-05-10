@@ -37,7 +37,7 @@ This is the single most impactful knob. The default of 1 silently single-streams
 LLAMA_PARALLEL=8
 ```
 
-`docker-compose.base.yml:48-49` passes this directly to llama-server as `--parallel`. Each parallel slot pre-allocates KV cache, so total KV ≈ `LLAMA_PARALLEL × CTX_SIZE`. You're trading VRAM for concurrency — pick a value that fits your card after the model weights load. Rough starting points:
+`docker-compose.base.yml` passes this directly to llama-server as `--parallel`. Each parallel slot pre-allocates KV cache, so total KV ≈ `LLAMA_PARALLEL × CTX_SIZE`. You're trading VRAM for concurrency — pick a value that fits your card after the model weights load. Rough starting points:
 
 | Tier | Suggested `LLAMA_PARALLEL` |
 |---|---|
@@ -54,7 +54,7 @@ Verify: `docker compose logs llama-server | grep parallel` after restart.
 ./install.sh --lan
 ```
 
-Or set `BIND_ADDRESS=0.0.0.0` in `.env` and run `dream restart`. Defined at `dream-server/install-core.sh:136,185`. Every extension's compose fragment already respects `${BIND_ADDRESS:-127.0.0.1}` — no per-service edits needed.
+Or set `BIND_ADDRESS=0.0.0.0` in `.env` and run `dream restart`. `install-core.sh` maps `--lan` to that value, and the base plus extension compose port bindings use `${BIND_ADDRESS:-127.0.0.1}` — no per-service edits needed.
 
 ### 3. Add firewall rules
 
@@ -75,7 +75,7 @@ Open only the ports you actually want users to reach. Keep the dashboard, dashbo
 DASHBOARD_API_KEY=$(openssl rand -hex 32)
 ```
 
-If unset, `extensions/services/dashboard-api/security.py:13-22` auto-generates a key and writes it to a file inside the container. Auth still happens, but you don't have the value handy and may not realize the dashboard is reachable from anywhere your LAN bind is. Setting it yourself is the safe default.
+If unset, `extensions/services/dashboard-api/security.py` auto-generates a key and writes it to a file inside the container. Auth still happens, but you don't have the value handy and may not realize the dashboard is reachable from anywhere your LAN bind is. Setting it yourself is the safe default.
 
 ### 5. Add a reverse proxy + TLS — or use a VPN
 
