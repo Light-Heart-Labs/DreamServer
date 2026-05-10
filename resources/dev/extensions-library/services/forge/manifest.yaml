@@ -1,3 +1,11 @@
+# Hardware compatibility:
+#   The bundled ai-dock Forge image (digest @sha256:36a8b82c...) ships a
+#   Torch+CUDA build that is incompatible with NVIDIA RTX 3070 Mobile (sm_86)
+#   under CUDA driver capability 12.4 - container starts but Forge crashes
+#   with "Your device does not support the current version of Torch/CUDA".
+#   Other sm_86 mobile parts likely affected (not live-tested).
+#   See README.md "Hardware compatibility" for details.
+
 schema_version: dream.services.v1
 
 service:
