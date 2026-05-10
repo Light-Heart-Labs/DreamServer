@@ -18,6 +18,8 @@ const EXTERNAL_PORT = process.env.OPENCLAW_EXTERNAL_PORT || '7860';
 const LLM_MODEL = process.env.LLM_MODEL || '';
 const GGUF_FILE = process.env.GGUF_FILE || '';
 const OPENCLAW_LLM_URL = process.env.OPENCLAW_LLM_URL || '';
+const BIND_ADDRESS = (process.env.BIND_ADDRESS || '127.0.0.1').trim();
+const AUTO_TOKEN_ALLOWED = ['127.0.0.1', 'localhost', '::1'].includes(BIND_ADDRESS);
 
 // On AMD/Lemonade, compose.amd.yaml sets OLLAMA_URL to
 // "http://llama-server:8080/api" (Lemonade's Ollama-compat endpoint).
@@ -29,8 +31,8 @@ const OLLAMA_URL = process.env.OLLAMA_URL || '';
 const _isLemonade = /\/api\/?$/.test(OLLAMA_URL);
 const EFFECTIVE_MODEL = (_isLemonade && GGUF_FILE) ? `extra.${GGUF_FILE}` : LLM_MODEL;
 const CONFIG_PATH = path.join(process.env.HOME || '/home/node', '.openclaw', 'openclaw.json');
-const HTML_PATH = '/app/dist/control-ui/index.html';
-const JS_PATH = '/app/dist/control-ui/auto-token.js';
+const HTML_PATH = process.env.OPENCLAW_CONTROL_UI_HTML || '/app/dist/control-ui/index.html';
+const JS_PATH = process.env.OPENCLAW_AUTO_TOKEN_JS || '/app/dist/control-ui/auto-token.js';
 
 // ── Part 1: Patch runtime config ──────────────────────────────────────────────
 
@@ -162,26 +164,36 @@ try {
 
 if (token && fs.existsSync(HTML_PATH)) {
   try {
-    // 1. Auto-token injection is DISABLED.
+    // 1. Create external JS file for token bootstrap.
     //
-    // Previously this wrote the raw gateway token into /app/dist/control-ui/auto-token.js,
-    // which the OpenClaw gateway serves UNAUTHENTICATED at HTTP root. With
-    // BIND_ADDRESS=0.0.0.0 (LAN mode) anyone on the LAN could fetch
-    // http://<host>:<port>/auto-token.js and harvest the token. See fork issue #548.
+    // Do not write the gateway token to the unauthenticated static asset when
+    // Dream Server is LAN-bound. With BIND_ADDRESS=0.0.0.0, anyone on the LAN
+    // could fetch http://<host>:<port>/auto-token.js and harvest the token.
     //
-    // We still write a placeholder file (and keep the <script src="./auto-token.js">
-    // injection below) so the gateway's CSP `script-src 'self'` policy is satisfied
-    // and existing HTML references do not 404. The placeholder contains no secrets.
-    //
-    // UX impact: Control UI no longer auto-signs-in. Users must paste the token
-    // manually from the install summary or the OPENCLAW_TOKEN value in .env.
-    const placeholder = [
-      '// Auto-token injection disabled to prevent gateway-token disclosure via',
-      '// this unauthenticated static asset (fork issue #548).',
-      '// Paste the token manually from .env (OPENCLAW_TOKEN) into the Control UI.',
-      '(function(){ /* no-op */ })();',
-    ].join('\n');
-    fs.writeFileSync(JS_PATH, placeholder);
+    // For the default localhost-only bind, the asset is only reachable from the
+    // same machine, so restore auto-connect UX by placing the token into the
+    // Control UI settings store.
+    let jsCode;
+    if (AUTO_TOKEN_ALLOWED) {
+      jsCode = [
+        '(function() {',
+        '  var k = "openclaw.control.settings.v1";',
+        '  var s = {};',
+        '  try { s = JSON.parse(localStorage.getItem(k) || "{}"); } catch(e) {}',
+        '  s.token = ' + JSON.stringify(token) + ';',
+        '  s.gatewayUrl = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;',
+        '  localStorage.setItem(k, JSON.stringify(s));',
+        '})();',
+      ].join('\n');
+    } else {
+      jsCode = [
+        '// Auto-token injection disabled to prevent gateway-token disclosure via',
+        '// this unauthenticated static asset when Dream Server is LAN-bound.',
+        '// Paste the token manually from .env (OPENCLAW_TOKEN) into the Control UI.',
+        '(function(){ /* no-op */ })();',
+      ].join('\n');
+    }
+    fs.writeFileSync(JS_PATH, jsCode);
 
     // 2. Inject <script src> tag as first element in <head> (satisfies CSP 'self')
     let html = fs.readFileSync(HTML_PATH, 'utf8');
@@ -192,7 +204,11 @@ if (token && fs.existsSync(HTML_PATH)) {
     html = html.replace('<head>', '<head><script src="./auto-token.js"></script>');
     fs.writeFileSync(HTML_PATH, html);
 
-    console.log('[inject-token] wrote placeholder auto-token.js (token disclosure mitigated; manual sign-in required)');
+    if (AUTO_TOKEN_ALLOWED) {
+      console.log('[inject-token] wrote localhost-only auto-token.js');
+    } else {
+      console.log('[inject-token] wrote placeholder auto-token.js (LAN token disclosure mitigated; manual sign-in required)');
+    }
   } catch (err) {
     console.error('[inject-token] UI injection warning:', err.message);
   }
