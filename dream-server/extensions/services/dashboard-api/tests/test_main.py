@@ -581,11 +581,15 @@ class TestApiStatusFallback:
         """Programming errors (RuntimeError) inside _build_api_status must
         propagate so they surface in tests / monitoring rather than being
         silently masked as 200-with-zeros (CLAUDE.md "Let It Crash")."""
+        from fastapi.testclient import TestClient
+        from main import app
+
         monkeypatch.setattr(
             "main._build_api_status",
             AsyncMock(side_effect=RuntimeError("boom")),
         )
-        resp = test_client.get("/api/status", headers=test_client.auth_headers)
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get("/api/status", headers=test_client.auth_headers)
         assert resp.status_code == 500
 
 
