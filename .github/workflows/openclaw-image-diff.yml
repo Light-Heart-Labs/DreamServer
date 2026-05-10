@@ -61,16 +61,17 @@ jobs:
       - name: Start openclaw with bind-mounted home
         run: |
           set -euo pipefail
-          # Mirror the production entrypoint (chown + drop to uid 1000 +
-          # docker-entrypoint.sh) so the same startup code path runs. We do
-          # NOT use --rm: we want to capture logs after the container exits
-          # if it crashed.
+          # Mirror the production compose user + entrypoint (root chown, then
+          # drop to uid 1000 + docker-entrypoint.sh) so the same startup code
+          # path runs. We do NOT use --rm: we want to capture logs after the
+          # container exits if it crashed.
           # NOTE: production compose.yaml exports OPENCLAW_CONFIG_PATH=/tmp/openclaw-config.json
           # in its entrypoint. This workflow deliberately omits it so the audit observes
           # any default in-tree config writes openclaw might make. Do NOT add it back as a
           # "missing var" fix — the omission is the point of the audit.
           docker run -d \
             --name openclaw-test \
+            --user 0:0 \
             -e OPENCLAW_GATEWAY_TOKEN=ci-test-token \
             -e OPENCLAW_TOKEN=ci-test-token \
             -e HOME=/home/node \
