@@ -142,14 +142,14 @@ def _sync_extension_config(service_id: str) -> bool:
 
 
 def _is_one_shot_extension(ext: dict) -> bool:
-    """One-shot CLI / setup-only extensions have no service port and no health
-    endpoint — their container is expected to exit 0 after init (e.g. ``aider``).
-    The host-agent install path opts out of the running-state poll via the
-    manifest's ``service.startup_check: false`` flag; on the dashboard side we
-    treat ``port: 0`` in the catalog entry as the same signal so we avoid an
-    extra manifest read on the hot path.
+    """Return whether the catalog entry represents a one-shot CLI/setup tool.
+
+    Prefer the explicit catalog copy of ``service.startup_check: false``. Fall
+    back to ``port: 0`` for catalogs generated before that field was exposed.
     """
-    return ext.get("port", 0) == 0
+    if "startup_check" in ext:
+        return ext.get("startup_check") is False
+    return ext.get("port") == 0
 
 
 def _compute_extension_status(ext: dict, services_by_id: dict) -> str:
@@ -327,6 +327,7 @@ def _scan_compose_content(
     trusted: bool = False,
     skip_name_collision: bool = False,
     skip_gpu_passthrough_check: bool = False,
+    skip_root_user_check: bool = False,
 ) -> None:
     """Reject compose files containing dangerous directives."""
     try:
@@ -419,12 +420,13 @@ def _scan_compose_content(
                 status_code=400,
                 detail=f"Service '{svc_name}' uses host user namespace",
             )
-        user = svc_def.get("user")
-        if user is not None and str(user).split(":")[0] in ("root", "0"):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Service '{svc_name}' runs as root",
-            )
+        if not skip_root_user_check:
+            user = svc_def.get("user")
+            if user is not None and str(user).split(":")[0] in ("root", "0"):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Service '{svc_name}' runs as root",
+                )
         if not trusted and "build" in svc_def:
             raise HTTPException(
                 status_code=400,
@@ -830,7 +832,7 @@ async def extensions_catalog(
     from helpers import _CATALOG_HEALTH_TIMEOUT, check_service_health
     from user_extensions import get_user_services_cached
 
-    user_svc_configs = get_user_services_cached(USER_EXTENSIONS_DIR)
+    user_svc_configs = await asyncio.to_thread(get_user_services_cached, USER_EXTENSIONS_DIR)
 
     # Only health-check extensions that declare a health endpoint.  Use a
     # short per-probe timeout so one slow extension cannot stall the catalog
@@ -975,7 +977,7 @@ async def extension_detail(
     service_list = await get_all_services()
     services_by_id = {s.id: s for s in service_list}
 
-    user_svc_configs = get_user_services_cached(USER_EXTENSIONS_DIR)
+    user_svc_configs = await asyncio.to_thread(get_user_services_cached, USER_EXTENSIONS_DIR)
 
     # Same short per-probe timeout as the catalog fan-out — one slow user
     # extension must not block the detail view.
@@ -1145,10 +1147,102 @@ def _install_from_library(service_id: str) -> None:
         staged_compose = staged / "compose.yaml"
         if staged_compose.exists():
             _scan_compose_content(staged_compose, trusted=True)
+            # Rewrite build.context to an absolute path under the final
+            # extension dir.
+            # Compose resolves relative contexts against the project dir
+            # (INSTALL_DIR), not the extension dir, so "context: ." would
+            # look for the Dockerfile in INSTALL_DIR/Dockerfile and fail.
+            _rewrite_build_context(staged_compose, dest.resolve())
         os.rename(str(staged), str(dest))
     finally:
         if Path(tmpdir).exists():
             shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _rewrite_build_context(compose_path: Path, final_dir: Path) -> None:
+    """Rewrite build.context in a staged compose.yaml to an absolute path.
+
+    Library extensions ship `build: { context: ., ... }` so they're portable
+    inside the library, but `docker compose` resolves relative contexts
+    against the compose project directory (INSTALL_DIR), not the extension's
+    own directory. After staging, rewrite each service's relative
+    build.context to the matching absolute path under the final post-rename
+    extension directory.
+
+    Idempotent: absolute paths are left alone (in case the compose was
+    already rewritten on a previous attempt).
+    """
+    with open(compose_path, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+
+    if not isinstance(data, dict):
+        return
+
+    services = data.get("services")
+    if not isinstance(services, dict):
+        return
+
+    final_dir = final_dir.resolve()
+    changed = False
+
+    def is_absolute_context(context: str) -> bool:
+        return os.path.isabs(context) or context.startswith("/")
+
+    def resolve_relative_context(service_name: str, context: str) -> str:
+        rewritten = (final_dir / context).resolve()
+        if not rewritten.is_relative_to(final_dir):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Service '{service_name}' build.context escapes the "
+                    "extension directory"
+                ),
+            )
+        return str(rewritten)
+
+    for service_name, service in services.items():
+        if not isinstance(service, dict):
+            continue
+        build = service.get("build")
+        if build is None:
+            continue
+
+        if isinstance(build, str):
+            # Short-form `build: <path>` — normalize to dict form
+            if is_absolute_context(build):
+                continue
+            rewritten_context = resolve_relative_context(service_name, build)
+            service["build"] = {"context": rewritten_context}
+            logger.info(
+                "Rewrote build context for service '%s' from '%s' to '%s'",
+                service_name, build, rewritten_context,
+            )
+            changed = True
+            continue
+
+        if isinstance(build, dict):
+            context = build.get("context")
+            if context is None:
+                # Compose default is `.`; make it explicit and absolute
+                build["context"] = str(final_dir)
+                logger.info(
+                    "Set build context for service '%s' to '%s' (was implicit)",
+                    service_name, final_dir,
+                )
+                changed = True
+                continue
+            if isinstance(context, str) and not is_absolute_context(context):
+                rewritten_context = resolve_relative_context(service_name, context)
+                build["context"] = rewritten_context
+                logger.info(
+                    "Rewrote build context for service '%s' from '%s' to '%s'",
+                    service_name, context, rewritten_context,
+                )
+                changed = True
+
+    if changed:
+        with open(compose_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(data, f, sort_keys=False)
 
 
 @router.post("/api/extensions/{service_id}/install")
@@ -1308,14 +1402,18 @@ def _activate_service(service_id: str) -> dict:
     # Re-scan compose content (TOCTOU prevention). Built-in extensions
     # legitimately declare their own service name in their compose file, so
     # skip the CORE_SERVICE_IDS name-collision check for them. User extensions
-    # still get the full anti-shadowing scan. The `trusted` flag is separate
-    # and controls whether `build:` directives are allowed (library installs
-    # need it, built-in activations do not).
+    # still get the full anti-shadowing scan. Some built-ins also legitimately
+    # need `user: "0:0"` to perform init-time chown before dropping privileges
+    # via setpriv (e.g. openclaw), so skip the root-user check for built-ins
+    # only. The `trusted` flag is separate and controls whether `build:`
+    # directives are allowed (library installs need it, built-in activations
+    # do not).
     is_builtin = ext_dir.is_relative_to(EXTENSIONS_DIR.resolve())
     _scan_compose_content(
         disabled_compose,
         skip_name_collision=is_builtin,
         skip_gpu_passthrough_check=is_builtin,
+        skip_root_user_check=is_builtin,
     )
 
     # Reject symlinks
@@ -1369,6 +1467,7 @@ def enable_extension(
                 enabled_compose,
                 skip_name_collision=is_builtin,
                 skip_gpu_passthrough_check=is_builtin,
+                skip_root_user_check=is_builtin,
             )
         # Dependencies were satisfied at install time; compose content is re-scanned above
         _write_initial_progress(service_id)

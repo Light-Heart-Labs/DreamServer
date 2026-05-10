@@ -11,6 +11,9 @@ resolve_installer_target() {
     platform="$(detect_platform)"
 
     case "$platform" in
+        android-termux|ios-ashell)
+            echo "$SCRIPT_DIR/installers/mobile/install-mobile.sh"
+            ;;
         linux|wsl)
             echo "$SCRIPT_DIR/install-core.sh"
             ;;

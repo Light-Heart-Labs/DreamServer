@@ -5,12 +5,12 @@ on:
     branches: [main]
     paths:
       - "dream-server/docker-compose*.yml"
-      - "dream-server/compose/**"
+      - "dream-server/installers/**/*compose*.yml"
   pull_request:
     branches: [main]
     paths:
       - "dream-server/docker-compose*.yml"
-      - "dream-server/compose/**"
+      - "dream-server/installers/**/*compose*.yml"
 
 permissions:
   contents: read
@@ -29,25 +29,25 @@ jobs:
           echo "Validating dream-server/docker-compose.base.yml"
           docker compose -f dream-server/docker-compose.base.yml config --quiet
 
-      - name: Validate compose files in dream-server/compose/
+      - name: Validate installer compose overlays (base + overlay)
         env:
           WEBUI_SECRET: ci-placeholder
         run: |
-          compose_files=$(find dream-server/compose/ -name '*.yml' -type f 2>/dev/null || true)
+          compose_files=$(find dream-server/installers -name '*compose*.yml' -type f 2>/dev/null || true)
 
           if [ -z "$compose_files" ]; then
-            echo "No compose files found in dream-server/compose/"
+            echo "No installer compose files found under dream-server/installers/"
             exit 0
           fi
 
-          echo "Found compose files:"
+          echo "Found installer compose overlays:"
           echo "$compose_files"
           echo ""
 
           failed=0
           for f in $compose_files; do
-            echo "Validating $f ..."
-            if docker compose -f "$f" config --quiet 2>&1; then
+            echo "Validating $f (merged with docker-compose.base.yml) ..."
+            if docker compose -f dream-server/docker-compose.base.yml -f "$f" config --quiet 2>&1; then
               echo "  OK"
             else
               echo "  FAILED"
@@ -57,9 +57,9 @@ jobs:
 
           if [ "$failed" -ne 0 ]; then
             echo ""
-            echo "One or more compose files failed validation."
+            echo "One or more installer compose overlays failed validation."
             exit 1
           fi
 
           echo ""
-          echo "All compose files validated successfully."
+          echo "All installer compose overlays validated successfully."

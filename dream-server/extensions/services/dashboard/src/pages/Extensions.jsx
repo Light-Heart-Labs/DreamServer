@@ -7,6 +7,7 @@ import { useState, useEffect, useRef } from 'react'
 import { DependencyBadges, DependencyConfirmDialog, DisableDependentWarning } from '../components/DependencyBadges'
 import { TemplatePicker } from '../components/TemplatePicker'
 import { getTemplateStatus } from '../lib/templates'
+import { createRecoveryTracker } from '../utils/recoveryTracker'
 
 // Re-export so existing importers of getTemplateStatus from this module keep working.
 export { getTemplateStatus }
@@ -101,21 +102,29 @@ export default function Extensions() {
   const [pollingLost, setPollingLost] = useState(false)
   const installProgressRef = useRef(null)
   const activePollers = useRef({})
-  // Per-service consecutive fetch-failure counter. Mirrors the log-streaming
-  // pattern in ExtensionDetailsModal (see function-local `fails` near L1009).
-  // We key by serviceId because multiple installs can be polling concurrently.
-  const consecutiveFailuresRef = useRef({})
+  // Per-service recovery tracker: counts consecutive fetch failures and
+  // fires onThresholdReached/onRecovered to drive the polling-lost banner.
+  // Keyed by serviceId because multiple installs can be polling concurrently.
+  const recoveryTrackers = useRef({})
 
   const pollProgress = (serviceId) => {
     if (activePollers.current[serviceId]) return
-    consecutiveFailuresRef.current[serviceId] = 0
+    recoveryTrackers.current[serviceId] = createRecoveryTracker({
+      threshold: 3,
+      onThresholdReached: () => {
+        setPollingLost(true)
+        // Attempt to recover catalog state — if the backend is back,
+        // the next successful poll will clear the banner.
+        fetchCatalog()
+      },
+      onRecovered: () => setPollingLost(prev => (prev ? false : prev)),
+    })
     activePollers.current[serviceId] = setInterval(async () => {
       try {
         const res = await fetchJson(`/api/extensions/${serviceId}/progress`)
         // Successful fetch (regardless of HTTP status) means the dashboard
         // is reachable again — reset the failure counter and clear the banner.
-        consecutiveFailuresRef.current[serviceId] = 0
-        setPollingLost(prev => (prev ? false : prev))
+        recoveryTrackers.current[serviceId]?.recordSuccess()
         if (!res.ok) return
         const data = await res.json()
         if (data.status === 'idle') return
@@ -123,7 +132,7 @@ export default function Extensions() {
         if (data.status === 'error') {
           clearInterval(activePollers.current[serviceId])
           delete activePollers.current[serviceId]
-          delete consecutiveFailuresRef.current[serviceId]
+          delete recoveryTrackers.current[serviceId]
           setToast({ type: 'error', text: data.error || 'Installation failed' })
           setProgressMap(prev => { const next = { ...prev }; delete next[serviceId]; return next })
           fetchCatalog()
@@ -140,7 +149,7 @@ export default function Extensions() {
           if (ext && (ext.status === 'enabled' || ext.status === 'cli_installed')) {
             clearInterval(activePollers.current[serviceId])
             delete activePollers.current[serviceId]
-            delete consecutiveFailuresRef.current[serviceId]
+            delete recoveryTrackers.current[serviceId]
             const successText = ext.status === 'cli_installed'
               ? `${ext.name || 'Extension'} installed — run via \`docker compose run --rm ${serviceId}\`.`
               : 'Extension installed and started.'
@@ -151,17 +160,11 @@ export default function Extensions() {
         }
       } catch (err) {
         // Dashboard-api may be mid-restart, or the browser briefly lost
-        // network. Count consecutive failures; surface a banner after 3
-        // so the user isn't left staring at a silent spinner forever.
-        const fails = (consecutiveFailuresRef.current[serviceId] || 0) + 1
-        consecutiveFailuresRef.current[serviceId] = fails
+        // network. Tracker counts consecutive failures; surfaces a banner
+        // after 3 via onThresholdReached so the user isn't left staring
+        // at a silent spinner forever.
         console.warn('poll fetch failed:', err)
-        if (fails >= 3) {
-          setPollingLost(true)
-          // Attempt to recover catalog state — if the backend is back,
-          // the next successful poll will clear the banner.
-          fetchCatalog()
-        }
+        recoveryTrackers.current[serviceId]?.recordFailure()
       }
     }, 3000)
   }
@@ -175,7 +178,7 @@ export default function Extensions() {
     return () => {
       Object.values(activePollers.current).forEach(clearInterval)
       activePollers.current = {}
-      consecutiveFailuresRef.current = {}
+      recoveryTrackers.current = {}
     }
   }, [])
 
@@ -320,8 +323,8 @@ export default function Extensions() {
       .filter(Boolean)
   )]
 
-  const STATUS_FILTERS = ['all', 'enabled', 'stopped', 'unhealthy', 'disabled', 'installing', 'setting_up', 'error', 'not_installed', 'incompatible']
-  const STATUS_LABELS = { all: 'All', enabled: 'Enabled', stopped: 'Stopped', unhealthy: 'Unhealthy', disabled: 'Disabled', installing: 'Installing', setting_up: 'Setting Up', error: 'Error', not_installed: 'Not Installed', incompatible: 'Incompatible' }
+  const STATUS_FILTERS = ['all', 'enabled', 'cli_installed', 'stopped', 'unhealthy', 'disabled', 'installing', 'setting_up', 'error', 'not_installed', 'incompatible']
+  const STATUS_LABELS = { all: 'All', enabled: 'Enabled', cli_installed: 'CLI Installed', stopped: 'Stopped', unhealthy: 'Unhealthy', disabled: 'Disabled', installing: 'Installing', setting_up: 'Setting Up', error: 'Error', not_installed: 'Not Installed', incompatible: 'Incompatible' }
 
   // Filter extensions
   const query = search.toLowerCase()
@@ -630,6 +633,7 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
   const isError = status === 'error'
   const isStopped = status === 'stopped'
   const isUnhealthy = status === 'unhealthy'
+  const isCliInstalled = status === 'cli_installed'
   const isToggleable = isUserExt && (status === 'enabled' || status === 'cli_installed' || status === 'disabled' || status === 'error' || status === 'stopped' || status === 'unhealthy')
   const showRemove = isUserExt && (status === 'disabled' || isError)
   const showInstall = status === 'not_installed' && ext.installable
@@ -688,7 +692,7 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
                   status === 'error' ? 'bg-red-500' :
                   status === 'stopped' ? 'bg-amber-500' :
                   status === 'unhealthy' ? 'bg-amber-500' :
-                  status === 'enabled' ? 'bg-green-500' : 'bg-theme-border'
+                  (status === 'enabled' || isCliInstalled) ? 'bg-green-500' : 'bg-theme-border'
                 }`}
               >
                 {isMutating ? (
@@ -804,7 +808,7 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
               {isMutating ? <Loader2 size={12} className="animate-spin" /> : <><Database size={12} /> Purge Data</>}
             </button>
           )}
-          {isUserExt && status === 'enabled' && (
+          {isUserExt && (status === 'enabled' || isCliInstalled) && (
             <span className="text-[9px] uppercase tracking-[0.14em] text-theme-text-muted/45">Disable to remove</span>
           )}
           {!showInstall && !showRemove && !isToggleable && (
@@ -1053,7 +1057,16 @@ function ConsoleModal({ ext, onClose }) {
 
   useEffect(() => {
     let active = true
-    let fails = 0
+    // Tracker drives the disconnected banner after 3 consecutive failures.
+    // We also keep the raw failure count locally for the exponential
+    // backoff calculation (trackers don't expose internal state on success).
+    let failCount = 0
+    const tracker = createRecoveryTracker({
+      threshold: 3,
+      onThresholdReached: () => setDisconnected(true),
+      // setDisconnected(false) is already done in the success branch below,
+      // so no onRecovered callback is needed here.
+    })
 
     const poll = async () => {
       if (!active) return
@@ -1070,16 +1083,16 @@ function ConsoleModal({ ext, onClose }) {
         setLogs(data.logs || 'No logs available.')
         setError(null)
         setDisconnected(false)
-        fails = 0
+        tracker.recordSuccess()
+        failCount = 0
       } catch (err) {
-        fails++
+        failCount = tracker.recordFailure()
         setError(err.message)
-        if (fails >= 3) setDisconnected(true)
       } finally {
         setLoading(false)
       }
       if (active) {
-        const delay = fails > 0 ? Math.min(2000 * Math.pow(2, fails - 1), 30000) : 2000
+        const delay = failCount > 0 ? Math.min(2000 * Math.pow(2, failCount - 1), 30000) : 2000
         setTimeout(poll, delay)
       }
     }

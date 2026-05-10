@@ -15,9 +15,6 @@ services:
       - perplexica-uploads:/home/perplexica/uploads
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${PERPLEXICA_PORT:-3004}:3000"
-    depends_on:
-      searxng:
-        condition: service_healthy
     deploy:
       resources:
         limits:

@@ -1853,6 +1853,61 @@ class TestScanComposeSkipGpuPassthroughCheck:
         _scan_compose_content(compose)
 
 
+# --- skip_root_user_check flag isolation ---
+
+
+class TestScanComposeSkipRootUserCheck:
+    """Direct unit tests for the skip_root_user_check parameter that permits
+    built-in extensions (e.g. openclaw, which uses `user: "0:0"` to perform
+    init-time chown before dropping privileges via setpriv) to declare a
+    root user, while user/library extensions cannot. Regression guard for
+    the openclaw init-time chown + setpriv pattern."""
+
+    _ROOT_COMPOSE = (
+        'services:\n  svc:\n    image: test\n    user: "0:0"\n'
+    )
+
+    def test_builtin_with_root_user_accepted(self, tmp_path):
+        """A built-in extension with user: 0:0 (init-time chown + setpriv
+        pattern, e.g. openclaw) must be accepted via
+        skip_root_user_check=True. Regression guard: built-ins with
+        `user: '0:0'` must be accepted when skip_root_user_check=True.
+        """
+        from routers.extensions import _scan_compose_content
+        compose = tmp_path / "compose.yaml"
+        compose.write_text(self._ROOT_COMPOSE)
+        # Should not raise
+        _scan_compose_content(compose, skip_root_user_check=True)
+
+    def test_user_extension_with_root_user_rejected(self, tmp_path):
+        """User/library extensions (skip_root_user_check defaulting to False)
+        still reject user: "0:0". Regression guard to ensure the
+        new parameter doesn't accidentally weaken security for non-built-ins.
+        """
+        from routers.extensions import _scan_compose_content
+        compose = tmp_path / "compose.yaml"
+        compose.write_text(self._ROOT_COMPOSE)
+        with pytest.raises(HTTPException) as exc:
+            _scan_compose_content(compose)
+        assert exc.value.status_code == 400
+        assert "runs as root" in exc.value.detail
+
+    def test_privileged_still_blocked_when_skipped(self, tmp_path):
+        """Other security checks remain active when skip_root_user_check=True;
+        a built-in cannot smuggle in `privileged: true` under the root-user
+        exemption.
+        """
+        from routers.extensions import _scan_compose_content
+        compose = tmp_path / "compose.yaml"
+        compose.write_text(
+            'services:\n  svc:\n    image: test\n    user: "0:0"\n'
+            "    privileged: true\n",
+        )
+        with pytest.raises(HTTPException) as exc:
+            _scan_compose_content(compose, skip_root_user_check=True)
+        assert "privileged" in exc.value.detail
+
+
 # --- Size quota enforcement ---
 
 
@@ -2672,6 +2727,7 @@ class TestInstallProgress:
 
         ext = _make_catalog_ext("aider")
         ext["port"] = 0  # one-shot CLI extension marker
+        ext["startup_check"] = False
         status = _compute_extension_status(ext, {})
         assert status == "cli_installed"
 
@@ -2696,6 +2752,7 @@ class TestInstallProgress:
 
         ext = _make_catalog_ext("aider")
         ext["port"] = 0  # one-shot CLI extension marker
+        ext["startup_check"] = False
         status = _compute_extension_status(ext, {})
         assert status == "cli_installed"
 

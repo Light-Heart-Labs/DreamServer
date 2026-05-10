@@ -791,9 +791,9 @@ cmd_health() {
     
     # Check dashboard API health endpoint
     local dashboard_api_port="${DASHBOARD_API_PORT:-3002}"
-    if curl -sf "http://localhost:${dashboard_api_port}/health" &>/dev/null; then
+    if curl -sf "http://127.0.0.1:${dashboard_api_port}/health" &>/dev/null; then
         log_ok "Dashboard API: healthy"
-    elif curl -sf "http://localhost:${dashboard_api_port}/api/status" &>/dev/null; then
+    elif curl -sf "http://127.0.0.1:${dashboard_api_port}/api/status" &>/dev/null; then
         log_ok "Dashboard API: responding"
     else
         log_warn "Dashboard API: not responding on port ${dashboard_api_port}"
@@ -801,7 +801,7 @@ cmd_health() {
     
     # Check llama-server health
     local llama_server_port="${OLLAMA_PORT:-${LLAMA_SERVER_PORT:-11434}}"
-    if curl -sf "http://localhost:${llama_server_port}/v1/models" &>/dev/null; then
+    if curl -sf "http://127.0.0.1:${llama_server_port}/v1/models" &>/dev/null; then
         log_ok "llama-server: healthy"
     else
         log_warn "llama-server: not responding on port ${llama_server_port}"

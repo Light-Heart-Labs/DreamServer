@@ -100,6 +100,6 @@ async def get_privacy_shield_stats(api_key: str = Depends(verify_api_key)):
                     return await resp.json()
                 else:
                     return {"error": "Privacy Shield not responding", "status": resp.status}
-    except (aiohttp.ClientError, OSError):
+    except (asyncio.TimeoutError, aiohttp.ClientError, OSError):
         logger.exception("Cannot reach Privacy Shield")
         return {"error": "Cannot reach Privacy Shield", "enabled": False}

@@ -134,7 +134,7 @@ fi
 # which were just renamed to .disabled.
 if [[ -x "$SCRIPT_DIR/scripts/resolve-compose-stack.sh" ]]; then
     _refreshed_flags=$("$SCRIPT_DIR/scripts/resolve-compose-stack.sh" \
-        --script-dir "$SCRIPT_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}" 2>/dev/null) || true
+        --script-dir "$SCRIPT_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}") || true
     if [[ -n "$_refreshed_flags" ]]; then
         COMPOSE_FLAGS="$_refreshed_flags"
         log "Compose flags refreshed after feature selection"
@@ -148,11 +148,11 @@ if [[ "$ENABLE_OPENCLAW" == "true" ]]; then
     case $TIER in
         NV_ULTRA) OPENCLAW_CONFIG="pro.json" ;;
         SH_LARGE|SH_COMPACT) OPENCLAW_CONFIG="openclaw-strix-halo.json" ;;
-        1) OPENCLAW_CONFIG="minimal.json" ;;
-        2) OPENCLAW_CONFIG="entry.json" ;;
-        3) OPENCLAW_CONFIG="prosumer.json" ;;
+        1) OPENCLAW_CONFIG="openclaw.json" ;;
+        2) OPENCLAW_CONFIG="openclaw.json" ;;
+        3) OPENCLAW_CONFIG="openclaw.json" ;;
         4) OPENCLAW_CONFIG="pro.json" ;;
-        *) OPENCLAW_CONFIG="prosumer.json" ;;
+        *) OPENCLAW_CONFIG="openclaw.json" ;;
     esac
     log "OpenClaw config: $OPENCLAW_CONFIG (matched to Tier $TIER)"
 fi
