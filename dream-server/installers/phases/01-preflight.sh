@@ -73,6 +73,19 @@ if [[ -n "$OPTIONAL_TOOLS_MISSING" ]]; then
     esac
 fi
 
+# Warn about host firewalls that commonly block LAN access to the dashboard or
+# WebUI. This is informational: loopback-only installs are fine, and users may
+# intentionally keep a firewall active.
+if command -v ufw >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet ufw; then
+    warn "UFW is active and may block Dream Server dashboard/WebUI ports."
+    echo "  Allow the configured Dream Server ports in UFW or keep BIND_ADDRESS on loopback."
+elif command -v firewall-cmd >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+    warn "firewalld is active and may block Dream Server dashboard/WebUI ports."
+    echo "  Allow the configured Dream Server ports in firewalld or keep BIND_ADDRESS on loopback."
+else
+    log "Host firewall: no active UFW/firewalld detected"
+fi
+
 # Check source files exist
 if [[ ! -f "$SCRIPT_DIR/docker-compose.yml" ]] && [[ ! -f "$SCRIPT_DIR/docker-compose.base.yml" ]]; then
     error "No compose files found in $SCRIPT_DIR. Please run from the dream-server directory."

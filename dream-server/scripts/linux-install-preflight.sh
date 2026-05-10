@@ -197,6 +197,19 @@ else
         "Usually fine on modern distros; if Docker fails oddly, see LINUX-TROUBLESHOOTING-GUIDE.md#cgroups."
 fi
 
+# --- Host firewall (common LAN-access footgun) ---
+if command -v ufw >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet ufw; then
+    append_check "FIREWALL_CHECK" "warn" \
+        "UFW is active and may block Dream Server dashboard/WebUI ports" \
+        "Allow the configured Dream Server ports in UFW or keep BIND_ADDRESS on loopback."
+elif command -v firewall-cmd >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+    append_check "FIREWALL_CHECK" "warn" \
+        "firewalld is active and may block Dream Server dashboard/WebUI ports" \
+        "Allow the configured Dream Server ports in firewalld or keep BIND_ADDRESS on loopback."
+else
+    append_check "FIREWALL_CHECK" "pass" "No restrictive host firewall detected" ""
+fi
+
 # --- jq (installer often installs it; nice to have) ---
 if command -v jq >/dev/null 2>&1; then
     append_check "JQ_INSTALLED" "pass" "jq available for JSON tooling" ""
