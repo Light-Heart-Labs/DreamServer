@@ -566,8 +566,9 @@ class TestStatusEndpoint:
 
 class TestApiStatusFallback:
 
-    def test_fallback_on_exception(self, test_client, monkeypatch):
-        monkeypatch.setattr("main._build_api_status", AsyncMock(side_effect=RuntimeError("boom")))
+    def test_fallback_on_oserror(self, test_client, monkeypatch):
+        """Narrow exception class (OSError) falls through to the safe-fallback dict."""
+        monkeypatch.setattr("main._build_api_status", AsyncMock(side_effect=OSError("network down")))
 
         resp = test_client.get("/api/status", headers=test_client.auth_headers)
         assert resp.status_code == 200
@@ -575,6 +576,21 @@ class TestApiStatusFallback:
         assert data["gpu"] is None
         assert data["tier"] == "Unknown"
         assert data["services"] == []
+
+    def test_runtime_error_propagates_as_500(self, test_client, monkeypatch):
+        """Programming errors (RuntimeError) inside _build_api_status must
+        propagate so they surface in tests / monitoring rather than being
+        silently masked as 200-with-zeros (CLAUDE.md "Let It Crash")."""
+        from fastapi.testclient import TestClient
+        from main import app
+
+        monkeypatch.setattr(
+            "main._build_api_status",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        )
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get("/api/status", headers=test_client.auth_headers)
+        assert resp.status_code == 500
 
 
 # --- _build_api_status tier branches ---

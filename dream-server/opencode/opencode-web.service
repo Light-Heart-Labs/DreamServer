@@ -13,7 +13,10 @@ RestartSec=5
 # Environment
 Environment=HOME=__HOME__
 Environment=PATH=__HOME__/.opencode/bin:/usr/local/bin:/usr/bin:/bin
-EnvironmentFile=-__HOME__/dream-server/.env
+# Do not import Dream Server's full .env here. OpenCode treats
+# OPENCODE_SERVER_PASSWORD as a Basic Auth password when present, but this
+# localhost-only web UI should be reachable without a login prompt.
+UnsetEnvironment=OPENCODE_SERVER_PASSWORD
 
 # Hardening
 NoNewPrivileges=true

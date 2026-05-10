@@ -52,10 +52,10 @@ check() {
     # Run fixed command string via bash -c (no eval)
     if bash -c "$cmd" > /dev/null 2>&1; then
         echo -e "${GREEN}✓ PASS${NC}"
-        ((PASSED++))
+        ((PASSED++)) || true
     else
         echo -e "${RED}✗ FAIL${NC}"
-        ((FAILED++))
+        ((FAILED++)) || true
     fi
 }
 
@@ -81,14 +81,14 @@ RESPONSE=$(curl -sf --max-time 30 "http://127.0.0.1:${LLM_PORT}/v1/chat/completi
         "model": "'"$(curl -sf --max-time 10 "http://127.0.0.1:${LLM_PORT}/v1/models" | jq -r '.data[0].id // "local"')"'",
         "messages": [{"role": "user", "content": "Say OK"}],
         "max_tokens": 10
-    }' 2>/dev/null)
+    }' 2>/dev/null) || RESPONSE=""
 
 if echo "$RESPONSE" | grep -q "content"; then
     echo -e "${GREEN}✓ PASS${NC}"
-    ((PASSED++))
+    ((PASSED++)) || true
 else
     echo -e "${RED}✗ FAIL${NC}"
-    ((FAILED++))
+    ((FAILED++)) || true
 fi
 
 # Check optional services
