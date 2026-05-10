@@ -108,16 +108,16 @@ ComfyUI ships an official workflow template for Lightricks LTX-2.3 text-to-video
 
 ### Required model files
 
-Place under `./data/comfyui/models/` (NVIDIA layout; for AMD use `./data/comfyui/ComfyUI/models/`):
+Place under `./data/comfyui/models/` (NVIDIA layout; for AMD use `./data/comfyui/ComfyUI/models/`). As of 2026-05-10, the official `video_ltx2_3_t2v.json` template's Model Links panel references:
 
 | File | Subdirectory |
 |---|---|
 | `ltx-2.3-22b-dev-fp8.safetensors` | `checkpoints/` |
 | `ltx-2.3-22b-distilled-lora-384.safetensors` | `loras/` |
-| `gemma_3_12B_it_fp4_mixed.safetensors` | `text_encoders/` |
-| `ltx-2.3-spatial-upscaler-x2-1.0.safetensors` | `latent_upscale_models/` |
+| `gemma-3-12b-it-abliterated_lora_rank64_bf16.safetensors` | `loras/` |
+| `ltx-2.3-spatial-upscaler-x2-1.1.safetensors` | `latent_upscale_models/` |
 
-All four are published by Lightricks on Hugging Face. Combined disk footprint is roughly 30–35 GB.
+The official template links to these files on Hugging Face. If ComfyUI updates the template, trust the template's Model Links panel over older mirrored model-storage notes. Combined disk footprint is roughly 30–35 GB.
 
 ### Loading the workflow
 
