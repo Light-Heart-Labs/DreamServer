@@ -9,7 +9,7 @@ services:
     security_opt:
       - no-new-privileges:true
     environment:
-      - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY:?BRAVE_SEARCH_API_KEY must be set – obtain at api.search.brave.com}
+      - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY:-}
       - BRAVE_SEARCH_PORT_INTERNAL=8585
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${BRAVE_SEARCH_PORT:-8585}:8585"

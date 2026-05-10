@@ -58,6 +58,8 @@ Error responses:
 |---|---|---|
 | `400` | `{"error":"missing_query_param_q"}` | `q` not supplied |
 | `502` | `{"error":"upstream_error","status":N}` | Brave returned non-2xx |
+| `502` | `{"error":"upstream_unavailable"}` | Network, DNS, or TLS failure while contacting Brave |
+| `502` | `{"error":"invalid_upstream_json"}` | Brave returned a 2xx response that was not valid JSON |
 | `504` | `{"error":"upstream_timeout"}` | Brave did not respond within 8s |
 
 ### `GET /health`

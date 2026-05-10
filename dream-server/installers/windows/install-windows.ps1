@@ -557,6 +557,8 @@ if ($dryRun) {
                     "embeddings" { if (-not $enableRag)       { $skip = $true } }
                     "openclaw"   { if (-not $enableOpenClaw)  { $skip = $true } }
                     "comfyui"    { if (-not $enableComfyui)   { $skip = $true } }
+                    # Paid API extension; users enable it post-install after adding a key.
+                    "brave-search" { $skip = $true }
                 }
                 if ($skip) { continue }
 

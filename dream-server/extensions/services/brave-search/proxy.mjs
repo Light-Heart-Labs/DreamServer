@@ -4,6 +4,8 @@
 //   → 200 { query, results: [{title, url, snippet}] }
 //   → 400 missing_query_param_q
 //   → 502 upstream_error (Brave API non-2xx)
+//   → 502 upstream_unavailable (network/TLS/DNS failure)
+//   → 502 invalid_upstream_json
 //   → 504 upstream_timeout
 //
 // GET /health
@@ -49,17 +51,18 @@ async function callBrave(query, count) {
 }
 
 const server = http.createServer(async (req, res) => {
-  if (req.method === "GET" && req.url === "/health") {
+  const parsed = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+
+  if (req.method === "GET" && parsed.pathname === "/health") {
     send(res, 200, { ok: true });
     return;
   }
 
-  if (req.method !== "GET" || !req.url || !req.url.startsWith("/v1/search")) {
+  if (req.method !== "GET" || parsed.pathname !== "/v1/search") {
     send(res, 404, { error: "not_found" });
     return;
   }
 
-  const parsed = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
   const query = parsed.searchParams.get("q");
   if (!query) {
     send(res, 400, { error: "missing_query_param_q" });
@@ -67,7 +70,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   const requested = Number(parsed.searchParams.get("count") ?? 5);
-  const count = Math.min(20, Math.max(1, Number.isFinite(requested) ? requested : 5));
+  const count = Math.min(20, Math.max(1, Number.isFinite(requested) ? Math.trunc(requested) : 5));
 
   let upstream;
   try {
@@ -75,6 +78,10 @@ const server = http.createServer(async (req, res) => {
   } catch (err) {
     if (err && err.name === "AbortError") {
       send(res, 504, { error: "upstream_timeout" });
+      return;
+    }
+    if (err instanceof TypeError) {
+      send(res, 502, { error: "upstream_unavailable" });
       return;
     }
     throw err;
@@ -85,7 +92,17 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const data = await upstream.json();
+  let data;
+  try {
+    data = await upstream.json();
+  } catch (err) {
+    if (err instanceof SyntaxError) {
+      send(res, 502, { error: "invalid_upstream_json" });
+      return;
+    }
+    throw err;
+  }
+
   const results = (data.web?.results ?? [])
     .slice(0, count)
     .map((r) => ({
