@@ -566,17 +566,26 @@ elif [[ -f "$INSTALL_DIR/data/.llama-server.pid" ]]; then
             # Honour the unified BIND_ADDRESS knob (PR #964); empty/missing → loopback.
             _bind=$(grep '^BIND_ADDRESS=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
             [[ -z "$_bind" ]] && _bind="127.0.0.1"
+            _flash_attn=$(grep '^LLAMA_ARG_FLASH_ATTN=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+            _cache_type_k=$(grep '^LLAMA_ARG_CACHE_TYPE_K=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+            _cache_type_v=$(grep '^LLAMA_ARG_CACHE_TYPE_V=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+            _n_cpu_moe=$(grep '^LLAMA_ARG_N_CPU_MOE=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+            _llama_args=(
+                --host "$_bind" --port 8080
+                --model "$_model_path"
+                --ctx-size "$_ctx_size"
+                --n-gpu-layers 999
+                --reasoning-format "$_reasoning_fmt"
+                --metrics
+            )
+            [[ -n "$_flash_attn" ]] && _llama_args+=(--flash-attn "$_flash_attn")
+            [[ -n "$_cache_type_k" ]] && _llama_args+=(--cache-type-k "$_cache_type_k")
+            [[ -n "$_cache_type_v" ]] && _llama_args+=(--cache-type-v "$_cache_type_v")
+            [[ -n "$_n_cpu_moe" ]] && _llama_args+=(--n-cpu-moe "$_n_cpu_moe")
 
             # Relaunch with new model
             log "Starting native llama-server with ${_gguf_file}..."
-            "$LLAMA_SERVER_BIN" \
-                --host "$_bind" --port 8080 \
-                --model "$_model_path" \
-                --ctx-size "$_ctx_size" \
-                --n-gpu-layers 999 \
-                --reasoning-format "$_reasoning_fmt" \
-                --metrics \
-                > "$LLAMA_SERVER_LOG" 2>&1 &
+            "$LLAMA_SERVER_BIN" "${_llama_args[@]}" > "$LLAMA_SERVER_LOG" 2>&1 &
             _new_pid=$!
             echo "$_new_pid" > "$LLAMA_SERVER_PID_FILE"
 

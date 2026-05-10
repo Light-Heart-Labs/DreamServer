@@ -127,7 +127,9 @@ else
             _dl_success=false
             for _attempt in 1 2 3; do
                 [[ $_attempt -gt 1 ]] && ai "Retry attempt $_attempt of 3..."
-                curl -fSL -C - --connect-timeout 30 --max-time 3600 -o "$GGUF_DIR/$GGUF_FILE.part" "$GGUF_URL" \
+                curl -fSL -C - --connect-timeout 30 --max-time 3600 \
+                    --retry 3 --retry-delay 5 --retry-all-errors \
+                    -o "$GGUF_DIR/$GGUF_FILE.part" "$GGUF_URL" \
                     >> "$INSTALL_DIR/logs/model-download.log" 2>&1 &
                 dl_pid=$!
 
@@ -217,7 +219,9 @@ else
                     echo "[SDXL] Starting SDXL Lightning model download..."
                     if [[ ! -f "$SDXL_CHECKPOINT_DIR/$SDXL_MODEL" ]]; then
                         echo "[SDXL] Downloading $SDXL_MODEL (~6.5GB)..."
-                        curl -fSL -C - --connect-timeout 30 --max-time 3600 -o "$SDXL_CHECKPOINT_DIR/$SDXL_MODEL.part" \
+                        curl -fSL -C - --connect-timeout 30 --max-time 3600 \
+                            --retry 5 --retry-delay 10 --retry-all-errors \
+                            -o "$SDXL_CHECKPOINT_DIR/$SDXL_MODEL.part" \
                             "$SDXL_URL" 2>&1 && \
                             mv "$SDXL_CHECKPOINT_DIR/$SDXL_MODEL.part" "$SDXL_CHECKPOINT_DIR/$SDXL_MODEL" && \
                             echo "[SDXL] $SDXL_MODEL complete" || \
