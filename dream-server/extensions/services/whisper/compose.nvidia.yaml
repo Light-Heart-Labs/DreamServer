@@ -1,6 +1,11 @@
 services:
   whisper:
-    image: ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cuda
+    # Default 0.9.0-rc.3-cuda is multi-arch (amd64 + arm64); WHISPER_IMAGE is
+    # exposed as a forward-compat escape hatch only — installer leaves it
+    # unset. The arm64 manifest of speaches ships newer code with built-in
+    # vad_filter=, which is handled by the patcher fix in
+    # extensions/services/whisper/docker-entrypoint.sh.
+    image: ${WHISPER_IMAGE:-ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cuda}
     deploy:
       resources:
         reservations:

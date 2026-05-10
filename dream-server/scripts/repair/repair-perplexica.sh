@@ -4,7 +4,7 @@ set -euo pipefail
 # Called by: dream repair perplexica
 # Requires: Perplexica container running, python3 available
 
-PERPLEXICA_URL="${1:-http://localhost:3004}"
+PERPLEXICA_URL="${1:-http://127.0.0.1:3004}"
 LLM_MODEL="${2:-qwen3-30b-a3b}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"

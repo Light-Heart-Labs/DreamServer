@@ -32,8 +32,7 @@
     "mode": "local",
     "controlUi": {
       "allowInsecureAuth": true,
-      "dangerouslyDisableDeviceAuth": true,
-      "dangerouslyAllowHostHeaderOriginFallback": true
+      "dangerouslyDisableDeviceAuth": true
     }
   }
 }

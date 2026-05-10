@@ -24,7 +24,7 @@ from pydantic import BaseModel
 from config import (
     AGENT_URL, ALWAYS_ON_SERVICES, CORE_SERVICE_IDS, DATA_DIR,
     DREAM_AGENT_KEY, EXTENSION_CATALOG, EXTENSIONS_DIR,
-    EXTENSIONS_LIBRARY_DIR, GPU_BACKEND, INSTALL_DIR, SERVICES,
+    EXTENSIONS_LIBRARY_DIR, GPU_BACKEND, SERVICES,
     USER_EXTENSIONS_DIR,
 )
 from security import verify_api_key
@@ -122,40 +122,40 @@ def _write_error_progress(service_id: str, error_msg: str) -> None:
     progress_file.write_text(json.dumps(data), encoding="utf-8")
 
 
-def _sync_extension_config(service_id: str) -> None:
-    """Copy config/<id>/ from an installed extension to INSTALL_DIR/config/.
+def _sync_extension_config(service_id: str) -> bool:
+    """Ask host agent to copy config/<id>/ from an installed extension
+    into INSTALL_DIR/config/.
 
     Some extensions ship a config/ subdirectory whose files are
     bind-mounted by compose.yaml relative to the compose project root
     (INSTALL_DIR), not relative to the extension directory.  Without
     this sync, Docker auto-creates the mount source as an empty
     directory, and the container fails at startup.
+
+    The dashboard-api container has /dream-server/config bind-mounted
+    read-only, so the actual copy is delegated to the host agent.
+    Returns True on success (including the no-op case where the
+    extension has no config/ subdir), False if the agent rejected the
+    request or was unreachable.
     """
-    ext_config = USER_EXTENSIONS_DIR / service_id / "config"
-    if not ext_config.is_dir():
-        return
-    install_config = Path(INSTALL_DIR) / "config"
-    for child in ext_config.iterdir():
-        target = (install_config / child.name).resolve()
-        if not target.is_relative_to(install_config.resolve()):
-            logger.warning("Skipping config entry outside install dir: %s", child.name)
-            continue
-        if child.is_dir():
-            shutil.copytree(str(child), str(target), dirs_exist_ok=True)
-        else:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(str(child), str(target))
-    # Ensure scripts are executable (e.g. entrypoint.sh)
-    for root, _dirs, files in os.walk(str(install_config / service_id)):
-        for fname in files:
-            fpath = Path(root) / fname
-            if fname.endswith(".sh"):
-                fpath.chmod(fpath.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    return _call_agent_sync_config(service_id)
+
+
+def _is_one_shot_extension(ext: dict) -> bool:
+    """Return whether the catalog entry represents a one-shot CLI/setup tool.
+
+    Prefer the explicit catalog copy of ``service.startup_check: false``. Fall
+    back to ``port: 0`` for catalogs generated before that field was exposed.
+    """
+    if "startup_check" in ext:
+        return ext.get("startup_check") is False
+    return ext.get("port") == 0
 
 
 def _compute_extension_status(ext: dict, services_by_id: dict) -> str:
     """Compute the runtime status of an extension."""
     ext_id = ext["id"]
+    one_shot = _is_one_shot_extension(ext)
 
     # Check for in-flight install operations (progress files take priority)
     progress = _read_progress(ext_id)
@@ -180,6 +180,13 @@ def _compute_extension_status(ext: dict, services_by_id: dict) -> str:
             # show "installing". If older, the user likely stopped the
             # container afterwards — fall through to normal status logic.
             if not _is_stale(progress.get("updated_at", ""), max_age_seconds=300):
+                # One-shot CLI tools (port=0, no healthcheck) reach a terminal
+                # success state the moment compose returns 0 — surface that
+                # explicitly so the dashboard stops polling and shows the
+                # CLI-tool guidance instead of looping on a non-existent
+                # health endpoint.
+                if one_shot:
+                    return "cli_installed"
                 svc = services_by_id.get(ext_id)
                 if not (svc and svc.status == "healthy"):
                     return "installing"
@@ -195,9 +202,21 @@ def _compute_extension_status(ext: dict, services_by_id: dict) -> str:
     user_dir = USER_EXTENSIONS_DIR / ext_id
     if user_dir.is_dir():
         if (user_dir / "compose.yaml").exists():
+            # One-shot CLI extensions don't expose a healthcheck — once
+            # installed they're permanently in the "ready to invoke"
+            # cli_installed state until uninstalled.
+            if one_shot:
+                return "cli_installed"
             svc = services_by_id.get(ext_id)
             if svc and svc.status == "healthy":
                 return "enabled"
+            # HTTP 4xx/5xx from the health endpoint is the clearest "container
+            # is up but broken" signal — surface it as "unhealthy" so the UI
+            # can prompt a log check. Timeouts / connection refused / DNS
+            # failures stay "stopped" because they don't distinguish a crashed
+            # container from an intentionally-stopped one.
+            if svc and svc.status == "unhealthy":
+                return "unhealthy"
             return "stopped"
         if (user_dir / "compose.yaml.disabled").exists():
             return "disabled"
@@ -212,7 +231,10 @@ def _compute_extension_status(ext: dict, services_by_id: dict) -> str:
 
 def _is_installable(ext_id: str) -> bool:
     """Check if an extension is available in the extensions library."""
-    return (EXTENSIONS_LIBRARY_DIR / ext_id).is_dir()
+    # Require a deployable compose.yaml — a directory with only compose.yaml.disabled
+    # or compose.yaml.reference cannot actually deploy and must not be advertised.
+    ext_dir = EXTENSIONS_LIBRARY_DIR / ext_id
+    return ext_dir.is_dir() and (ext_dir / "compose.yaml").exists()
 
 
 def _validate_service_id(service_id: str) -> None:
@@ -304,6 +326,8 @@ def _scan_compose_content(
     *,
     trusted: bool = False,
     skip_name_collision: bool = False,
+    skip_gpu_passthrough_check: bool = False,
+    skip_root_user_check: bool = False,
 ) -> None:
     """Reject compose files containing dangerous directives."""
     try:
@@ -396,12 +420,13 @@ def _scan_compose_content(
                 status_code=400,
                 detail=f"Service '{svc_name}' uses host user namespace",
             )
-        user = svc_def.get("user")
-        if user is not None and str(user).split(":")[0] in ("root", "0"):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Service '{svc_name}' runs as root",
-            )
+        if not skip_root_user_check:
+            user = svc_def.get("user")
+            if user is not None and str(user).split(":")[0] in ("root", "0"):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Service '{svc_name}' runs as root",
+                )
         if not trusted and "build" in svc_def:
             raise HTTPException(
                 status_code=400,
@@ -431,6 +456,30 @@ def _scan_compose_content(
                 status_code=400,
                 detail=f"Extension rejected: devices in {svc_name}",
             )
+        # Block Docker Compose v2 GPU passthrough for user extensions.
+        # Built-ins (e.g. docker-compose.nvidia.yml) legitimately request
+        # NVIDIA devices via deploy.resources.reservations.devices, so the
+        # caller passes skip_gpu_passthrough_check=True for those.
+        #
+        # Each level checked with isinstance: a malformed compose like
+        # `deploy: { resources: null }` or `resources: { reservations: null }`
+        # would otherwise AttributeError on .get() and surface as a 500
+        # instead of a clean scanner pass-through (no GPU request → no block).
+        if not skip_gpu_passthrough_check:
+            deploy = svc_def.get("deploy")
+            if isinstance(deploy, dict):
+                resources = deploy.get("resources")
+                if isinstance(resources, dict):
+                    reservations = resources.get("reservations")
+                    if isinstance(reservations, dict) and reservations.get("devices"):
+                        raise HTTPException(
+                            status_code=400,
+                            detail=(
+                                f"Extension rejected: GPU passthrough via "
+                                f"deploy.resources.reservations.devices is not "
+                                f"permitted in user extensions ({svc_name})"
+                            ),
+                        )
         ports = svc_def.get("ports", [])
         for port in ports:
             if isinstance(port, dict):
@@ -647,6 +696,39 @@ def _call_agent_install(service_id: str) -> bool:
         return False
 
 
+def _call_agent_sync_config(service_id: str) -> bool:
+    """Ask host agent to copy <ext>/config/* into INSTALL_DIR/config/.
+
+    The dashboard-api container has /dream-server/config bind-mounted
+    read-only, so it cannot do this work itself. The host agent runs
+    on the writable host filesystem.
+
+    Returns True on success (including the no-op case where the
+    extension has no shipped config), False if the agent rejected or
+    was unreachable.
+    """
+    url = f"{AGENT_URL}/v1/extension/sync_config"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {DREAM_AGENT_KEY}",
+    }
+    data = json.dumps({"service_id": service_id}).encode()
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=_AGENT_TIMEOUT) as resp:
+            return resp.status == 200
+    except urllib.error.HTTPError as exc:
+        logger.warning(
+            "sync_config failed for %s (HTTP %d)", service_id, exc.code,
+        )
+        return False
+    except (urllib.error.URLError, OSError, TimeoutError):
+        logger.warning(
+            "Host agent unreachable for sync_config at %s", AGENT_URL,
+        )
+        return False
+
+
 def _call_agent_compose_rename(action: str, service_id: str) -> bool:
     """Ask host agent to rename compose.yaml <-> compose.yaml.disabled.
 
@@ -747,15 +829,18 @@ async def extensions_catalog(
 
     # Health-check user extensions so _compute_extension_status can distinguish
     # "enabled" (healthy) from "stopped" (unhealthy / not running).
-    from helpers import check_service_health
+    from helpers import _CATALOG_HEALTH_TIMEOUT, check_service_health
     from user_extensions import get_user_services_cached
 
-    user_svc_configs = get_user_services_cached(USER_EXTENSIONS_DIR)
+    user_svc_configs = await asyncio.to_thread(get_user_services_cached, USER_EXTENSIONS_DIR)
 
-    # Only health-check extensions that declare a health endpoint
+    # Only health-check extensions that declare a health endpoint.  Use a
+    # short per-probe timeout so one slow extension cannot stall the catalog
+    # response (frontend aborts at 8 s).
     checkable = {sid: cfg for sid, cfg in user_svc_configs.items() if cfg.get("health")}
     user_health_tasks = [
-        check_service_health(sid, cfg) for sid, cfg in checkable.items()
+        check_service_health(sid, cfg, timeout=_CATALOG_HEALTH_TIMEOUT)
+        for sid, cfg in checkable.items()
     ]
     user_health = await asyncio.gather(*user_health_tasks, return_exceptions=True)
     for (sid, _), result in zip(checkable.items(), user_health):
@@ -824,10 +909,12 @@ async def extensions_catalog(
 
     summary = {
         "total": len(extensions),
-        "installed": sum(1 for e in extensions if e["status"] in ("enabled", "disabled", "stopped")),
+        "installed": sum(1 for e in extensions if e["status"] in ("enabled", "cli_installed", "disabled", "stopped", "unhealthy")),
         "enabled": sum(1 for e in extensions if e["status"] == "enabled"),
+        "cli_installed": sum(1 for e in extensions if e["status"] == "cli_installed"),
         "disabled": sum(1 for e in extensions if e["status"] == "disabled"),
         "stopped": sum(1 for e in extensions if e["status"] == "stopped"),
+        "unhealthy": sum(1 for e in extensions if e["status"] == "unhealthy"),
         "installing": sum(1 for e in extensions if e["status"] == "installing"),
         "setting_up": sum(1 for e in extensions if e["status"] == "setting_up"),
         "error": sum(1 for e in extensions if e["status"] == "error"),
@@ -884,17 +971,20 @@ async def extension_detail(
     if not ext:
         raise HTTPException(status_code=404, detail=f"Extension not found: {service_id}")
 
-    from helpers import check_service_health, get_all_services
+    from helpers import _CATALOG_HEALTH_TIMEOUT, check_service_health, get_all_services
     from user_extensions import get_user_services_cached
 
     service_list = await get_all_services()
     services_by_id = {s.id: s for s in service_list}
 
-    user_svc_configs = get_user_services_cached(USER_EXTENSIONS_DIR)
+    user_svc_configs = await asyncio.to_thread(get_user_services_cached, USER_EXTENSIONS_DIR)
 
+    # Same short per-probe timeout as the catalog fan-out — one slow user
+    # extension must not block the detail view.
     checkable = {sid: cfg for sid, cfg in user_svc_configs.items() if cfg.get("health")}
     user_health_tasks = [
-        check_service_health(sid, cfg) for sid, cfg in checkable.items()
+        check_service_health(sid, cfg, timeout=_CATALOG_HEALTH_TIMEOUT)
+        for sid, cfg in checkable.items()
     ]
     user_health = await asyncio.gather(*user_health_tasks, return_exceptions=True)
     for (sid, _), result in zip(checkable.items(), user_health):
@@ -1004,6 +1094,24 @@ def _install_from_library(service_id: str) -> None:
             status_code=404, detail=f"Extension not found: {service_id}",
         )
 
+    # Server-side install gate: refuse entries that have no deployable
+    # compose.yaml on disk (entries shipping only compose.yaml.disabled or
+    # compose.yaml.reference, e.g. dify, jan, fooocus). The catalog/UI hides
+    # the Install button for these via _is_installable, but a direct
+    # POST /api/extensions/{id}/install would otherwise succeed-without-effect:
+    # the directory gets copied to user-extensions/ but the host agent has
+    # nothing to start, surfacing as a cryptic post-install failure.
+    if not (source / "compose.yaml").exists():
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Extension '{service_id}' has no deployable compose.yaml "
+                f"and is not installable. Library entries that ship only "
+                f"compose.yaml.disabled or compose.yaml.reference files are "
+                f"reference material, not deployable services."
+            ),
+        )
+
     dest = USER_EXTENSIONS_DIR / service_id
 
     # Re-check under lock to prevent double-install race
@@ -1039,10 +1147,102 @@ def _install_from_library(service_id: str) -> None:
         staged_compose = staged / "compose.yaml"
         if staged_compose.exists():
             _scan_compose_content(staged_compose, trusted=True)
+            # Rewrite build.context to an absolute path under the final
+            # extension dir.
+            # Compose resolves relative contexts against the project dir
+            # (INSTALL_DIR), not the extension dir, so "context: ." would
+            # look for the Dockerfile in INSTALL_DIR/Dockerfile and fail.
+            _rewrite_build_context(staged_compose, dest.resolve())
         os.rename(str(staged), str(dest))
     finally:
         if Path(tmpdir).exists():
             shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _rewrite_build_context(compose_path: Path, final_dir: Path) -> None:
+    """Rewrite build.context in a staged compose.yaml to an absolute path.
+
+    Library extensions ship `build: { context: ., ... }` so they're portable
+    inside the library, but `docker compose` resolves relative contexts
+    against the compose project directory (INSTALL_DIR), not the extension's
+    own directory. After staging, rewrite each service's relative
+    build.context to the matching absolute path under the final post-rename
+    extension directory.
+
+    Idempotent: absolute paths are left alone (in case the compose was
+    already rewritten on a previous attempt).
+    """
+    with open(compose_path, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+
+    if not isinstance(data, dict):
+        return
+
+    services = data.get("services")
+    if not isinstance(services, dict):
+        return
+
+    final_dir = final_dir.resolve()
+    changed = False
+
+    def is_absolute_context(context: str) -> bool:
+        return os.path.isabs(context) or context.startswith("/")
+
+    def resolve_relative_context(service_name: str, context: str) -> str:
+        rewritten = (final_dir / context).resolve()
+        if not rewritten.is_relative_to(final_dir):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Service '{service_name}' build.context escapes the "
+                    "extension directory"
+                ),
+            )
+        return str(rewritten)
+
+    for service_name, service in services.items():
+        if not isinstance(service, dict):
+            continue
+        build = service.get("build")
+        if build is None:
+            continue
+
+        if isinstance(build, str):
+            # Short-form `build: <path>` — normalize to dict form
+            if is_absolute_context(build):
+                continue
+            rewritten_context = resolve_relative_context(service_name, build)
+            service["build"] = {"context": rewritten_context}
+            logger.info(
+                "Rewrote build context for service '%s' from '%s' to '%s'",
+                service_name, build, rewritten_context,
+            )
+            changed = True
+            continue
+
+        if isinstance(build, dict):
+            context = build.get("context")
+            if context is None:
+                # Compose default is `.`; make it explicit and absolute
+                build["context"] = str(final_dir)
+                logger.info(
+                    "Set build context for service '%s' to '%s' (was implicit)",
+                    service_name, final_dir,
+                )
+                changed = True
+                continue
+            if isinstance(context, str) and not is_absolute_context(context):
+                rewritten_context = resolve_relative_context(service_name, context)
+                build["context"] = rewritten_context
+                logger.info(
+                    "Rewrote build context for service '%s' from '%s' to '%s'",
+                    service_name, context, rewritten_context,
+                )
+                changed = True
+
+    if changed:
+        with open(compose_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(data, f, sort_keys=False)
 
 
 @router.post("/api/extensions/{service_id}/install")
@@ -1092,7 +1292,10 @@ def install_extension(service_id: str, api_key: str = Depends(verify_api_key)):
     agent_ok = _call_agent_install(service_id)
 
     if not agent_ok:
-        _write_error_progress(service_id, "Host agent failed to start extension")
+        _write_error_progress(
+            service_id,
+            "Host agent failed to start extension. Run 'dream restart' to recover.",
+        )
 
     logger.info("Installed extension: %s", service_id)
     return {
@@ -1199,11 +1402,19 @@ def _activate_service(service_id: str) -> dict:
     # Re-scan compose content (TOCTOU prevention). Built-in extensions
     # legitimately declare their own service name in their compose file, so
     # skip the CORE_SERVICE_IDS name-collision check for them. User extensions
-    # still get the full anti-shadowing scan. The `trusted` flag is separate
-    # and controls whether `build:` directives are allowed (library installs
-    # need it, built-in activations do not).
+    # still get the full anti-shadowing scan. Some built-ins also legitimately
+    # need `user: "0:0"` to perform init-time chown before dropping privileges
+    # via setpriv (e.g. openclaw), so skip the root-user check for built-ins
+    # only. The `trusted` flag is separate and controls whether `build:`
+    # directives are allowed (library installs need it, built-in activations
+    # do not).
     is_builtin = ext_dir.is_relative_to(EXTENSIONS_DIR.resolve())
-    _scan_compose_content(disabled_compose, skip_name_collision=is_builtin)
+    _scan_compose_content(
+        disabled_compose,
+        skip_name_collision=is_builtin,
+        skip_gpu_passthrough_check=is_builtin,
+        skip_root_user_check=is_builtin,
+    )
 
     # Reject symlinks
     st = os.lstat(disabled_compose)
@@ -1252,13 +1463,23 @@ def enable_extension(
             # appears in CORE_SERVICE_IDS — skip the name-collision check for
             # them, mirroring _activate_service's logic.
             is_builtin = ext_dir.is_relative_to(EXTENSIONS_DIR.resolve())
-            _scan_compose_content(enabled_compose, skip_name_collision=is_builtin)
+            _scan_compose_content(
+                enabled_compose,
+                skip_name_collision=is_builtin,
+                skip_gpu_passthrough_check=is_builtin,
+                skip_root_user_check=is_builtin,
+            )
         # Dependencies were satisfied at install time; compose content is re-scanned above
         _write_initial_progress(service_id)
         # Invalidate .compose-flags cache so dream-cli picks up this extension
         # before the host agent starts the container.
         _call_agent_invalidate_compose_cache()
         agent_ok = _call_agent("start", service_id)
+        if not agent_ok:
+            _write_error_progress(
+                service_id,
+                "Host agent failed to start extension. Run 'dream restart' to recover.",
+            )
         logger.info("Started stopped extension: %s", service_id)
         return {
             "id": service_id,
@@ -1309,13 +1530,24 @@ def enable_extension(
 
     # Start all enabled services via agent (outside lock)
     agent_ok = True
+    warnings: list[str] = []
     for svc_id in enabled_services:
-        _call_agent_hook(svc_id, "pre_start")
+        # pre_start failure is terminal for this service — do not start it
+        if not _call_agent_hook(svc_id, "pre_start"):
+            agent_ok = False
+            _write_error_progress(
+                svc_id,
+                "pre_start hook failed — extension not started.",
+            )
+            continue
         if not _call_agent("start", svc_id):
             agent_ok = False
         # post_start is non-terminal — log failure but don't fail the enable
         if not _call_agent_hook(svc_id, "post_start"):
             logger.warning("post_start hook failed for %s (non-fatal)", svc_id)
+            warnings.append(
+                f"{svc_id}: post_start hook failed — manual configuration may be needed",
+            )
 
     logger.info("Enabled extension: %s (deps: %s)", service_id,
                 enabled_services[:-1] if len(enabled_services) > 1 else "none")
@@ -1324,6 +1556,7 @@ def enable_extension(
         "action": "enabled",
         "enabled_services": enabled_services,
         "restart_required": not agent_ok,
+        "warnings": warnings,
         "message": (
             "Extension enabled and started." if agent_ok
             else "Extension enabled. Run 'dream restart' to start."
@@ -1532,8 +1765,13 @@ def orphaned_storage(api_key: str = Depends(verify_api_key)):
     if not data_path.is_dir():
         return {"orphaned": [], "total_gb": 0}
 
-    # Known system directories that are not service data
-    system_dirs = {"models", "config", "user-extensions", "extensions-library"}
+    # Known system directories that are not service data.  Includes runtime
+    # state created outside the installer: extension-progress (this router)
+    # and config-backups (host agent's .env backup writer).
+    system_dirs = {
+        "models", "config", "user-extensions", "extensions-library",
+        "extension-progress", "config-backups",
+    }
     known_ids = set(SERVICES.keys()) | system_dirs
 
     orphaned = []

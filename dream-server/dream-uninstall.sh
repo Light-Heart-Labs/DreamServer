@@ -126,6 +126,14 @@ for unit in opencode-web.service openclaw-session-cleanup.timer \
     fi
 done
 systemctl --user daemon-reload 2>/dev/null || true
+
+# Remove system-mode dream-host-agent unit (migrated from --user mode).
+# Idempotent — no-op if the unit was never installed (e.g. older user-mode installs).
+if systemctl is-enabled dream-host-agent.service >/dev/null 2>&1; then
+    sudo systemctl disable --now dream-host-agent.service 2>/dev/null || true
+fi
+sudo rm -f /etc/systemd/system/dream-host-agent.service 2>/dev/null || true
+sudo systemctl daemon-reload 2>/dev/null || true
 log_ok "Systemd services removed"
 
 # 3. Remove CLI symlink

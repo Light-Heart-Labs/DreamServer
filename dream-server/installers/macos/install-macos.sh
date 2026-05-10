@@ -208,6 +208,16 @@ if $INSTALL_FS_FATAL; then
 fi
 ai_ok "Filesystem supports POSIX permissions"
 
+# Networked-filesystem advisory (warn-only).
+# chmod 600 still applies on NFS/SMB/AFP, but the actual access control is
+# enforced server-side by the share's ACL — other clients with access to the
+# share may read .env regardless of local permissions.
+if [[ "${INSTALL_FS_NETWORKED:-false}" == "true" ]]; then
+    ai_warn "INSTALL_DIR ($INSTALL_DIR) is on a networked filesystem ($INSTALL_FS_TYPE)."
+    ai_warn ".env permissions (chmod 600) are advisory — actual access control is governed by the share's ACL on the server."
+    ai_warn "If this share is exposed to other clients, sensitive credentials may be readable from those hosts."
+fi
+
 # Docker Desktop file-sharing allowlist check
 # Bind-mounts of paths outside the allowlist fail with cryptic OCI errors at
 # `docker compose up`. Probe with a throwaway container so we surface a clear
@@ -427,6 +437,9 @@ else
     mkdir -p "${INSTALL_DIR}/data/qdrant"
     mkdir -p "${INSTALL_DIR}/data/models"
     mkdir -p "${INSTALL_DIR}/data/privacy-shield"
+    mkdir -p "${INSTALL_DIR}/data/dreamforge"
+    mkdir -p "${INSTALL_DIR}/data/ape"
+    mkdir -p "${INSTALL_DIR}/data/token-spy"
     mkdir -p "${INSTALL_DIR}/data/langfuse/postgres"
     mkdir -p "${INSTALL_DIR}/data/langfuse/clickhouse"
     mkdir -p "${INSTALL_DIR}/data/langfuse/redis"
@@ -702,14 +715,24 @@ else
         _bind=$(grep '^BIND_ADDRESS=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
         [[ -z "$_bind" ]] && _bind="127.0.0.1"
 
-        "$LLAMA_SERVER_BIN" \
-            --host "$_bind" --port 8080 \
-            --model "$MODEL_FULL_PATH" \
-            --ctx-size "$MAX_CONTEXT" \
-            --n-gpu-layers 999 \
-            --reasoning-format "$_reasoning_fmt" \
-            --metrics \
-            > "$LLAMA_SERVER_LOG" 2>&1 &
+        _flash_attn=$(grep '^LLAMA_ARG_FLASH_ATTN=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+        _cache_type_k=$(grep '^LLAMA_ARG_CACHE_TYPE_K=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+        _cache_type_v=$(grep '^LLAMA_ARG_CACHE_TYPE_V=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+        _n_cpu_moe=$(grep '^LLAMA_ARG_N_CPU_MOE=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+        _llama_args=(
+            --host "$_bind" --port 8080
+            --model "$MODEL_FULL_PATH"
+            --ctx-size "$MAX_CONTEXT"
+            --n-gpu-layers 999
+            --reasoning-format "$_reasoning_fmt"
+            --metrics
+        )
+        [[ -n "$_flash_attn" ]] && _llama_args+=(--flash-attn "$_flash_attn")
+        [[ -n "$_cache_type_k" ]] && _llama_args+=(--cache-type-k "$_cache_type_k")
+        [[ -n "$_cache_type_v" ]] && _llama_args+=(--cache-type-v "$_cache_type_v")
+        [[ -n "$_n_cpu_moe" ]] && _llama_args+=(--n-cpu-moe "$_n_cpu_moe")
+
+        "$LLAMA_SERVER_BIN" "${_llama_args[@]}" > "$LLAMA_SERVER_LOG" 2>&1 &
         LLAMA_PID=$!
         echo "$LLAMA_PID" > "$LLAMA_SERVER_PID_FILE"
 
@@ -721,7 +744,7 @@ else
         while [[ "$WAITED" -lt "$MAX_WAIT" ]]; do
             sleep 2
             WAITED=$((WAITED + 2))
-            if curl -sf --max-time 10 http://localhost:8080/health >/dev/null 2>&1; then
+            if curl -sf --max-time 10 http://127.0.0.1:8080/health >/dev/null 2>&1; then
                 HEALTHY=true
                 break
             fi
@@ -830,6 +853,17 @@ else
 
             REL_PATH="${COMPOSE_PATH#"${INSTALL_DIR}/"}"
             COMPOSE_FLAGS+=("-f" "$REL_PATH")
+
+            # GPU-backend overlay (mirrors resolve-compose-stack.sh discovery).
+            # E.g. extensions/services/litellm/compose.apple.yaml on macOS.
+            # Skipped in cloud mode (CURRENT_BACKEND=none) since no native
+            # GPU/host-gateway patches apply when llama-server runs remotely.
+            if [[ "$CURRENT_BACKEND" != "none" ]]; then
+                GPU_OVERLAY_PATH="${SVC_DIR}compose.${CURRENT_BACKEND}.yaml"
+                if [[ -f "$GPU_OVERLAY_PATH" ]]; then
+                    COMPOSE_FLAGS+=("-f" "${GPU_OVERLAY_PATH#"${INSTALL_DIR}/"}")
+                fi
+            fi
         done
     fi
 
@@ -866,9 +900,32 @@ else
 
     # ── Start Docker services ──
     chapter "STARTING SERVICES"
-    ai "Running: docker compose ${COMPOSE_FLAGS[*]} up -d"
+
+    # ── Rebuild local-built images ─────────────────────────────────────
+    # Mirrors phases/11-services.sh on Linux: local Dockerfiles (dashboard,
+    # dashboard-api, ape, token-spy, privacy-shield, and Apple-Silicon
+    # DreamForge builds) can drift from the baked images, so we always
+    # rebuild without cache before `up -d`.
+    # ComfyUI has no Apple-Silicon variant (only amd/nvidia/multigpu); the
+    # llama-server runs natively on macOS via Metal — neither is built here.
+    ai "Rebuilding local-built images (no-cache)..."
+    _macos_build_services=(dashboard dashboard-api ape token-spy privacy-shield)
+    _dreamforge_pull_policy="$(grep -m1 '^DREAMFORGE_PULL_POLICY=' "${INSTALL_DIR}/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'\''[:space:]' || true)"
+    [[ "$_dreamforge_pull_policy" == "build" ]] && _macos_build_services+=(dreamforge)
+    declare -a _macos_build_pids _macos_build_names
+    for _svc in "${_macos_build_services[@]}"; do
+        docker compose "${COMPOSE_FLAGS[@]}" build --no-cache "$_svc" >> "$DS_LOG_FILE" 2>&1 &
+        _macos_build_pids+=($!)
+        _macos_build_names+=("$_svc")
+    done
+    for _i in "${!_macos_build_pids[@]}"; do
+        wait "${_macos_build_pids[$_i]}" || ai_warn "Build failed for ${_macos_build_names[$_i]} (see $DS_LOG_FILE)"
+    done
+    ai_ok "Local images rebuilt"
+
+    ai "Running: docker compose ${COMPOSE_FLAGS[*]} up -d --remove-orphans --no-build"
     set +o pipefail  # pipefail would abort on compose exit before PIPESTATUS is read; capture it first
-    docker compose "${COMPOSE_FLAGS[@]}" up -d 2>&1 | while IFS= read -r line; do
+    docker compose "${COMPOSE_FLAGS[@]}" up -d --remove-orphans --no-build 2>&1 | while IFS= read -r line; do
         echo "  $line"
     done
     compose_exit="${PIPESTATUS[0]}"
@@ -1163,7 +1220,7 @@ if [[ "$ENABLE_VOICE" == "true" ]]; then
     STT_MODEL_ENCODED="${STT_MODEL//\//%2F}"
     # macOS reassigns Whisper to 9100 if port 9000 is in use (AirPlay Receiver).
     WHISPER_PORT_RESOLVED="${WHISPER_PORT:-9000}"
-    WHISPER_URL="http://localhost:${WHISPER_PORT_RESOLVED}"
+    WHISPER_URL="http://127.0.0.1:${WHISPER_PORT_RESOLVED}"
     STT_RECOVERY_CMD="curl --max-time 3600 -X POST ${WHISPER_URL}/v1/models/${STT_MODEL_ENCODED}"
 
     # Step 1: wait briefly for the models API to be ready (max 15s).

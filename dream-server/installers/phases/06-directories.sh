@@ -39,7 +39,7 @@ else
     # Create directories
     dream_progress 38 "directories" "Creating directory structure"
     mkdir -p "$INSTALL_DIR"/{config,data,models}
-    mkdir -p "$INSTALL_DIR"/data/{open-webui,whisper,tts,n8n,qdrant,models,privacy-shield,dreamforge,ape}
+    mkdir -p "$INSTALL_DIR"/data/{open-webui,whisper,tts,n8n,qdrant,models,privacy-shield,dreamforge,ape,token-spy}
     mkdir -p "$INSTALL_DIR"/data/langfuse/{postgres,clickhouse,redis,minio}
     mkdir -p "$INSTALL_DIR"/config/{n8n,litellm,openclaw,searxng}
 
@@ -122,16 +122,21 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
         OPENCLAW_MODEL="$LLM_MODEL"
         OPENCLAW_CONTEXT=$MAX_CONTEXT
 
-        if [[ -f "$INSTALL_DIR/config/openclaw/$OPENCLAW_CONFIG" ]]; then
-            cp "$INSTALL_DIR/config/openclaw/$OPENCLAW_CONFIG" "$INSTALL_DIR/config/openclaw/openclaw.json"
-        elif [[ -f "$SCRIPT_DIR/config/openclaw/$OPENCLAW_CONFIG" ]]; then
-            cp "$SCRIPT_DIR/config/openclaw/$OPENCLAW_CONFIG" "$INSTALL_DIR/config/openclaw/openclaw.json"
-        else
-            warn "OpenClaw config $OPENCLAW_CONFIG not found, using default"
-            if ! cp "$SCRIPT_DIR/config/openclaw/openclaw.json.example" "$INSTALL_DIR/config/openclaw/openclaw.json" 2>>"$LOG_FILE"; then
-                warn "Failed to copy OpenClaw default config — you may need to create it manually"
+        # Tiers 1/2/3 set OPENCLAW_CONFIG="openclaw.json", which is also the
+        # destination filename — skip the self-copy in that case so the file
+        # the rsync from SCRIPT_DIR placed there is used as-is.
+        _oc_src="$INSTALL_DIR/config/openclaw/$OPENCLAW_CONFIG"
+        _oc_dst="$INSTALL_DIR/config/openclaw/openclaw.json"
+        if [[ -f "$_oc_src" ]]; then
+            if [[ ! "$_oc_src" -ef "$_oc_dst" ]]; then
+                cp "$_oc_src" "$_oc_dst"
             fi
+        elif [[ -f "$SCRIPT_DIR/config/openclaw/$OPENCLAW_CONFIG" ]]; then
+            cp "$SCRIPT_DIR/config/openclaw/$OPENCLAW_CONFIG" "$_oc_dst"
+        else
+            error "Missing OpenClaw config $OPENCLAW_CONFIG and no fallback present in repo. This is a packaging bug; please re-clone or report."
         fi
+        unset _oc_src _oc_dst
         # Resolve provider name/URL before any sed replacements that depend on them
         OPENCLAW_PROVIDER_NAME="${OPENCLAW_PROVIDER_NAME_DEFAULT}"
         OPENCLAW_PROVIDER_URL="${OPENCLAW_PROVIDER_URL_DEFAULT}"
@@ -149,9 +154,10 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
         log "Installed OpenClaw config: $OPENCLAW_CONFIG -> openclaw.json (model: $OPENCLAW_MODEL)"
         # Generate OPENCLAW_TOKEN (used by compose env and inject-token.js)
         OPENCLAW_TOKEN=$(openssl rand -hex 24 2>/dev/null || head -c 24 /dev/urandom | xxd -p)
-        # Note: OpenClaw home dir uses a named Docker volume (openclaw-home).
-        # inject-token.js patches the runtime config at container startup,
-        # so we don't seed files into the volume from the installer.
+        # Note: inject-token.js regenerates /home/node/.openclaw/openclaw.json
+        # on every container start — that path lives in the container's ephemeral
+        # overlay, so no installer seeding is needed. Only workspace/ is persisted,
+        # via the bind mount at ./config/openclaw/workspace (see below).
         # Create workspace directory (must exist before Docker Compose,
         # otherwise Docker auto-creates it as root and the container can't write to it)
         mkdir -p "$INSTALL_DIR/config/openclaw/workspace/memory"
@@ -169,8 +175,14 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
             log "Installed OpenClaw workspace files (agent personality)"
         fi
         # OpenClaw container runs as node (uid 1000) — fix ownership
-        chown -R 1000:1000 "$INSTALL_DIR/data/openclaw" "$INSTALL_DIR/config/openclaw/workspace" 2>/dev/null || true
+        # Pre-create data/openclaw so chown doesn't fail on a fresh install where
+        # the directory hasn't been touched yet.
+        mkdir -p "$INSTALL_DIR/data/openclaw"
+        chown -R 1000:1000 "$INSTALL_DIR/data/openclaw" "$INSTALL_DIR/config/openclaw/workspace" || warn "Failed to chown openclaw paths to 1000:1000 (non-fatal); container may need uid fixup"
     fi
+
+    # token-spy container runs as uid 1000 (baked in Dockerfile) — fix ownership
+    chown -R 1000:1000 "$INSTALL_DIR/data/token-spy" || warn "Failed to chown data/token-spy to 1000:1000 (non-fatal); container may crash if installer ran as a different uid"
 
     # ── .env merge logic: preserve user-configured values on re-install ──
     dream_progress 40 "directories" "Generating secrets and configuration"
@@ -203,6 +215,7 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
     WEBUI_SECRET=$(_env_get WEBUI_SECRET "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
     N8N_PASS=$(_env_get N8N_PASS "$(openssl rand -base64 16 2>/dev/null || head -c 16 /dev/urandom | base64)")
     LITELLM_KEY=$(_env_get LITELLM_KEY "sk-dream-$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
+    LITELLM_LEMONADE_API_KEY=$(_env_get LITELLM_LEMONADE_API_KEY "sk-dream-lemonade-$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
     LIVEKIT_SECRET=$(_env_get LIVEKIT_API_SECRET "$(openssl rand -base64 32 2>/dev/null || head -c 32 /dev/urandom | base64)")
     DASHBOARD_API_KEY=$(_env_get DASHBOARD_API_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
     DREAM_AGENT_KEY=$(_env_get DREAM_AGENT_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
@@ -256,6 +269,29 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
     # Network binding (--lan sets 0.0.0.0; default is localhost-only)
     BIND_ADDRESS=$(_env_get BIND_ADDRESS "${BIND_ADDRESS:-127.0.0.1}")
 
+    # Host LAN IP — only meaningful when BIND_ADDRESS=0.0.0.0. Some services
+    # (e.g. openclaw) need to know the host's LAN address so the Control UI
+    # accepts cross-origin requests from LAN clients. Detection prefers
+    # `hostname -I` (GNU coreutils, Linux) then `ip route get` then ifconfig
+    # so WSL2 + odd Linux variants are covered. Empty default keeps the
+    # compose ${HOST_LAN_IP:-} fallback safe when binding to loopback.
+    HOST_LAN_IP=""
+    if [[ "$BIND_ADDRESS" == "0.0.0.0" ]]; then
+        if command -v hostname >/dev/null 2>&1 && hostname -I >/dev/null 2>&1; then
+            HOST_LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+        fi
+        if [[ -z "$HOST_LAN_IP" ]] && command -v ip >/dev/null 2>&1; then
+            HOST_LAN_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1); exit}')
+        fi
+        if [[ -z "$HOST_LAN_IP" ]] && command -v ifconfig >/dev/null 2>&1; then
+            HOST_LAN_IP=$(ifconfig 2>/dev/null | awk '/inet / && $2 != "127.0.0.1" {print $2; exit}')
+        fi
+    fi
+    # Preserve operator override across re-runs: if .env already has a value,
+    # use it instead of the freshly-detected one (matches the _env_get pattern
+    # used for every other persistent value in this phase).
+    HOST_LAN_IP=$(_env_get HOST_LAN_IP "$HOST_LAN_IP")
+
     # Whisper STT model — NVIDIA picks the larger turbo model, everyone else
     # uses base. Phase 12 reads this to pre-download the right file, and
     # Open WebUI reads it to request the same model for transcription.
@@ -278,7 +314,15 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
     fi
 
     # Generate .env file
-    cat > "$INSTALL_DIR/.env" << ENV_EOF
+    # Subshell-scope a tighter umask so the file is created 0600 from the start
+    # (closes a brief window on systems where $HOME is world-readable, e.g.
+    # Ubuntu defaults). The umask MUST NOT leak to the rest of phase 06 or
+    # subsequent phases — later mkdirs create container-bind-mount dirs that
+    # need world-traverse (e.g. SearXNG runs as uid 977, OpenClaw as 1000).
+    # The chmod 600 below is belt-and-braces.
+    (
+        umask 077
+        cat > "$INSTALL_DIR/.env" << ENV_EOF
 # Dream Server Configuration — ${TIER_NAME} Edition
 # Generated by installer v${VERSION} on $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 # Tier: ${TIER} (${TIER_NAME})
@@ -290,6 +334,9 @@ DREAM_VERSION=${VERSION:-2.4.0}
 # 127.0.0.1 = localhost only (secure default)
 # 0.0.0.0   = accessible from LAN (install with --lan or set manually)
 BIND_ADDRESS=${BIND_ADDRESS}
+# Host LAN IP (populated when BIND_ADDRESS=0.0.0.0; empty otherwise).
+# Containers like openclaw read this to advertise the host's LAN address.
+HOST_LAN_IP=${HOST_LAN_IP}
 
 #=== LLM Backend Mode ===
 DREAM_MODE=$(if [[ "$GPU_BACKEND" == "amd" && "${DREAM_MODE:-local}" == "local" ]]; then echo "lemonade"; else echo "${DREAM_MODE:-local}"; fi)
@@ -313,6 +360,12 @@ CTX_SIZE=${MAX_CONTEXT}
 GPU_BACKEND=${GPU_BACKEND}
 N_GPU_LAYERS=${N_GPU_LAYERS:-99}
 $(if [[ -n "${LLAMA_SERVER_IMAGE:-}" ]]; then echo "LLAMA_SERVER_IMAGE=${LLAMA_SERVER_IMAGE}"; fi)
+$(if [[ -n "${DREAMFORGE_PULL_POLICY:-}" ]]; then echo "DREAMFORGE_PULL_POLICY=${DREAMFORGE_PULL_POLICY}"; fi)
+#=== llama.cpp Runtime Tuning ===
+LLAMA_ARG_FLASH_ATTN=${LLAMA_ARG_FLASH_ATTN:-auto}
+LLAMA_ARG_CACHE_TYPE_K=${LLAMA_ARG_CACHE_TYPE_K:-f16}
+LLAMA_ARG_CACHE_TYPE_V=${LLAMA_ARG_CACHE_TYPE_V:-f16}
+# Optional MoE only. Example for 8-12GB VRAM: LLAMA_ARG_N_CPU_MOE=25
 LLAMA_CPU_LIMIT=${LLAMA_CPU_LIMIT}
 LLAMA_CPU_RESERVATION=${LLAMA_CPU_RESERVATION}
 
@@ -327,6 +380,9 @@ HSA_XNACK=1
 ROCBLAS_USE_HIPBLASLT=1
 AMDGPU_TARGET=gfx1151
 LLAMA_CPP_REF=b8763
+
+#=== LiteLLM → Lemonade outbound key (AMD only) ===
+LITELLM_LEMONADE_API_KEY=${LITELLM_LEMONADE_API_KEY}
 AMD_ENV
 fi)
 $(if [[ "$GPU_BACKEND" == "sycl" ]]; then cat << INTEL_ENV
@@ -418,6 +474,7 @@ LLAMA_ARG_SPLIT_MODE=${LLAMA_ARG_SPLIT_MODE:-none}
 LLAMA_ARG_TENSOR_SPLIT=${LLAMA_ARG_TENSOR_SPLIT:-}
 
 ENV_EOF
+    )
 
     chmod 600 "$INSTALL_DIR/.env"  # Secure secrets file
     ai_ok "Created $INSTALL_DIR"
@@ -446,13 +503,13 @@ model_list:
     litellm_params:
       model: openai/extra.${_active_gguf}
       api_base: http://llama-server:8080/api/v1
-      api_key: sk-lemonade
+      api_key: ${LITELLM_LEMONADE_API_KEY}
 
   - model_name: "*"
     litellm_params:
       model: openai/extra.${_active_gguf}
       api_base: http://llama-server:8080/api/v1
-      api_key: sk-lemonade
+      api_key: ${LITELLM_LEMONADE_API_KEY}
 
 litellm_settings:
   drop_params: true

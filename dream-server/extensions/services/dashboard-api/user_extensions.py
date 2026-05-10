@@ -86,6 +86,11 @@ def scan_user_extension_services(
                 "external_port": int(svc.get("external_port_default", port)),
                 "health": health,
                 "name": name,
+                # Optional: extensions whose health endpoint lives on a
+                # secondary port (e.g. milvus 9091) need an explicit
+                # health_port; check_service_health() falls back to "port"
+                # when absent.
+                **({"health_port": int(svc["health_port"])} if "health_port" in svc else {}),
             }
         except (TypeError, ValueError) as exc:
             logger.warning("Skipping extension %s: invalid manifest value: %s", service_id, exc)

@@ -19,7 +19,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="${INSTALL_DIR:-$(dirname "$SCRIPT_DIR")}"
 DATA_DIR="${DATA_DIR:-$HOME/.dream-server}"
 BACKUP_DIR="${DATA_DIR}/backups"
-MIGRATIONS_DIR="${SCRIPT_DIR}"
+# Migrations live in INSTALL_DIR/migrations/ in deployed installs;
+# in source tree they live at dream-server/migrations/ (peer of scripts/).
+# SCRIPT_DIR is dream-server/scripts/ when run from source tree, or
+# INSTALL_DIR/scripts/ when run from a deployed install — both resolve correctly.
+MIGRATIONS_DIR="${SCRIPT_DIR}/../migrations"
 VERSION_FILE="${INSTALL_DIR}/.version"
 MIGRATION_STATE="${DATA_DIR}/.migration-state"
 
@@ -224,7 +228,7 @@ cmd_migrate() {
     local failed=0
     local ls_exit=0
     local migrations
-    migrations=$(ls -1 "$MIGRATIONS_DIR"/migrate-v*.sh 2>&1 | sort -V) || ls_exit=$?
+    migrations=$(ls -1 "$MIGRATIONS_DIR"/migrate-v*.sh 2>&1 | sort) || ls_exit=$?
     if [[ $ls_exit -ne 0 ]]; then
         log_success "No migration scripts found"
         return 0
@@ -245,7 +249,7 @@ cmd_migrate() {
                     set_last_migrated_version "$migration_version"
                 else
                     log_error "Migration $migration_version failed!"
-                    ((failed++))
+                    ((failed++)) || true
                     break
                 fi
             fi

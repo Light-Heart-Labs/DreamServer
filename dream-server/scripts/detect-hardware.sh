@@ -386,6 +386,25 @@ get_strix_halo_tier() {
     fi
 }
 
+# Determine NVIDIA Grace Blackwell tier based on unified memory
+# Mirrors installers/phases/02-detection.sh:346-360 thresholds
+# NV_ULTRA: 90GB+ | T4: 48-89GB | T3: 20-47GB | T2: 12-19GB | T1: <12GB
+get_nvidia_unified_tier() {
+    local unified_gb=$1
+
+    if [[ $unified_gb -ge 90 ]]; then
+        echo "NV_ULTRA"
+    elif [[ $unified_gb -ge 48 ]]; then
+        echo "T4"
+    elif [[ $unified_gb -ge 20 ]]; then
+        echo "T3"
+    elif [[ $unified_gb -ge 12 ]]; then
+        echo "T2"
+    else
+        echo "T1"
+    fi
+}
+
 # Determine Apple Silicon tier based on unified memory
 # AP_PRO: 36GB+ | AP_BASE: <36GB
 get_apple_tier() {
@@ -406,6 +425,7 @@ tier_description() {
         T3)    echo "Pro (20-47GB): strong local profile with room for larger models" ;;
         T2)    echo "Starter (12-19GB): mid-size local profile for everyday work" ;;
         T1)    echo "Mini (<12GB): compact local profile or CPU inference" ;;
+        NV_ULTRA)   echo "NVIDIA Ultra (90GB+ unified or discrete): flagship local profile (Grace Blackwell or multi-GPU)" ;;
         SH_LARGE)   echo "Strix Halo 90+: flagship unified-memory local profile" ;;
         SH_COMPACT) echo "Strix Halo Compact: balanced unified-memory local profile" ;;
         AP_ULTRA)   echo "Apple Ultra (96GB+): high-end local profile via CPU inference in Docker" ;;
@@ -434,6 +454,7 @@ tier_model() {
             T3)    echo "gemma-4-26b-a4b-it" ;;
             T2)    echo "gemma-4-e4b-it" ;;
             T1)    echo "gemma-4-e2b-it" ;;
+            NV_ULTRA)   echo "gemma-4-31b-it" ;;
             SH_LARGE)   echo "gemma-4-31b-it" ;;
             SH_COMPACT) echo "gemma-4-26b-a4b-it" ;;
             AP_ULTRA)   echo "gemma-4-31b-it-Q4_K_M.gguf" ;;
@@ -448,6 +469,7 @@ tier_model() {
         T3)    echo "qwen3-30b-a3b" ;;
         T2)    echo "qwen3.5-9b" ;;
         T1)    echo "qwen3.5-2b" ;;
+        NV_ULTRA)   echo "qwen3-coder-next" ;;
         SH_LARGE)   echo "qwen3-coder-next" ;;
         SH_COMPACT) echo "qwen3-30b-a3b" ;;
         AP_ULTRA)   echo "qwen3-coder-next-Q4_K_M.gguf" ;;
@@ -515,6 +537,24 @@ main() {
         gpu_type="nvidia"
         gpu_architecture="cuda"
         memory_type="discrete"
+
+        # NVIDIA Grace Blackwell (GB10, GB200): nvidia-smi reports [N/A] for
+        # memory.total when CPU+GPU share unified memory. Fall back to system
+        # RAM as the VRAM budget. Mirrors installers/lib/detection.sh:178-194.
+        if [[ "$gpu_vram_mb" -eq 0 ]]; then
+            local _vram_field
+            _vram_field=$(echo "$nvidia_out" | head -1 | awk -F',' '{gsub(/^[ \t]+|[ \t]+$/,"",$2); print $2}' | xargs)
+            if [[ "$_vram_field" == "[N/A]" || "$_vram_field" == "N/A" ]]; then
+                memory_type="unified"
+                gpu_architecture="grace-blackwell"
+                local _ram_kb
+                _ram_kb=$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}')
+                if [[ -n "$_ram_kb" && "$_ram_kb" -gt 0 ]]; then
+                    gpu_vram_mb=$(( _ram_kb / 1024 ))
+                fi
+            fi
+        fi
+
         device_id="$(nvidia_device_id || true)"
     fi
 
@@ -576,6 +616,10 @@ main() {
     local tier tier_desc recommended_model
     if [[ "$memory_type" == "unified" && "$gpu_type" == "amd" ]]; then
         tier=$(get_strix_halo_tier "$ram")
+    elif [[ "$memory_type" == "unified" && "$gpu_type" == "nvidia" ]]; then
+        local unified_gb
+        unified_gb=$((gpu_vram_mb / 1024))
+        tier=$(get_nvidia_unified_tier "$unified_gb")
     elif [[ "$gpu_type" == "apple" ]]; then
         local unified_gb
         unified_gb=$((gpu_vram_mb / 1024))

@@ -33,7 +33,3 @@ services:
         reservations:
           cpus: '${LLAMA_CPU_RESERVATION:-1.0}'
           memory: 2G
-
-  open-webui:
-    environment:
-      AUDIO_STT_MODEL: "deepdml/faster-whisper-large-v3-turbo-ct2"

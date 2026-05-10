@@ -10,7 +10,6 @@
 #   $dryRun, $cloudMode         -- from orchestrator context
 #   $installDir                 -- from orchestrator context
 #   $tierConfig                 -- from phase 02 (LlmModel, MaxContext, GgufFile)
-#   $envResult                  -- from phase 06 (OpenclawToken, DreamAgentKey)
 #   $script:OPENCODE_*          -- from lib/constants.ps1
 #
 # Writes:

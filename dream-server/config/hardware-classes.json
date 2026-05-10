@@ -107,6 +107,81 @@
       }
     },
     {
+      "id": "nvidia_unified_ultra",
+      "label": "NVIDIA Grace Blackwell (90GB+ unified)",
+      "match": {
+        "platform_id": ["linux", "wsl"],
+        "gpu_vendor": ["nvidia"],
+        "memory_type": ["unified"],
+        "min_vram_mb": 92160
+      },
+      "recommended": {
+        "backend": "nvidia",
+        "tier": "NV_ULTRA",
+        "compose_overlays": ["docker-compose.base.yml", "docker-compose.nvidia.yml"]
+      }
+    },
+    {
+      "id": "nvidia_unified_enterprise",
+      "label": "NVIDIA Unified Enterprise (48GB+)",
+      "match": {
+        "platform_id": ["linux", "wsl"],
+        "gpu_vendor": ["nvidia"],
+        "memory_type": ["unified"],
+        "min_vram_mb": 49152
+      },
+      "recommended": {
+        "backend": "nvidia",
+        "tier": "T4",
+        "compose_overlays": ["docker-compose.base.yml", "docker-compose.nvidia.yml"]
+      }
+    },
+    {
+      "id": "nvidia_unified_pro",
+      "label": "NVIDIA Unified Pro (20GB+)",
+      "match": {
+        "platform_id": ["linux", "wsl"],
+        "gpu_vendor": ["nvidia"],
+        "memory_type": ["unified"],
+        "min_vram_mb": 20480
+      },
+      "recommended": {
+        "backend": "nvidia",
+        "tier": "T3",
+        "compose_overlays": ["docker-compose.base.yml", "docker-compose.nvidia.yml"]
+      }
+    },
+    {
+      "id": "nvidia_unified_prosumer",
+      "label": "NVIDIA Unified Prosumer (12GB+)",
+      "match": {
+        "platform_id": ["linux", "wsl"],
+        "gpu_vendor": ["nvidia"],
+        "memory_type": ["unified"],
+        "min_vram_mb": 12288
+      },
+      "recommended": {
+        "backend": "nvidia",
+        "tier": "T2",
+        "compose_overlays": ["docker-compose.base.yml", "docker-compose.nvidia.yml"]
+      }
+    },
+    {
+      "id": "nvidia_unified_entry",
+      "label": "NVIDIA Unified Entry",
+      "match": {
+        "platform_id": ["linux", "wsl"],
+        "gpu_vendor": ["nvidia"],
+        "memory_type": ["unified"],
+        "min_vram_mb": 0
+      },
+      "recommended": {
+        "backend": "nvidia",
+        "tier": "T1",
+        "compose_overlays": ["docker-compose.base.yml", "docker-compose.nvidia.yml"]
+      }
+    },
+    {
       "id": "apple_silicon_pro",
       "label": "Apple Silicon Pro (36GB+)",
       "match": {
