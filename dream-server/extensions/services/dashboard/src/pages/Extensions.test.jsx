@@ -125,6 +125,37 @@ describe('Extensions page — unhealthy + install derivations', () => {
     })
   })
 
+  it('renders cli_installed user ext as installed and toggleable', async () => {
+    installFetchMock({
+      extensions: [
+        {
+          id: 'aider',
+          name: 'Aider',
+          status: 'cli_installed',
+          source: 'user',
+          installable: false,
+          features: [baseFeature],
+          description: 'CLI-only one-shot extension',
+        },
+      ],
+      summary: baseSummary({ installed: 1, cli_installed: 1 }),
+      gpu_backend: 'apple',
+      agent_available: true,
+    })
+
+    const { container } = render(<Extensions />)
+    await screen.findByText('Aider')
+
+    const matches = screen.getAllByText('cli installed')
+    const badge = matches.find((el) => el.className.includes('cursor-help'))
+    expect(badge).toBeTruthy()
+
+    const toggle = findToggleButton(container)
+    expect(toggle).toBeTruthy()
+    expect(toggle.className).toContain('bg-green-500')
+    expect(screen.getByText('Disable to remove')).toBeInTheDocument()
+  })
+
   it('does NOT render toggle for unhealthy CORE ext (isToggleable=false because not user)', async () => {
     installFetchMock({
       extensions: [
@@ -228,8 +259,3 @@ describe('Extensions page — unhealthy + install derivations', () => {
     expect(screen.getByRole('button', { name: /Check Logs/i })).toBeInTheDocument()
   })
 })
-
-// TODO(post-#1090): once the upstream PR adding `cli_installed` to the
-// isToggleable predicate (Extensions.jsx L626) merges, add a case asserting
-// that a user ext with status='cli_installed' renders the toggle. Intentionally
-// out of scope for this PR per the team-lead brief.

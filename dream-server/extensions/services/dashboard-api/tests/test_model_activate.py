@@ -1,9 +1,13 @@
 """Tests for AMD model activation helpers in dream-host-agent.py."""
 
 import importlib.util
+import io
+import json
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 # Import the host agent module from bin/ using importlib.
 # The module has an ``if __name__ == "__main__":`` guard so no server starts.
@@ -120,6 +124,24 @@ class TestWriteLemonadeConfig:
         assert 'model_name: "*"' in content
         assert "drop_params: true" in content
 
+    def test_reads_lemonade_key_from_env_file_when_process_env_unset(
+        self, monkeypatch, tmp_path,
+    ):
+        """Installer-written Lemonade keys live in .env, not process env."""
+        litellm_dir = tmp_path / "config" / "litellm"
+        litellm_dir.mkdir(parents=True)
+        (tmp_path / ".env").write_text(
+            "LITELLM_LEMONADE_API_KEY=sk-from-env-file-12345\n",
+            encoding="utf-8",
+        )
+        monkeypatch.delenv("LITELLM_LEMONADE_API_KEY", raising=False)
+
+        _write_lemonade_config(tmp_path, "Qwen3.5-9B-Q4_K_M.gguf")
+
+        content = (litellm_dir / "lemonade.yaml").read_text()
+        assert "api_key: sk-from-env-file-12345" in content
+        assert "api_key: sk-lemonade" not in content
+
     def test_overwrites_previous(self, tmp_path):
         litellm_dir = tmp_path / "config" / "litellm"
         litellm_dir.mkdir(parents=True)
@@ -211,6 +233,183 @@ class TestLaunchNativeLlamaServer:
 
 
 # --- Rollback integration ---
+
+
+class _ResponseHandler:
+    def __init__(self, wfile=None):
+        self.wfile = wfile or io.BytesIO()
+        self.response_code = None
+        self.response_headers = []
+
+    def send_response(self, code):
+        self.response_code = code
+
+    def send_header(self, name, value):
+        self.response_headers.append((name, value))
+
+    def end_headers(self):
+        pass
+
+    def parse_response(self):
+        return json.loads(self.wfile.getvalue().decode("utf-8"))
+
+
+class _BrokenPipeWriter:
+    def write(self, _payload):
+        raise BrokenPipeError("client disconnected")
+
+
+def _write_model_activation_fixture(
+    tmp_path,
+    gpu_backend="nvidia",
+    lemonade=False,
+    lemonade_api_key=None,
+):
+    install_dir = tmp_path / "install"
+    config_dir = install_dir / "config"
+    models_dir = install_dir / "data" / "models"
+    llama_dir = config_dir / "llama-server"
+    litellm_dir = config_dir / "litellm"
+    models_dir.mkdir(parents=True)
+    llama_dir.mkdir(parents=True)
+    litellm_dir.mkdir(parents=True)
+
+    (models_dir / "new-model.gguf").write_text("model", encoding="utf-8")
+    (config_dir / "model-library.json").write_text(
+        json.dumps({
+            "models": [{
+                "id": "target-model",
+                "gguf_file": "new-model.gguf",
+                "llm_model_name": "new-model",
+                "context_length": 4096,
+            }]
+        }),
+        encoding="utf-8",
+    )
+
+    env_text = (
+        f"GPU_BACKEND={gpu_backend}\n"
+        "GGUF_FILE=old-model.gguf\n"
+        "LLM_MODEL=old-model\n"
+        "CTX_SIZE=2048\n"
+        "OLLAMA_PORT=8080\n"
+    )
+    if lemonade_api_key:
+        env_text += f"LITELLM_LEMONADE_API_KEY={lemonade_api_key}\n"
+    env_path = install_dir / ".env"
+    env_path.write_text(env_text, encoding="utf-8")
+
+    ini_text = "[old-model]\nfilename = old-model.gguf\n"
+    models_ini = llama_dir / "models.ini"
+    models_ini.write_text(ini_text, encoding="utf-8")
+
+    lemonade_yaml = litellm_dir / "lemonade.yaml"
+    lemonade_text = None
+    if lemonade:
+        lemonade_text = "model_list:\n  - model_name: old\n"
+        lemonade_yaml.write_text(lemonade_text, encoding="utf-8")
+
+    return install_dir, env_path, env_text, models_ini, ini_text, lemonade_yaml, lemonade_text
+
+
+class TestModelActivateRollback:
+
+    def test_success_response_disconnect_does_not_roll_back(self, tmp_path, monkeypatch):
+        install_dir, env_path, _env_text, models_ini, _ini_text, _yaml, _yaml_text = (
+            _write_model_activation_fixture(tmp_path)
+        )
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+        monkeypatch.delenv("DREAM_HOST_INSTALL_DIR", raising=False)
+        monkeypatch.setattr(_mod.time, "sleep", lambda _seconds: None)
+        monkeypatch.setattr(_mod, "_compose_restart_llama_server", lambda _env: None)
+
+        def fake_run(cmd, **_kwargs):
+            stdout = '{"status": "ok"}' if cmd and cmd[0] == "curl" else ""
+            return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+        handler = _ResponseHandler(wfile=_BrokenPipeWriter())
+
+        with pytest.raises(BrokenPipeError):
+            _mod.AgentHandler._do_model_activate(handler, "target-model")
+
+        assert "GGUF_FILE=new-model.gguf" in env_path.read_text(encoding="utf-8")
+        assert "LLM_MODEL=new-model" in env_path.read_text(encoding="utf-8")
+        assert "filename = new-model.gguf" in models_ini.read_text(encoding="utf-8")
+
+    def test_amd_activation_rewrites_lemonade_yaml_with_env_file_key(
+        self, tmp_path, monkeypatch,
+    ):
+        install_dir, _env_path, _env_text, _models_ini, _ini_text, lemonade_yaml, _yaml_text = (
+            _write_model_activation_fixture(
+                tmp_path,
+                gpu_backend="amd",
+                lemonade=True,
+                lemonade_api_key="sk-inline-from-env-file-67890",
+            )
+        )
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+        monkeypatch.delenv("DREAM_HOST_INSTALL_DIR", raising=False)
+        monkeypatch.delenv("LITELLM_LEMONADE_API_KEY", raising=False)
+        monkeypatch.setattr(_mod.time, "sleep", lambda _seconds: None)
+        monkeypatch.setattr(_mod, "_compose_restart_llama_server", lambda _env: None)
+
+        def fake_run(cmd, **_kwargs):
+            stdout = (
+                '{"status": "ok", "model_loaded": "extra.new-model.gguf"}'
+                if cmd and cmd[0] == "curl"
+                else ""
+            )
+            return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+        handler = _ResponseHandler()
+
+        _mod.AgentHandler._do_model_activate(handler, "target-model")
+
+        assert handler.response_code == 200
+        content = lemonade_yaml.read_text(encoding="utf-8")
+        assert "api_key: sk-inline-from-env-file-67890" in content
+        assert "api_key: sk-lemonade" not in content
+
+    def test_unexpected_failure_rolls_back_all_config_backups(self, tmp_path, monkeypatch):
+        install_dir, env_path, env_text, models_ini, ini_text, lemonade_yaml, lemonade_text = (
+            _write_model_activation_fixture(tmp_path, gpu_backend="amd", lemonade=True)
+        )
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+        monkeypatch.delenv("DREAM_HOST_INSTALL_DIR", raising=False)
+
+        def fail_restart(_env):
+            raise RuntimeError("restart failed")
+
+        monkeypatch.setattr(_mod, "_compose_restart_llama_server", fail_restart)
+        handler = _ResponseHandler()
+
+        _mod.AgentHandler._do_model_activate(handler, "target-model")
+
+        assert handler.response_code == 500
+        assert "restart failed" in handler.parse_response()["error"]
+        assert env_path.read_text(encoding="utf-8") == env_text
+        assert models_ini.read_text(encoding="utf-8") == ini_text
+        assert lemonade_yaml.read_text(encoding="utf-8") == lemonade_text
+
+    def test_pre_snapshot_failure_does_not_overwrite_configs(self, tmp_path, monkeypatch):
+        install_dir, env_path, env_text, models_ini, ini_text, _yaml, _yaml_text = (
+            _write_model_activation_fixture(tmp_path)
+        )
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+
+        def fail_load_env(_path):
+            raise OSError("cannot read env")
+
+        monkeypatch.setattr(_mod, "load_env", fail_load_env)
+        handler = _ResponseHandler()
+
+        _mod.AgentHandler._do_model_activate(handler, "target-model")
+
+        assert handler.response_code == 500
+        assert env_path.read_text(encoding="utf-8") == env_text
+        assert models_ini.read_text(encoding="utf-8") == ini_text
 
 
 class TestLemonadeYamlRollback:

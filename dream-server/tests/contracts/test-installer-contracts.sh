@@ -40,6 +40,9 @@ echo "[contract] canonical port contract parity"
 test -x tests/contracts/test-port-contracts.sh || { echo "[FAIL] script not executable: tests/contracts/test-port-contracts.sh"; exit 1; }
 bash tests/contracts/test-port-contracts.sh
 
+echo "[contract] Windows AMD local compose readiness"
+bash tests/contracts/test-windows-amd-local-compose.sh
+
 echo "[contract] resolver scripts executable"
 for s in scripts/build-capability-profile.sh scripts/classify-hardware.sh scripts/load-backend-contract.sh scripts/resolve-compose-stack.sh scripts/preflight-engine.sh scripts/dream-doctor.sh scripts/simulate-installers.sh; do
   test -x "$s" || { echo "[FAIL] script not executable: $s"; exit 1; }

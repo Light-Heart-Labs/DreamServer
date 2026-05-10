@@ -131,6 +131,7 @@ function New-DreamEnv {
     $webuiSecret     = Get-EnvOrNew "WEBUI_SECRET"       (New-SecureHex -Bytes 32)
     $n8nPass         = Get-EnvOrNew "N8N_PASS"           (New-SecureBase64 -Bytes 16)
     $litellmKey      = Get-EnvOrNew "LITELLM_KEY"        "sk-dream-$(New-SecureHex -Bytes 16)"
+    $litellmLemonadeApiKey = Get-EnvOrNew "LITELLM_LEMONADE_API_KEY" "sk-dream-lemonade-$(New-SecureHex -Bytes 16)"
     $livekitSecret   = Get-EnvOrNew "LIVEKIT_API_SECRET" (New-SecureBase64 -Bytes 32)
     $livekitApiKey   = Get-EnvOrNew "LIVEKIT_API_KEY"    (New-SecureHex -Bytes 16)
     $dashboardApiKey = Get-EnvOrNew "DASHBOARD_API_KEY"  (New-SecureHex -Bytes 32)
@@ -268,6 +269,11 @@ MAX_CONTEXT=$($TierConfig.MaxContext)
 CTX_SIZE=$($TierConfig.MaxContext)
 GPU_BACKEND=$GpuBackend
 $(if ($LlamaServerImage) { "LLAMA_SERVER_IMAGE=$LlamaServerImage" } else { "#LLAMA_SERVER_IMAGE=ghcr.io/ggml-org/llama.cpp:server-cuda" })
+#=== llama.cpp Runtime Tuning ===
+LLAMA_ARG_FLASH_ATTN=$(Get-EnvOrNew "LLAMA_ARG_FLASH_ATTN" "auto")
+LLAMA_ARG_CACHE_TYPE_K=$(Get-EnvOrNew "LLAMA_ARG_CACHE_TYPE_K" "f16")
+LLAMA_ARG_CACHE_TYPE_V=$(Get-EnvOrNew "LLAMA_ARG_CACHE_TYPE_V" "f16")
+# Optional MoE only. Example for 8-12GB VRAM: LLAMA_ARG_N_CPU_MOE=25
 LLAMA_CPU_LIMIT=$llamaCpuLimit
 LLAMA_CPU_RESERVATION=$llamaCpuReservation
 
@@ -292,6 +298,7 @@ SHIELD_API_KEY=$shieldApiKey
 N8N_USER=admin@dreamserver.local
 N8N_PASS=$n8nPass
 LITELLM_KEY=$litellmKey
+$(if ($GpuBackend -eq "amd") { "LITELLM_LEMONADE_API_KEY=$litellmLemonadeApiKey" })
 LIVEKIT_API_KEY=$livekitApiKey
 LIVEKIT_API_SECRET=$livekitSecret
 OPENCLAW_TOKEN=$openclawToken

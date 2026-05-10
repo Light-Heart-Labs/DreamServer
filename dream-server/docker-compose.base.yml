@@ -50,6 +50,12 @@ services:
       - --metrics
     environment:
       - LLAMA_ARG_REASONING=${LLAMA_REASONING:-off}
+      - LLAMA_ARG_FLASH_ATTN=${LLAMA_ARG_FLASH_ATTN:-auto}
+      - LLAMA_ARG_CACHE_TYPE_K=${LLAMA_ARG_CACHE_TYPE_K:-f16}
+      - LLAMA_ARG_CACHE_TYPE_V=${LLAMA_ARG_CACHE_TYPE_V:-f16}
+      # Optional MoE expert CPU offload. Do not default to an empty value:
+      # llama.cpp parses this as an integer and exits if it is blank.
+      - LLAMA_ARG_N_CPU_MOE
     security_opt:
       - no-new-privileges:true
     logging: *default-logging
@@ -58,7 +64,9 @@ services:
       interval: 15s
       timeout: 10s
       retries: 5
-      start_period: 120s
+      # 70B-class GGUFs cold-load in 60-120s; thermal throttling and first-touch
+      # page faults push Tier 4 past 180s. Override via LLAMA_START_PERIOD in .env.
+      start_period: ${LLAMA_START_PERIOD:-240s}
 
   # ============================================
   # Chat UI

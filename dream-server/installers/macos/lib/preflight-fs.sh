@@ -8,7 +8,8 @@
 #          sharing allowlist gaps (which surface as cryptic OCI mount errors).
 #
 # Provides:
-#   test_install_dir_filesystem() -- sets INSTALL_FS_TYPE, INSTALL_FS_FATAL
+#   test_install_dir_filesystem() -- sets INSTALL_FS_TYPE, INSTALL_FS_FATAL,
+#                                    INSTALL_FS_NETWORKED
 #   test_docker_desktop_sharing() -- sets DOCKER_SHARE_OK, DOCKER_SHARE_ERR
 #
 # shellcheck disable=SC2034  # vars are read by install-macos.sh after sourcing
@@ -69,6 +70,13 @@ test_install_dir_filesystem() {
     case "$INSTALL_FS_TYPE" in
         *exfat*|*msdos*|*fat32*|*fat16*|*"ms-dos"*|*ntfs*)
             INSTALL_FS_FATAL=true
+            ;;
+    esac
+
+    INSTALL_FS_NETWORKED=false
+    case "$INSTALL_FS_TYPE" in
+        nfs|smbfs|afpfs|webdav)
+            INSTALL_FS_NETWORKED=true
             ;;
     esac
 }

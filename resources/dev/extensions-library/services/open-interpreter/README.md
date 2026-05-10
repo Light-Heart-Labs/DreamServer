@@ -7,6 +7,10 @@ Let LLMs run code locally (Python, JavaScript, Shell). Provides a ChatGPT-like i
 - **GPU:** CPU only — no GPU required
 - **Dependencies:** None
 
+## Apple Silicon (M1/M2/M3) note
+
+This extension is configured `platform: linux/amd64` because some of its Python dependencies don't have native ARM64 wheels. On Apple Silicon, Docker Desktop runs it under QEMU x86_64 emulation — expect noticeably slower builds (typically 5–10x) and reduced runtime CPU performance (typically 2–5x) compared to native ARM64 hosts. Functional but not recommended for active iterative work on Apple Silicon.
+
 ## Enable / Disable
 
 ```bash

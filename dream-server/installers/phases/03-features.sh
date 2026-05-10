@@ -127,6 +127,7 @@ if ! $DRY_RUN; then
     _sync_extension_compose "${ENABLE_COMFYUI:-}"    comfyui    "ComfyUI"       "image generation not enabled"
     _sync_extension_compose "${ENABLE_DREAMFORGE:-}" dreamforge "DreamForge"    "agent system not enabled"
     _sync_extension_compose "${ENABLE_LANGFUSE:-}"   langfuse   "Langfuse"      "LLM observability not enabled"
+    _sync_extension_compose "${ENABLE_BRAVE_SEARCH:-false}" brave-search "Brave Search" "Brave Search API not enabled"
 fi
 
 # Re-resolve compose flags now that feature selection may have disabled services.
@@ -134,7 +135,7 @@ fi
 # which were just renamed to .disabled.
 if [[ -x "$SCRIPT_DIR/scripts/resolve-compose-stack.sh" ]]; then
     _refreshed_flags=$("$SCRIPT_DIR/scripts/resolve-compose-stack.sh" \
-        --script-dir "$SCRIPT_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}" 2>/dev/null) || true
+        --script-dir "$SCRIPT_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}") || true
     if [[ -n "$_refreshed_flags" ]]; then
         COMPOSE_FLAGS="$_refreshed_flags"
         log "Compose flags refreshed after feature selection"

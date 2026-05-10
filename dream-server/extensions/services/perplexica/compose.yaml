@@ -8,7 +8,7 @@ services:
     environment:
       - SEARXNG_API_URL=http://searxng:8080
       - OPENAI_BASE_URL=${LLM_API_URL:-http://llama-server:8080}/v1
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-no-key}
+      - OPENAI_API_KEY=${LITELLM_KEY:-${OPENAI_API_KEY:-no-key}}
       - HOSTNAME=0.0.0.0
     volumes:
       - perplexica-data:/home/perplexica/data

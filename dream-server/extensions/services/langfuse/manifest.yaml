@@ -18,6 +18,7 @@ service:
   gpu_backends: [all]
   compose_file: compose.yaml
   category: optional
+  setup_hook: hooks/post_install.sh
 
 features:
   - id: observability
