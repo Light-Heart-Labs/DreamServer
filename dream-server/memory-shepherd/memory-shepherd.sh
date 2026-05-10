@@ -108,15 +108,15 @@ reset_agent() {
     local archive_dir="$4"
 
     if [ ! -f "$baseline" ]; then
-        log "CRITICAL: Baseline missing for $agent at $baseline — aborting"
-        return 1
+        log "ERROR: Baseline missing for $agent at $baseline — skipping"
+        return 0
     fi
 
     local baseline_size
     baseline_size=$(stat -c %s "$baseline")
     if [ "$baseline_size" -lt "$MIN_BASELINE_SIZE" ]; then
-        log "CRITICAL: Baseline for $agent is suspiciously small (${baseline_size} bytes, min: ${MIN_BASELINE_SIZE}) — aborting"
-        return 1
+        log "ERROR: Baseline for $agent is suspiciously small (${baseline_size} bytes, min: ${MIN_BASELINE_SIZE}) — skipping"
+        return 0
     fi
 
     if [ ! -f "$memory_file" ]; then
@@ -172,15 +172,15 @@ reset_remote_agent() {
     local archive_dir="$6"
 
     if [ ! -f "$baseline" ]; then
-        log "CRITICAL: Baseline missing for $agent at $baseline — aborting"
-        return 1
+        log "ERROR: Baseline missing for $agent at $baseline — skipping"
+        return 0
     fi
 
     local baseline_size
     baseline_size=$(stat -c %s "$baseline")
     if [ "$baseline_size" -lt "$MIN_BASELINE_SIZE" ]; then
-        log "CRITICAL: Baseline for $agent is suspiciously small (${baseline_size} bytes, min: ${MIN_BASELINE_SIZE}) — aborting"
-        return 1
+        log "ERROR: Baseline for $agent is suspiciously small (${baseline_size} bytes, min: ${MIN_BASELINE_SIZE}) — skipping"
+        return 0
     fi
 
     # Fetch current memory from remote
@@ -245,7 +245,7 @@ process_agent() {
 
     if [ -z "$baseline_name" ]; then
         log "ERROR: No baseline defined for agent '$agent' — skipping"
-        return 1
+        return 0
     fi
 
     local baseline_path="$BASELINE_DIR/$baseline_name"
@@ -260,14 +260,14 @@ process_agent() {
 
         if [ -z "$remote_memory" ]; then
             log "ERROR: remote_host set for '$agent' but no remote_memory — skipping"
-            return 1
+            return 0
         fi
 
         reset_remote_agent "$agent" "$remote_host" "$remote_user" "$remote_memory" "$baseline_path" "$archive_path"
     else
         if [ -z "$memory_file" ]; then
             log "ERROR: No memory_file defined for agent '$agent' — skipping"
-            return 1
+            return 0
         fi
 
         reset_agent "$agent" "$memory_file" "$baseline_path" "$archive_path"
