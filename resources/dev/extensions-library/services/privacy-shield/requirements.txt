@@ -1,6 +1,0 @@
-fastapi>=0.100.0,<0.120.0
-httpx>=0.24.0,<0.29.0
-uvicorn>=0.23.0,<0.30.0
-cachetools>=5.0.0,<6.0.0
-# NOTE: Presidio PII detection not integrated - using regex-only detection
-# See documentation for PII coverage limitations

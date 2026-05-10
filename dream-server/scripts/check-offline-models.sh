@@ -24,7 +24,7 @@ MISSING=()
 
 # Check LLM model (GGUF)
 if ls data/models/*.gguf &>/dev/null; then
-    MODEL_FILE=$(ls -1 data/models/*.gguf | head -1)
+    MODEL_FILE=$(ls -1 data/models/*.gguf | sed -n '1p')
     echo -e "${GREEN}✓${NC} LLM model: $(basename "$MODEL_FILE")"
 else
     echo -e "${RED}✗${NC} LLM model (GGUF) - MISSING"

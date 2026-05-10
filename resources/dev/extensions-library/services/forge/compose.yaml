@@ -9,11 +9,12 @@ services:
       - FORGE_PORT_HOST=7861
       - FORGE_ARGS=--api --listen
       - AUTO_UPDATE=false
+      - SUPERVISOR_NO_AUTOSTART=${SUPERVISOR_NO_AUTOSTART:-syncthing,quicktunnel,serviceportal,sshd,jupyter}
     volumes:
       - ./data/forge/models:/opt/stable-diffusion-webui-forge/models:rw
       - ./data/forge/outputs:/opt/stable-diffusion-webui-forge/outputs:rw
     ports:
-      - "127.0.0.1:${FORGE_PORT:-7861}:7861"
+      - "${BIND_ADDRESS:-127.0.0.1}:${FORGE_PORT:-7861}:7861"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:7861/"]
       interval: 30s

@@ -5,7 +5,7 @@
 
 services:
   llama-server:
-    image: ${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda-b8248}
+    image: ${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda-b9014}
     deploy:
       resources:
         reservations:
@@ -28,4 +28,5 @@ services:
 
   open-webui:
     environment:
-      AUDIO_STT_MODEL: "deepdml/faster-whisper-large-v3-turbo-ct2"
+      AUDIO_STT_MODEL: "${AUDIO_STT_MODEL:-deepdml/faster-whisper-large-v3-turbo-ct2}"
+      ENABLE_IMAGE_GENERATION: "${ENABLE_IMAGE_GENERATION:-true}"

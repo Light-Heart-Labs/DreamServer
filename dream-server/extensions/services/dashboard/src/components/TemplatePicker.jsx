@@ -20,8 +20,9 @@ const fetchJson = async (url, options = {}) => {
  * TemplatePicker — card grid of templates. Click shows preview.
  *
  * Templates carry a `_status` field set by the parent: 'available',
- * 'in_progress', or 'has_errors'. ('applied' is filtered upstream.) The
- * card renders differently per state and is only clickable in 'available'.
+ * 'in_progress', 'applied', or 'has_errors'. The card renders differently
+ * per state and is only clickable in 'available'. Callers that prefer to
+ * hide applied templates (Extensions page) can filter them out upstream.
  */
 export function TemplatePicker({ templates, onApplied, compact = false }) {
   const [preview, setPreview] = useState(null)
@@ -36,13 +37,16 @@ export function TemplatePicker({ templates, onApplied, compact = false }) {
           const status = tmpl._status || 'available'
           const inProgress = status === 'in_progress'
           const hasErrors = status === 'has_errors'
-          const disabled = inProgress || hasErrors
+          const isApplied = status === 'applied'
+          const disabled = inProgress || hasErrors || isApplied
 
           const cardBase = 'text-left rounded-xl p-4 transition-all group border'
           const cardByStatus = inProgress
             ? 'bg-theme-card border-blue-500/30 cursor-not-allowed opacity-80'
             : hasErrors
             ? 'bg-red-500/5 border-red-500/30 cursor-not-allowed'
+            : isApplied
+            ? 'bg-green-500/5 border-green-500/30 cursor-not-allowed'
             : 'bg-theme-card border-theme-border hover:border-theme-accent/40 hover:bg-theme-surface-hover'
 
           return (
@@ -54,12 +58,17 @@ export function TemplatePicker({ templates, onApplied, compact = false }) {
               className={`${cardBase} ${cardByStatus}`}
             >
               <div className="flex items-center gap-3 mb-2">
-                <div className={`p-2 rounded-lg ${hasErrors ? 'bg-red-500/10' : 'bg-theme-accent/10 group-hover:bg-theme-accent/20'} transition-colors`}>
+                <div className={`p-2 rounded-lg ${hasErrors ? 'bg-red-500/10' : isApplied ? 'bg-green-500/10' : 'bg-theme-accent/10 group-hover:bg-theme-accent/20'} transition-colors`}>
+                  {/* Status icons are decorative — the adjacent text label
+                      ("Installing…" / "Has errors" / "Applied") carries the
+                      semantic meaning, so hide icons from screen readers. */}
                   {inProgress
-                    ? <Loader2 size={18} className="animate-spin text-blue-400" />
+                    ? <Loader2 size={18} aria-hidden="true" className="animate-spin text-blue-400" />
                     : hasErrors
-                    ? <AlertTriangle size={18} className="text-red-400" />
-                    : <Icon size={18} className="text-theme-accent-light" />}
+                    ? <AlertTriangle size={18} aria-hidden="true" className="text-red-400" />
+                    : isApplied
+                    ? <Check size={18} aria-hidden="true" className="text-green-400" />
+                    : <Icon size={18} aria-hidden="true" className="text-theme-accent-light" />}
                 </div>
                 <div>
                   <h4 className="text-sm font-semibold text-theme-text">{tmpl.name}</h4>
@@ -69,7 +78,10 @@ export function TemplatePicker({ templates, onApplied, compact = false }) {
                   {hasErrors && (
                     <span className="text-[10px] text-red-400 uppercase tracking-wider">Has errors</span>
                   )}
-                  {!inProgress && !hasErrors && tmpl.tier_minimum && (
+                  {isApplied && (
+                    <span className="text-[10px] text-green-400 uppercase tracking-wider">Applied</span>
+                  )}
+                  {!inProgress && !hasErrors && !isApplied && tmpl.tier_minimum && (
                     <span className="text-[10px] text-theme-text-muted uppercase tracking-wider">
                       {tmpl.tier_minimum}+
                     </span>
@@ -81,7 +93,7 @@ export function TemplatePicker({ templates, onApplied, compact = false }) {
                 <span>{tmpl.services?.length || 0} services</span>
                 {tmpl.estimated_disk_gb && (
                   <span className="flex items-center gap-1">
-                    <HardDrive size={10} />
+                    <HardDrive size={10} aria-hidden="true" />
                     ~{tmpl.estimated_disk_gb}GB
                   </span>
                 )}
@@ -137,7 +149,7 @@ export function TemplatePreview({ template, onClose, onApplied }) {
         timeout: 120000,
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       if (data.enabled_count > 0) {
         setApplied(data.restart_required ? 'restart_required' : 'enabled')
       } else {

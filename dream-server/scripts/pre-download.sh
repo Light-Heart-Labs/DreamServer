@@ -109,7 +109,7 @@ check_dependencies() {
 
 detect_vram_gb() {
     if command -v nvidia-smi &>/dev/null; then
-        nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | awk '{print int($1/1024)}'
+        nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | sed -n '1p' | awk '{print int($1/1024)}'
     else
         echo "0"
     fi
@@ -228,23 +228,23 @@ verify_cache() {
     for tier in nano edge pro cluster; do
         local tier_model="${TIER_MODELS[$tier]}"
         if verify_model "$tier_model" 2>/dev/null; then
-            ((found++))
+            ((found++)) || true
         else
             echo -e "  ${RED}✗${NC} $tier: Not cached"
-            ((missing++))
+            ((missing++)) || true
         fi
     done
-    
+
     # Check optional
     echo ""
     if verify_model "$STT_MODEL" 2>/dev/null; then
-        ((found++))
+        ((found++)) || true
     else
         echo -e "  ${YELLOW}○${NC} STT (Whisper): Not cached (optional)"
     fi
-    
+
     if verify_model "$TTS_MODEL" 2>/dev/null; then
-        ((found++))
+        ((found++)) || true
     else
         echo -e "  ${YELLOW}○${NC} TTS (Kokoro): Not cached (optional)"
     fi

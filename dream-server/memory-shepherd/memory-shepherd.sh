@@ -1,7 +1,24 @@
 #!/bin/bash
 # memory-shepherd.sh — Periodic memory baseline reset for LLM agents
 # Usage: memory-shepherd.sh [agent-name|all]
-set -uo pipefail
+set -euo pipefail
+
+# Cross-platform stat helpers — BSD (Darwin) / GNU diverge on -c vs -f
+_stat_mtime() {
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        stat -f %m "$1"
+    else
+        stat -c %Y "$1"
+    fi
+}
+
+_stat_size() {
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        stat -f %z "$1"
+    else
+        stat -c %s "$1"
+    fi
+}
 
 TIMESTAMP=$(date '+%Y-%m-%d_%H%M')
 LOCKFILE=/tmp/memory-shepherd.lock
@@ -17,7 +34,7 @@ cleanup_lock() { rm -f "$LOCKFILE"; }
 trap cleanup_lock EXIT
 
 if [ -f "$LOCKFILE" ]; then
-    lock_age=$(( $(date +%s) - $(stat -c %Y "$LOCKFILE") ))
+    lock_age=$(( $(date +%s) - $(_stat_mtime "$LOCKFILE") ))
     if [ "$lock_age" -gt 120 ]; then
         log "WARN: Stale lock (age: ${lock_age}s) — removing"
         rm -f "$LOCKFILE"
@@ -108,15 +125,15 @@ reset_agent() {
     local archive_dir="$4"
 
     if [ ! -f "$baseline" ]; then
-        log "CRITICAL: Baseline missing for $agent at $baseline — aborting"
-        return 1
+        log "ERROR: Baseline missing for $agent at $baseline — skipping"
+        return 0
     fi
 
     local baseline_size
-    baseline_size=$(stat -c %s "$baseline")
+    baseline_size=$(_stat_size "$baseline")
     if [ "$baseline_size" -lt "$MIN_BASELINE_SIZE" ]; then
-        log "CRITICAL: Baseline for $agent is suspiciously small (${baseline_size} bytes, min: ${MIN_BASELINE_SIZE}) — aborting"
-        return 1
+        log "ERROR: Baseline for $agent is suspiciously small (${baseline_size} bytes, min: ${MIN_BASELINE_SIZE}) — skipping"
+        return 0
     fi
 
     if [ ! -f "$memory_file" ]; then
@@ -126,7 +143,7 @@ reset_agent() {
     fi
 
     local memory_size
-    memory_size=$(stat -c %s "$memory_file")
+    memory_size=$(_stat_size "$memory_file")
     if [ "$memory_size" -gt "$MAX_MEMORY_SIZE" ]; then
         log "WARN: Memory file for $agent is ${memory_size} bytes (over limit) — forcing reset"
     fi
@@ -172,15 +189,15 @@ reset_remote_agent() {
     local archive_dir="$6"
 
     if [ ! -f "$baseline" ]; then
-        log "CRITICAL: Baseline missing for $agent at $baseline — aborting"
-        return 1
+        log "ERROR: Baseline missing for $agent at $baseline — skipping"
+        return 0
     fi
 
     local baseline_size
-    baseline_size=$(stat -c %s "$baseline")
+    baseline_size=$(_stat_size "$baseline")
     if [ "$baseline_size" -lt "$MIN_BASELINE_SIZE" ]; then
-        log "CRITICAL: Baseline for $agent is suspiciously small (${baseline_size} bytes, min: ${MIN_BASELINE_SIZE}) — aborting"
-        return 1
+        log "ERROR: Baseline for $agent is suspiciously small (${baseline_size} bytes, min: ${MIN_BASELINE_SIZE}) — skipping"
+        return 0
     fi
 
     # Fetch current memory from remote
@@ -192,7 +209,7 @@ reset_remote_agent() {
     fi
 
     local memory_size
-    memory_size=$(stat -c %s "$tmpfile")
+    memory_size=$(_stat_size "$tmpfile")
     if [ "$memory_size" -gt "$MAX_MEMORY_SIZE" ]; then
         log "WARN: Memory file for $agent is ${memory_size} bytes (over limit) — forcing reset"
     fi
@@ -245,7 +262,7 @@ process_agent() {
 
     if [ -z "$baseline_name" ]; then
         log "ERROR: No baseline defined for agent '$agent' — skipping"
-        return 1
+        return 0
     fi
 
     local baseline_path="$BASELINE_DIR/$baseline_name"
@@ -260,14 +277,14 @@ process_agent() {
 
         if [ -z "$remote_memory" ]; then
             log "ERROR: remote_host set for '$agent' but no remote_memory — skipping"
-            return 1
+            return 0
         fi
 
         reset_remote_agent "$agent" "$remote_host" "$remote_user" "$remote_memory" "$baseline_path" "$archive_path"
     else
         if [ -z "$memory_file" ]; then
             log "ERROR: No memory_file defined for agent '$agent' — skipping"
-            return 1
+            return 0
         fi
 
         reset_agent "$agent" "$memory_file" "$baseline_path" "$archive_path"
@@ -313,7 +330,7 @@ find "$ARCHIVE_DIR" -name "*.md" -mtime +"$ARCHIVE_RETENTION_DAYS" -delete 2>/de
 
 # Rotate log if over 1MB
 local_log="$ARCHIVE_DIR/reset.log"
-if [ -f "$local_log" ] && [ "$(stat -c %s "$local_log" 2>/dev/null || echo 0)" -gt 1048576 ]; then
+if [ -f "$local_log" ] && [ "$(_stat_size "$local_log" 2>/dev/null || echo 0)" -gt 1048576 ]; then
     mv "$local_log" "$local_log.old"
     log "Rotated log file"
 fi

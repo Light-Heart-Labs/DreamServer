@@ -2,11 +2,17 @@
 
 **Track every token, every dollar, every LLM call.**
 
-Token Spy is a transparent proxy that sits between your applications and LLM APIs. It logs every request, tracks token usage, and shows real-time cost analytics — without changing your code.
+> **Prototype / incubator track**
+>
+> This `resources/products/token-spy/` subtree documents the broader Token Spy product prototype and Phase 1 platform work. It does **not** describe the exact shipped Dream Server extension in `dream-server/extensions/services/token-spy/`.
+>
+> The shipped Dream Server extension currently uses an authenticated-proxy model. Use the extension docs there for production behavior and operator guidance.
+
+This prototype track explores a richer Token Spy platform that sits between your applications and LLM APIs, logs every request, and shows real-time cost analytics.
 
 ## Features
 
-- **Zero code changes** — Drop-in proxy, just point your API base URL
+- **Prototype drop-in proxy vision** — point your API base URL at Token Spy
 - **Multi-provider** — OpenAI, Anthropic, any OpenAI-compatible API
 - **Real-time dashboard** — Live token counts, costs, and request history
 - **Cost tracking** — Per-model pricing with daily aggregates
@@ -66,11 +72,11 @@ Point your LLM client to Token Spy instead of the provider directly:
 # Before
 client = OpenAI(api_key="sk-...", base_url="https://api.openai.com/v1")
 
-# After — just change the base_url
+# After — prototype target state, just change the base_url
 client = OpenAI(api_key="sk-...", base_url="http://localhost:8080/v1")
 ```
 
-Token Spy transparently forwards requests and logs everything to TimescaleDB.
+In this prototype track, Token Spy forwards requests and logs everything to TimescaleDB.
 
 ## Configuration
 
@@ -137,7 +143,7 @@ openssl rand -base64 32
 ```
 
 **Components:**
-- **Proxy** (`:8080`): Transparent LLM API interceptor
+- **Proxy** (`:8080`): LLM API interceptor for the prototype stack
 - **API** (`:8000`): FastAPI backend for dashboard data
 - **Dashboard** (`:3001`): React frontend for analytics
 - **TimescaleDB**: Time-series database for metrics

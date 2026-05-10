@@ -111,7 +111,7 @@ jobs:
         if: |
           steps.fork_check.outputs.is_fork != 'true' &&
           (steps.pr_size.outputs.skip_review == 'false' || contains(github.event.pull_request.labels.*.name, 'force-review'))
-        uses: anthropics/claude-code-action@905d4eb99ab3d43143d74fb0dcae537f29ac330a # v1
+        uses: anthropics/claude-code-action@9db782c3a17ef2bfc274cd17411bc3e0a5ba1345 # v1
         with:
           claude_args: |
             code-review --comment \
@@ -219,7 +219,7 @@ jobs:
 
     steps:
       - name: Post high-stakes notice
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -325,7 +325,7 @@ jobs:
 
       - name: Run Claude Code Review with write permissions
         id: review
-        uses: anthropics/claude-code-action@905d4eb99ab3d43143d74fb0dcae537f29ac330a # v1
+        uses: anthropics/claude-code-action@9db782c3a17ef2bfc274cd17411bc3e0a5ba1345 # v1
         with:
           claude_args: |
             code-review \
@@ -421,7 +421,7 @@ jobs:
 
       - name: Comment on original PR
         if: steps.create_pr.outputs.pull-request-number
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -460,7 +460,7 @@ jobs:
 
     steps:
       - name: Post security notice
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |

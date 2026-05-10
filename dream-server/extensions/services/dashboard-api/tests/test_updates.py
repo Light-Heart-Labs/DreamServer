@@ -229,8 +229,9 @@ def test_update_dry_run_with_env_and_version(test_client, tmp_path, monkeypatch)
 
     monkeypatch.setattr(updates_mod, "INSTALL_DIR", str(install_dir))
 
-    # Mock urllib so we do not hit GitHub
-    with patch("urllib.request.urlopen", side_effect=OSError("mocked")):
+    # Regression for #540: dry-run uses httpx async — mock at the httpx layer, not urllib.
+    with patch("routers.updates.httpx.AsyncClient.get",
+               side_effect=httpx.ConnectError("mocked network failure")):
         resp = test_client.get("/api/update/dry-run", headers=test_client.auth_headers)
 
     assert resp.status_code == 200
@@ -257,7 +258,8 @@ def test_update_dry_run_version_from_version_file(test_client, tmp_path, monkeyp
 
     monkeypatch.setattr(updates_mod, "INSTALL_DIR", str(install_dir))
 
-    with patch("urllib.request.urlopen", side_effect=OSError("mocked")):
+    with patch("routers.updates.httpx.AsyncClient.get",
+               side_effect=httpx.ConnectError("mocked network failure")):
         resp = test_client.get("/api/update/dry-run", headers=test_client.auth_headers)
 
     assert resp.status_code == 200
@@ -275,7 +277,8 @@ def test_update_dry_run_version_from_json_version_file(test_client, tmp_path, mo
 
     monkeypatch.setattr(updates_mod, "INSTALL_DIR", str(install_dir))
 
-    with patch("urllib.request.urlopen", side_effect=OSError("mocked")):
+    with patch("routers.updates.httpx.AsyncClient.get",
+               side_effect=httpx.ConnectError("mocked network failure")):
         resp = test_client.get("/api/update/dry-run", headers=test_client.auth_headers)
 
     assert resp.status_code == 200
@@ -299,7 +302,8 @@ def test_update_dry_run_reads_compose_images(test_client, tmp_path, monkeypatch)
     (install_dir / "docker-compose.base.yml").write_text(compose_content)
     monkeypatch.setattr(updates_mod, "INSTALL_DIR", str(install_dir))
 
-    with patch("urllib.request.urlopen", side_effect=OSError("mocked")):
+    with patch("routers.updates.httpx.AsyncClient.get",
+               side_effect=httpx.ConnectError("mocked network failure")):
         resp = test_client.get("/api/update/dry-run", headers=test_client.auth_headers)
 
     assert resp.status_code == 200
@@ -316,7 +320,8 @@ def test_update_dry_run_no_files(test_client, tmp_path, monkeypatch):
     install_dir.mkdir()
     monkeypatch.setattr(updates_mod, "INSTALL_DIR", str(install_dir))
 
-    with patch("urllib.request.urlopen", side_effect=OSError("mocked")):
+    with patch("routers.updates.httpx.AsyncClient.get",
+               side_effect=httpx.ConnectError("mocked network failure")):
         resp = test_client.get("/api/update/dry-run", headers=test_client.auth_headers)
 
     assert resp.status_code == 200

@@ -95,6 +95,115 @@ if (-not $preflight_docker.WSL2Backend) {
     Write-AIWarn "--Force specified, continuing without confirmed WSL2 backend."
 }
 
+# ── Filesystem POSIX-permission check ────────────────────────────────────────
+# Phase 06 (.env generation) writes secrets and relies on filesystem ACLs.
+# exFAT and FAT32 cannot represent per-user permissions at all, so the
+# secrets file ends up readable by every account on the machine. Refuse
+# install up front so the user can choose an NTFS/ReFS path. NTFS is fine
+# from native Windows; we only flag NTFS as fatal when the install path is
+# inside a 9p/DrvFs WSL mount (rare for this PowerShell installer, but kept
+# for safety when somebody runs install.ps1 from inside a WSL shell).
+$_fsProbe = $installDir
+while ($_fsProbe -and -not (Test-Path -LiteralPath $_fsProbe)) {
+    $_fsProbe = Split-Path -Parent $_fsProbe
+}
+if (-not $_fsProbe) { $_fsProbe = $installDir }
+
+$_fsType = ""
+try {
+    $_di = [System.IO.DriveInfo]::new($_fsProbe)
+    $_fsType = $_di.DriveFormat
+} catch {
+    # Path is on a non-Windows mount (e.g. WSL 9p) — DriveInfo throws.
+    $_fsType = ""
+}
+
+# WSL detection (when running install.ps1 from inside WSL)
+$_isWslPath = $false
+if ($_fsProbe -match "^(?i)/mnt/[a-z]/" -or $env:WSL_DISTRO_NAME) {
+    $_isWslPath = $true
+}
+
+Write-InfoBox "Filesystem:" $(if ($_fsType) { $_fsType } else { "unknown" })
+
+$_fsFatal = $false
+switch -Regex ($_fsType) {
+    "^(exFAT|FAT32|FAT)$" { $_fsFatal = $true }
+    "^NTFS$"              { if ($_isWslPath) { $_fsFatal = $true } }
+}
+
+if ($_fsFatal) {
+    Write-AIError "INSTALL_DIR ($installDir) is on a $_fsType filesystem."
+    Write-AIError "Dream Server stores secrets in .env and depends on filesystem"
+    Write-AIError "permissions. $_fsType cannot represent per-user permissions,"
+    Write-AIError "which would leave secrets readable by every account on this machine."
+    Write-AI "  Pick a path on an NTFS/ReFS volume (e.g. C:\Users\<you>\dream-server) and re-run."
+    exit 1
+}
+Write-AISuccess "Filesystem supports POSIX-style permissions"
+
+# Networked filesystem advisory (warn-only)
+# NTFS ACLs on a mapped network drive (SMB/CIFS) or a UNC share are enforced
+# by the SERVER, not this client. chmod-style local permission bits and any
+# ACLs we set are advisory; another client of the same share may read .env
+# regardless of how this Windows install enforces ACLs locally. Warn-only -
+# installs to network homes are common and not always insecure.
+$_fsNetworked = $false
+$_fsNetworkType = ""
+try {
+    if ($installDir -match '^\\\\') {
+        # UNC path - \\server\share\... - always networked. DriveInfo would
+        # throw for these, so check the path shape first.
+        $_fsNetworked = $true
+        $_fsNetworkType = "UNC share"
+    } elseif ($_di -and $_di.DriveType -eq 'Network') {
+        # Mapped drive - DriveInfo.DriveType reports Network for SMB-mapped
+        # drive letters (Z:\ pointing at \\server\share).
+        $_fsNetworked = $true
+        $_fsNetworkType = "mapped network drive"
+    }
+} catch {
+    # Same graceful-degradation pattern as the FATAL detection above -
+    # if we can't determine drive type, skip the warning silently.
+    $_fsNetworked = $false
+}
+
+if ($_fsNetworked) {
+    Write-AIWarn "INSTALL_DIR ($installDir) is on a $_fsNetworkType."
+    Write-AIWarn ".env permissions are advisory - actual access control is governed by the share's ACL on the server."
+    Write-AIWarn "If this share is exposed to other clients, sensitive credentials may be readable from those hosts."
+}
+
+# ── Docker Desktop file-sharing allowlist check ──────────────────────────────
+# Bind-mounting a path outside the Docker Desktop file-sharing list fails at
+# `docker compose up` with a cryptic OCI error. Probe with a throwaway alpine
+# container so we surface a clear message before any compose work starts.
+$_shareOk = $true
+$_shareErr = ""
+try {
+    # PowerShell -v argument needs careful quoting for paths with spaces.
+    $_probeOut = & docker run --rm -v "${_fsProbe}:/check:ro" alpine true 2>&1
+    $_probeText = ($_probeOut -join "`n")
+    if ($_probeText -match "not shared from the host|Mounts denied|file sharing|filesharing") {
+        $_shareOk = $false
+        $_shareErr = $_probeText
+    }
+} catch {
+    $_shareOk = $false
+    $_shareErr = $_.Exception.Message
+}
+if (-not $_shareOk) {
+    Write-AIError "Docker Desktop cannot bind-mount $installDir."
+    Write-AIError "Add the path to Docker Desktop > Settings > Resources > File Sharing,"
+    Write-AIError "apply, then re-run this installer."
+    if ($_shareErr) {
+        Write-AI "  Probe output:"
+        $_shareErr -split "`n" | ForEach-Object { Write-Host "    $_" }
+    }
+    exit 1
+}
+Write-AISuccess "Docker Desktop file sharing OK"
+
 # ── Initial disk space check ─────────────────────────────────────────────────
 # 20 GB minimum before model size is known (tier-aware check happens in phase 04).
 $_disk = Test-DiskSpace -Path $installDir -RequiredGB 20

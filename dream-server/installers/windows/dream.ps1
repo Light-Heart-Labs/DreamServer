@@ -300,12 +300,16 @@ function Start-NativeInferenceServer {
     $backend = Get-NativeInferenceBackend
     $envVars = Read-DreamEnv
 
+    # Honour the unified BIND_ADDRESS knob (PR #964); empty/missing → loopback.
+    $bindAddr = $envVars["BIND_ADDRESS"]
+    if ([string]::IsNullOrWhiteSpace($bindAddr)) { $bindAddr = "127.0.0.1" }
+
     if ($backend -eq "lemonade") {
         $modelsDir = Join-Path (Join-Path $InstallDir "data") "models"
         $lemonadeArgs = @(
             "serve",
             "--port", "$($script:LEMONADE_PORT)",
-            "--host", "0.0.0.0",
+            "--host", $bindAddr,
             "--no-tray",
             "--llamacpp", "vulkan",
             "--extra-models-dir", $modelsDir
@@ -347,11 +351,15 @@ function Start-NativeInferenceServer {
 
         $llamaArgs = @(
             "--model", $modelPath,
-            "--host", "0.0.0.0",
+            "--host", $bindAddr,
             "--port", "8080",
             "--n-gpu-layers", "999",
             "--ctx-size", $ctxSize
         )
+        if ($envVars["LLAMA_ARG_FLASH_ATTN"]) { $llamaArgs += @("--flash-attn", $envVars["LLAMA_ARG_FLASH_ATTN"]) }
+        if ($envVars["LLAMA_ARG_CACHE_TYPE_K"]) { $llamaArgs += @("--cache-type-k", $envVars["LLAMA_ARG_CACHE_TYPE_K"]) }
+        if ($envVars["LLAMA_ARG_CACHE_TYPE_V"]) { $llamaArgs += @("--cache-type-v", $envVars["LLAMA_ARG_CACHE_TYPE_V"]) }
+        if ($envVars["LLAMA_ARG_N_CPU_MOE"]) { $llamaArgs += @("--n-cpu-moe", $envVars["LLAMA_ARG_N_CPU_MOE"]) }
 
         $pidDir = Split-Path $script:INFERENCE_PID_FILE
         New-Item -ItemType Directory -Path $pidDir -Force | Out-Null

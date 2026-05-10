@@ -45,12 +45,15 @@ TESTS_FAILED=0
 
 pass() {
     echo -e "${GREEN}✓${NC} $1"
-    ((TESTS_PASSED++))
+    # Arithmetic expansion (not `((...))`) — the compound form returns
+    # exit 1 when the pre-increment value is 0, which would trip `set -e`
+    # on the first pass/fail and abort the script before any summary.
+    TESTS_PASSED=$((TESTS_PASSED + 1))
 }
 
 fail() {
     echo -e "${RED}✗${NC} $1"
-    ((TESTS_FAILED++))
+    TESTS_FAILED=$((TESTS_FAILED + 1))
 }
 
 warn() {
@@ -62,8 +65,18 @@ test_llm_functional() {
     echo ""
     echo "> Testing LLM Functional Generation"
 
-    local model_id
-    model_id=$(curl -s --max-time 10 "$LLM_URL/v1/models" 2>/dev/null | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+    # The grep-based extraction pipelines in this script may legitimately
+    # produce zero matches (LLM/TTS/embeddings/whisper offline or returning
+    # unexpected payload). Under `set -euo pipefail` such a no-match would
+    # abort the script before the `[[ -z ... ]]` guard below can treat it
+    # as a test failure. Using `if ! VAR=$(...)` keeps the set -e safety
+    # net engaged everywhere else; `set -e` is disabled only for the
+    # evaluation of the condition (per bash spec), so a failed pipeline
+    # leaves VAR empty and the explicit `fail` path below runs.
+    local model_id=""
+    if ! model_id=$(curl -s --max-time 10 "$LLM_URL/v1/models" 2>/dev/null | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4); then
+        model_id=""
+    fi
     model_id="${model_id:-local}"
 
     local prompt="What is 2+2? Answer with just the number."
@@ -80,8 +93,10 @@ test_llm_functional() {
         return 1
     fi
 
-    local content
-    content=$(echo "$response" | grep -oE '"content":[[:space:]]*"[^"]+"' | head -1 | cut -d'"' -f4)
+    local content=""
+    if ! content=$(echo "$response" | grep -oE '"content":[[:space:]]*"[^"]+"' | head -1 | cut -d'"' -f4); then
+        content=""
+    fi
 
     if [[ -z "$content" ]]; then
         fail "LLM returned empty content"
@@ -176,8 +191,10 @@ test_embeddings_functional() {
     
     # Check if response contains array of numbers
     if echo "$response" | grep -qE '\[\s*-?[0-9]+\.[0-9]+'; then
-        local vector_len
-        vector_len=$(echo "$response" | grep -oE '-?[0-9]+\.[0-9]+' | wc -l)
+        local vector_len=0
+        if ! vector_len=$(echo "$response" | grep -oE '-?[0-9]+\.[0-9]+' | wc -l); then
+            vector_len=0
+        fi
         pass "Embeddings generates vectors ($vector_len dimensions)"
     else
         fail "Embeddings did not return valid vectors"
@@ -226,8 +243,10 @@ test_whisper_functional() {
         return 1
     fi
     
-    local transcription
-    transcription=$(echo "$response" | grep -oE '"text":[[:space:]]*"[^"]+"' | head -1 | cut -d'"' -f4)
+    local transcription=""
+    if ! transcription=$(echo "$response" | grep -oE '"text":[[:space:]]*"[^"]+"' | head -1 | cut -d'"' -f4); then
+        transcription=""
+    fi
     
     if [[ -z "$transcription" ]]; then
         fail "Whisper returned empty transcription"
@@ -248,10 +267,19 @@ echo "  DREAM SERVER - FUNCTIONAL TESTS"
 echo "  Tests actual functionality, not ports"
 echo "========================================"
 
+# Each test returns 1 on failure via its internal `fail` call; we must not
+# let `set -e` short-circuit the remaining tests or skip the summary. The
+# TESTS_PASSED / TESTS_FAILED counters are updated inside pass/fail and
+# drive the final exit code below, so suspending strict mode for exactly
+# this block is the explicit expression of "errors here are accounted for."
+# (CLAUDE.md forbids `|| true` / silent swallow; this bounded toggle makes
+# the intent visible instead of hiding it behind a trailing `|| true`.)
+set +e
 test_llm_functional
 test_tts_functional
 test_embeddings_functional
 test_whisper_functional
+set -e
 
 echo ""
 echo "========================================"

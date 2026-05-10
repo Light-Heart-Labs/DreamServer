@@ -102,6 +102,29 @@ class TestGetGpuInfoNvidia:
         assert info.memory_used_mb == 2048 + 4096
         assert info.memory_total_mb == 24564 * 2
 
+    def test_unified_memory_fallback_for_na_memory(self, monkeypatch):
+        # GB10 / GB200 unified-memory: nvidia-smi reports [N/A] for memory.
+        csv = "NVIDIA GB10, [N/A], [N/A], 6, 43, 8.2"
+        monkeypatch.setattr("gpu.run_command", lambda cmd, **kw: (True, csv))
+        monkeypatch.setattr("gpu._read_meminfo_mb", lambda: (12000, 124000))
+
+        info = get_gpu_info_nvidia()
+        assert info is not None
+        assert info.name == "NVIDIA GB10"
+        assert info.memory_used_mb == 12000
+        assert info.memory_total_mb == 124000
+        assert info.memory_type == "unified"
+        assert info.utilization_percent == 6
+        assert info.temperature_c == 43
+        assert info.power_w == 8.2
+
+    def test_unified_memory_fallback_skips_when_meminfo_unavailable(self, monkeypatch):
+        csv = "NVIDIA GB10, [N/A], [N/A], 6, 43, 8.2"
+        monkeypatch.setattr("gpu.run_command", lambda cmd, **kw: (True, csv))
+        monkeypatch.setattr("gpu._read_meminfo_mb", lambda: None)
+
+        assert get_gpu_info_nvidia() is None
+
 
 # --- get_gpu_info_apple (mock subprocess) ---
 

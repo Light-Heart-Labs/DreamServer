@@ -1,18 +1,22 @@
 # Token Spy Phase 1 Architecture
 
-**Status:** Implementation Complete  
-**Date:** 2026-02-15  
+> **Prototype / incubator track**
+>
+> This document describes the Phase 1 prototype work under `resources/products/token-spy/`. It does **not** represent the currently shipped Dream Server extension in `dream-server/extensions/services/token-spy/`.
+
+**Status:** Prototype Complete
+**Date:** 2026-02-15
 **Owner:** Android-17
 
 ---
 
 ## Overview
 
-Phase 1 transforms Token Spy from a personal SQLite-based tool into a production-ready, multi-tenant, configuration-driven proxy system backed by TimescaleDB.
+Phase 1 transforms Token Spy from a personal SQLite-based tool into a prototype multi-tenant, configuration-driven proxy system backed by TimescaleDB.
 
 ---
 
-## Components Delivered
+## Prototype Components Delivered
 
 ### 1. Provider Plugin System (Configuration-Driven)
 

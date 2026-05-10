@@ -123,6 +123,7 @@ async def run_setup_diagnostics(api_key: str = Depends(verify_api_key)):
     if not script_path.exists():
         async def error_stream():
             yield "Diagnostic script not found. Running basic connectivity tests...\n"
+            all_ok = True
             async with aiohttp.ClientSession() as session:
                 services = [
                     (cfg.get("name", sid), f"http://{cfg.get('host', sid)}:{cfg.get('port', 80)}{cfg.get('health', '/')}")
@@ -131,11 +132,20 @@ async def run_setup_diagnostics(api_key: str = Depends(verify_api_key)):
                 for name, url in services:
                     try:
                         async with session.get(url, timeout=5) as resp:
-                            status = "\u2713" if resp.status == 200 else "\u2717"
-                            yield f"{status} {name}: {resp.status}\n"
+                            if resp.status == 200:
+                                yield f"\u2713 {name}: {resp.status}\n"
+                            else:
+                                yield f"\u2717 {name}: {resp.status}\n"
+                                all_ok = False
                     except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as e:
                         yield f"\u2717 {name}: {e}\n"
-            yield "\nSetup complete!\n"
+                        all_ok = False
+            # Emit trailer + sentinel in a single chunk (see run_tests() for
+            # why separate yields drop the sentinel at the Starlette boundary).
+            trailer = "All tests passed!" if all_ok else "Some tests failed."
+            result = "PASS" if all_ok else "FAIL"
+            rc = 0 if all_ok else 1
+            yield f"\n{trailer}\n__DREAM_RESULT__:{result}:{rc}\n"
         return StreamingResponse(error_stream(), media_type="text/plain")
 
     async def run_tests():
@@ -144,10 +154,32 @@ async def run_setup_diagnostics(api_key: str = Depends(verify_api_key)):
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         )
         try:
-            async for line in process.stdout:
-                yield line.decode()
-            await process.wait()
-            yield f"\n{'All tests passed!' if process.returncode == 0 else 'Some tests failed.'}\n"
+            try:
+                async for line in process.stdout:
+                    yield line.decode()
+                await process.wait()
+                # Emit the human-readable trailer AND the machine-readable sentinel
+                # as a SINGLE chunk. Starlette's StreamingResponse finalizes the
+                # HTTP stream as soon as the async generator exits; when trailer
+                # and sentinel are separate yields, the final sentinel bytes have
+                # been observed to never reach the client (the generator yields
+                # them but the transport drops the last chunk during close).
+                # Combining into one yield guarantees both land on the wire.
+                trailer = "All tests passed!" if process.returncode == 0 else "Some tests failed."
+                status = "PASS" if process.returncode == 0 else "FAIL"
+                yield f"\n{trailer}\n__DREAM_RESULT__:{status}:{process.returncode}\n"
+            except (OSError, asyncio.CancelledError):
+                # Re-raise cancellation/disconnect — the client is gone, no point
+                # emitting a sentinel into a dead stream and CancelledError must
+                # propagate so the runtime can finalize the task tree.
+                raise
+            except Exception as exc:  # noqa: BLE001 — sentinel contract requires *some* terminal signal
+                # The frontend SetupWizard parser treats absence of a sentinel as
+                # failure, so even when the runner blows up unexpectedly we still
+                # close the stream with a FAIL sentinel rather than leaving the
+                # client to fall back on best-effort log scraping.
+                logger.exception("run_setup_diagnostics generator raised: %s", exc)
+                yield f"\nDiagnostic runner error: {exc}\n__DREAM_RESULT__:FAIL:1\n"
         finally:
             if process.returncode is None:
                 try:

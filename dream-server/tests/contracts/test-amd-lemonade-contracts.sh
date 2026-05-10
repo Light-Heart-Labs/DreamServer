@@ -50,13 +50,14 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 4. LiteLLM AMD overlay blanks LITELLM_MASTER_KEY
+# 4. LiteLLM AMD overlay does NOT unset LITELLM_MASTER_KEY (auth must be enforced)
 # ---------------------------------------------------------------------------
-echo "[contract] LiteLLM auth disabled for AMD"
-if grep -q 'unset LITELLM_MASTER_KEY' extensions/services/litellm/compose.amd.yaml 2>/dev/null; then
-    pass "litellm compose.amd.yaml: LITELLM_MASTER_KEY unset in entrypoint"
+echo "[contract] LiteLLM auth enforced on AMD"
+if grep -qE '^[[:space:]]*unset[[:space:]]+LITELLM_MASTER_KEY' \
+        extensions/services/litellm/compose.amd.yaml 2>/dev/null; then
+    fail "litellm compose.amd.yaml: 'unset LITELLM_MASTER_KEY' is an auth bypass — must be removed"
 else
-    fail "litellm compose.amd.yaml: must unset LITELLM_MASTER_KEY (empty string still enables auth)"
+    pass "litellm compose.amd.yaml: no 'unset LITELLM_MASTER_KEY' (auth enforced)"
 fi
 
 # ---------------------------------------------------------------------------

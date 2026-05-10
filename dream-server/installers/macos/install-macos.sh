@@ -111,6 +111,7 @@ source "${LIB_DIR}/constants.sh"
 source "${LIB_DIR}/ui.sh"
 source "${LIB_DIR}/tier-map.sh"
 source "${LIB_DIR}/detection.sh"
+source "${LIB_DIR}/preflight-fs.sh"
 source "${LIB_DIR}/env-generator.sh"
 
 # ── File-local helpers ──
@@ -190,6 +191,49 @@ if ! $DOCKER_RUNNING; then
     exit 1
 fi
 ai_ok "Docker Desktop running (v${DOCKER_VERSION})"
+
+# Filesystem POSIX-permission check
+# The .env file (chmod 600) lives at INSTALL_DIR; a non-POSIX FS makes that
+# a silent no-op and leaks secrets. Block install before any directory
+# creation so the user can pick a different path.
+test_install_dir_filesystem "$INSTALL_DIR"
+info_box "Filesystem:" "${INSTALL_FS_TYPE}"
+if $INSTALL_FS_FATAL; then
+    ai_err "INSTALL_DIR (${INSTALL_DIR}) is on a ${INSTALL_FS_TYPE} filesystem."
+    ai_err "Dream Server requires a POSIX-permission filesystem (apfs/hfs) so .env"
+    ai_err "secrets can be locked down with chmod 600. ${INSTALL_FS_TYPE} silently"
+    ai_err "ignores chmod/chown, leaving secrets world-readable."
+    ai "Pick a path on your APFS system volume (e.g. ~/dream-server) and re-run."
+    exit 1
+fi
+ai_ok "Filesystem supports POSIX permissions"
+
+# Networked-filesystem advisory (warn-only).
+# chmod 600 still applies on NFS/SMB/AFP, but the actual access control is
+# enforced server-side by the share's ACL — other clients with access to the
+# share may read .env regardless of local permissions.
+if [[ "${INSTALL_FS_NETWORKED:-false}" == "true" ]]; then
+    ai_warn "INSTALL_DIR ($INSTALL_DIR) is on a networked filesystem ($INSTALL_FS_TYPE)."
+    ai_warn ".env permissions (chmod 600) are advisory — actual access control is governed by the share's ACL on the server."
+    ai_warn "If this share is exposed to other clients, sensitive credentials may be readable from those hosts."
+fi
+
+# Docker Desktop file-sharing allowlist check
+# Bind-mounts of paths outside the allowlist fail with cryptic OCI errors at
+# `docker compose up`. Probe with a throwaway container so we surface a clear
+# message before any compose work starts.
+test_docker_desktop_sharing "$INSTALL_DIR"
+if ! $DOCKER_SHARE_OK; then
+    ai_err "Docker Desktop cannot bind-mount ${INSTALL_DIR}."
+    ai_err "Add the path to Docker Desktop > Settings > Resources > File Sharing,"
+    ai_err "apply, then re-run this installer."
+    if [[ -n "$DOCKER_SHARE_ERR" ]]; then
+        ai "Probe output:"
+        printf '%s\n' "$DOCKER_SHARE_ERR" | sed 's/^/    /'
+    fi
+    exit 1
+fi
+ai_ok "Docker Desktop file sharing OK"
 
 # Disk space
 test_disk_space "$INSTALL_DIR" 30
@@ -393,6 +437,9 @@ else
     mkdir -p "${INSTALL_DIR}/data/qdrant"
     mkdir -p "${INSTALL_DIR}/data/models"
     mkdir -p "${INSTALL_DIR}/data/privacy-shield"
+    mkdir -p "${INSTALL_DIR}/data/dreamforge"
+    mkdir -p "${INSTALL_DIR}/data/ape"
+    mkdir -p "${INSTALL_DIR}/data/token-spy"
     mkdir -p "${INSTALL_DIR}/data/langfuse/postgres"
     mkdir -p "${INSTALL_DIR}/data/langfuse/clickhouse"
     mkdir -p "${INSTALL_DIR}/data/langfuse/redis"
@@ -662,14 +709,30 @@ else
             *)    _reasoning_fmt="$_reasoning" ;;
         esac
 
-        "$LLAMA_SERVER_BIN" \
-            --host 0.0.0.0 --port 8080 \
-            --model "$MODEL_FULL_PATH" \
-            --ctx-size "$MAX_CONTEXT" \
-            --n-gpu-layers 999 \
-            --reasoning-format "$_reasoning_fmt" \
-            --metrics \
-            > "$LLAMA_SERVER_LOG" 2>&1 &
+        # Honour the unified BIND_ADDRESS knob (PR #964) so --lan / dashboard
+        # toggle / manual edit reach the native llama-server too. Falls back
+        # to loopback when unset (default-secure).
+        _bind=$(grep '^BIND_ADDRESS=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+        [[ -z "$_bind" ]] && _bind="127.0.0.1"
+
+        _flash_attn=$(grep '^LLAMA_ARG_FLASH_ATTN=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+        _cache_type_k=$(grep '^LLAMA_ARG_CACHE_TYPE_K=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+        _cache_type_v=$(grep '^LLAMA_ARG_CACHE_TYPE_V=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+        _n_cpu_moe=$(grep '^LLAMA_ARG_N_CPU_MOE=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+        _llama_args=(
+            --host "$_bind" --port 8080
+            --model "$MODEL_FULL_PATH"
+            --ctx-size "$MAX_CONTEXT"
+            --n-gpu-layers 999
+            --reasoning-format "$_reasoning_fmt"
+            --metrics
+        )
+        [[ -n "$_flash_attn" ]] && _llama_args+=(--flash-attn "$_flash_attn")
+        [[ -n "$_cache_type_k" ]] && _llama_args+=(--cache-type-k "$_cache_type_k")
+        [[ -n "$_cache_type_v" ]] && _llama_args+=(--cache-type-v "$_cache_type_v")
+        [[ -n "$_n_cpu_moe" ]] && _llama_args+=(--n-cpu-moe "$_n_cpu_moe")
+
+        "$LLAMA_SERVER_BIN" "${_llama_args[@]}" > "$LLAMA_SERVER_LOG" 2>&1 &
         LLAMA_PID=$!
         echo "$LLAMA_PID" > "$LLAMA_SERVER_PID_FILE"
 
@@ -681,7 +744,7 @@ else
         while [[ "$WAITED" -lt "$MAX_WAIT" ]]; do
             sleep 2
             WAITED=$((WAITED + 2))
-            if curl -sf --max-time 10 http://localhost:8080/health >/dev/null 2>&1; then
+            if curl -sf --max-time 10 http://127.0.0.1:8080/health >/dev/null 2>&1; then
                 HEALTHY=true
                 break
             fi
@@ -790,6 +853,17 @@ else
 
             REL_PATH="${COMPOSE_PATH#"${INSTALL_DIR}/"}"
             COMPOSE_FLAGS+=("-f" "$REL_PATH")
+
+            # GPU-backend overlay (mirrors resolve-compose-stack.sh discovery).
+            # E.g. extensions/services/litellm/compose.apple.yaml on macOS.
+            # Skipped in cloud mode (CURRENT_BACKEND=none) since no native
+            # GPU/host-gateway patches apply when llama-server runs remotely.
+            if [[ "$CURRENT_BACKEND" != "none" ]]; then
+                GPU_OVERLAY_PATH="${SVC_DIR}compose.${CURRENT_BACKEND}.yaml"
+                if [[ -f "$GPU_OVERLAY_PATH" ]]; then
+                    COMPOSE_FLAGS+=("-f" "${GPU_OVERLAY_PATH#"${INSTALL_DIR}/"}")
+                fi
+            fi
         done
     fi
 
@@ -826,9 +900,32 @@ else
 
     # ── Start Docker services ──
     chapter "STARTING SERVICES"
-    ai "Running: docker compose ${COMPOSE_FLAGS[*]} up -d"
+
+    # ── Rebuild local-built images ─────────────────────────────────────
+    # Mirrors phases/11-services.sh on Linux: local Dockerfiles (dashboard,
+    # dashboard-api, ape, token-spy, privacy-shield, and Apple-Silicon
+    # DreamForge builds) can drift from the baked images, so we always
+    # rebuild without cache before `up -d`.
+    # ComfyUI has no Apple-Silicon variant (only amd/nvidia/multigpu); the
+    # llama-server runs natively on macOS via Metal — neither is built here.
+    ai "Rebuilding local-built images (no-cache)..."
+    _macos_build_services=(dashboard dashboard-api ape token-spy privacy-shield)
+    _dreamforge_pull_policy="$(grep -m1 '^DREAMFORGE_PULL_POLICY=' "${INSTALL_DIR}/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'\''[:space:]' || true)"
+    [[ "$_dreamforge_pull_policy" == "build" ]] && _macos_build_services+=(dreamforge)
+    declare -a _macos_build_pids _macos_build_names
+    for _svc in "${_macos_build_services[@]}"; do
+        docker compose "${COMPOSE_FLAGS[@]}" build --no-cache "$_svc" >> "$DS_LOG_FILE" 2>&1 &
+        _macos_build_pids+=($!)
+        _macos_build_names+=("$_svc")
+    done
+    for _i in "${!_macos_build_pids[@]}"; do
+        wait "${_macos_build_pids[$_i]}" || ai_warn "Build failed for ${_macos_build_names[$_i]} (see $DS_LOG_FILE)"
+    done
+    ai_ok "Local images rebuilt"
+
+    ai "Running: docker compose ${COMPOSE_FLAGS[*]} up -d --remove-orphans --no-build"
     set +o pipefail  # pipefail would abort on compose exit before PIPESTATUS is read; capture it first
-    docker compose "${COMPOSE_FLAGS[@]}" up -d 2>&1 | while IFS= read -r line; do
+    docker compose "${COMPOSE_FLAGS[@]}" up -d --remove-orphans --no-build 2>&1 | while IFS= read -r line; do
         echo "  $line"
     done
     compose_exit="${PIPESTATUS[0]}"
@@ -1053,31 +1150,48 @@ fi
 
 # Health check loop
 ai "Running health checks..."
-MAX_ATTEMPTS=30
+MAX_ATTEMPTS=90   # 90 * 2s = 180s -- covers base compose start_period (60s) + image pull
 ALL_HEALTHY=true
 
-# Parallel arrays (Bash 3.2 compatible -- no associative arrays)
+# Parallel arrays (Bash 3.2 compatible -- no associative arrays).
+# HEALTH_CONTAINERS holds the Docker container name when a service runs in
+# Docker; an empty string means the service is host-native (llama-server
+# runs natively on macOS via Metal; OpenCode is a LaunchAgent). Docker
+# services wait on `docker inspect ... .State.Health.Status == healthy`;
+# host-native services fall back to an HTTP probe on 127.0.0.1.
 HEALTH_NAMES=("LLM (llama-server)" "Chat UI (Open WebUI)")
-HEALTH_URLS=("http://localhost:8080/health" "http://localhost:3000")
-$ENABLE_VOICE && HEALTH_NAMES+=("Whisper (STT)") && HEALTH_URLS+=("http://localhost:9000/health")
-$ENABLE_WORKFLOWS && HEALTH_NAMES+=("n8n (Workflows)") && HEALTH_URLS+=("http://localhost:5678/healthz")
-[[ -x "$OPENCODE_BIN" ]] && HEALTH_NAMES+=("OpenCode (IDE)") && HEALTH_URLS+=("http://localhost:${OPENCODE_PORT}")
+HEALTH_URLS=("http://127.0.0.1:8080/health" "http://127.0.0.1:3000")
+HEALTH_CONTAINERS=("" "dream-webui")
+$ENABLE_VOICE && HEALTH_NAMES+=("Whisper (STT)") && HEALTH_URLS+=("http://127.0.0.1:9000/health") && HEALTH_CONTAINERS+=("dream-whisper")
+$ENABLE_WORKFLOWS && HEALTH_NAMES+=("n8n (Workflows)") && HEALTH_URLS+=("http://127.0.0.1:5678/healthz") && HEALTH_CONTAINERS+=("dream-n8n")
+[[ -x "$OPENCODE_BIN" ]] && HEALTH_NAMES+=("OpenCode (IDE)") && HEALTH_URLS+=("http://127.0.0.1:${OPENCODE_PORT}") && HEALTH_CONTAINERS+=("")
 
 for ((idx=0; idx<${#HEALTH_NAMES[@]}; idx++)); do
     NAME="${HEALTH_NAMES[$idx]}"
     URL="${HEALTH_URLS[$idx]}"
+    CONTAINER="${HEALTH_CONTAINERS[$idx]}"
     HEALTHY=false
 
     for ((attempt=1; attempt<=MAX_ATTEMPTS; attempt++)); do
-        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$URL" 2>/dev/null || echo "000")
-        if [[ "$HTTP_CODE" -ge 200 ]] && [[ "$HTTP_CODE" -lt 400 ]]; then
-            HEALTHY=true
-            break
-        fi
-        # 401/403 means service is responding (auth-protected) -- treat as healthy
-        if [[ "$HTTP_CODE" == "401" ]] || [[ "$HTTP_CODE" == "403" ]]; then
-            HEALTHY=true
-            break
+        if [[ -n "$CONTAINER" ]]; then
+            # Docker service -- wait for the container healthcheck to report healthy.
+            STATUS=$(docker inspect --format '{{.State.Health.Status}}' "$CONTAINER" 2>/dev/null || echo "missing")
+            if [[ "$STATUS" == "healthy" ]]; then
+                HEALTHY=true
+                break
+            fi
+        else
+            # Host-native service -- poll HTTP on 127.0.0.1.
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$URL" 2>/dev/null || echo "000")
+            if [[ "$HTTP_CODE" -ge 200 ]] && [[ "$HTTP_CODE" -lt 400 ]]; then
+                HEALTHY=true
+                break
+            fi
+            # 401/403 means service is responding (auth-protected) -- treat as healthy
+            if [[ "$HTTP_CODE" == "401" ]] || [[ "$HTTP_CODE" == "403" ]]; then
+                HEALTHY=true
+                break
+            fi
         fi
         if (( attempt <= 3 || attempt % 5 == 0 )); then
             ai "  Waiting for ${NAME}... (${attempt}/${MAX_ATTEMPTS})"
@@ -1106,7 +1220,7 @@ if [[ "$ENABLE_VOICE" == "true" ]]; then
     STT_MODEL_ENCODED="${STT_MODEL//\//%2F}"
     # macOS reassigns Whisper to 9100 if port 9000 is in use (AirPlay Receiver).
     WHISPER_PORT_RESOLVED="${WHISPER_PORT:-9000}"
-    WHISPER_URL="http://localhost:${WHISPER_PORT_RESOLVED}"
+    WHISPER_URL="http://127.0.0.1:${WHISPER_PORT_RESOLVED}"
     STT_RECOVERY_CMD="curl --max-time 3600 -X POST ${WHISPER_URL}/v1/models/${STT_MODEL_ENCODED}"
 
     # Step 1: wait briefly for the models API to be ready (max 15s).
@@ -1148,6 +1262,22 @@ if configure_perplexica 3004 "$LLM_MODEL"; then
     ai_ok "Perplexica configured (model: ${LLM_MODEL})"
 else
     ai_warn "Perplexica auto-config skipped -- complete setup at http://localhost:3004"
+fi
+
+# ── Pre-mark setup wizard complete ──
+# The dashboard-api reads ${INSTALL_DIR}/data/config/setup-complete.json
+# (mounted at /data/config/setup-complete.json inside the container) to
+# decide first_run state. Writing this here prevents the wizard from
+# reappearing on every visit after a fresh install. Non-fatal.
+_setup_config_dir="${INSTALL_DIR}/data/config"
+_setup_complete_file="${_setup_config_dir}/setup-complete.json"
+_completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+if mkdir -p "${_setup_config_dir}" 2>/dev/null \
+    && printf '{"completed_at": "%s", "version": "1.0.0"}\n' "${_completed_at}" > "${_setup_complete_file}" 2>/dev/null \
+    && chmod 644 "${_setup_complete_file}" 2>/dev/null; then
+    ai_ok "Setup wizard pre-marked complete"
+else
+    ai_warn "Could not write ${_setup_complete_file} (non-fatal)"
 fi
 
 # ── Success card ──

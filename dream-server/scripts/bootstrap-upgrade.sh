@@ -327,7 +327,7 @@ fi
 # ── Phase 5: Hot-swap llama-server (if running) ──
 # Read OLLAMA_PORT from .env (nohup doesn't inherit env vars from parent)
 if [[ -f "$ENV_FILE" ]]; then
-    OLLAMA_PORT=$(grep -E '^OLLAMA_PORT=' "$ENV_FILE" | cut -d= -f2)
+    OLLAMA_PORT=$(grep -E '^OLLAMA_PORT=' "$ENV_FILE" | cut -d= -f2 | tr -d '"\047\r')
 fi
 
 if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --format '{{.Names}}' 2>/dev/null | grep -q dream-llama-server; then
@@ -336,7 +336,7 @@ if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --f
     # Read GPU backend from .env (needed for health endpoint and restart strategy)
     _gpu_backend=""
     if [[ -f "$ENV_FILE" ]]; then
-        _gpu_backend=$(grep -E '^GPU_BACKEND=' "$ENV_FILE" | cut -d= -f2 | tr -d '"'"'")
+        _gpu_backend=$(grep -E '^GPU_BACKEND=' "$ENV_FILE" | cut -d= -f2 | tr -d '"\047\r')
     fi
 
     # Detect compose files
@@ -402,9 +402,9 @@ if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --f
     # Pick health endpoint based on GPU backend — Lemonade (AMD) serves
     # /api/v1/health, llama.cpp (NVIDIA/Apple/CPU) serves /health.
     if [[ "$_gpu_backend" == "amd" ]]; then
-        _health_url="http://localhost:${OLLAMA_PORT:-8080}/api/v1/health"
+        _health_url="http://127.0.0.1:${OLLAMA_PORT:-8080}/api/v1/health"
     else
-        _health_url="http://localhost:${OLLAMA_PORT:-8080}/health"
+        _health_url="http://127.0.0.1:${OLLAMA_PORT:-8080}/health"
     fi
 
     # Wait for health (up to 5 minutes for the larger model to load)
@@ -439,7 +439,7 @@ if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --f
                     _model_id="extra.${FULL_GGUF_FILE//\"/\\\"}"
                     log "Sending warm-up request to trigger model loading: $_model_id (attempt $_i/60)"
                     if curl -sf --max-time 30 -X POST \
-                        "http://localhost:${OLLAMA_PORT:-8080}/api/v1/chat/completions" \
+                        "http://127.0.0.1:${OLLAMA_PORT:-8080}/api/v1/chat/completions" \
                         -H "Content-Type: application/json" \
                         -d "{\"model\":\"${_model_id}\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],\"max_tokens\":1}" \
                         &>/dev/null; then
@@ -464,19 +464,24 @@ if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --f
         # reference the exact ID, not a wildcard passthrough.
         if $DOCKER_CMD ps --filter name=dream-litellm --format '{{.Names}}' 2>/dev/null | grep -q dream-litellm; then
             log "Updating LiteLLM config for new model: extra.${FULL_GGUF_FILE}"
+            # Read per-install lemonade key from .env; fall back to literal so
+            # older installs without the key still produce a valid config (lemonade
+            # itself ignores the value).
+            LITELLM_LEMONADE_API_KEY=$(grep '^LITELLM_LEMONADE_API_KEY=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d '"\047\r')
+            : "${LITELLM_LEMONADE_API_KEY:=sk-lemonade}"
             cat > "$INSTALL_DIR/config/litellm/lemonade.yaml" << LITELLM_UPGRADE_EOF
 model_list:
   - model_name: default
     litellm_params:
       model: openai/extra.${FULL_GGUF_FILE}
       api_base: http://llama-server:8080/api/v1
-      api_key: sk-lemonade
+      api_key: ${LITELLM_LEMONADE_API_KEY}
 
   - model_name: "*"
     litellm_params:
       model: openai/extra.${FULL_GGUF_FILE}
       api_base: http://llama-server:8080/api/v1
-      api_key: sk-lemonade
+      api_key: ${LITELLM_LEMONADE_API_KEY}
 
 litellm_settings:
   drop_params: true
@@ -563,16 +568,29 @@ elif [[ -f "$INSTALL_DIR/data/.llama-server.pid" ]]; then
                 *)    _reasoning_fmt="$_reasoning" ;;
             esac
 
+            # Honour the unified BIND_ADDRESS knob (PR #964); empty/missing → loopback.
+            _bind=$(grep '^BIND_ADDRESS=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+            [[ -z "$_bind" ]] && _bind="127.0.0.1"
+            _flash_attn=$(grep '^LLAMA_ARG_FLASH_ATTN=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+            _cache_type_k=$(grep '^LLAMA_ARG_CACHE_TYPE_K=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+            _cache_type_v=$(grep '^LLAMA_ARG_CACHE_TYPE_V=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+            _n_cpu_moe=$(grep '^LLAMA_ARG_N_CPU_MOE=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+            _llama_args=(
+                --host "$_bind" --port 8080
+                --model "$_model_path"
+                --ctx-size "$_ctx_size"
+                --n-gpu-layers 999
+                --reasoning-format "$_reasoning_fmt"
+                --metrics
+            )
+            [[ -n "$_flash_attn" ]] && _llama_args+=(--flash-attn "$_flash_attn")
+            [[ -n "$_cache_type_k" ]] && _llama_args+=(--cache-type-k "$_cache_type_k")
+            [[ -n "$_cache_type_v" ]] && _llama_args+=(--cache-type-v "$_cache_type_v")
+            [[ -n "$_n_cpu_moe" ]] && _llama_args+=(--n-cpu-moe "$_n_cpu_moe")
+
             # Relaunch with new model
             log "Starting native llama-server with ${_gguf_file}..."
-            "$LLAMA_SERVER_BIN" \
-                --host 0.0.0.0 --port 8080 \
-                --model "$_model_path" \
-                --ctx-size "$_ctx_size" \
-                --n-gpu-layers 999 \
-                --reasoning-format "$_reasoning_fmt" \
-                --metrics \
-                > "$LLAMA_SERVER_LOG" 2>&1 &
+            "$LLAMA_SERVER_BIN" "${_llama_args[@]}" > "$LLAMA_SERVER_LOG" 2>&1 &
             _new_pid=$!
             echo "$_new_pid" > "$LLAMA_SERVER_PID_FILE"
 
@@ -598,7 +616,7 @@ elif [[ -f "$INSTALL_DIR/data/.llama-server.pid" ]]; then
                 fi
                 if [[ -n "${_old_model_path:-}" && -f "$_old_model_path" ]]; then
                     "$LLAMA_SERVER_BIN" \
-                        --host 0.0.0.0 --port 8080 \
+                        --host "$_bind" --port 8080 \
                         --model "$_old_model_path" \
                         --ctx-size "$_ctx_size" \
                         --n-gpu-layers 999 \

@@ -34,6 +34,31 @@ def _read_sysfs(path: str) -> Optional[str]:
         return None
 
 
+def _read_meminfo_mb() -> Optional[tuple[int, int]]:
+    """Return (used_mb, total_mb) from /proc/meminfo, or None on failure.
+
+    Used as a fallback for unified-memory NVIDIA GPUs (GB10, GB200) where
+    nvidia-smi reports [N/A] for memory.total/memory.used. Mirrors the
+    installer's detection.sh fallback.
+    """
+    try:
+        with open("/proc/meminfo") as f:
+            info = {}
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 2:
+                    info[parts[0].rstrip(":")] = int(parts[1])
+    except OSError:
+        return None
+    total_kb = info.get("MemTotal", 0)
+    avail_kb = info.get("MemAvailable", 0)
+    if total_kb <= 0:
+        return None
+    used_mb = max(0, (total_kb - avail_kb)) // 1024
+    total_mb = total_kb // 1024
+    return used_mb, total_mb
+
+
 def _find_amd_gpu_sysfs() -> Optional[str]:
     """Find the sysfs base path for an AMD GPU device."""
     import glob
@@ -143,6 +168,7 @@ def get_gpu_info_nvidia() -> Optional[GPUInfo]:
 
     try:
         gpus = []
+        any_unified = False
         for line in lines:
             parts = [p.strip() for p in line.split(",")]
             if len(parts) < 5:
@@ -153,12 +179,19 @@ def get_gpu_info_nvidia() -> Optional[GPUInfo]:
                     power_w = round(float(parts[5]), 1)
                 except (ValueError, TypeError):
                     pass
-            # Guard against [N/A] / [Not Supported] — skip row if memory is unavailable
             na_values = ("[N/A]", "[Not Supported]", "N/A", "Not Supported", "")
-            if parts[1] in na_values or parts[2] in na_values:
-                continue
-            mem_used = int(parts[1])
-            mem_total = int(parts[2])
+            # GB10/GB200 unified memory: nvidia-smi reports [N/A] for memory
+            # fields; fall back to /proc/meminfo (mirrors detection.sh).
+            unified = parts[1] in na_values or parts[2] in na_values
+            if unified:
+                fallback = _read_meminfo_mb()
+                if not fallback:
+                    continue
+                mem_used, mem_total = fallback
+                any_unified = True
+            else:
+                mem_used = int(parts[1])
+                mem_total = int(parts[2])
             util = int(parts[3]) if parts[3] not in na_values else 0
             temp = int(parts[4]) if parts[4] not in na_values else 0
             gpus.append({
@@ -173,6 +206,8 @@ def get_gpu_info_nvidia() -> Optional[GPUInfo]:
         if not gpus:
             return None
 
+        memory_type = "unified" if any_unified else "discrete"
+
         if len(gpus) == 1:
             g = gpus[0]
             mem_used, mem_total = g["mem_used"], g["mem_total"]
@@ -184,6 +219,7 @@ def get_gpu_info_nvidia() -> Optional[GPUInfo]:
                 utilization_percent=g["util"],
                 temperature_c=g["temp"],
                 power_w=g["power_w"],
+                memory_type=memory_type,
                 gpu_backend="nvidia",
             )
 
@@ -214,6 +250,7 @@ def get_gpu_info_nvidia() -> Optional[GPUInfo]:
             utilization_percent=avg_util,
             temperature_c=max_temp,
             power_w=total_power,
+            memory_type=memory_type,
             gpu_backend="nvidia",
         )
     except (ValueError, IndexError):
@@ -476,19 +513,27 @@ def get_gpu_info_nvidia_detailed() -> Optional[list[IndividualGPU]]:
         uuid_service_map = _infer_gpu_services_from_processes()
 
     gpus: list[IndividualGPU] = []
+    na_values = ("[N/A]", "[Not Supported]", "N/A", "Not Supported", "")
     for line in lines:
         try:
             parts = [p.strip() for p in line.split(",")]
             if len(parts) < 7:
                 continue
             power_w = None
-            if len(parts) >= 8 and parts[7] not in ("[N/A]", "[Not Supported]", "N/A", "Not Supported", ""):
+            if len(parts) >= 8 and parts[7] not in na_values:
                 try:
                     power_w = round(float(parts[7]), 1)
                 except (ValueError, TypeError):
                     pass
-            mem_used = int(parts[3])
-            mem_total = int(parts[4])
+            # GB10/GB200 unified memory fallback (see _read_meminfo_mb).
+            if parts[3] in na_values or parts[4] in na_values:
+                fallback = _read_meminfo_mb()
+                if not fallback:
+                    continue
+                mem_used, mem_total = fallback
+            else:
+                mem_used = int(parts[3])
+                mem_total = int(parts[4])
             uuid = parts[1]
             gpus.append(IndividualGPU(
                 index=int(parts[0]),

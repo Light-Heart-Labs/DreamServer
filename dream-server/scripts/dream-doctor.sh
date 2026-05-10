@@ -57,8 +57,21 @@ sr_resolve_ports
 _DASHBOARD_PORT="${SERVICE_PORTS[dashboard]:-3001}"
 _WEBUI_PORT="${SERVICE_PORTS[open-webui]:-3000}"
 
-RAM_GB="$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print int($2/1024/1024)}' || echo 0)"
-DISK_GB="$(df -BG "$HOME" 2>/dev/null | tail -1 | awk '{gsub(/G/,"",$4); print int($4)}' || echo 0)"
+# RAM: platform-branch. /proc/meminfo does not exist on macOS; use sysctl.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    RAM_BYTES="$(sysctl -n hw.memsize 2>/dev/null || echo 0)"
+    RAM_GB=$(( RAM_BYTES / 1024 / 1024 / 1024 ))
+else
+    RAM_GB="$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print int($2/1024/1024)}' || echo 0)"
+fi
+# Installer-recorded fallback: if detection returned 0 and .env has HOST_RAM_GB, trust that.
+if (( RAM_GB == 0 )) && [[ -f "$ROOT_DIR/.env" ]]; then
+    _env_ram=$(grep '^HOST_RAM_GB=' "$ROOT_DIR/.env" | cut -d= -f2 | tr -d '"' || true)
+    [[ -n "${_env_ram:-}" ]] && RAM_GB="$_env_ram"
+fi
+
+# Disk: POSIX df -k — works on BSD and GNU identically (df -BG is GNU-only).
+DISK_GB="$(df -k "$HOME" 2>/dev/null | tail -1 | awk '{print int($4/1024/1024)}' || echo 0)"
 
 if [[ -x "$SCRIPT_DIR/scripts/build-capability-profile.sh" ]]; then
     CAP_ENV="$("$SCRIPT_DIR/scripts/build-capability-profile.sh" --output "$CAP_FILE" --env)"
@@ -140,6 +153,45 @@ if [[ "${ENABLE_VOICE:-false}" == "true" ]] && command -v curl >/dev/null 2>&1; 
     fi
 fi
 
+# DGX Spark / GB10 CUDA arch check. Generic llama.cpp CUDA images can run on
+# GB10 while missing sm_121 support, which has been observed to produce
+# syntactically valid but unusable model output. Surface that mismatch in
+# doctor so operators do not have to infer it from llama-server logs.
+DGX_SPARK_GPU="false"
+DGX_SPARK_GPU_NAME=""
+DGX_SPARK_COMPUTE_CAP=""
+LLAMA_CUDA_ARCHS=""
+DGX_SPARK_CUDA_ARCH_STATUS="unknown"
+DGX_SPARK_CUDA_ARCH_MESSAGE=""
+_doctor_gpu_backend="${GPU_BACKEND:-${CAP_LLM_BACKEND:-}}"
+if [[ "$_doctor_gpu_backend" == "nvidia" ]] && command -v nvidia-smi >/dev/null 2>&1; then
+    _dgx_gpu_raw="$(nvidia-smi --query-gpu=name,compute_cap --format=csv,noheader,nounits 2>/dev/null | head -1 || true)"
+    if [[ -n "$_dgx_gpu_raw" ]]; then
+        DGX_SPARK_GPU_NAME="$(echo "$_dgx_gpu_raw" | cut -d',' -f1 | xargs)"
+        DGX_SPARK_COMPUTE_CAP="$(echo "$_dgx_gpu_raw" | cut -d',' -f2 | xargs)"
+        if [[ "$DGX_SPARK_GPU_NAME" == *"GB10"* || "$DGX_SPARK_COMPUTE_CAP" == "12.1" ]]; then
+            DGX_SPARK_GPU="true"
+            if [[ "$DOCKER_DAEMON" == "true" ]] && docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx 'dream-llama-server'; then
+                _llama_arch_line="$(docker logs dream-llama-server 2>&1 | grep 'CUDA : ARCHS =' | tail -1 || true)"
+                LLAMA_CUDA_ARCHS="$(echo "$_llama_arch_line" | sed -n 's/.*CUDA : ARCHS = \([^|]*\).*/\1/p' | xargs)"
+                if [[ -z "$LLAMA_CUDA_ARCHS" ]]; then
+                    DGX_SPARK_CUDA_ARCH_STATUS="unknown"
+                    DGX_SPARK_CUDA_ARCH_MESSAGE="DGX Spark detected, but llama-server CUDA archs were not found in logs."
+                elif [[ ",${LLAMA_CUDA_ARCHS}," == *",1210,"* || ",${LLAMA_CUDA_ARCHS}," == *",121,"* || ",${LLAMA_CUDA_ARCHS}," == *",121a,"* ]]; then
+                    DGX_SPARK_CUDA_ARCH_STATUS="pass"
+                    DGX_SPARK_CUDA_ARCH_MESSAGE="DGX Spark llama-server binary includes sm_121 support."
+                else
+                    DGX_SPARK_CUDA_ARCH_STATUS="warn"
+                    DGX_SPARK_CUDA_ARCH_MESSAGE="DGX Spark detected, but llama-server reports CUDA archs '${LLAMA_CUDA_ARCHS}' without sm_121."
+                fi
+            else
+                DGX_SPARK_CUDA_ARCH_STATUS="unknown"
+                DGX_SPARK_CUDA_ARCH_MESSAGE="DGX Spark detected, but dream-llama-server is not available for CUDA arch inspection."
+            fi
+        fi
+    fi
+fi
+
 # Collect extension diagnostics (wrapped in function to allow local variables)
 collect_extension_diagnostics() {
     # Use outer GPU_BACKEND or default to nvidia (don't make local to avoid set -u issues)
@@ -187,8 +239,15 @@ collect_extension_diagnostics() {
             fi
         fi
 
-        # Check GPU backend compatibility (only if SERVICE_GPU_BACKENDS array exists from PR #357)
-        if declare -p SERVICE_GPU_BACKENDS &>/dev/null; then
+        # Check GPU backend compatibility (only if SERVICE_GPU_BACKENDS array exists from PR #357).
+        # dashboard-api uses GPU_BACKEND=nvidia internally on macOS (see
+        # installers/macos/docker-compose.macos.yml) so service manifests are
+        # discovered. doctor/preflight path doesn't have that workaround, so the
+        # raw gpu_backends check produces false positives for CPU-only services
+        # declaring gpu_backends: [amd, nvidia]. Skip the check on apple — if a
+        # service genuinely needs GPU and isn't available on Apple, it's a
+        # manifest-level concern, not a runtime doctor warning.
+        if [[ "$backend" != "apple" ]] && declare -p SERVICE_GPU_BACKENDS &>/dev/null; then
             local gpu_backends="${SERVICE_GPU_BACKENDS[$sid]:-}"
             if [[ -n "$gpu_backends" && ! " $gpu_backends " =~ " $backend " ]]; then
                 issues+=("gpu_backend_incompatible")
@@ -239,13 +298,13 @@ elif command -v python >/dev/null 2>&1; then
     PYTHON_CMD="python"
 fi
 
-"$PYTHON_CMD" - "$CAP_FILE" "$PREFLIGHT_FILE" "$REPORT_FILE" "$DOCKER_CLI" "$DOCKER_DAEMON" "$COMPOSE_CLI" "$DASHBOARD_HTTP" "$WEBUI_HTTP" "$_DASHBOARD_PORT" "$_WEBUI_PORT" "$EXT_DIAGNOSTICS" "$STT_MODEL_CACHED" "$STT_MODEL_NAME" "$STT_RECOVERY_HINT" <<'PY'
+"$PYTHON_CMD" - "$CAP_FILE" "$PREFLIGHT_FILE" "$REPORT_FILE" "$DOCKER_CLI" "$DOCKER_DAEMON" "$COMPOSE_CLI" "$DASHBOARD_HTTP" "$WEBUI_HTTP" "$_DASHBOARD_PORT" "$_WEBUI_PORT" "$EXT_DIAGNOSTICS" "$STT_MODEL_CACHED" "$STT_MODEL_NAME" "$STT_RECOVERY_HINT" "$DGX_SPARK_GPU" "$DGX_SPARK_GPU_NAME" "$DGX_SPARK_COMPUTE_CAP" "$LLAMA_CUDA_ARCHS" "$DGX_SPARK_CUDA_ARCH_STATUS" "$DGX_SPARK_CUDA_ARCH_MESSAGE" <<'PY'
 import json
 import pathlib
 import sys
 from datetime import datetime, timezone
 
-cap_file, preflight_file, report_file, docker_cli, docker_daemon, compose_cli, dashboard_http, webui_http, dashboard_port, webui_port, ext_diagnostics_json, stt_cached, stt_model_name, stt_recovery = sys.argv[1:]
+cap_file, preflight_file, report_file, docker_cli, docker_daemon, compose_cli, dashboard_http, webui_http, dashboard_port, webui_port, ext_diagnostics_json, stt_cached, stt_model_name, stt_recovery, dgx_spark_gpu, dgx_spark_gpu_name, dgx_spark_compute_cap, llama_cuda_archs, dgx_spark_arch_status, dgx_spark_arch_message = sys.argv[1:]
 
 cap = json.load(open(cap_file, "r", encoding="utf-8"))
 pre = json.load(open(preflight_file, "r", encoding="utf-8"))
@@ -265,11 +324,20 @@ report = {
         "webui_http": webui_http == "true",
         "stt_model_cached": stt_cached,
         "stt_model_name": stt_model_name,
+        "dgx_spark_gpu": dgx_spark_gpu == "true",
+        "dgx_spark_gpu_name": dgx_spark_gpu_name,
+        "dgx_spark_compute_cap": dgx_spark_compute_cap,
+        "llama_cuda_archs": llama_cuda_archs,
+        "dgx_spark_cuda_arch_check": {
+            "status": dgx_spark_arch_status,
+            "message": dgx_spark_arch_message,
+        },
     },
     "extensions": ext_diagnostics,
     "summary": {
         "preflight_blockers": pre.get("summary", {}).get("blockers", 0),
         "preflight_warnings": pre.get("summary", {}).get("warnings", 0),
+        "runtime_warnings": 1 if dgx_spark_arch_status == "warn" else 0,
         "runtime_ready": (docker_daemon == "true" and compose_cli == "true"),
         "extensions_total": len(ext_diagnostics),
         "extensions_healthy": sum(1 for e in ext_diagnostics if e.get("health_status") == "healthy"),
@@ -301,6 +369,12 @@ if stt_cached == "false" and stt_recovery:
     fix_hints.append(
         f"Whisper STT model '{stt_model_name}' not cached — transcription will 404. "
         f"Run: {stt_recovery}"
+    )
+
+if dgx_spark_arch_status == "warn":
+    fix_hints.append(
+        "DGX Spark / GB10 detected, but llama-server was not built with sm_121 support. "
+        "Build llama.cpp with -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=121 or use a GB10-specific llama-server image."
     )
 
 # Extension-specific hints
@@ -362,6 +436,12 @@ ext_issues = summary.get("extensions_issues", 0)
 
 if ext_total > 0:
     print(f"  Extensions:    {ext_healthy}/{ext_total} healthy, {ext_issues} with issues")
+
+dgx_check = data.get("runtime", {}).get("dgx_spark_cuda_arch_check", {})
+if dgx_check.get("status") == "warn":
+    print(f"  DGX Spark:     warning - {dgx_check.get('message')}")
+elif dgx_check.get("status") == "pass":
+    print("  DGX Spark:     llama-server includes sm_121 support")
 
 hints = data.get("autofix_hints") or []
 if hints:

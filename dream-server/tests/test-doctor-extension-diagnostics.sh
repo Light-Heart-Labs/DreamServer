@@ -87,7 +87,8 @@ else
 fi
 
 # 9. Extension summary in output
-if grep -q "ext_total.*ext_healthy" "$ROOT_DIR/scripts/dream-doctor.sh"; then
+if grep -q "ext_total" "$ROOT_DIR/scripts/dream-doctor.sh" && \
+   grep -q "ext_healthy" "$ROOT_DIR/scripts/dream-doctor.sh"; then
     pass "Extension summary output present"
 else
     fail "Extension summary output missing"

@@ -3,7 +3,7 @@ services:
     image: jupyter/scipy-notebook:python-3.11
     container_name: dream-jupyter
     ports:
-      - "127.0.0.1:${JUPYTER_PORT:-8889}:8888"
+      - "${BIND_ADDRESS:-127.0.0.1}:${JUPYTER_PORT:-8889}:8888"
     volumes:
       - ./data/jupyter/workspace:/home/jovyan/work
       - ./data/jupyter/notebooks:/home/jovyan/notebooks
@@ -11,7 +11,15 @@ services:
       - LLM_API_URL=${LLM_API_URL:-http://localhost:8000}
       - JUPYTER_TOKEN=${JUPYTER_TOKEN:?JUPYTER_TOKEN must be set}
       - NB_PREFIX=/
-    command: start.sh jupyter lab --NotebookApp.token=${JUPYTER_TOKEN:?JUPYTER_TOKEN must be set} --NotebookApp.password='' --NotebookApp.port=8888 --NotebookApp.ip=0.0.0.0 --NotebookApp.open_browser=False
+    command:
+      - start.sh
+      - jupyter
+      - lab
+      - --NotebookApp.token=${JUPYTER_TOKEN:?JUPYTER_TOKEN must be set}
+      - --NotebookApp.password=
+      - --NotebookApp.port=8888
+      - --NotebookApp.ip=0.0.0.0
+      - --NotebookApp.open_browser=False
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true

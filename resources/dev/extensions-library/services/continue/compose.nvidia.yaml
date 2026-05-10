@@ -1,0 +1,11 @@
+# NVIDIA backend overlay for continue.
+# Wait for the containerized llama-server before starting. Kept out of
+# base compose.yaml because `depends_on` merges additively across overlays
+# and the macOS (apple) backend runs llama-server natively with replicas: 0;
+# a service_healthy condition on a 0-replica service would hang forever.
+# See sibling compose.apple.yaml for the macOS-specific sidecar wait.
+services:
+  continue:
+    depends_on:
+      llama-server:
+        condition: service_healthy

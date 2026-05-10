@@ -3,6 +3,9 @@ services:
     image: mintplexlabs/anythingllm:1.11.1
     container_name: dream-anythingllm
     restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_healthy
     security_opt:
       - no-new-privileges:true
     environment:
@@ -24,7 +27,7 @@ services:
     volumes:
       - ./data/anythingllm:/app/server/storage:rw
     ports:
-      - "127.0.0.1:${ANYTHINGLLM_PORT:-7800}:3001"
+      - "${BIND_ADDRESS:-127.0.0.1}:${ANYTHINGLLM_PORT:-7800}:3001"
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://127.0.0.1:3001/api/health"]
       interval: 30s

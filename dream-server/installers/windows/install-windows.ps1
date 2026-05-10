@@ -165,7 +165,7 @@ Write-DreamBanner
 #  Phase 03 → $enableVoice, $enableWorkflows, $enableRag, $enableOpenClaw, $openClawConfig
 #  Phase 04 → $requirementsMet
 #  Phase 05 → $dockerComposeCmd
-#  Phase 06 → $envResult (EnvPath, SearxngSecret, OpenclawToken, DashboardKey)
+#  Phase 06 → $envResult (SearxngSecret, OpenclawToken)
 #  Phase 07 → (no output -- tools installed to $env:USERPROFILE)
 
 . (Join-Path $PhasesDir "01-preflight.ps1")
@@ -320,6 +320,20 @@ if ($dryRun) {
                 }
             }
 
+            # Honour the unified BIND_ADDRESS knob (PR #964) for native servers.
+            # Phase 06 has already written BIND_ADDRESS to .env (0.0.0.0 with -Lan,
+            # 127.0.0.1 otherwise). Read once and reuse for both Lemonade and
+            # llama.cpp launches below. Empty/missing → loopback.
+            $_envPath = Join-Path $installDir ".env"
+            $bindAddr = "127.0.0.1"
+            if (Test-Path $_envPath) {
+                $_envText = Get-Content $_envPath -Raw
+                if ($_envText -match "(?m)^BIND_ADDRESS=(.*)$") {
+                    $_match = $Matches[1].Trim().Trim('"').Trim("'")
+                    if (-not [string]::IsNullOrWhiteSpace($_match)) { $bindAddr = $_match }
+                }
+            }
+
             if ($useLemonade) {
                 # ── Start Lemonade server ──
                 # --extra-models-dir: Lemonade auto-discovers GGUF files in this directory
@@ -331,7 +345,7 @@ if ($dryRun) {
                 $lemonadeArgs = @(
                     "serve",
                     "--port", "$($script:LEMONADE_PORT)",
-                    "--host", "0.0.0.0",
+                    "--host", $bindAddr,
                     "--no-tray",
                     "--llamacpp", "vulkan",
                     "--extra-models-dir", $modelsDir
@@ -414,11 +428,21 @@ if ($dryRun) {
                 $modelFullPath = Join-Path (Join-Path $installDir "data\models") $tierConfig.GgufFile
                 $llamaArgs = @(
                     "--model", $modelFullPath,
-                    "--host", "0.0.0.0",
+                    "--host", $bindAddr,
                     "--port", "8080",
                     "--n-gpu-layers", "999",
                     "--ctx-size", "$($tierConfig.MaxContext)"
                 )
+                $_llamaEnv = @{}
+                Get-Content -LiteralPath (Join-Path $installDir ".env") -ErrorAction SilentlyContinue | ForEach-Object {
+                    if ($_ -match '^\s*#' -or $_ -notmatch '=') { return }
+                    $parts = $_ -split '=', 2
+                    $_llamaEnv[$parts[0].Trim()] = $parts[1].Trim().Trim('"')
+                }
+                if ($_llamaEnv["LLAMA_ARG_FLASH_ATTN"]) { $llamaArgs += @("--flash-attn", $_llamaEnv["LLAMA_ARG_FLASH_ATTN"]) }
+                if ($_llamaEnv["LLAMA_ARG_CACHE_TYPE_K"]) { $llamaArgs += @("--cache-type-k", $_llamaEnv["LLAMA_ARG_CACHE_TYPE_K"]) }
+                if ($_llamaEnv["LLAMA_ARG_CACHE_TYPE_V"]) { $llamaArgs += @("--cache-type-v", $_llamaEnv["LLAMA_ARG_CACHE_TYPE_V"]) }
+                if ($_llamaEnv["LLAMA_ARG_N_CPU_MOE"]) { $llamaArgs += @("--n-cpu-moe", $_llamaEnv["LLAMA_ARG_N_CPU_MOE"]) }
                 $pidDir = Split-Path $script:INFERENCE_PID_FILE
                 New-Item -ItemType Directory -Path $pidDir -Force | Out-Null
 
@@ -479,6 +503,12 @@ if ($dryRun) {
             }
         } elseif ($gpuInfo.Backend -eq "amd") {
             $composeFlags += @("-f", "installers/windows/docker-compose.windows-amd.yml")
+            # Local-LLM readiness sidecar: gates open-webui on the native inference
+            # server (Lemonade or llama-server.exe) becoming healthy. Only added
+            # when a native server actually runs (AMD non-cloud); cloud mode loads
+            # the windows-amd.yml overlay too but starts no native server, so the
+            # sidecar would block open-webui forever there.
+            $composeFlags += @("-f", "installers/windows/docker-compose.windows-amd.local.yml")
         } else {
             # No supported GPU detected (Intel integrated, etc.) -- use CPU-only overlay
             Write-AIWarn "No supported GPU detected. Using CPU-only inference (slower)."
@@ -583,7 +613,7 @@ if ($dryRun) {
             exit 1
         }
 
-        Write-AI "Running: docker compose $($composeFlags -join ' ') up -d"
+        Write-AI "Running: docker compose $($composeFlags -join ' ') up -d --remove-orphans --no-build"
         # PS 5.1 treats ANY stderr output from native commands as NativeCommandError.
         # Silence stderr-as-error so $LASTEXITCODE reflects the real compose exit code.
         # Write output to log file to avoid ForEach-Object pipeline hang on failure.
@@ -592,8 +622,29 @@ if ($dryRun) {
         $_composeLogDir = Join-Path $installDir "logs"
         if (-not (Test-Path $_composeLogDir)) { New-Item -ItemType Directory -Path $_composeLogDir -Force | Out-Null }
         $_composeLog = Join-Path $_composeLogDir "compose-up.log"
+
+        # ── Rebuild local-built images ─────────────────────────────────────
+        # Mirrors phases/11-services.sh on Linux: local Dockerfiles can drift
+        # from the baked images, so we always rebuild without cache before
+        # `up -d`. llama-server runs natively on Windows (Lemonade or Vulkan
+        # binary) so it is not built here. ComfyUI is included only if
+        # explicitly enabled.
+        $_buildServices = @("dashboard", "dashboard-api", "ape", "token-spy", "privacy-shield")
+        if ($enableComfyui) { $_buildServices += "comfyui" }
+        Write-AI "Rebuilding local-built images (no-cache)..."
+        $_buildLog = Join-Path $_composeLogDir "compose-build.log"
+        "" | Out-File -FilePath $_buildLog -Encoding ascii
+        foreach ($_svc in $_buildServices) {
+            Write-AI "  building $_svc ..."
+            & docker compose @composeFlags build --no-cache $_svc *>> $_buildLog
+            if ($LASTEXITCODE -ne 0) {
+                Write-AIWarn "$_svc build failed (non-fatal - see $_buildLog)"
+            }
+        }
+        Write-AISuccess "Local images rebuilt"
+
         Write-AI "Starting services... this may take several minutes."
-        & docker compose @composeFlags up -d *> $_composeLog
+        & docker compose @composeFlags up -d --remove-orphans --no-build *> $_composeLog
         $composeExit = $LASTEXITCODE
         $ErrorActionPreference = $prevEAP
         # Show tail of compose output for immediate feedback
@@ -875,6 +926,23 @@ if ($allHealthy) {
     Write-Host "  .\dream.ps1 status" -ForegroundColor Cyan
     Write-Host ""
     Write-SuccessCard
+}
+
+# ── Pre-mark setup wizard complete ────────────────────────────────────────────
+# The dashboard-api reads ${INSTALL_DIR}/data/config/setup-complete.json
+# (mounted at /data/config/setup-complete.json inside the container) to decide
+# first_run state. Writing this here prevents the wizard from reappearing on
+# every visit after a fresh install. Non-fatal.
+try {
+    $setupConfigDir = Join-Path $installDir "data\config"
+    $setupCompleteFile = Join-Path $setupConfigDir "setup-complete.json"
+    New-Item -Path $setupConfigDir -ItemType Directory -Force | Out-Null
+    $completedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    $payload = @{ completed_at = $completedAt; version = "1.0.0" } | ConvertTo-Json -Compress
+    Set-Content -Path $setupCompleteFile -Value $payload -Encoding UTF8
+    Write-AISuccess "Setup wizard pre-marked complete"
+} catch {
+    Write-AIWarn "Could not write setup-complete.json (non-fatal): $_"
 }
 
 # ── Summary JSON (for CI / automation) ───────────────────────────────────────

@@ -127,7 +127,9 @@ else
             _dl_success=false
             for _attempt in 1 2 3; do
                 [[ $_attempt -gt 1 ]] && ai "Retry attempt $_attempt of 3..."
-                curl -fSL -C - --connect-timeout 30 --max-time 3600 -o "$GGUF_DIR/$GGUF_FILE.part" "$GGUF_URL" \
+                curl -fSL -C - --connect-timeout 30 --max-time 3600 \
+                    --retry 3 --retry-delay 5 --retry-all-errors \
+                    -o "$GGUF_DIR/$GGUF_FILE.part" "$GGUF_URL" \
                     >> "$INSTALL_DIR/logs/model-download.log" 2>&1 &
                 dl_pid=$!
 
@@ -217,7 +219,9 @@ else
                     echo "[SDXL] Starting SDXL Lightning model download..."
                     if [[ ! -f "$SDXL_CHECKPOINT_DIR/$SDXL_MODEL" ]]; then
                         echo "[SDXL] Downloading $SDXL_MODEL (~6.5GB)..."
-                        curl -fSL -C - --connect-timeout 30 --max-time 3600 -o "$SDXL_CHECKPOINT_DIR/$SDXL_MODEL.part" \
+                        curl -fSL -C - --connect-timeout 30 --max-time 3600 \
+                            --retry 5 --retry-delay 10 --retry-all-errors \
+                            -o "$SDXL_CHECKPOINT_DIR/$SDXL_MODEL.part" \
                             "$SDXL_URL" 2>&1 && \
                             mv "$SDXL_CHECKPOINT_DIR/$SDXL_MODEL.part" "$SDXL_CHECKPOINT_DIR/$SDXL_MODEL" && \
                             echo "[SDXL] $SDXL_MODEL complete" || \
@@ -260,10 +264,12 @@ MODELS_INI_EOF
                 for _key_val in "GGUF_FILE=$GGUF_FILE" "LLM_MODEL=$LLM_MODEL" "MAX_CONTEXT=$MAX_CONTEXT"; do
                     _key="${_key_val%%=*}"
                     _val="${_key_val#*=}"
-                    if ! awk -v v="$_val" '{ if (index($0, "'"$_key"'=") == 1) print "'"$_key"'=" v; else print }' \
+                    if awk -v v="$_val" '{ if (index($0, "'"$_key"'=") == 1) print "'"$_key"'=" v; else print }' \
                         "$_env_file" > "${_env_file}.tmp" 2>>"$LOG_FILE" \
                         && cat "${_env_file}.tmp" > "$_env_file" 2>>"$LOG_FILE" \
                         && rm -f "${_env_file}.tmp"; then
+                        : # success
+                    else
                         _env_patch_ok=false
                         warn "Failed to patch $_key in .env"
                     fi
@@ -342,7 +348,7 @@ MODELS_INI_EOF
     # Up to 3 attempts with increasing wait between retries. On AMD/Lemonade,
     # the first boot builds a cached llama-server binary which can take 3-5 min.
     for _attempt in 1 2 3; do
-        $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up -d --no-build >> "$LOG_FILE" 2>&1 &
+        $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up -d --remove-orphans --no-build >> "$LOG_FILE" 2>&1 &
         compose_pid=$!
         if spin_task $compose_pid "Launching containers (attempt $_attempt/3)..."; then
             compose_ok=true
@@ -361,7 +367,7 @@ MODELS_INI_EOF
     $DOCKER_CMD start $($DOCKER_CMD ps -a --filter status=created -q) 2>/dev/null || true
     # Step 2: wait for services to stabilize, then compose pass
     sleep 10
-    $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up -d --no-build >> "$LOG_FILE" 2>&1 || true
+    $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up -d --remove-orphans --no-build >> "$LOG_FILE" 2>&1 || true
     # Step 3: catch any stragglers from the second pass
     $DOCKER_CMD start $($DOCKER_CMD ps -a --filter status=created -q) 2>/dev/null || true
 

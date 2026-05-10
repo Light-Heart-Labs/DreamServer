@@ -46,6 +46,11 @@ log "curl: $(curl --version 2>/dev/null | sed -n '1p')"
 
 if ! command -v jq &> /dev/null; then
     log "jq not found - attempting auto-install..."
+    # In non-interactive mode, fail fast if sudo requires a password
+    # (otherwise the bare `sudo <pkgmgr>` below hangs on a TTY prompt that never comes).
+    if [[ "${INTERACTIVE:-true}" != "true" ]] && ! sudo -n true 2>/dev/null; then
+        error "Cannot install jq: sudo password required but running in --non-interactive mode. Re-run interactively or configure NOPASSWD sudo for the package manager."
+    fi
     case "$PKG_MANAGER" in
         dnf)    sudo dnf install -y jq ;;
         pacman) sudo pacman -S --noconfirm jq ;;
@@ -73,6 +78,19 @@ if [[ -n "$OPTIONAL_TOOLS_MISSING" ]]; then
     esac
 fi
 
+# Warn about host firewalls that commonly block LAN access to the dashboard or
+# WebUI. This is informational: loopback-only installs are fine, and users may
+# intentionally keep a firewall active.
+if command -v ufw >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet ufw; then
+    warn "UFW is active and may block Dream Server dashboard/WebUI ports."
+    echo "  Allow the configured Dream Server ports in UFW or keep BIND_ADDRESS on loopback."
+elif command -v firewall-cmd >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+    warn "firewalld is active and may block Dream Server dashboard/WebUI ports."
+    echo "  Allow the configured Dream Server ports in firewalld or keep BIND_ADDRESS on loopback."
+else
+    log "Host firewall: no active UFW/firewalld detected"
+fi
+
 # Check source files exist
 if [[ ! -f "$SCRIPT_DIR/docker-compose.yml" ]] && [[ ! -f "$SCRIPT_DIR/docker-compose.base.yml" ]]; then
     error "No compose files found in $SCRIPT_DIR. Please run from the dream-server directory."
@@ -82,6 +100,100 @@ fi
 if [[ -d "$INSTALL_DIR" ]]; then
     log "Existing installation found at $INSTALL_DIR — updating in place"
     signal "Existing install detected. Secrets and data will be preserved."
+fi
+
+# Filesystem POSIX-permission check.
+# Phase 06 runs `chmod 600 $INSTALL_DIR/.env` to lock down secrets. On exFAT,
+# FAT32, fuseblk (NTFS via ntfs-3g), 9p and DrvFs that chmod is a silent no-op
+# — the secrets file ends up world-readable. Refuse install up front so the
+# user can pick a POSIX-native path.
+check_install_dir_filesystem() {
+    local probe="$INSTALL_DIR"
+    while [[ -n "$probe" && ! -e "$probe" ]]; do
+        probe="$(dirname "$probe")"
+    done
+    [[ -z "$probe" ]] && probe="/"
+
+    local fs_type=""
+    fs_type=$(stat -fc %T "$probe" 2>/dev/null || true)
+    fs_type="${fs_type,,}"  # lowercase
+    INSTALL_FS_TYPE="${fs_type:-unknown}"
+
+    case "$fs_type" in
+        fuseblk|msdos|exfat|vfat|fat|9p|drvfs|ntfs|ntfs-3g)
+            error "INSTALL_DIR ($INSTALL_DIR) is on a ${fs_type} filesystem.
+
+Dream Server stores secrets in $INSTALL_DIR/.env and locks them with
+chmod 600. ${fs_type} silently ignores POSIX permissions, which would
+leave the secrets file world-readable.
+
+Pick a path on a POSIX-native filesystem (ext4, btrfs, xfs, zfs) and
+re-run, e.g.:  INSTALL_DIR=\"\$HOME/dream-server\" $0"
+            ;;
+    esac
+
+    # Networked filesystems honour chmod 600 locally, but the real access
+    # control lives in the share's server-side ACL. Warn only — installs
+    # to network-mounted homes are common and not always insecure.
+    case "$fs_type" in
+        nfs|nfs4|cifs|fuse.smbnetfs|fuse.glusterfs|ocfs2)
+            warn "INSTALL_DIR ($INSTALL_DIR) is on a networked filesystem ($fs_type)."
+            warn ".env permissions (chmod 600) are advisory — actual access control is governed by the share's ACL on the server."
+            warn "If this share is exposed to other clients, sensitive credentials may be readable from those hosts."
+            ;;
+    esac
+    log "INSTALL_DIR filesystem: ${INSTALL_FS_TYPE}"
+}
+
+# Docker Desktop file-sharing probe — only meaningful when Docker Desktop
+# is in use (most Linux installs use the native daemon and skip this).
+check_docker_desktop_sharing() {
+    command -v docker >/dev/null 2>&1 || return 0
+
+    local os_string=""
+    os_string=$(docker info --format '{{json .OperatingSystem}}' 2>/dev/null || true)
+    case "$os_string" in
+        *"Docker Desktop"*) ;;
+        *) return 0 ;;
+    esac
+
+    local probe="$INSTALL_DIR"
+    while [[ -n "$probe" && ! -e "$probe" ]]; do
+        probe="$(dirname "$probe")"
+    done
+    [[ -z "$probe" ]] && probe="/"
+
+    local out=""
+    out=$(docker run --rm -v "${probe}:/check:ro" alpine true 2>&1) || true
+    if echo "$out" | grep -qiE "not shared from the host|Mounts denied|file sharing|filesharing"; then
+        error "Docker Desktop cannot bind-mount $INSTALL_DIR.
+
+Add the path to Docker Desktop > Settings > Resources > File Sharing,
+apply, then re-run this installer.
+
+Probe output:
+$(printf '%s\n' "$out" | sed 's/^/    /')"
+    fi
+    log "Docker Desktop file sharing OK"
+}
+
+check_install_dir_filesystem
+check_docker_desktop_sharing
+
+# Firewall check: warn if UFW or firewalld is active. The dashboard host agent
+# binds to the Docker bridge gateway (default 172.17.0.1:7710) and compose
+# containers reach it via the host INPUT chain. Default-DROP firewalls block
+# that traffic and the dashboard reports "Host agent is offline". Warn-only —
+# never abort install.
+if command -v ufw >/dev/null 2>&1 && systemctl is-active --quiet ufw 2>/dev/null; then
+    ai_warn "UFW is active. The dashboard host agent must be reachable from compose subnets."
+    ai_warn "After install, run:"
+    ai_warn "  sudo ufw allow from 172.16.0.0/12 to any port 7710 proto tcp comment 'dream-host-agent'"
+elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld 2>/dev/null; then
+    ai_warn "firewalld is active. The dashboard host agent must be reachable from compose subnets."
+    ai_warn "After install, run:"
+    ai_warn "  sudo firewall-cmd --permanent --add-rich-rule='rule family=\"ipv4\" source address=\"172.16.0.0/12\" port protocol=\"tcp\" port=\"7710\" accept'"
+    ai_warn "  sudo firewall-cmd --reload"
 fi
 
 ai_ok "Pre-flight checks passed."

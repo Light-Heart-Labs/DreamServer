@@ -12,9 +12,11 @@ import re
 import secrets
 import shutil
 import signal
+import stat as stat_mod
 import subprocess
 import sys
 import threading
+import time
 from datetime import datetime, timezone
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
@@ -134,10 +136,16 @@ def _detect_docker_bridge_gateway() -> str:
                 _ipaddress.ip_address(addr)  # validate — Docker can return "<no value>"
                 logger.info("Detected Docker bridge gateway: %s", addr)
                 return addr
+        else:
+            logger.warning(
+                "Docker bridge gateway detection failed (exit %d): %s",
+                result.returncode,
+                result.stderr.strip() or "<no stderr>",
+            )
     except ValueError:
         logger.debug("Docker bridge returned non-IP value, ignoring")
     except (subprocess.SubprocessError, OSError) as exc:
-        logger.debug("Docker bridge detection failed: %s", exc)
+        logger.warning("Docker bridge detection failed: %s", exc)
     return ""
 
 
@@ -165,9 +173,70 @@ def resolve_compose_flags() -> list:
     return result.stdout.strip().split()
 
 
+# Filesystem types that silently ignore POSIX ownership/permissions.
+# Used by _precreate_data_dirs to skip os.chown when running on exFAT/FAT/NTFS-fuseblk
+# instead of raising a misleading PermissionError.
+_NON_POSIX_FS = frozenset({
+    "exfat", "msdos", "vfat", "fat", "fat32", "fat16",
+    "ntfs", "ntfs-3g", "fuseblk", "9p", "drvfs",
+    "ms-dos",
+})
+
+
+def _fs_type(path: Path) -> str | None:
+    """Return the lowercased filesystem type for ``path``, or ``None``.
+
+    Linux: walk /proc/self/mountinfo to find the longest matching mountpoint.
+    macOS / BSD: shell out to ``stat -f %T`` (Python's ``os.statvfs_result``
+    does not expose ``f_basetype``).
+    """
+    try:
+        target = str(Path(path).resolve())
+    except OSError:
+        return None
+
+    mountinfo = Path("/proc/self/mountinfo")
+    if mountinfo.exists():
+        try:
+            best_match = ""
+            best_fstype: str | None = None
+            with mountinfo.open("r", encoding="utf-8") as f:
+                for line in f:
+                    parts = line.split()
+                    if "-" not in parts:
+                        continue
+                    sep_idx = parts.index("-")
+                    if sep_idx + 1 >= len(parts) or sep_idx < 5:
+                        continue
+                    mountpoint = parts[4]
+                    fstype = parts[sep_idx + 1]
+                    if target == mountpoint or target.startswith(mountpoint.rstrip("/") + "/"):
+                        if len(mountpoint) >= len(best_match):
+                            best_match = mountpoint
+                            best_fstype = fstype
+            if best_fstype:
+                return best_fstype.lower()
+        except OSError:
+            pass
+
+    try:
+        result = subprocess.run(
+            ["stat", "-f", "%T", target],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip().lower()
+    except (FileNotFoundError, subprocess.SubprocessError):
+        pass
+
+    return None
+
+
 def _precreate_data_dirs(service_id: str):
     """Pre-create data directories for an extension with correct ownership."""
-    ext_dir = USER_EXTENSIONS_DIR / service_id
+    ext_dir = _find_ext_dir(service_id)
+    if ext_dir is None:
+        return
     compose_path = ext_dir / "compose.yaml"
     if not compose_path.exists():
         return
@@ -200,7 +269,13 @@ def _precreate_data_dirs(service_id: str):
             continue
         for vol in volumes:
             vol_str = str(vol).split(":")[0]
-            if vol_str.startswith("./data/") or vol_str.startswith("data/"):
+            # Accept any relative bind-mount source (e.g. "./data/state",
+            # "./upload", "config/stuff"). Skip named volumes (no "/") and
+            # absolute paths ("/etc/..."). Docker Compose v2 resolves relative
+            # bind paths against the project directory (the first -f file's
+            # parent = INSTALL_DIR), not the individual fragment's directory,
+            # so anchor on INSTALL_DIR to match where Compose actually mounts.
+            if vol_str and not vol_str.startswith("/") and "/" in vol_str:
                 dir_path = (INSTALL_DIR / vol_str.lstrip("./")).resolve()
                 try:
                     dir_path.relative_to(INSTALL_DIR.resolve())
@@ -210,7 +285,20 @@ def _precreate_data_dirs(service_id: str):
                 try:
                     dir_path.mkdir(parents=True, exist_ok=True)
                     if uid is not None and os.getuid() == 0:
-                        os.chown(str(dir_path), uid, uid)
+                        # Defense-in-depth: the installer preflight already
+                        # blocks non-POSIX filesystems at INSTALL_DIR, but
+                        # runtime extension installs (post-setup) can still
+                        # land on a non-POSIX volume. chown there is a silent
+                        # no-op or raises EPERM/EOPNOTSUPP — skip cleanly.
+                        fs = _fs_type(dir_path)
+                        if fs in _NON_POSIX_FS:
+                            logger.warning(
+                                "Skipping chown for %s on non-POSIX filesystem %s "
+                                "(extension may not function correctly)",
+                                dir_path, fs,
+                            )
+                        else:
+                            os.chown(str(dir_path), uid, uid)
                 except OSError as e:
                     logger.warning("Failed to pre-create %s: %s", dir_path, e)
 
@@ -267,6 +355,29 @@ def docker_compose_recreate(service_ids: list[str]) -> tuple:
         return (True, "") if result.returncode == 0 else (False, result.stderr[:500] or result.stdout[:500])
     except subprocess.TimeoutExpired:
         return False, f"Docker compose operation timed out ({SUBPROCESS_TIMEOUT_START}s)"
+
+
+def _post_install_core_recreate(service_id: str) -> None:
+    """Force-recreate core services whose env was overridden by ``service_id``'s
+    compose.yaml overlay.
+
+    ``docker compose up -d <ext>`` (how _handle_install starts the extension)
+    will not pick up overlay changes targeting already-running core services
+    without ``--force-recreate``. openclaw's compose.yaml appends an
+    OPENAI_API_BASE_URLS entry to open-webui; without this post-install
+    recreate that overlay is silently ignored until the next core restart.
+
+    Failure is logged and swallowed — the extension itself is already running;
+    the overlay will apply on the next manual restart of the core service.
+    """
+    if service_id != "openclaw":
+        return
+    ok, err = docker_compose_recreate(["open-webui"])
+    if not ok:
+        logger.warning(
+            "Post-install recreate of open-webui failed after openclaw install: %s",
+            err,
+        )
 
 
 def _parse_mem_value(s: str) -> float:
@@ -595,6 +706,8 @@ class AgentHandler(BaseHTTPRequestHandler):
             self._handle_extension_compose_toggle(activate=True)
         elif self.path == "/v1/extension/deactivate":
             self._handle_extension_compose_toggle(activate=False)
+        elif self.path == "/v1/extension/sync_config":
+            self._handle_extension_sync_config()
         elif self.path == "/v1/service/logs":
             self._handle_service_logs()
         elif self.path == "/v1/model/download":
@@ -860,6 +973,174 @@ class AgentHandler(BaseHTTPRequestHandler):
         logger.info("%sd extension compose: %s", action, sid)
         json_response(self, 200, {"status": "ok", "service_id": sid, "action": action})
 
+    def _handle_extension_sync_config(self):
+        """Copy <ext_dir>/config/* into INSTALL_DIR/config/.
+
+        Some extensions ship a config/ subdirectory whose files are
+        bind-mounted by compose.yaml relative to the compose project root
+        (INSTALL_DIR), not the extension directory.  Without this sync,
+        Docker auto-creates the mount source as an empty directory and
+        the container fails at startup.
+
+        The dashboard-api previously did this copy itself, but its
+        bind-mount of /dream-server/config is read-only, so it cannot
+        write there.  The host agent runs on the host filesystem
+        (writable) and is the right place for this work.
+        """
+        if not check_auth(self):
+            return
+        body = read_json_body(self)
+        if body is None:
+            return
+
+        sid = body.get("service_id", "")
+        if not isinstance(sid, str) or not SERVICE_ID_RE.match(sid):
+            json_response(self, 400, {"error": "Invalid service_id"})
+            return
+
+        # Only user-installed extensions ship a config/ subdir for sync
+        # at install time; built-in configs are pre-created by the
+        # installer and must not be overwritten on re-toggle.
+        ext_dir = USER_EXTENSIONS_DIR / sid
+        if not ext_dir.is_dir():
+            # Not a user extension — no-op (built-ins handled by installer).
+            json_response(self, 200, {"status": "ok", "service_id": sid, "synced": []})
+            return
+
+        ext_config = ext_dir / "config"
+        if not ext_config.is_dir():
+            json_response(self, 200, {"status": "ok", "service_id": sid, "synced": []})
+            return
+
+        # Reject ANY symlink in the config/ tree (or if config/ itself is a
+        # symlink). _copytree_safe (the install-time copier) strips symlinks
+        # from user extensions, so legitimate extensions never have any.
+        # A symlink here implies tampering or a packaging bug, and would be
+        # dereferenced by shutil.copytree(symlinks=False) below — exfiltrating
+        # link-target content into a path the dashboard-api container can read.
+        # Iterating dirs + files (not just files) closes the symlinked-directory
+        # gap: os.walk(followlinks=False) does NOT recurse into symlinked dirs,
+        # so they only ever surface in the parent's `dirs` list.
+        # The walk covers the WHOLE config/ tree (including out-of-scope
+        # siblings) — a symlink anywhere is treated as tampering, even if the
+        # contract restriction below means we wouldn't have copied it anyway.
+        if ext_config.is_symlink():
+            json_response(self, 400, {
+                "error": (
+                    f"config sync refused: {sid}/config is a symlink "
+                    f"(symlinks are not permitted in extension configs)"
+                ),
+            })
+            return
+        for root, dirs, files in os.walk(str(ext_config), followlinks=False):
+            for name in dirs + files:
+                if (Path(root) / name).is_symlink():
+                    json_response(self, 400, {
+                        "error": (
+                            f"config sync refused: symlink {name} in "
+                            f"{sid}/config (symlinks are not permitted)"
+                        ),
+                    })
+                    return
+
+        # Default copy contract: an extension may only write to its OWN
+        # config tree — `<ext>/config/<service_id>/` → `INSTALL_DIR/config/<service_id>/`.
+        # Anything else under `<ext>/config/` (e.g. `<ext>/config/open-webui/`,
+        # `<ext>/config/litellm/`) is silently ignored — copying those would let
+        # a user extension overwrite installer-managed core configs or another
+        # extension's config tree. Cross-service writes are not part of the
+        # default contract; if a legitimate use case ever surfaces, an explicit
+        # manifest allowlist field is the right escape hatch (out of scope here).
+        src_svc = ext_config / sid
+
+        # Inventory siblings so the response can audit what was ignored.
+        out_of_scope: list[str] = []
+        for child in ext_config.iterdir():
+            if child.name != sid:
+                out_of_scope.append(child.name)
+                logger.info(
+                    "ignoring out-of-scope config entry %s/config/%s "
+                    "(default contract: only %s/config/%s/ is synced)",
+                    sid, child.name, sid, sid,
+                )
+
+        # If the extension ships no `config/<sid>/` at all, no-op.
+        if not src_svc.exists():
+            json_response(self, 200, {
+                "status": "ok",
+                "service_id": sid,
+                "synced": [],
+                "skipped": out_of_scope,
+            })
+            return
+        if not src_svc.is_dir():
+            json_response(self, 400, {
+                "error": (
+                    f"config sync refused: {sid}/config/{sid} must be a directory"
+                ),
+            })
+            return
+
+        install_config = (INSTALL_DIR / "config").resolve()
+        try:
+            install_config.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            json_response(self, 500, {"error": f"Failed to prepare config dir: {exc}"})
+            return
+
+        target = (install_config / sid).resolve()
+        # Path-traversal guard: target must stay under install_config. Always true
+        # because sid is validated against SERVICE_ID_RE above (no slashes / dots),
+        # but kept as defense-in-depth in case the regex ever loosens.
+        if not target.is_relative_to(install_config):
+            json_response(self, 400, {
+                "error": f"config sync refused: target outside install dir for {sid}",
+            })
+            return
+
+        synced: list[str] = []
+        lock = _service_locks[sid]
+        if not lock.acquire(blocking=False):
+            json_response(self, 409, {"error": f"Operation already in progress for {sid}"})
+            return
+        try:
+            try:
+                shutil.copytree(
+                    str(src_svc), str(target),
+                    dirs_exist_ok=True, symlinks=False,
+                )
+                synced.append(sid)
+            except OSError as exc:
+                json_response(self, 500, {
+                    "error": f"Failed to copy {sid}/config/{sid}: {exc}",
+                })
+                return
+            # Mark .sh files executable in the synced service tree.
+            for root, _dirs, files in os.walk(str(target)):
+                for fname in files:
+                    if fname.endswith(".sh"):
+                        fpath = Path(root) / fname
+                        try:
+                            fpath.chmod(
+                                fpath.stat().st_mode
+                                | stat_mod.S_IXUSR | stat_mod.S_IXGRP | stat_mod.S_IXOTH,
+                            )
+                        except OSError as exc:
+                            logger.warning("chmod +x failed for %s: %s", fpath, exc)
+        finally:
+            lock.release()
+
+        logger.info(
+            "synced config for extension %s (%d in-scope, %d out-of-scope ignored)",
+            sid, len(synced), len(out_of_scope),
+        )
+        json_response(self, 200, {
+            "status": "ok",
+            "service_id": sid,
+            "synced": synced,
+            "skipped": out_of_scope,
+        })
+
     def _handle_logs(self):
         if not check_auth(self):
             return
@@ -1100,10 +1381,15 @@ class AgentHandler(BaseHTTPRequestHandler):
             try:
                 flags = resolve_compose_flags()
 
+                ext_dir = _find_ext_dir(service_id)
+                if ext_dir is None:
+                    _write_progress(service_id, "error", "Installation failed",
+                                    error=f"Extension directory not found for {service_id}")
+                    return
+
                 # Step 1: Setup hook (if requested)
                 if run_setup_hook:
                     _write_progress(service_id, "setup_hook", "Running setup...")
-                    ext_dir = USER_EXTENSIONS_DIR / service_id
                     hook_path = _resolve_hook(ext_dir, "post_install")
                     if hook_path:
                         # Minimal allowlist env — mirror _execute_hook (L856-866)
@@ -1148,7 +1434,7 @@ class AgentHandler(BaseHTTPRequestHandler):
                 _write_progress(service_id, "starting", "Starting container...")
                 _precreate_data_dirs(service_id)
                 start_result = subprocess.run(
-                    ["docker", "compose"] + flags + ["up", "-d", "--no-deps", service_id],
+                    ["docker", "compose"] + flags + ["up", "-d", service_id],
                     cwd=str(INSTALL_DIR), capture_output=True, text=True,
                     timeout=SUBPROCESS_TIMEOUT_START,
                 )
@@ -1157,8 +1443,75 @@ class AgentHandler(BaseHTTPRequestHandler):
                                     error=start_result.stderr[:500])
                     return
 
+                # By default, poll for running state: compose `up -d`
+                # returns 0 even for Created/Exited/Restarting containers,
+                # so a 0 exit is NOT conclusive proof the service actually
+                # started. Extensions whose containers intentionally exit
+                # after init (one-shot setup containers, extensions whose
+                # value is purely the setup_hook) can opt out via the
+                # manifest's `service.startup_check: false`, in which
+                # case compose's 0 exit is taken as success.
+                install_manifest = _read_manifest(ext_dir)
+                install_service_def = install_manifest.get("service", {}) if install_manifest else {}
+                if not isinstance(install_service_def, dict):
+                    install_service_def = {}
+                container_name = install_service_def.get("container_name") or f"dream-{service_id}"
+
+                # Manifest-driven opt-out for one-shot / setup-only extensions
+                # whose containers intentionally exit (init containers,
+                # extensions whose value is purely the setup_hook). Setting
+                # `service.startup_check: false` skips the running-state poll
+                # — compose up's clean exit is taken as success. Default is
+                # True so existing long-running services are unchanged.
+                startup_check = install_service_def.get("startup_check", True)
+
+                if startup_check:
+                    # Per-extension startup deadline; manifests with heavy init
+                    # (postgres, clickhouse, JVM-based services) can override the
+                    # 15s default via service.startup_timeout.
+                    startup_timeout = install_service_def.get("startup_timeout", 15)
+                    deadline = time.monotonic() + startup_timeout
+                    state: str | None = None
+                    state_error = ""
+                    while time.monotonic() < deadline:
+                        try:
+                            inspect_result = subprocess.run(
+                                ["docker", "inspect", "--format",
+                                 "{{.State.Status}}|{{.State.Error}}", container_name],
+                                capture_output=True, text=True, timeout=5,
+                            )
+                        except subprocess.TimeoutExpired:
+                            inspect_result = None
+                        if inspect_result is not None and inspect_result.returncode == 0:
+                            parts = inspect_result.stdout.strip().split("|", 1)
+                            state = parts[0] if parts else ""
+                            state_error = parts[1] if len(parts) > 1 else ""
+                            if state == "running":
+                                break
+                        time.sleep(1)
+
+                    if state != "running":
+                        msg = f"Container did not reach running state within {startup_timeout}s (state={state or 'unknown'})"
+                        if state_error:
+                            msg += f": {state_error}"
+                        _write_progress(service_id, "error", "Installation failed",
+                                        error=msg)
+                        return
+
                 # Step 4: Success
                 _write_progress(service_id, "started", "Service started")
+
+                # Step 5: Post-install core recreate (best-effort, non-fatal).
+                # Some extensions (e.g. openclaw) add overlay env to already-
+                # running core services; `up -d <ext>` (without --force-recreate)
+                # won't apply those changes. Failure here must not fail the install.
+                try:
+                    _post_install_core_recreate(service_id)
+                except Exception:
+                    logger.exception(
+                        "Post-install core recreate raised for %s (ignored)",
+                        service_id,
+                    )
 
             except subprocess.TimeoutExpired:
                 _write_progress(service_id, "error", "Installation failed",
@@ -1553,6 +1906,21 @@ class AgentHandler(BaseHTTPRequestHandler):
         models_ini = INSTALL_DIR / "config" / "llama-server" / "models.ini"
         lemonade_yaml = INSTALL_DIR / "config" / "litellm" / "lemonade.yaml"
 
+        # Hoisted so the outer except's rollback can reference them safely.
+        # None means the snapshot was not captured, so rollback must skip it.
+        env_backup: str | None = None
+        ini_backup: str | None = None
+        lemonade_backup = None
+        committed = False
+
+        def restore_backups():
+            if env_backup is not None:
+                env_path.write_text(env_backup, encoding="utf-8")
+            if ini_backup is not None:
+                models_ini.write_text(ini_backup, encoding="utf-8")
+            if lemonade_backup is not None:
+                lemonade_yaml.write_text(lemonade_backup, encoding="utf-8")
+
         try:
             # Read current env BEFORE modification — needed for gpu_backend guard
             env_pre = load_env(env_path)
@@ -1603,19 +1971,25 @@ class AgentHandler(BaseHTTPRequestHandler):
             # Regenerate LiteLLM lemonade config so it routes to the new model.
             # Only written on AMD installs where lemonade.yaml exists.
             if lemonade_yaml.exists():
+                # Read from .env (already loaded as env_pre above). The host-agent
+                # systemd unit does not source .env as an EnvironmentFile, so
+                # os.environ is unreliable for installer-written values like the
+                # rotated LITELLM_LEMONADE_API_KEY — falling back to the legacy
+                # static "sk-lemonade" would silently revert key rotation.
+                lemonade_api_key = env_pre.get("LITELLM_LEMONADE_API_KEY", "sk-lemonade")
                 lemonade_yaml.write_text(
                     f"model_list:\n"
                     f"  - model_name: default\n"
                     f"    litellm_params:\n"
                     f"      model: openai/extra.{gguf_file}\n"
                     f"      api_base: http://llama-server:8080/api/v1\n"
-                    f"      api_key: sk-lemonade\n"
+                    f"      api_key: {lemonade_api_key}\n"
                     f"\n"
                     f"  - model_name: \"*\"\n"
                     f"    litellm_params:\n"
                     f"      model: openai/extra.{gguf_file}\n"
                     f"      api_base: http://llama-server:8080/api/v1\n"
-                    f"      api_key: sk-lemonade\n"
+                    f"      api_key: {lemonade_api_key}\n"
                     f"\n"
                     f"litellm_settings:\n"
                     f"  drop_params: true\n"
@@ -1644,8 +2018,7 @@ class AgentHandler(BaseHTTPRequestHandler):
                 llama_log = INSTALL_DIR / "data" / "llama-server.log"
 
                 if not llama_bin.exists():
-                    env_path.write_text(env_backup, encoding="utf-8")
-                    models_ini.write_text(ini_backup, encoding="utf-8")
+                    restore_backups()
                     json_response(self, 500, {"error": "llama-server binary not found — re-run installer"})
                     return
 
@@ -1757,14 +2130,12 @@ class AgentHandler(BaseHTTPRequestHandler):
                 for svc in ["dream-litellm", "dream-dreamforge"]:
                     subprocess.run(["docker", "restart", svc],
                                    capture_output=True, timeout=60)
+                committed = True  # system state is committed before the response write
                 json_response(self, 200, {"status": "activated", "model_id": model_id})
             else:
                 # Rollback
                 logger.warning("Model activation failed — rolling back")
-                env_path.write_text(env_backup, encoding="utf-8")
-                models_ini.write_text(ini_backup, encoding="utf-8")
-                if lemonade_backup is not None:
-                    lemonade_yaml.write_text(lemonade_backup, encoding="utf-8")
+                restore_backups()
                 rollback_env = load_env(env_path)
                 if gpu_backend == "apple":
                     # Stop newly launched native process, re-launch with old params
@@ -1801,6 +2172,11 @@ class AgentHandler(BaseHTTPRequestHandler):
                 json_response(self, 500, {"error": "Health check failed — rolled back to previous model", "rolled_back": True})
 
         except Exception as exc:
+            if not committed:
+                try:
+                    restore_backups()
+                except OSError:
+                    logger.exception("Rollback write failed during model-activate failure handling")
             json_response(self, 500, {"error": f"Model activation failed: {exc}"})
 
     def _handle_model_delete(self):
@@ -1910,13 +2286,18 @@ def _write_lemonade_config(install_dir: Path, gguf_file: str):
     Mirrors bootstrap-upgrade.sh lines 369-382.
     """
     config_path = install_dir / "config" / "litellm" / "lemonade.yaml"
+    # Read from .env via load_env, NOT os.environ. The host-agent systemd
+    # unit does not source .env as an EnvironmentFile, so os.environ is
+    # unreliable for installer-written values; falling back to the legacy
+    # static "sk-lemonade" would silently revert key rotation.
+    lemonade_api_key = load_env(install_dir / ".env").get("LITELLM_LEMONADE_API_KEY", "sk-lemonade")
     content = (
         "model_list:\n"
         "  - model_name: \"*\"\n"
         "    litellm_params:\n"
         f"      model: openai/extra.{gguf_file}\n"
         "      api_base: http://llama-server:8080/api/v1\n"
-        "      api_key: sk-lemonade\n"
+        f"      api_key: {lemonade_api_key}\n"
         "\n"
         "litellm_settings:\n"
         "  drop_params: true\n"
@@ -1939,15 +2320,30 @@ def _launch_native_llama_server(env_path: Path, llama_bin: Path, llama_log: Path
     model_path = INSTALL_DIR / "data" / "models" / gguf_file
     reasoning = env.get("LLAMA_REASONING", "off")
     reasoning_fmt = {"off": "none", "on": "deepseek"}.get(reasoning, reasoning)
+    # Honour the unified BIND_ADDRESS knob (PR #964); empty/missing → loopback.
+    bind_addr = env.get("BIND_ADDRESS", "").strip() or "127.0.0.1"
+    args = [
+        str(llama_bin),
+        "--host", bind_addr, "--port", "8080",
+        "--model", str(model_path),
+        "--ctx-size", ctx_size,
+        "--n-gpu-layers", "999",
+        "--reasoning-format", reasoning_fmt,
+        "--metrics",
+    ]
+    optional_args = {
+        "LLAMA_ARG_FLASH_ATTN": "--flash-attn",
+        "LLAMA_ARG_CACHE_TYPE_K": "--cache-type-k",
+        "LLAMA_ARG_CACHE_TYPE_V": "--cache-type-v",
+        "LLAMA_ARG_N_CPU_MOE": "--n-cpu-moe",
+    }
+    for env_key, flag in optional_args.items():
+        value = env.get(env_key, "").strip()
+        if value:
+            args.extend([flag, value])
     with open(llama_log, "a") as log_f:
         proc = subprocess.Popen(
-            [str(llama_bin),
-             "--host", "0.0.0.0", "--port", "8080",
-             "--model", str(model_path),
-             "--ctx-size", ctx_size,
-             "--n-gpu-layers", "999",
-             "--reasoning-format", reasoning_fmt,
-             "--metrics"],
+            args,
             stdout=log_f, stderr=log_f,
         )
     pid_file.write_text(str(proc.pid), encoding="utf-8")
@@ -2231,22 +2627,22 @@ def main():
     # macOS/Windows: 127.0.0.1 (Docker Desktop routes host.docker.internal to loopback)
     # Linux: Docker bridge gateway IP (containers reach via host-gateway,
     #   LAN devices cannot — the bridge is a virtual interface).
-    #   Falls back to 0.0.0.0 if detection fails.
+    #   Falls back to 127.0.0.1 if detection fails.
     bind_addr = env.get("DREAM_AGENT_BIND", "")
     bind_from_env = bool(bind_addr)
     if not bind_addr:
         if platform.system() in ("Darwin", "Windows"):
             bind_addr = "127.0.0.1"
         else:
-            bind_addr = _detect_docker_bridge_gateway() or "0.0.0.0"
+            bind_addr = _detect_docker_bridge_gateway() or "127.0.0.1"
 
     server = ThreadedHTTPServer((bind_addr, port), AgentHandler)
     signal.signal(signal.SIGTERM, lambda *_: server.shutdown())
     logger.info("Dream Host Agent v%s listening on %s:%d", VERSION, bind_addr, port)
-    if bind_addr == "0.0.0.0" and not bind_from_env:
+    if bind_addr == "127.0.0.1" and not bind_from_env and platform.system() not in ("Darwin", "Windows"):
         logger.warning(
-            "Agent is listening on all interfaces (bridge detection failed). "
-            "Set DREAM_AGENT_BIND=<bridge-ip> in .env to restrict."
+            "Docker bridge detection failed, using loopback (127.0.0.1). "
+            "Containers may not reach the agent. Set DREAM_AGENT_BIND=<bridge-ip> in .env."
         )
     logger.info("Install dir: %s | GPU: %s | Tier: %s", INSTALL_DIR, GPU_BACKEND, TIER)
     try:

@@ -309,3 +309,106 @@ def test_render_env_preserves_extras_with_empty_values():
     rendered = _render_env_from_values(values)
     assert "TENSOR_SPLIT=" in rendered
     assert "GPU_UUID=GPU-abc123" in rendered
+
+
+@pytest.fixture()
+def commented_example_template(tmp_path, monkeypatch):
+    """Patch ``_resolve_template_path`` so .env.example resolution returns a
+    controlled file containing a commented-assignment line.
+
+    Required because the default test environment cannot resolve the real
+    ``.env.example`` (INSTALL_DIR is /tmp/dream-test-install which does not
+    exist), so without this fixture every value in ``values`` would fall
+    through to the *extras* branch of ``_render_env_from_values`` and
+    bypass the ``commented_assignment`` branch the #529 fix targets.
+
+    LLAMA_ARG_TENSOR_SPLIT mirrors its real form at .env.example:184
+    (``# KEY=            # trailing comment``).
+    """
+    example_path = tmp_path / ".env.example"
+    example_path.write_text(
+        "LLM_BACKEND=local\n"
+        "# LLAMA_ARG_TENSOR_SPLIT=            # Proportional VRAM weights (e.g. 3,1)\n",
+        encoding="utf-8",
+    )
+
+    def fake_resolve_template(name: str):
+        if name == ".env.example":
+            return example_path
+        return tmp_path / name
+
+    monkeypatch.setattr("main._resolve_template_path", fake_resolve_template)
+    return example_path
+
+
+def test_render_env_uncomments_commented_key_with_empty_value(commented_example_template):
+    """Regression for #529: a commented-out key in .env.example with an explicit
+    empty value in ``values`` must be rendered as an active empty assignment,
+    not silently kept as the comment line.
+
+    Exercises the ``commented_assignment`` branch of
+    ``_render_env_from_values`` (line 700 in main.py) which the extras-only
+    test above does not cover. Reverting the production fix flips this from
+    PASS to FAIL.
+    """
+    from main import _render_env_from_values
+
+    rendered = _render_env_from_values({"LLAMA_ARG_TENSOR_SPLIT": ""})
+    lines = rendered.splitlines()
+    assert "LLAMA_ARG_TENSOR_SPLIT=" in lines, "must be rendered as active empty assignment"
+    # Comment-line form must not survive — the original line had a trailing
+    # comment so test the substring rather than the exact line.
+    assert not any(line.lstrip().startswith("# LLAMA_ARG_TENSOR_SPLIT=") for line in lines), \
+        "comment line must not survive"
+
+
+def test_render_env_uncomments_commented_key_with_value(commented_example_template):
+    """Companion to the empty-value test: a commented key in .env.example with
+    a non-empty value in ``values`` must also be uncommented and assigned."""
+    from main import _render_env_from_values
+
+    rendered = _render_env_from_values({"LLAMA_ARG_TENSOR_SPLIT": "3,1"})
+    assert "LLAMA_ARG_TENSOR_SPLIT=3,1" in rendered.splitlines()
+
+
+def test_render_env_preserves_commented_key_absent_from_values(commented_example_template):
+    """Absent commented defaults should stay commented on dashboard saves.
+
+    Explicit empty values are meaningful, but missing values should not turn
+    optional template defaults into active empty assignments.
+    """
+    from main import _render_env_from_values
+
+    rendered = _render_env_from_values({})  # nothing in values
+    lines = rendered.splitlines()
+    assert "LLAMA_ARG_TENSOR_SPLIT=" not in lines
+    assert any(line.lstrip().startswith("# LLAMA_ARG_TENSOR_SPLIT=") for line in lines)
+
+
+# --- Production schema secret-flag coverage ---
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "TARGET_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "TOGETHER_API_KEY",
+        "LIVEKIT_API_KEY",
+    ],
+)
+def test_production_schema_marks_provider_api_keys_secret(key):
+    """Credential API keys in the production schema must carry ``secret: true``.
+
+    Regression guard: without the explicit flag, masking in both
+    ``dream config show`` and ``GET /api/settings/env`` falls back to a
+    name-pattern match. The schema should be the authoritative source.
+    """
+    import pathlib
+
+    schema_path = pathlib.Path(__file__).resolve().parents[4] / ".env.schema.json"
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    entry = schema["properties"].get(key)
+    assert entry is not None, f"schema missing entry for {key}"
+    assert entry.get("secret") is True, f"{key} must have 'secret': true in .env.schema.json"

@@ -1,6 +1,6 @@
 # DreamServer Extensions Library
 
-**33 service extensions being tested for DreamServer. 17 are already in production — these are next.**
+**32 service extensions being tested for DreamServer. 17 are already in production — these are next.**
 
 Each extension is a self-contained directory with a `manifest.yaml` (service metadata), `compose.yaml` (Docker Compose fragment), and optional Dockerfiles, workflows, and documentation. Drop any of these into your DreamServer's `extensions/services/` directory and run `dream enable <service-id>`.
 
@@ -80,7 +80,6 @@ Each extension is a self-contained directory with a `manifest.yaml` (service met
 |---------|------------|-----|
 | [`label-studio/`](services/label-studio/) | Label Studio — data labeling for ML training | CPU |
 | [`anythingllm/`](services/anythingllm/) | AnythingLLM — all-in-one RAG + chat + agents | AMD, NVIDIA |
-| [`privacy-shield/`](services/privacy-shield/) | Privacy Shield — PII detection/redaction proxy | AMD, NVIDIA |
 
 ## Platform Compatibility
 
@@ -115,7 +114,6 @@ Quick reference for hardware requirements. Data sourced from each service's `man
 | open-interpreter | — | — | — | ✓ | — |
 | paperless-ngx | — | — | — | ✓ | — |
 | piper-audio | ✓ | ✓ | ✓ | — | — |
-| privacy-shield | ✓ | ✓ | — | — | — |
 | rvc | ✓ | ✓ | — | — | 6 GB |
 | sillytavern | ✓ | ✓ | ✓ | — | — |
 | text-generation-webui | ✓ | ✓ | — | — | 4 GB |
@@ -203,4 +201,4 @@ python3 -c "import yaml; yaml.safe_load(open('my-service/manifest.yaml'))"
 
 These extensions are actively tested on DreamServer development builds. Some are battle-tested (Ollama, ChromaDB, Bark), others are newer. All follow the v1 manifest schema and integrate with the DreamServer service registry, dashboard, and CLI.
 
-**17 services have already graduated to production** — these 33 are being prepared for the next wave.
+**17 services have already graduated to production** — these 32 are being prepared for the next wave.

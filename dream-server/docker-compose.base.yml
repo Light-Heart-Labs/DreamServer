@@ -22,7 +22,7 @@ services:
   # Serves OpenAI-compatible API on port 8080
   # ============================================
   llama-server:
-    image: ${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-b8248}
+    image: ${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-b9014}
     container_name: dream-llama-server
     restart: unless-stopped
     volumes:
@@ -50,6 +50,12 @@ services:
       - --metrics
     environment:
       - LLAMA_ARG_REASONING=${LLAMA_REASONING:-off}
+      - LLAMA_ARG_FLASH_ATTN=${LLAMA_ARG_FLASH_ATTN:-auto}
+      - LLAMA_ARG_CACHE_TYPE_K=${LLAMA_ARG_CACHE_TYPE_K:-f16}
+      - LLAMA_ARG_CACHE_TYPE_V=${LLAMA_ARG_CACHE_TYPE_V:-f16}
+      # Optional MoE expert CPU offload. Do not default to an empty value:
+      # llama.cpp parses this as an integer and exits if it is blank.
+      - LLAMA_ARG_N_CPU_MOE
     security_opt:
       - no-new-privileges:true
     logging: *default-logging
@@ -58,7 +64,9 @@ services:
       interval: 15s
       timeout: 10s
       retries: 5
-      start_period: 120s
+      # 70B-class GGUFs cold-load in 60-120s; thermal throttling and first-touch
+      # page faults push Tier 4 past 180s. Override via LLAMA_START_PERIOD in .env.
+      start_period: ${LLAMA_START_PERIOD:-240s}
 
   # ============================================
   # Chat UI
@@ -82,7 +90,11 @@ services:
       ENABLE_SEARCH_QUERY_GENERATION: "true"
       WEB_SEARCH_RESULT_COUNT: "5"
       # ── ComfyUI Image Generation (SDXL Lightning 4-step) ──
-      ENABLE_IMAGE_GENERATION: "${ENABLE_IMAGE_GENERATION:-true}"
+      # Default OFF in base: ComfyUI ships only on GPU backends (amd/nvidia per
+      # comfyui/manifest.yaml). The amd and nvidia overlays re-assert this as
+      # ${...:-true} so image-gen is on for GPU users by default. CPU/Apple
+      # users would otherwise hit a missing-engine error from Open WebUI.
+      ENABLE_IMAGE_GENERATION: "${ENABLE_IMAGE_GENERATION:-false}"
       IMAGE_GENERATION_ENGINE: "comfyui"
       COMFYUI_BASE_URL: "http://comfyui:8188"
       IMAGE_SIZE: "1024x1024"

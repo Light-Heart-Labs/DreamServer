@@ -1,6 +1,10 @@
 # Token Spy — Product Scope & Roadmap
 *Mission 12 in `MISSIONS.md`. Product Priority #2.*
 
+> **Prototype / product vision document**
+>
+> This file captures the broader Token Spy product direction and incubator roadmap under `resources/products/token-spy/`. It does **not** describe the exact shipped Dream Server extension in `dream-server/extensions/services/token-spy/`, which currently uses an authenticated-proxy model rather than a no-auth-change transparent proxy.
+
 ## Vision
 
 **Token Spy is the Morningstar of LLM APIs.**

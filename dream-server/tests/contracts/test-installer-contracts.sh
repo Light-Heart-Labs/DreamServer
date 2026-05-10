@@ -40,6 +40,9 @@ echo "[contract] canonical port contract parity"
 test -x tests/contracts/test-port-contracts.sh || { echo "[FAIL] script not executable: tests/contracts/test-port-contracts.sh"; exit 1; }
 bash tests/contracts/test-port-contracts.sh
 
+echo "[contract] Windows AMD local compose readiness"
+bash tests/contracts/test-windows-amd-local-compose.sh
+
 echo "[contract] resolver scripts executable"
 for s in scripts/build-capability-profile.sh scripts/classify-hardware.sh scripts/load-backend-contract.sh scripts/resolve-compose-stack.sh scripts/preflight-engine.sh scripts/dream-doctor.sh scripts/simulate-installers.sh; do
   test -x "$s" || { echo "[FAIL] script not executable: $s"; exit 1; }
@@ -58,6 +61,19 @@ grep -q 'MINIO_TELEMETRY_DISABLED.*1' extensions/services/langfuse/compose.yaml.
   grep -q 'MINIO_TELEMETRY_DISABLED.*1' extensions/services/langfuse/compose.yaml 2>/dev/null || \
   { echo "[FAIL] MinIO telemetry not disabled"; exit 1; }
 
+echo "[contract] ENABLE_RAG opt-out disables both qdrant and embeddings"
+# RAG = qdrant (vector store) + embeddings (TEI). Both compose files must
+# be gated on ENABLE_RAG in installers/phases/03-features.sh; otherwise
+# answering 'n' to the Custom-menu RAG prompt still leaves embeddings
+# being pulled and started.
+features_phase="dream-server/installers/phases/03-features.sh"
+test -f "$features_phase" || features_phase="installers/phases/03-features.sh"
+test -f "$features_phase" || { echo "[FAIL] cannot locate 03-features.sh"; exit 1; }
+for svc in qdrant embeddings; do
+  grep -qE "_sync_extension_compose +\"\\\$\\{ENABLE_RAG:-\\}\" +$svc\\b" "$features_phase" \
+    || { echo "[FAIL] ENABLE_RAG opt-out missing sync for '$svc' in $features_phase"; exit 1; }
+done
+
 echo "[contract] Token Spy dashboard ships offline chart assets"
 test -f extensions/services/token-spy/dashboard_charts.js || { echo "[FAIL] missing extensions/services/token-spy/dashboard_charts.js"; exit 1; }
 grep -q '/dashboard-assets/charts.js' extensions/services/token-spy/main.py || \
@@ -66,5 +82,17 @@ if grep -q 'cdn.jsdelivr.net/npm/chart.js\|cdn.jsdelivr.net/npm/chartjs-adapter-
   echo "[FAIL] Token Spy dashboard still depends on CDN chart assets"
   exit 1
 fi
+
+echo "[contract] installers pre-mark setup wizard complete"
+# All three installers must write data/config/setup-complete.json at install time
+# so the dashboard wizard doesn't reappear on every visit after a fresh install.
+# dashboard-api reads this file (container path /data/config/setup-complete.json,
+# mounted from ${INSTALL_DIR}/data) to decide first_run state.
+grep -q 'data/config/setup-complete.json' installers/phases/13-summary.sh \
+  || { echo "[FAIL] Linux phase 13 does not write data/config/setup-complete.json"; exit 1; }
+grep -q 'data/config/setup-complete.json' installers/macos/install-macos.sh \
+  || { echo "[FAIL] macOS installer does not write data/config/setup-complete.json"; exit 1; }
+grep -q 'data\\\\config\\\\setup-complete.json\|setup-complete.json' installers/windows/install-windows.ps1 \
+  || { echo "[FAIL] Windows installer does not write setup-complete.json"; exit 1; }
 
 echo "[PASS] installer contracts"

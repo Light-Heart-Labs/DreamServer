@@ -15,6 +15,7 @@ from security import verify_api_key
 from gpu import (
     decode_gpu_assignment,
     get_gpu_info_amd_detailed,
+    get_gpu_info_apple,
     get_gpu_info_nvidia_detailed,
     read_gpu_topology,
 )
@@ -39,8 +40,29 @@ _GPU_TOPOLOGY_TTL = 300.0
 # Internal helpers
 # ============================================================================
 
+def _apple_info_to_individual(info: GPUInfo) -> IndividualGPU:
+    """Wrap an Apple Silicon aggregate GPUInfo as a single IndividualGPU entry."""
+    return IndividualGPU(
+        index=0,
+        uuid="apple-unified-0",  # 15 chars; GPUCard.jsx calls uuid.slice(-8)
+        name=info.name,
+        memory_used_mb=info.memory_used_mb,
+        memory_total_mb=info.memory_total_mb,
+        memory_percent=info.memory_percent,
+        utilization_percent=info.utilization_percent,
+        temperature_c=info.temperature_c,
+        power_w=info.power_w,
+        assigned_services=[],
+    )
+
+
 def _get_raw_gpus(gpu_backend: str) -> Optional[list[IndividualGPU]]:
     """Return per-GPU list from the appropriate backend, with fallback."""
+    if gpu_backend == "apple":
+        info = get_gpu_info_apple()
+        if info is None:
+            return None
+        return [_apple_info_to_individual(info)]
     if gpu_backend == "amd":
         return get_gpu_info_amd_detailed()
     result = get_gpu_info_nvidia_detailed()

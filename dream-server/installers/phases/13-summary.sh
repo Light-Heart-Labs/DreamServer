@@ -47,6 +47,24 @@ fi
 # Show the cinematic success card
 show_success_card "http://localhost:3000" "http://localhost:3001" "$LOCAL_IP"
 
+# Mark the setup wizard as already completed for fresh installs. The
+# dashboard-api reads this file (container path /data/config/setup-complete.json,
+# mounted from ${INSTALL_DIR}/data) to decide first_run state; without it the
+# wizard reappears on every visit after a fresh install. Non-fatal — if the
+# write fails, the wizard simply shows once.
+if ! $DRY_RUN; then
+    _setup_config_dir="${INSTALL_DIR}/data/config"
+    _setup_complete_file="${_setup_config_dir}/setup-complete.json"
+    _completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    if mkdir -p "${_setup_config_dir}" 2>/dev/null \
+        && printf '{"completed_at": "%s", "version": "1.0.0"}\n' "${_completed_at}" > "${_setup_complete_file}" 2>/dev/null \
+        && chmod 644 "${_setup_complete_file}" 2>/dev/null; then
+        log "Setup wizard pre-marked complete at ${_setup_complete_file}"
+    else
+        ai_warn "Could not write ${_setup_complete_file} (non-fatal)"
+    fi
+fi
+
 # Check background tasks before showing additional info
 if [[ -f "$SCRIPT_DIR/installers/lib/background-tasks.sh" ]]; then
     . "$SCRIPT_DIR/installers/lib/background-tasks.sh"
@@ -289,13 +307,13 @@ fi
 if ! $DRY_RUN; then
     # Check Perplexica config was seeded (phase 12 may have failed silently)
     if $DOCKER_CMD inspect dream-perplexica &>/dev/null; then
-        _perplexica_status=$(curl -sf --max-time 5 "http://localhost:${SERVICE_PORTS[perplexica]:-3004}/api/config" 2>>"$LOG_FILE" | \
+        _perplexica_status=$(curl -sf --max-time 5 "http://127.0.0.1:${SERVICE_PORTS[perplexica]:-3004}/api/config" 2>>"$LOG_FILE" | \
             "$PYTHON_CMD" -c "import sys,json;d=json.load(sys.stdin);print('ok' if d['values'].get('setupComplete') else 'needed')" 2>>"$LOG_FILE" || echo "skip")
         if [[ "$_perplexica_status" == "needed" ]]; then
             ai_warn "Perplexica config incomplete — running auto-setup..."
             if [[ -x "$INSTALL_DIR/scripts/repair/repair-perplexica.sh" ]]; then
                 bash "$INSTALL_DIR/scripts/repair/repair-perplexica.sh" \
-                    "http://localhost:${SERVICE_PORTS[perplexica]:-3004}" \
+                    "http://127.0.0.1:${SERVICE_PORTS[perplexica]:-3004}" \
                     "${LLM_MODEL:-qwen3-30b-a3b}" >> "$LOG_FILE" 2>&1 && \
                     ai_ok "Perplexica configured" || \
                     ai_warn "Perplexica may need manual config at :${SERVICE_PORTS[perplexica]:-3004}"
