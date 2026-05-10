@@ -1,14 +1,12 @@
-# LiteLLM AMD overlay — disable auth for local-only Lemonade installs.
+# LiteLLM AMD overlay — Langfuse-aware entrypoint for Lemonade installs.
+# Inherits LITELLM_MASTER_KEY from base compose.yaml so proxy auth is enforced;
+# the literal `${LITELLM_KEY}` written to .env at install time is non-empty.
 # All LiteLLM ports bind to 127.0.0.1 — no external exposure.
-# LiteLLM checks `is not None` (not truthiness), so empty string still
-# enables auth. The only way to disable it is to unset the env var entirely.
-# Loads after compose.yaml via GPU overlay discovery, so entrypoint wins.
 services:
   litellm:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        unset LITELLM_MASTER_KEY
         if [ "$$LANGFUSE_ENABLED" = "true" ]; then
           python3 -c "
         import yaml

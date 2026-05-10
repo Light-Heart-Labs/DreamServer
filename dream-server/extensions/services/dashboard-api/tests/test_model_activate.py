@@ -124,6 +124,24 @@ class TestWriteLemonadeConfig:
         assert 'model_name: "*"' in content
         assert "drop_params: true" in content
 
+    def test_reads_lemonade_key_from_env_file_when_process_env_unset(
+        self, monkeypatch, tmp_path,
+    ):
+        """Installer-written Lemonade keys live in .env, not process env."""
+        litellm_dir = tmp_path / "config" / "litellm"
+        litellm_dir.mkdir(parents=True)
+        (tmp_path / ".env").write_text(
+            "LITELLM_LEMONADE_API_KEY=sk-from-env-file-12345\n",
+            encoding="utf-8",
+        )
+        monkeypatch.delenv("LITELLM_LEMONADE_API_KEY", raising=False)
+
+        _write_lemonade_config(tmp_path, "Qwen3.5-9B-Q4_K_M.gguf")
+
+        content = (litellm_dir / "lemonade.yaml").read_text()
+        assert "api_key: sk-from-env-file-12345" in content
+        assert "api_key: sk-lemonade" not in content
+
     def test_overwrites_previous(self, tmp_path):
         litellm_dir = tmp_path / "config" / "litellm"
         litellm_dir.mkdir(parents=True)
@@ -241,7 +259,12 @@ class _BrokenPipeWriter:
         raise BrokenPipeError("client disconnected")
 
 
-def _write_model_activation_fixture(tmp_path, gpu_backend="nvidia", lemonade=False):
+def _write_model_activation_fixture(
+    tmp_path,
+    gpu_backend="nvidia",
+    lemonade=False,
+    lemonade_api_key=None,
+):
     install_dir = tmp_path / "install"
     config_dir = install_dir / "config"
     models_dir = install_dir / "data" / "models"
@@ -271,6 +294,8 @@ def _write_model_activation_fixture(tmp_path, gpu_backend="nvidia", lemonade=Fal
         "CTX_SIZE=2048\n"
         "OLLAMA_PORT=8080\n"
     )
+    if lemonade_api_key:
+        env_text += f"LITELLM_LEMONADE_API_KEY={lemonade_api_key}\n"
     env_path = install_dir / ".env"
     env_path.write_text(env_text, encoding="utf-8")
 
@@ -311,6 +336,41 @@ class TestModelActivateRollback:
         assert "GGUF_FILE=new-model.gguf" in env_path.read_text(encoding="utf-8")
         assert "LLM_MODEL=new-model" in env_path.read_text(encoding="utf-8")
         assert "filename = new-model.gguf" in models_ini.read_text(encoding="utf-8")
+
+    def test_amd_activation_rewrites_lemonade_yaml_with_env_file_key(
+        self, tmp_path, monkeypatch,
+    ):
+        install_dir, _env_path, _env_text, _models_ini, _ini_text, lemonade_yaml, _yaml_text = (
+            _write_model_activation_fixture(
+                tmp_path,
+                gpu_backend="amd",
+                lemonade=True,
+                lemonade_api_key="sk-inline-from-env-file-67890",
+            )
+        )
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+        monkeypatch.delenv("DREAM_HOST_INSTALL_DIR", raising=False)
+        monkeypatch.delenv("LITELLM_LEMONADE_API_KEY", raising=False)
+        monkeypatch.setattr(_mod.time, "sleep", lambda _seconds: None)
+        monkeypatch.setattr(_mod, "_compose_restart_llama_server", lambda _env: None)
+
+        def fake_run(cmd, **_kwargs):
+            stdout = (
+                '{"status": "ok", "model_loaded": "extra.new-model.gguf"}'
+                if cmd and cmd[0] == "curl"
+                else ""
+            )
+            return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+        handler = _ResponseHandler()
+
+        _mod.AgentHandler._do_model_activate(handler, "target-model")
+
+        assert handler.response_code == 200
+        content = lemonade_yaml.read_text(encoding="utf-8")
+        assert "api_key: sk-inline-from-env-file-67890" in content
+        assert "api_key: sk-lemonade" not in content
 
     def test_unexpected_failure_rolls_back_all_config_backups(self, tmp_path, monkeypatch):
         install_dir, env_path, env_text, models_ini, ini_text, lemonade_yaml, lemonade_text = (

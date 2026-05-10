@@ -327,7 +327,7 @@ fi
 # ── Phase 5: Hot-swap llama-server (if running) ──
 # Read OLLAMA_PORT from .env (nohup doesn't inherit env vars from parent)
 if [[ -f "$ENV_FILE" ]]; then
-    OLLAMA_PORT=$(grep -E '^OLLAMA_PORT=' "$ENV_FILE" | cut -d= -f2)
+    OLLAMA_PORT=$(grep -E '^OLLAMA_PORT=' "$ENV_FILE" | cut -d= -f2 | tr -d '"\047\r')
 fi
 
 if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --format '{{.Names}}' 2>/dev/null | grep -q dream-llama-server; then
@@ -336,7 +336,7 @@ if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --f
     # Read GPU backend from .env (needed for health endpoint and restart strategy)
     _gpu_backend=""
     if [[ -f "$ENV_FILE" ]]; then
-        _gpu_backend=$(grep -E '^GPU_BACKEND=' "$ENV_FILE" | cut -d= -f2 | tr -d '"'"'")
+        _gpu_backend=$(grep -E '^GPU_BACKEND=' "$ENV_FILE" | cut -d= -f2 | tr -d '"\047\r')
     fi
 
     # Detect compose files
@@ -464,19 +464,24 @@ if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --f
         # reference the exact ID, not a wildcard passthrough.
         if $DOCKER_CMD ps --filter name=dream-litellm --format '{{.Names}}' 2>/dev/null | grep -q dream-litellm; then
             log "Updating LiteLLM config for new model: extra.${FULL_GGUF_FILE}"
+            # Read per-install lemonade key from .env; fall back to literal so
+            # older installs without the key still produce a valid config (lemonade
+            # itself ignores the value).
+            LITELLM_LEMONADE_API_KEY=$(grep '^LITELLM_LEMONADE_API_KEY=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d '"\047\r')
+            : "${LITELLM_LEMONADE_API_KEY:=sk-lemonade}"
             cat > "$INSTALL_DIR/config/litellm/lemonade.yaml" << LITELLM_UPGRADE_EOF
 model_list:
   - model_name: default
     litellm_params:
       model: openai/extra.${FULL_GGUF_FILE}
       api_base: http://llama-server:8080/api/v1
-      api_key: sk-lemonade
+      api_key: ${LITELLM_LEMONADE_API_KEY}
 
   - model_name: "*"
     litellm_params:
       model: openai/extra.${FULL_GGUF_FILE}
       api_base: http://llama-server:8080/api/v1
-      api_key: sk-lemonade
+      api_key: ${LITELLM_LEMONADE_API_KEY}
 
 litellm_settings:
   drop_params: true

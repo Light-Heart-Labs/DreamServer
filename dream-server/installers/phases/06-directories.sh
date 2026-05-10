@@ -215,6 +215,7 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
     WEBUI_SECRET=$(_env_get WEBUI_SECRET "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
     N8N_PASS=$(_env_get N8N_PASS "$(openssl rand -base64 16 2>/dev/null || head -c 16 /dev/urandom | base64)")
     LITELLM_KEY=$(_env_get LITELLM_KEY "sk-dream-$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
+    LITELLM_LEMONADE_API_KEY=$(_env_get LITELLM_LEMONADE_API_KEY "sk-dream-lemonade-$(openssl rand -hex 16 2>/dev/null || head -c 16 /dev/urandom | xxd -p)")
     LIVEKIT_SECRET=$(_env_get LIVEKIT_API_SECRET "$(openssl rand -base64 32 2>/dev/null || head -c 32 /dev/urandom | base64)")
     DASHBOARD_API_KEY=$(_env_get DASHBOARD_API_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
     DREAM_AGENT_KEY=$(_env_get DREAM_AGENT_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
@@ -379,6 +380,9 @@ HSA_XNACK=1
 ROCBLAS_USE_HIPBLASLT=1
 AMDGPU_TARGET=gfx1151
 LLAMA_CPP_REF=b8763
+
+#=== LiteLLM → Lemonade outbound key (AMD only) ===
+LITELLM_LEMONADE_API_KEY=${LITELLM_LEMONADE_API_KEY}
 AMD_ENV
 fi)
 $(if [[ "$GPU_BACKEND" == "sycl" ]]; then cat << INTEL_ENV
@@ -499,13 +503,13 @@ model_list:
     litellm_params:
       model: openai/extra.${_active_gguf}
       api_base: http://llama-server:8080/api/v1
-      api_key: sk-lemonade
+      api_key: ${LITELLM_LEMONADE_API_KEY}
 
   - model_name: "*"
     litellm_params:
       model: openai/extra.${_active_gguf}
       api_base: http://llama-server:8080/api/v1
-      api_key: sk-lemonade
+      api_key: ${LITELLM_LEMONADE_API_KEY}
 
 litellm_settings:
   drop_params: true
