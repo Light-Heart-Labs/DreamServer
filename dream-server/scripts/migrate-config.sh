@@ -249,7 +249,7 @@ cmd_migrate() {
                     set_last_migrated_version "$migration_version"
                 else
                     log_error "Migration $migration_version failed!"
-                    ((failed++))
+                    ((failed++)) || true
                     break
                 fi
             fi

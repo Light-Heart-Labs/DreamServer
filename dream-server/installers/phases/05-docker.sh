@@ -354,12 +354,44 @@ if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "nvidia" ]]; then
     else
         ai "Installing NVIDIA Container Toolkit..."
         if ! $DRY_RUN; then
-            # Add NVIDIA GPG key (used by apt and as trust anchor)
-            curl -fsSL --max-time 60 https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg 2>/dev/null || true
-
             # Distro-aware repo setup + install
             case "$PKG_MANAGER" in
                 apt)
+                    # Add NVIDIA GPG key (apt's signed-by trust anchor for the toolkit repo)
+                    curl -fsSL --max-time 60 https://nvidia.github.io/libnvidia-container/gpgkey | \
+                        sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+                    if [[ ! -s /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg ]]; then
+                        error "NVIDIA Container Toolkit keyring download failed (empty or missing /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg). Check network connectivity to nvidia.github.io."
+                    fi
+                    # Fingerprint pin: defense against MITM at the CDN/DNS edge serving
+                    # nvidia.github.io. NVIDIA does not publish this fingerprint in their
+                    # install docs (industry-wide gap), but the value is derivable from
+                    # the public key file at the canonical URL.
+                    # Source: extracted from the gpgkey blob at
+                    # https://nvidia.github.io/libnvidia-container/gpgkey on 2026-05-03
+                    # via: gpg --with-colons --import-options show-only --import.
+                    # If NVIDIA rotates the key, update this constant and bump the date.
+                    _nvidia_expected_fp="C95B321B61E88C1809C4F759DDCAE044F796ECB0"
+                    # Read keyring without sudo — /usr/share/keyrings/*.gpg is world-readable
+                    # (dearmor output of a public key). show-only avoids touching any keyring.
+                    _nvidia_actual_fp=$(gpg --with-colons --import-options show-only --import \
+                        /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg 2>/dev/null \
+                        | awk -F: '/^fpr:/ {print $10; exit}')
+                    if [[ -z "$_nvidia_actual_fp" ]]; then
+                        warn "Could not extract fingerprint from downloaded NVIDIA keyring — proceeding without pin verification."
+                    elif [[ "$_nvidia_actual_fp" != "$_nvidia_expected_fp" ]]; then
+                        warn "NVIDIA Container Toolkit GPG fingerprint MISMATCH:"
+                        warn "  expected: $_nvidia_expected_fp"
+                        warn "  got:      $_nvidia_actual_fp"
+                        warn "Possible MITM, or NVIDIA rotated the key. Manually verify against NVIDIA's published fingerprint before trusting."
+                        warn "Proceeding because operator chose pin-and-warn over hard-fail. Set DS_GPG_HARD_FAIL=1 to error instead."
+                        if [[ "${DS_GPG_HARD_FAIL:-}" == "1" ]]; then
+                            error "Aborting due to GPG fingerprint mismatch (DS_GPG_HARD_FAIL=1)."
+                        fi
+                    else
+                        log "NVIDIA Container Toolkit GPG fingerprint verified: $_nvidia_expected_fp"
+                    fi
+                    unset _nvidia_expected_fp _nvidia_actual_fp
                     curl -s -L --max-time 60 https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
                         sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
                         sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list > /dev/null

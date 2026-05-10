@@ -607,6 +607,53 @@ _compose_run_with_summary() {
 }
 
 #=============================================================================
+# Warn (don't exit) when the current user can't reach the Docker daemon on
+# Linux. Phase 05 of the installer sets DOCKER_CMD="sudo docker" for users
+# not in the docker group, but dream-cli calls bare `docker compose` and
+# can't see that. Without this check, --rebuild-images fails with an opaque
+# "permission denied while trying to connect to the Docker daemon socket"
+# and users have no idea what to do next. macOS Docker Desktop grants
+# socket access to the logged-in user, so the check is Linux-only.
+#=============================================================================
+_check_docker_access() {
+    [[ "$(uname -s)" == Linux* ]] || return 0
+    if id -nG 2>/dev/null | grep -qw docker && docker ps >/dev/null 2>&1; then
+        return 0
+    fi
+    warn "Current user cannot reach the Docker daemon (not in 'docker' group, or daemon unreachable)."
+    warn "If the next step fails with 'permission denied', run:  newgrp docker  (current shell)"
+    warn "or log out and back in (all shells), then re-run your dream command."
+}
+
+#=============================================================================
+# Rebuild local-built images (opt-in via --rebuild-images on restart/start/update).
+# Always rebuilds: dashboard, dashboard-api, ape, token-spy, privacy-shield.
+# Conditionally rebuilds based on .env state:
+#   - comfyui     (ENABLE_COMFYUI=true)
+#   - llama-server (GPU_BACKEND=amd, e.g. AMD Lemonade)
+#   - dreamforge   (ENABLE_DREAMFORGE=true)
+# Mirrors the conditional logic in installers/phases/11-services.sh. Unlike that
+# phase's image-inspect fast-path, --rebuild-images is an explicit opt-in so we
+# always rebuild every applicable service from source.
+#=============================================================================
+_dream_cli_rebuild_images() {
+    local flags=("$@")
+    local svcs=(dashboard dashboard-api ape token-spy privacy-shield)
+    # Mirror phases/11-services.sh conditional builds: ComfyUI when enabled,
+    # llama-server on AMD (Lemonade builds the binary in the container), and
+    # dreamforge when enabled (Rust source build). Other GPU backends pull
+    # pre-built images.
+    [[ "${ENABLE_COMFYUI:-}" == "true" ]] && svcs+=(comfyui)
+    [[ "${GPU_BACKEND:-}" == "amd" ]] && svcs+=(llama-server)
+    [[ "${ENABLE_DREAMFORGE:-}" == "true" ]] && svcs+=(dreamforge)
+    _check_docker_access
+    log "Rebuilding local-built images (--rebuild-images)..."
+    if ! docker compose "${flags[@]}" build --no-cache "${svcs[@]}"; then
+        warn "One or more images failed to rebuild (continuing — see compose output above)"
+    fi
+}
+
+#=============================================================================
 # Commands
 #=============================================================================
 
@@ -867,11 +914,24 @@ cmd_restart() {
     load_env
     ensure_llama_cpu_budget
 
-    local service="${1:-}"
+    # Parse flags vs positional service name
+    local rebuild_images="false"
+    local service=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --rebuild-images) rebuild_images="true"; shift ;;
+            --) shift; break ;;
+            -*) error "Unknown option: $1" ;;
+            *) service="$1"; shift ;;
+        esac
+    done
+
     local flags_str
     flags_str=$(get_compose_flags)
     local -a flags
     read -ra flags <<< "$flags_str"
+
+    [[ "$rebuild_images" == "true" ]] && _dream_cli_rebuild_images "${flags[@]}"
 
     if [[ -z "$service" ]]; then
         _compose_run_with_summary "Restarting all services" "${flags[@]}" up -d
@@ -907,11 +967,24 @@ cmd_start() {
     ensure_llama_cpu_budget
     sr_load
 
-    local service="${1:-}"
+    # Parse flags vs positional service name
+    local rebuild_images="false"
+    local service=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --rebuild-images) rebuild_images="true"; shift ;;
+            --) shift; break ;;
+            -*) error "Unknown option: $1" ;;
+            *) service="$1"; shift ;;
+        esac
+    done
+
     local flags_str
     flags_str=$(get_compose_flags)
     local -a flags
     read -ra flags <<< "$flags_str"
+
+    [[ "$rebuild_images" == "true" ]] && _dream_cli_rebuild_images "${flags[@]}"
 
     if [[ -z "$service" ]]; then
         _compose_run_with_summary "Starting all services" "${flags[@]}" up -d
@@ -1073,10 +1146,12 @@ cmd_update() {
     # Parse flags
     local dry_run="false"
     local force_flag="false"
+    local rebuild_images="false"
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --dry-run|-n) dry_run="true"; shift ;;
             --force|-f) force_flag="true"; shift ;;
+            --rebuild-images) rebuild_images="true"; shift ;;
             --*) error "Unknown option: $1" ;;
             -*) error "Unknown option: $1" ;;
             *) error "Unexpected argument: $1" ;;
@@ -1127,6 +1202,8 @@ cmd_update() {
     if ! _compose_run_with_summary "Pulling latest images" "${flags[@]}" pull; then
         error "Failed to pull latest images"
     fi
+
+    [[ "$rebuild_images" == "true" ]] && _dream_cli_rebuild_images "${flags[@]}"
 
     if ! _compose_run_with_summary "Recreating containers with new images" "${flags[@]}" up -d --force-recreate; then
         error "Failed to recreate containers. Run 'dream rollback' to restore previous state."
@@ -1434,6 +1511,14 @@ for name, status in checks:
         print(f"  {RED}✗{NC} {name}")
         has_failures = True
 
+dgx_check = runtime.get('dgx_spark_cuda_arch_check', {})
+dgx_status = dgx_check.get('status')
+dgx_message = dgx_check.get('message', '')
+if dgx_status == 'pass':
+    print(f"  {GREEN}✓{NC} DGX Spark llama-server CUDA arch")
+elif dgx_status == 'warn':
+    print(f"  {YELLOW}⚠{NC} DGX Spark llama-server CUDA arch: {dgx_message}")
+
 print()
 
 # Preflight checks
@@ -1466,6 +1551,7 @@ if pf_checks:
 summary = report.get('summary', {})
 blocker_count = summary.get('preflight_blockers', 0)
 warning_count = summary.get('preflight_warnings', 0)
+runtime_warning_count = summary.get('runtime_warnings', 0)
 runtime_ready = summary.get('runtime_ready', False)
 
 print(f"{CYAN}Summary:{NC}")
@@ -1473,7 +1559,9 @@ if blocker_count > 0:
     print(f"  {RED}✗{NC} {blocker_count} blocker(s) found")
 if warning_count > 0:
     print(f"  {YELLOW}⚠{NC} {warning_count} warning(s) found")
-if blocker_count == 0 and warning_count == 0 and runtime_ready:
+if runtime_warning_count > 0:
+    print(f"  {YELLOW}⚠{NC} {runtime_warning_count} runtime warning(s) found")
+if blocker_count == 0 and warning_count == 0 and runtime_warning_count == 0 and runtime_ready:
     print(f"  {GREEN}✓{NC} All checks passed")
 
 print()
@@ -3483,10 +3571,14 @@ ${CYAN}Commands:${NC}
   restore [backup_id] Restore from a backup
   rollback            Rollback to pre-update state (after failed update)
   logs <service>      Tail logs for a service
-  restart [service]   Restart services (all if no service specified)
-  start [service]     Start services
+  restart [service] [--rebuild-images]
+                      Restart services (all if no service specified)
+  start [service] [--rebuild-images]
+                      Start services
   stop [service]      Stop services
-  update [--force]    Pull latest images and restart (--force skips version-compat confirmation)
+  update [--force] [--rebuild-images]
+                      Pull latest images and restart (--force skips version-compat confirmation;
+                      --rebuild-images rebuilds locally-built images so contributor edits deploy)
   shell <service>     Open shell in container
   config [show|edit|validate]
                       View, edit, or validate configuration

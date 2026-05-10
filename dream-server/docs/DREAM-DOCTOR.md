@@ -43,6 +43,7 @@ Runtime Environment:
   ✓ Docker Compose
   ✗ Dashboard HTTP
   ✗ WebUI HTTP
+  ⚠ DGX Spark llama-server CUDA arch: DGX Spark detected, but llama-server reports CUDA archs '500,610,700,750,800,860,890,1200' without sm_121.
 
 Preflight Checks:
   ✓ RAM: 16GB available
@@ -68,6 +69,9 @@ dream doctor --json > report.json
 - **capability_profile**: Hardware detection snapshot
 - **preflight**: Blocker/warning analysis
 - **runtime**: Docker/Compose/UI reachability checks
+- **runtime.dgx_spark_cuda_arch_check**: Warns when a DGX Spark / GB10
+  machine is running a llama.cpp CUDA binary that does not report `sm_121`
+  support in `llama-server` logs.
 - **summary**: Aggregate status (blockers, warnings, runtime_ready)
 - **autofix_hints**: Prioritized remediation actions
 
@@ -95,4 +99,3 @@ The doctor command integrates with:
 ## Default Report Path
 
 `/tmp/dream-doctor-report.json`
-

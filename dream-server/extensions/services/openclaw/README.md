@@ -44,6 +44,9 @@ Environment variables (set in `.env`):
 |-----------|---------------|---------|
 | `./config/openclaw` | `/config` (read-only) | Gateway config files and token injection script |
 | `./data/openclaw` | `/data` | Agent task state and persistent data |
+| `./data/openclaw/home/agents` | `/home/node/.openclaw/agents` | Agent definitions and sessions |
+| `./data/openclaw/home/canvas` | `/home/node/.openclaw/canvas` | OpenClaw canvas state |
+| `./data/openclaw/home/cron` | `/home/node/.openclaw/cron` | Scheduled agent jobs |
 | `./config/openclaw/workspace` | `/home/node/.openclaw/workspace` | Agent workspace directory |
 
 ## Architecture
