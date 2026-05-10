@@ -213,6 +213,8 @@ async def enable_workflow(workflow_id: str, api_key: str = Depends(verify_api_ke
                 else:
                     error_text = await resp.text()
                     raise HTTPException(status_code=resp.status, detail=f"n8n API error: {error_text}")
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="n8n workflow add timed out")
     except aiohttp.ClientError as e:
         raise HTTPException(status_code=503, detail=f"Cannot reach n8n: {e}")
 
@@ -245,6 +247,8 @@ async def _remove_workflow(workflow_id: str):
                 else:
                     error_text = await resp.text()
                     raise HTTPException(status_code=resp.status, detail=f"n8n API error: {error_text}")
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="n8n workflow remove timed out")
     except aiohttp.ClientError as e:
         raise HTTPException(status_code=503, detail=f"Cannot reach n8n: {e}")
 

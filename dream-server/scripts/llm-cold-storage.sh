@@ -53,7 +53,7 @@ is_model_in_use() {
     model_id="$(echo "$name" | sed 's/^models--//; s/--/\//g')"
 
     # Check if any running process references this model
-    if pgrep -af "$model_id" > /dev/null 2>&1; then
+    if pgrep -f "$model_id" > /dev/null 2>&1; then
         return 0
     fi
     return 1
@@ -61,9 +61,16 @@ is_model_in_use() {
 
 get_last_access_days() {
     local dir="$1"
-    # Check most recent access time across all blobs in the model
-    local newest_atime
-    newest_atime="$(find "$dir" -type f -printf '%A@\n' 2>/dev/null | sort -rn | head -1)"
+    # Find most recent atime across all files in $dir using portable stat
+    # (BSD `find -printf` is unavailable on macOS).
+    local newest_atime=""
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        # BSD: stat -f %a (atime as epoch seconds)
+        newest_atime="$(find "$dir" -type f -exec stat -f %a {} + 2>/dev/null | sort -rn | sed -n '1p')"
+    else
+        # GNU: stat -c %X (atime as epoch seconds)
+        newest_atime="$(find "$dir" -type f -exec stat -c %X {} + 2>/dev/null | sort -rn | sed -n '1p')"
+    fi
     if [[ -z "$newest_atime" ]]; then
         echo "9999"
         return

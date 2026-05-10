@@ -34,7 +34,7 @@ services:
       - REQUEST_TIMEOUT=300
       - TOKEN_SPY_API_PATH=/app/sidecar/api.py
     ports:
-      - "${TOKEN_SPY_PROXY_PORT:-8080}:8080"
+      - "${BIND_ADDRESS:-127.0.0.1}:${TOKEN_SPY_PROXY_PORT:-8080}:8080"
     volumes:
       - token-spy-data:/data
     depends_on:
@@ -66,13 +66,13 @@ services:
       - DATABASE_URL=postgresql://token_spy:${POSTGRES_PASSWORD}@token-spy-db:5432/token_spy
       - DASHBOARD_PORT=3001
       - DASHBOARD_HOST=0.0.0.0
-      - DASHBOARD_AUTH_ENABLED=${DASHBOARD_AUTH_ENABLED:-false}
+      - DASHBOARD_AUTH_ENABLED=${DASHBOARD_AUTH_ENABLED:-true}
       - DASHBOARD_USERNAME=${DASHBOARD_USERNAME:-admin}
       - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:-}
       - ENABLE_SSE=${ENABLE_SSE:-true}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     ports:
-      - "${TOKEN_SPY_DASHBOARD_PORT:-3001}:3001"
+      - "${BIND_ADDRESS:-127.0.0.1}:${TOKEN_SPY_DASHBOARD_PORT:-3001}:3001"
     volumes:
       - token-spy-dashboard-cache:/app/cache
     depends_on:
@@ -101,7 +101,7 @@ services:
       - PGDATA=/var/lib/postgresql/data/pgdata
       - TIMESCALEDB_TELEMETRY=off
     ports:
-      - "${TOKEN_SPY_DB_PORT:-5432}:5432"
+      - "${BIND_ADDRESS:-127.0.0.1}:${TOKEN_SPY_DB_PORT:-5432}:5432"
     volumes:
       - token-spy-postgres:/var/lib/postgresql/data
       - ./schema:/docker-entrypoint-initdb.d:ro

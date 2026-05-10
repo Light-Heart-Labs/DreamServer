@@ -58,6 +58,16 @@
           "description": "Path to the service UI (e.g. /dashboard, /)"
         },
         "type": { "type": "string", "enum": ["docker", "host-systemd"] },
+        "startup_check": {
+          "type": "boolean",
+          "description": "When false, skip the post-install running-state poll and treat compose's clean exit as success. Set this on one-shot CLI / setup-only extensions whose containers intentionally exit (default: true)."
+        },
+        "startup_timeout": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 600,
+          "description": "Seconds the host agent polls for the container to reach the running state before declaring install failed (default: 15). Increase for extensions with heavy initialization (e.g. JVM, postgres, clickhouse)."
+        },
         "gpu_backends": {
           "type": "array",
           "items": { "type": "string", "enum": ["amd", "nvidia", "apple", "cpu", "none", "all"] },

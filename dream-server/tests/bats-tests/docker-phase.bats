@@ -91,13 +91,15 @@ teardown() {
         DOCKER_CMD="sudo docker"
         _docker_cmd_arr() {
             case "${DOCKER_CMD:-docker}" in
-                "sudo docker") echo "sudo" "docker" ;;
-                *)             echo "docker" ;;
+                "sudo docker") printf "%s %s\n" "sudo" "docker" ;;
+                *)             printf "%s\n" "docker" ;;
             esac
         }
         _docker_cmd_arr
     '
-    assert_output $'sudo\ndocker'
+    # The helper emits one shell-like command line; consumers word-split it
+    # into argv with `local -a cmd=($(_docker_cmd_arr))`.
+    assert_output 'sudo docker'
 }
 
 @test "_docker_cmd_arr: returns docker when DOCKER_CMD is empty" {
@@ -105,8 +107,8 @@ teardown() {
         DOCKER_CMD=""
         _docker_cmd_arr() {
             case "${DOCKER_CMD:-docker}" in
-                "sudo docker") echo "sudo" "docker" ;;
-                *)             echo "docker" ;;
+                "sudo docker") printf "%s %s\n" "sudo" "docker" ;;
+                *)             printf "%s\n" "docker" ;;
             esac
         }
         _docker_cmd_arr

@@ -185,6 +185,23 @@ class TestGetGpuInfoNvidiaDetailed:
         monkeypatch.setattr("gpu.run_command", lambda cmd, **kw: (True, ""))
         assert get_gpu_info_nvidia_detailed() is None
 
+    def test_unified_memory_fallback_for_na_memory(self, monkeypatch):
+        # GB10 / GB200 unified-memory: nvidia-smi reports [N/A] for memory.
+        csv = "0, GPU-gb10-uuid, NVIDIA GB10, [N/A], [N/A], 6, 43, 8.2"
+        monkeypatch.setattr("gpu.run_command", lambda cmd, **kw: (True, csv))
+        monkeypatch.setattr("gpu._read_meminfo_mb", lambda: (12000, 124000))
+        monkeypatch.delenv("GPU_ASSIGNMENT_JSON_B64", raising=False)
+
+        result = get_gpu_info_nvidia_detailed()
+        assert result is not None and len(result) == 1
+        g = result[0]
+        assert g.name == "NVIDIA GB10"
+        assert g.memory_used_mb == 12000
+        assert g.memory_total_mb == 124000
+        assert g.utilization_percent == 6
+        assert g.temperature_c == 43
+        assert g.power_w == 8.2
+
 
 # ============================================================================
 # get_gpu_info_amd_detailed

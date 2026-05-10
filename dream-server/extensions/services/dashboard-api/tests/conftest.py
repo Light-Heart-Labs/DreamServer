@@ -16,7 +16,9 @@ sys.path.insert(0, str(DASHBOARD_API_DIR))
 # Set env vars BEFORE any app imports so config.py and security.py initialise
 # correctly (they read env at module level).
 _TEST_API_KEY = "test-key-12345"
+_TEST_SHIELD_KEY = "test-shield-key-fixture"
 os.environ.setdefault("DASHBOARD_API_KEY", _TEST_API_KEY)
+os.environ.setdefault("SHIELD_API_KEY", _TEST_SHIELD_KEY)
 os.environ.setdefault("DREAM_INSTALL_DIR", "/tmp/dream-test-install")
 os.environ.setdefault("DREAM_DATA_DIR", "/tmp/dream-test-data")
 os.environ.setdefault("DREAM_EXTENSIONS_DIR", "/tmp/dream-test-extensions")

@@ -87,6 +87,46 @@
         "backend": "amd",
         "tier": "SH_LARGE"
       }
+    },
+    {
+      "id": "nvidia_grace_blackwell_gb10",
+      "match": {
+        "device_ids": [],
+        "name_patterns": ["GB10", "Grace Blackwell"]
+      },
+      "specs": {
+        "label": "NVIDIA Grace Blackwell GB10 (DGX Spark)",
+        "vendor": "nvidia",
+        "architecture": "grace-blackwell",
+        "memory_type": "unified",
+        "memory_mb": 122880,
+        "memory_source": "ram",
+        "bandwidth_gbps": 273
+      },
+      "recommended": {
+        "backend": "nvidia",
+        "tier": "NV_ULTRA"
+      }
+    },
+    {
+      "id": "nvidia_grace_blackwell_gb200",
+      "match": {
+        "device_ids": [],
+        "name_patterns": ["GB200"]
+      },
+      "specs": {
+        "label": "NVIDIA Grace Blackwell GB200",
+        "vendor": "nvidia",
+        "architecture": "grace-blackwell",
+        "memory_type": "unified",
+        "memory_mb": 393216,
+        "memory_source": "ram",
+        "bandwidth_gbps": 8000
+      },
+      "recommended": {
+        "backend": "nvidia",
+        "tier": "NV_ULTRA"
+      }
     }
   ],
   "known_gpu_bandwidth": {
@@ -210,6 +250,31 @@
     {
       "id": "nvidia_entry",
       "match": { "vendor": "nvidia", "memory_type": "discrete", "min_vram_mb": 0 },
+      "recommended": { "backend": "nvidia", "tier": "T1" }
+    },
+    {
+      "id": "nvidia_unified_ultra",
+      "match": { "vendor": "nvidia", "memory_type": "unified", "min_ram_mb": 92160 },
+      "recommended": { "backend": "nvidia", "tier": "NV_ULTRA" }
+    },
+    {
+      "id": "nvidia_unified_enterprise",
+      "match": { "vendor": "nvidia", "memory_type": "unified", "min_ram_mb": 49152 },
+      "recommended": { "backend": "nvidia", "tier": "T4" }
+    },
+    {
+      "id": "nvidia_unified_pro",
+      "match": { "vendor": "nvidia", "memory_type": "unified", "min_ram_mb": 20480 },
+      "recommended": { "backend": "nvidia", "tier": "T3" }
+    },
+    {
+      "id": "nvidia_unified_prosumer",
+      "match": { "vendor": "nvidia", "memory_type": "unified", "min_ram_mb": 12288 },
+      "recommended": { "backend": "nvidia", "tier": "T2" }
+    },
+    {
+      "id": "nvidia_unified_entry",
+      "match": { "vendor": "nvidia", "memory_type": "unified", "min_ram_mb": 0 },
       "recommended": { "backend": "nvidia", "tier": "T1" }
     },
     {

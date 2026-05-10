@@ -22,7 +22,7 @@ services:
   # Serves OpenAI-compatible API on port 8080
   # ============================================
   llama-server:
-    image: ${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-b8248}
+    image: ${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-b9014}
     container_name: dream-llama-server
     restart: unless-stopped
     volumes:
@@ -50,6 +50,12 @@ services:
       - --metrics
     environment:
       - LLAMA_ARG_REASONING=${LLAMA_REASONING:-off}
+      - LLAMA_ARG_FLASH_ATTN=${LLAMA_ARG_FLASH_ATTN:-auto}
+      - LLAMA_ARG_CACHE_TYPE_K=${LLAMA_ARG_CACHE_TYPE_K:-f16}
+      - LLAMA_ARG_CACHE_TYPE_V=${LLAMA_ARG_CACHE_TYPE_V:-f16}
+      # Optional MoE expert CPU offload. Do not default to an empty value:
+      # llama.cpp parses this as an integer and exits if it is blank.
+      - LLAMA_ARG_N_CPU_MOE
     security_opt:
       - no-new-privileges:true
     logging: *default-logging
@@ -58,7 +64,9 @@ services:
       interval: 15s
       timeout: 10s
       retries: 5
-      start_period: 120s
+      # 70B-class GGUFs cold-load in 60-120s; thermal throttling and first-touch
+      # page faults push Tier 4 past 180s. Override via LLAMA_START_PERIOD in .env.
+      start_period: ${LLAMA_START_PERIOD:-240s}
 
   # ============================================
   # Chat UI
@@ -172,6 +180,7 @@ services:
       - N8N_URL=${N8N_URL:-http://n8n:5678}
       - DASHBOARD_API_KEY=${DASHBOARD_API_KEY:-}
       - DREAM_AGENT_KEY=${DREAM_AGENT_KEY:-}
+      - SHIELD_API_KEY=${SHIELD_API_KEY:-}
       - OPENCLAW_TOKEN=${OPENCLAW_TOKEN:-}
       - TOKEN_SPY_URL=${TOKEN_SPY_URL:-http://token-spy:8080}
       - TOKEN_SPY_API_KEY=${TOKEN_SPY_API_KEY:-}
