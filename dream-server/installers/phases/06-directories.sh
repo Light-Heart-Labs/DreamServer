@@ -155,9 +155,11 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
         # Generate OPENCLAW_TOKEN (used by compose env and inject-token.js)
         OPENCLAW_TOKEN=$(openssl rand -hex 24 2>/dev/null || head -c 24 /dev/urandom | xxd -p)
         # Note: inject-token.js regenerates /home/node/.openclaw/openclaw.json
-        # on every container start — that path lives in the container's ephemeral
-        # overlay, so no installer seeding is needed. Only workspace/ is persisted,
-        # via the bind mount at ./config/openclaw/workspace (see below).
+        # on every container start, so that file stays ephemeral. OpenClaw also
+        # writes agent, cron, and canvas state under /home/node/.openclaw; those
+        # paths are bind-mounted under data/openclaw/home. workspace/ is
+        # persisted separately under config/openclaw/workspace.
+        mkdir -p "$INSTALL_DIR/data/openclaw/home"/{agents,canvas,cron}
         # Create workspace directory (must exist before Docker Compose,
         # otherwise Docker auto-creates it as root and the container can't write to it)
         mkdir -p "$INSTALL_DIR/config/openclaw/workspace/memory"

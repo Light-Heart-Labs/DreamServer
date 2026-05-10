@@ -26,6 +26,9 @@ services:
     volumes:
       - ./config/openclaw:/config:ro
       - ./data/openclaw:/data
+      - ./data/openclaw/home/agents:/home/node/.openclaw/agents
+      - ./data/openclaw/home/canvas:/home/node/.openclaw/canvas
+      - ./data/openclaw/home/cron:/home/node/.openclaw/cron
       - ./config/openclaw/workspace:/home/node/.openclaw/workspace
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${OPENCLAW_PORT:-7860}:18789"

@@ -410,8 +410,10 @@ generate_openclaw_config() {
     # Create directories
     local home_dir="${install_dir}/data/openclaw/home"
     local agent_dir="${home_dir}/agents/main/agent"
+    local canvas_dir="${home_dir}/canvas"
+    local cron_dir="${home_dir}/cron"
     local sess_dir="${home_dir}/agents/main/sessions"
-    mkdir -p "$agent_dir" "$sess_dir"
+    mkdir -p "$agent_dir" "$canvas_dir" "$cron_dir" "$sess_dir"
 
     # Idempotency: if OpenClaw has already been configured, don't overwrite unless forced.
     if [[ -f "${home_dir}/openclaw.json" ]] && [[ "$force_overwrite" != "true" ]]; then
