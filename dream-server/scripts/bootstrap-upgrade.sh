@@ -327,7 +327,7 @@ fi
 # ── Phase 5: Hot-swap llama-server (if running) ──
 # Read OLLAMA_PORT from .env (nohup doesn't inherit env vars from parent)
 if [[ -f "$ENV_FILE" ]]; then
-    OLLAMA_PORT=$(grep -E '^OLLAMA_PORT=' "$ENV_FILE" | cut -d= -f2)
+    OLLAMA_PORT=$(grep -E '^OLLAMA_PORT=' "$ENV_FILE" | cut -d= -f2 | tr -d '"\047\r')
 fi
 
 if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --format '{{.Names}}' 2>/dev/null | grep -q dream-llama-server; then
@@ -336,7 +336,7 @@ if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --f
     # Read GPU backend from .env (needed for health endpoint and restart strategy)
     _gpu_backend=""
     if [[ -f "$ENV_FILE" ]]; then
-        _gpu_backend=$(grep -E '^GPU_BACKEND=' "$ENV_FILE" | cut -d= -f2 | tr -d '"'"'")
+        _gpu_backend=$(grep -E '^GPU_BACKEND=' "$ENV_FILE" | cut -d= -f2 | tr -d '"\047\r')
     fi
 
     # Detect compose files
@@ -464,19 +464,24 @@ if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --f
         # reference the exact ID, not a wildcard passthrough.
         if $DOCKER_CMD ps --filter name=dream-litellm --format '{{.Names}}' 2>/dev/null | grep -q dream-litellm; then
             log "Updating LiteLLM config for new model: extra.${FULL_GGUF_FILE}"
+            # Read per-install lemonade key from .env; fall back to literal so
+            # older installs without the key still produce a valid config (lemonade
+            # itself ignores the value).
+            LITELLM_LEMONADE_API_KEY=$(grep '^LITELLM_LEMONADE_API_KEY=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d '"\047\r')
+            : "${LITELLM_LEMONADE_API_KEY:=sk-lemonade}"
             cat > "$INSTALL_DIR/config/litellm/lemonade.yaml" << LITELLM_UPGRADE_EOF
 model_list:
   - model_name: default
     litellm_params:
       model: openai/extra.${FULL_GGUF_FILE}
       api_base: http://llama-server:8080/api/v1
-      api_key: sk-lemonade
+      api_key: ${LITELLM_LEMONADE_API_KEY}
 
   - model_name: "*"
     litellm_params:
       model: openai/extra.${FULL_GGUF_FILE}
       api_base: http://llama-server:8080/api/v1
-      api_key: sk-lemonade
+      api_key: ${LITELLM_LEMONADE_API_KEY}
 
 litellm_settings:
   drop_params: true
@@ -566,17 +571,26 @@ elif [[ -f "$INSTALL_DIR/data/.llama-server.pid" ]]; then
             # Honour the unified BIND_ADDRESS knob (PR #964); empty/missing → loopback.
             _bind=$(grep '^BIND_ADDRESS=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
             [[ -z "$_bind" ]] && _bind="127.0.0.1"
+            _flash_attn=$(grep '^LLAMA_ARG_FLASH_ATTN=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+            _cache_type_k=$(grep '^LLAMA_ARG_CACHE_TYPE_K=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+            _cache_type_v=$(grep '^LLAMA_ARG_CACHE_TYPE_V=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+            _n_cpu_moe=$(grep '^LLAMA_ARG_N_CPU_MOE=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+            _llama_args=(
+                --host "$_bind" --port 8080
+                --model "$_model_path"
+                --ctx-size "$_ctx_size"
+                --n-gpu-layers 999
+                --reasoning-format "$_reasoning_fmt"
+                --metrics
+            )
+            [[ -n "$_flash_attn" ]] && _llama_args+=(--flash-attn "$_flash_attn")
+            [[ -n "$_cache_type_k" ]] && _llama_args+=(--cache-type-k "$_cache_type_k")
+            [[ -n "$_cache_type_v" ]] && _llama_args+=(--cache-type-v "$_cache_type_v")
+            [[ -n "$_n_cpu_moe" ]] && _llama_args+=(--n-cpu-moe "$_n_cpu_moe")
 
             # Relaunch with new model
             log "Starting native llama-server with ${_gguf_file}..."
-            "$LLAMA_SERVER_BIN" \
-                --host "$_bind" --port 8080 \
-                --model "$_model_path" \
-                --ctx-size "$_ctx_size" \
-                --n-gpu-layers 999 \
-                --reasoning-format "$_reasoning_fmt" \
-                --metrics \
-                > "$LLAMA_SERVER_LOG" 2>&1 &
+            "$LLAMA_SERVER_BIN" "${_llama_args[@]}" > "$LLAMA_SERVER_LOG" 2>&1 &
             _new_pid=$!
             echo "$_new_pid" > "$LLAMA_SERVER_PID_FILE"
 

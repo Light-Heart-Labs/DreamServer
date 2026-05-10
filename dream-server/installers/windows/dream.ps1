@@ -356,6 +356,10 @@ function Start-NativeInferenceServer {
             "--n-gpu-layers", "999",
             "--ctx-size", $ctxSize
         )
+        if ($envVars["LLAMA_ARG_FLASH_ATTN"]) { $llamaArgs += @("--flash-attn", $envVars["LLAMA_ARG_FLASH_ATTN"]) }
+        if ($envVars["LLAMA_ARG_CACHE_TYPE_K"]) { $llamaArgs += @("--cache-type-k", $envVars["LLAMA_ARG_CACHE_TYPE_K"]) }
+        if ($envVars["LLAMA_ARG_CACHE_TYPE_V"]) { $llamaArgs += @("--cache-type-v", $envVars["LLAMA_ARG_CACHE_TYPE_V"]) }
+        if ($envVars["LLAMA_ARG_N_CPU_MOE"]) { $llamaArgs += @("--n-cpu-moe", $envVars["LLAMA_ARG_N_CPU_MOE"]) }
 
         $pidDir = Split-Path $script:INFERENCE_PID_FILE
         New-Item -ItemType Directory -Path $pidDir -Force | Out-Null

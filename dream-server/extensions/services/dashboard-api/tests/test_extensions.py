@@ -2699,6 +2699,63 @@ class TestInstallProgress:
         status = _compute_extension_status(ext, {})
         assert status == "error"
 
+    def test_status_cli_installed_for_oneshot_started_recent(self, monkeypatch, tmp_path):
+        """One-shot extension (port=0) with recent 'started' progress →
+        'cli_installed'. Regression: previously the install toast cycled
+        through 'installing' / 'stopped' because there is no healthcheck
+        for a CLI-only container that exits 0 after init."""
+        from routers.extensions import _compute_extension_status
+
+        monkeypatch.setattr("routers.extensions.DATA_DIR", str(tmp_path))
+        monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", tmp_path / "user")
+        monkeypatch.setattr("routers.extensions.GPU_BACKEND", "nvidia")
+        monkeypatch.setattr("routers.extensions.SERVICES", {})
+
+        progress_dir = tmp_path / "extension-progress"
+        progress_dir.mkdir()
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        progress_data = {
+            "service_id": "aider",
+            "status": "started",
+            "phase_label": "Service started",
+            "error": None,
+            "started_at": now,
+            "updated_at": now,
+        }
+        (progress_dir / "aider.json").write_text(json.dumps(progress_data))
+
+        ext = _make_catalog_ext("aider")
+        ext["port"] = 0  # one-shot CLI extension marker
+        ext["startup_check"] = False
+        status = _compute_extension_status(ext, {})
+        assert status == "cli_installed"
+
+    def test_status_cli_installed_for_oneshot_user_dir_compose(self, monkeypatch, tmp_path):
+        """Steady-state: a one-shot extension (port=0) installed under
+        USER_EXTENSIONS_DIR with compose.yaml present should remain
+        'cli_installed' even when no recent progress file exists."""
+        from routers.extensions import _compute_extension_status
+
+        user_dir = tmp_path / "user"
+        user_dir.mkdir()
+        aider_dir = user_dir / "aider"
+        aider_dir.mkdir()
+        (aider_dir / "compose.yaml").write_text(
+            "services:\n  aider:\n    image: paulgauthier/aider\n"
+        )
+
+        monkeypatch.setattr("routers.extensions.DATA_DIR", str(tmp_path))
+        monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", user_dir)
+        monkeypatch.setattr("routers.extensions.GPU_BACKEND", "nvidia")
+        monkeypatch.setattr("routers.extensions.SERVICES", {})
+
+        ext = _make_catalog_ext("aider")
+        ext["port"] = 0  # one-shot CLI extension marker
+        ext["startup_check"] = False
+        status = _compute_extension_status(ext, {})
+        assert status == "cli_installed"
+
     def test_stale_progress_ignored(self, monkeypatch, tmp_path):
         """Progress file >1 hour old → _read_progress returns None."""
         from routers.extensions import _read_progress
