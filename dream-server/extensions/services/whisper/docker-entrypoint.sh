@@ -23,6 +23,13 @@ import re
 
 def patch_transcribe_call(source_code):
     """Safely patch transcribe() calls to add VAD parameters."""
+    # Newer speaches commits (post mid-2025) include vad_filter= directly in
+    # the upstream transcribe() call. Skip patching anywhere in the file
+    # already containing those kwargs — the per-call check below only sees
+    # the first line of a multi-line call and misses kwargs on continuation
+    # lines, which produced "SyntaxError: keyword argument repeated".
+    if 'vad_filter=' in source_code or 'vad_parameters=' in source_code:
+        return source_code, False
     try:
         # Parse the AST to find function calls
         tree = ast.parse(source_code)

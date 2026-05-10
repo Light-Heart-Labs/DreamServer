@@ -433,6 +433,16 @@ if ($dryRun) {
                     "--n-gpu-layers", "999",
                     "--ctx-size", "$($tierConfig.MaxContext)"
                 )
+                $_llamaEnv = @{}
+                Get-Content -LiteralPath (Join-Path $installDir ".env") -ErrorAction SilentlyContinue | ForEach-Object {
+                    if ($_ -match '^\s*#' -or $_ -notmatch '=') { return }
+                    $parts = $_ -split '=', 2
+                    $_llamaEnv[$parts[0].Trim()] = $parts[1].Trim().Trim('"')
+                }
+                if ($_llamaEnv["LLAMA_ARG_FLASH_ATTN"]) { $llamaArgs += @("--flash-attn", $_llamaEnv["LLAMA_ARG_FLASH_ATTN"]) }
+                if ($_llamaEnv["LLAMA_ARG_CACHE_TYPE_K"]) { $llamaArgs += @("--cache-type-k", $_llamaEnv["LLAMA_ARG_CACHE_TYPE_K"]) }
+                if ($_llamaEnv["LLAMA_ARG_CACHE_TYPE_V"]) { $llamaArgs += @("--cache-type-v", $_llamaEnv["LLAMA_ARG_CACHE_TYPE_V"]) }
+                if ($_llamaEnv["LLAMA_ARG_N_CPU_MOE"]) { $llamaArgs += @("--n-cpu-moe", $_llamaEnv["LLAMA_ARG_N_CPU_MOE"]) }
                 $pidDir = Split-Path $script:INFERENCE_PID_FILE
                 New-Item -ItemType Directory -Path $pidDir -Force | Out-Null
 
@@ -597,7 +607,7 @@ if ($dryRun) {
             exit 1
         }
 
-        Write-AI "Running: docker compose $($composeFlags -join ' ') up -d"
+        Write-AI "Running: docker compose $($composeFlags -join ' ') up -d --no-build"
         # PS 5.1 treats ANY stderr output from native commands as NativeCommandError.
         # Silence stderr-as-error so $LASTEXITCODE reflects the real compose exit code.
         # Write output to log file to avoid ForEach-Object pipeline hang on failure.
@@ -606,8 +616,29 @@ if ($dryRun) {
         $_composeLogDir = Join-Path $installDir "logs"
         if (-not (Test-Path $_composeLogDir)) { New-Item -ItemType Directory -Path $_composeLogDir -Force | Out-Null }
         $_composeLog = Join-Path $_composeLogDir "compose-up.log"
+
+        # ── Rebuild local-built images ─────────────────────────────────────
+        # Mirrors phases/11-services.sh on Linux: local Dockerfiles can drift
+        # from the baked images, so we always rebuild without cache before
+        # `up -d`. llama-server runs natively on Windows (Lemonade or Vulkan
+        # binary) so it is not built here. ComfyUI is included only if
+        # explicitly enabled.
+        $_buildServices = @("dashboard", "dashboard-api", "ape", "token-spy", "privacy-shield")
+        if ($enableComfyui) { $_buildServices += "comfyui" }
+        Write-AI "Rebuilding local-built images (no-cache)..."
+        $_buildLog = Join-Path $_composeLogDir "compose-build.log"
+        "" | Out-File -FilePath $_buildLog -Encoding ascii
+        foreach ($_svc in $_buildServices) {
+            Write-AI "  building $_svc ..."
+            & docker compose @composeFlags build --no-cache $_svc *>> $_buildLog
+            if ($LASTEXITCODE -ne 0) {
+                Write-AIWarn "$_svc build failed (non-fatal - see $_buildLog)"
+            }
+        }
+        Write-AISuccess "Local images rebuilt"
+
         Write-AI "Starting services... this may take several minutes."
-        & docker compose @composeFlags up -d *> $_composeLog
+        & docker compose @composeFlags up -d --no-build *> $_composeLog
         $composeExit = $LASTEXITCODE
         $ErrorActionPreference = $prevEAP
         # Show tail of compose output for immediate feedback

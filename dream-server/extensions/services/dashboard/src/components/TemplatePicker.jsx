@@ -93,7 +93,7 @@ export function TemplatePicker({ templates, onApplied, compact = false }) {
                 <span>{tmpl.services?.length || 0} services</span>
                 {tmpl.estimated_disk_gb && (
                   <span className="flex items-center gap-1">
-                    <HardDrive size={10} />
+                    <HardDrive size={10} aria-hidden="true" />
                     ~{tmpl.estimated_disk_gb}GB
                   </span>
                 )}

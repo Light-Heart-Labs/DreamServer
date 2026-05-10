@@ -8,12 +8,20 @@ This extension ships a pinned image digest. The bundled Torch + CUDA build insid
 
 - **NVIDIA-only.** The manifest declares `gpu_backends: [nvidia]`, so this extension is filtered out at install time on AMD, Intel, Apple Silicon, and CPU-only systems. Apple Silicon and CPU-only hosts cannot install it.
 - **Confirmed broken: NVIDIA RTX 3070 Mobile (compute capability sm_86) under CUDA driver capability 12.4.** The container starts and the host shows it as running, but the Forge process inside crashes with `Your device does not support the current version of Torch/CUDA`. The pinned Torch wheel in the bundled `ghcr.io/ai-dock/stable-diffusion-webui-forge` image is incompatible with this hardware/driver combination.
-- **Untested: all other NVIDIA hardware.** RTX 30-series desktop parts, other sm_86 mobile parts, RTX 40-series (sm_89), Hopper (sm_90), and earlier generations have not been live-tested with this image. We make no prediction about whether they work or fail — treat them as unknown until tested on real hardware.
+- **Untested: all other NVIDIA hardware.** RTX 30-series desktop parts, other sm_86 mobile parts, RTX 40-series (sm_89), Hopper (sm_90), and earlier generations have not been live-tested with this image. We make no prediction about whether they work or fail - treat them as unknown until tested on real hardware.
 - **Linux:** the live-confirmed failure above was reproduced on Linux with the NVIDIA Container Toolkit. Non-sm_86 Linux hosts are untested.
-- **Windows / WSL2:** the same image runs under WSL2 with `nvidia-container-toolkit`. Because the Torch/CUDA mismatch is internal to the image, a WSL2 host on the same RTX 3070 Mobile (sm_86) silicon is **inferred to hit the same crash** — but this has **not** been live-tested. Treat as inferred, not confirmed.
+- **Windows / WSL2:** the same image runs under WSL2 with `nvidia-container-toolkit`. Because the Torch/CUDA mismatch is internal to the image, a WSL2 host on the same RTX 3070 Mobile (sm_86) silicon is **inferred to hit the same crash** - but this has **not** been live-tested. Treat as inferred, not confirmed.
 - **macOS:** Apple Silicon and Intel Macs cannot run this extension. The manifest's `gpu_backends: [nvidia]` filter removes it from the install set on macOS.
 
 If you hit the incompatibility on supported-but-unlisted hardware, the upstream project is [lllyasviel/stable-diffusion-webui-forge](https://github.com/lllyasviel/stable-diffusion-webui-forge); building a compatible image yourself or substituting an alternative Forge image is currently the only path forward, and is outside the scope of this packaged extension.
+
+## Privacy & Defense-in-depth
+
+The upstream `ai-dock` Forge image bundles `syncthing`, `quicktunnel`, `serviceportal`, and `sshd` for cloud workflows, plus a `jupyter` notebook server. These are autostarted by the image's bundled supervisord and would otherwise expose the host to remote relays, tunnel endpoints, inbound SSH, and an unauthenticated notebook on default install.
+
+DreamServer disables them via `SUPERVISOR_NO_AUTOSTART=syncthing,quicktunnel,serviceportal,sshd,jupyter` in `compose.yaml`. To re-enable any of them, override that env var in your `.env` or a compose override.
+
+`cloudflared` is also bundled but only autostarts when `CF_TUNNEL_TOKEN` is set, so it stays a no-op by default.
 
 ## Requirements
 

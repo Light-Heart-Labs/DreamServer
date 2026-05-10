@@ -142,6 +142,38 @@ if ($_fsFatal) {
 }
 Write-AISuccess "Filesystem supports POSIX-style permissions"
 
+# Networked filesystem advisory (warn-only)
+# NTFS ACLs on a mapped network drive (SMB/CIFS) or a UNC share are enforced
+# by the SERVER, not this client. chmod-style local permission bits and any
+# ACLs we set are advisory; another client of the same share may read .env
+# regardless of how this Windows install enforces ACLs locally. Warn-only -
+# installs to network homes are common and not always insecure.
+$_fsNetworked = $false
+$_fsNetworkType = ""
+try {
+    if ($installDir -match '^\\\\') {
+        # UNC path - \\server\share\... - always networked. DriveInfo would
+        # throw for these, so check the path shape first.
+        $_fsNetworked = $true
+        $_fsNetworkType = "UNC share"
+    } elseif ($_di -and $_di.DriveType -eq 'Network') {
+        # Mapped drive - DriveInfo.DriveType reports Network for SMB-mapped
+        # drive letters (Z:\ pointing at \\server\share).
+        $_fsNetworked = $true
+        $_fsNetworkType = "mapped network drive"
+    }
+} catch {
+    # Same graceful-degradation pattern as the FATAL detection above -
+    # if we can't determine drive type, skip the warning silently.
+    $_fsNetworked = $false
+}
+
+if ($_fsNetworked) {
+    Write-AIWarn "INSTALL_DIR ($installDir) is on a $_fsNetworkType."
+    Write-AIWarn ".env permissions are advisory - actual access control is governed by the share's ACL on the server."
+    Write-AIWarn "If this share is exposed to other clients, sensitive credentials may be readable from those hosts."
+}
+
 # ── Docker Desktop file-sharing allowlist check ──────────────────────────────
 # Bind-mounting a path outside the Docker Desktop file-sharing list fails at
 # `docker compose up` with a cryptic OCI error. Probe with a throwaway alpine

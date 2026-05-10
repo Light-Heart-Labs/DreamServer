@@ -200,9 +200,6 @@ async def get_update_dry_run():
     that the update process reads or writes.  No containers are started,
     stopped, or re-created.
     """
-    import urllib.request
-    import urllib.error
-
     install_path = Path(INSTALL_DIR)
 
     # ── current version ───────────────────────────────────────────────────────
@@ -230,19 +227,19 @@ async def get_update_dry_run():
     version_check_error: Optional[str] = None
 
     try:
-        req = urllib.request.Request(
-            "https://api.github.com/repos/Light-Heart-Labs/DreamServer/releases/latest",
-            headers={"Accept": "application/vnd.github.v3+json"},
-        )
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            data = json.loads(resp.read())
-            latest = data.get("tag_name", "").lstrip("v") or None
-            changelog_url = data.get("html_url") or None
-            if latest:
-                def _parts(v: str) -> list[int]:
-                    return ([int(x) for x in v.split(".") if x.isdigit()][:3] + [0, 0, 0])[:3]
-                update_available = _parts(latest) > _parts(current)
-    except (urllib.error.URLError, urllib.error.HTTPError, OSError, json.JSONDecodeError, ValueError) as e:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.get(
+                "https://api.github.com/repos/Light-Heart-Labs/DreamServer/releases/latest",
+                headers=_GITHUB_HEADERS,
+            )
+        data = resp.json()
+        latest = data.get("tag_name", "").lstrip("v") or None
+        changelog_url = data.get("html_url") or None
+        if latest:
+            def _parts(v: str) -> list[int]:
+                return ([int(x) for x in v.split(".") if x.isdigit()][:3] + [0, 0, 0])[:3]
+            update_available = _parts(latest) > _parts(current)
+    except (httpx.HTTPError, httpx.TimeoutException, OSError, json.JSONDecodeError, ValueError) as e:
         version_check_error = f"Could not reach GitHub: {e}"
 
     # ── configured image tags from compose files ──────────────────────────────
@@ -325,10 +322,13 @@ async def trigger_update(action: UpdateAction, background_tasks: BackgroundTasks
             raise HTTPException(status_code=500, detail="Backup failed")
     elif action.action == "update":
         async def run_update():
-            proc = await asyncio.create_subprocess_exec(
-                str(script_path), "update",
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-            )
-            await proc.communicate()
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    str(script_path), "update",
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                )
+                await proc.communicate()
+            except OSError:
+                logger.exception("update task failed")
         background_tasks.add_task(run_update)
         return {"success": True, "message": "Update started in background. Check logs for progress."}

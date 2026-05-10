@@ -26,6 +26,9 @@ jobs:
       - name: WSL Logic Smoke
         run: bash tests/smoke/wsl-logic.sh
 
+      - name: Mobile Dispatch Smoke
+        run: bash tests/smoke/mobile-dispatch.sh
+
   # Multi-distro installer detection tests (dry-run, no GPU required)
   distro-matrix:
     strategy:
