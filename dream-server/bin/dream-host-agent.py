@@ -1900,12 +1900,20 @@ class AgentHandler(BaseHTTPRequestHandler):
         models_ini = INSTALL_DIR / "config" / "llama-server" / "models.ini"
         lemonade_yaml = INSTALL_DIR / "config" / "litellm" / "lemonade.yaml"
 
-        # Hoisted so the outer except's rollback can reference them even if
-        # an exception fires before the in-try captures complete.
-        env_backup = ""
-        ini_backup = ""
+        # Hoisted so the outer except's rollback can reference them safely.
+        # None means the snapshot was not captured, so rollback must skip it.
+        env_backup: str | None = None
+        ini_backup: str | None = None
         lemonade_backup = None
         committed = False
+
+        def restore_backups():
+            if env_backup is not None:
+                env_path.write_text(env_backup, encoding="utf-8")
+            if ini_backup is not None:
+                models_ini.write_text(ini_backup, encoding="utf-8")
+            if lemonade_backup is not None:
+                lemonade_yaml.write_text(lemonade_backup, encoding="utf-8")
 
         try:
             # Read current env BEFORE modification — needed for gpu_backend guard
@@ -1998,8 +2006,7 @@ class AgentHandler(BaseHTTPRequestHandler):
                 llama_log = INSTALL_DIR / "data" / "llama-server.log"
 
                 if not llama_bin.exists():
-                    env_path.write_text(env_backup, encoding="utf-8")
-                    models_ini.write_text(ini_backup, encoding="utf-8")
+                    restore_backups()
                     json_response(self, 500, {"error": "llama-server binary not found — re-run installer"})
                     return
 
@@ -2111,15 +2118,12 @@ class AgentHandler(BaseHTTPRequestHandler):
                 for svc in ["dream-litellm", "dream-dreamforge"]:
                     subprocess.run(["docker", "restart", svc],
                                    capture_output=True, timeout=60)
+                committed = True  # system state is committed before the response write
                 json_response(self, 200, {"status": "activated", "model_id": model_id})
-                committed = True  # success-path complete; outer except must not rollback
             else:
                 # Rollback
                 logger.warning("Model activation failed — rolling back")
-                env_path.write_text(env_backup, encoding="utf-8")
-                models_ini.write_text(ini_backup, encoding="utf-8")
-                if lemonade_backup is not None:
-                    lemonade_yaml.write_text(lemonade_backup, encoding="utf-8")
+                restore_backups()
                 rollback_env = load_env(env_path)
                 if gpu_backend == "apple":
                     # Stop newly launched native process, re-launch with old params
@@ -2158,10 +2162,7 @@ class AgentHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             if not committed:
                 try:
-                    env_path.write_text(env_backup, encoding="utf-8")
-                    models_ini.write_text(ini_backup, encoding="utf-8")
-                    if lemonade_backup is not None:
-                        lemonade_yaml.write_text(lemonade_backup, encoding="utf-8")
+                    restore_backups()
                 except OSError:
                     logger.exception("Rollback write failed during model-activate failure handling")
             json_response(self, 500, {"error": f"Model activation failed: {exc}"})
