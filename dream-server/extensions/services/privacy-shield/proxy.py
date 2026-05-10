@@ -23,10 +23,20 @@ from key_management import resolve_shield_api_key
 DEFAULT_KEY_PATH = os.environ.get("SHIELD_API_KEY_PATH", "/data/shield_api_key")
 SHIELD_API_KEY = resolve_shield_api_key(os.environ.get("SHIELD_API_KEY"), DEFAULT_KEY_PATH)
 
-security_scheme = HTTPBearer()
+# auto_error=False so we return 401 (not FastAPI's default 403) for missing
+# credentials. REST convention: 401 = "you must authenticate", 403 =
+# "you authenticated but are forbidden". Matches the contract asserted by
+# tests/test_proxy_auth.py::test_stats_no_auth_returns_401.
+security_scheme = HTTPBearer(auto_error=False)
 
-async def verify_api_key(credentials: HTTPAuthorizationCredentials = Security(security_scheme)):
+async def verify_api_key(credentials: HTTPAuthorizationCredentials | None = Security(security_scheme)):
     """Verify API key for protected endpoints."""
+    if credentials is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing Authorization header",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     if not secrets.compare_digest(credentials.credentials, SHIELD_API_KEY):
         raise HTTPException(status_code=403, detail="Invalid API key.")
     return credentials.credentials
@@ -100,37 +110,31 @@ def _is_authenticated(request: Request) -> bool:
 @app.get("/health")
 async def health(request: Request):
     """Health check endpoint. Sensitive fields require authentication."""
-    base = {
-        "status": "ok",
-        "service": "api-privacy-shield",
-        "version": "0.2.0",
-    }
     if _is_authenticated(request):
-        base.update({
+        return {
+            "status": "ok",
+            "service": "api-privacy-shield",
+            "version": "0.2.0",
             "target_api": TARGET_API_BASE,
             "cache_enabled": CACHE_ENABLED,
             "active_sessions": len(sessions),
-        })
-    return base
+        }
+    return {"status": "ok"}
 
 
-@app.get("/stats")
-async def stats(request: Request):
-    """Session statistics. Sensitive metrics require authentication."""
-    base = {
+@app.get("/stats", dependencies=[Depends(verify_api_key)])
+async def stats():
+    """Session statistics."""
+    total_pii = sum(
+        s.detector.get_stats()['unique_pii_count']
+        for s in sessions.values()
+    )
+    return {
         "cache_enabled": CACHE_ENABLED,
         "cache_size": CACHE_SIZE,
+        "active_sessions": len(sessions),
+        "total_pii_scrubbed": total_pii,
     }
-    if _is_authenticated(request):
-        total_pii = sum(
-            s.detector.get_stats()['unique_pii_count']
-            for s in sessions.values()
-        )
-        base.update({
-            "active_sessions": len(sessions),
-            "total_pii_scrubbed": total_pii,
-        })
-    return base
 
 
 @app.post("/{path:path}", dependencies=[Depends(verify_api_key)])

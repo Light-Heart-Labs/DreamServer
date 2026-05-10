@@ -126,11 +126,11 @@ if ($enableOpenClaw) {
         "SH_LARGE"   { "openclaw-strix-halo.json" }
         "SH_COMPACT" { "openclaw-strix-halo.json" }
         "4"          { "pro.json" }
-        "3"          { "prosumer.json" }
-        "2"          { "entry.json" }
-        "1"          { "minimal.json" }
-        "CLOUD"      { "prosumer.json" }
-        default      { "prosumer.json" }
+        "3"          { "openclaw.json" }
+        "2"          { "openclaw.json" }
+        "1"          { "openclaw.json" }
+        "CLOUD"      { "openclaw.json" }
+        default      { "openclaw.json" }
     }
     Write-InfoBox "  OpenClaw config:" "$openClawConfig (matched to Tier $selectedTier)"
 }

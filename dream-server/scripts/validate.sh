@@ -52,10 +52,10 @@ check() {
     # Run fixed command string via bash -c (no eval)
     if bash -c "$cmd" > /dev/null 2>&1; then
         echo -e "${GREEN}✓ PASS${NC}"
-        ((PASSED++))
+        ((PASSED++)) || true
     else
         echo -e "${RED}✗ FAIL${NC}"
-        ((FAILED++))
+        ((FAILED++)) || true
     fi
 }
 
@@ -67,28 +67,28 @@ check "Open WebUI running" "docker compose $COMPOSE_FLAGS ps open-webui 2>/dev/n
 echo ""
 echo "2. Health Endpoints"
 echo "───────────────────"
-check "llama-server health" "curl -sf --max-time 10 http://localhost:${LLM_PORT}${LLM_HEALTH}"
-check "llama-server models" "curl -sf --max-time 10 http://localhost:${LLM_PORT}/v1/models | grep -q model"
-check "WebUI reachable" "curl -sf --max-time 10 http://localhost:${WEBUI_PORT}${WEBUI_HEALTH} -o /dev/null"
+check "llama-server health" "curl -sf --max-time 10 http://127.0.0.1:${LLM_PORT}${LLM_HEALTH}"
+check "llama-server models" "curl -sf --max-time 10 http://127.0.0.1:${LLM_PORT}/v1/models | grep -q model"
+check "WebUI reachable" "curl -sf --max-time 10 http://127.0.0.1:${WEBUI_PORT}${WEBUI_HEALTH} -o /dev/null"
 
 echo ""
 echo "3. Inference Test"
 echo "─────────────────"
 printf "  %-30s " "Chat completion..."
-RESPONSE=$(curl -sf --max-time 30 "http://localhost:${LLM_PORT}/v1/chat/completions" \
+RESPONSE=$(curl -sf --max-time 30 "http://127.0.0.1:${LLM_PORT}/v1/chat/completions" \
     -H "Content-Type: application/json" \
     -d '{
-        "model": "'"$(curl -sf --max-time 10 "http://localhost:${LLM_PORT}/v1/models" | jq -r '.data[0].id // "local"')"'",
+        "model": "'"$(curl -sf --max-time 10 "http://127.0.0.1:${LLM_PORT}/v1/models" | jq -r '.data[0].id // "local"')"'",
         "messages": [{"role": "user", "content": "Say OK"}],
         "max_tokens": 10
-    }' 2>/dev/null)
+    }' 2>/dev/null) || RESPONSE=""
 
 if echo "$RESPONSE" | grep -q "content"; then
     echo -e "${GREEN}✓ PASS${NC}"
-    ((PASSED++))
+    ((PASSED++)) || true
 else
     echo -e "${RED}✗ FAIL${NC}"
-    ((FAILED++))
+    ((FAILED++)) || true
 fi
 
 # Check optional services
@@ -119,7 +119,7 @@ for sid in "${SERVICE_IDS[@]}"; do
 
     # Check if container is running
     if docker compose $COMPOSE_FLAGS ps "$sid" 2>/dev/null | grep -qE "Up|running"; then
-        check "$_name" "curl -sf --max-time 10 http://localhost:${_port}${_health}"
+        check "$_name" "curl -sf --max-time 10 http://127.0.0.1:${_port}${_health}"
     else
         printf "  %-30s ${YELLOW}○ SKIP (not enabled)${NC}\n" "$_name..."
     fi

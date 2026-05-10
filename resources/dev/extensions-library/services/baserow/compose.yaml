@@ -35,7 +35,7 @@ services:
     volumes:
       - ./data/baserow:/baserow/data:rw
     ports:
-      - "127.0.0.1:${BASEROW_PORT:-3007}:80"
+      - "${BIND_ADDRESS:-127.0.0.1}:${BASEROW_PORT:-3007}:80"
     networks:
       - dream-network
     healthcheck:

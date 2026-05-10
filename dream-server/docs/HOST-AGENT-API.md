@@ -4,7 +4,7 @@ The Dream Host Agent (`bin/dream-host-agent.py`) is a lightweight HTTP server th
 
 ## Why It Exists
 
-The Dashboard API runs inside a Docker container and cannot directly run `docker compose` commands on the host. The host agent bridges this gap: it listens on `127.0.0.1:7710`, accepts authenticated requests from the Dashboard API, and executes Docker Compose operations on its behalf. This avoids mounting the Docker socket into the container (a significant security risk).
+The Dashboard API runs inside a Docker container and cannot directly run `docker compose` commands on the host. The host agent bridges this gap: it listens on `DREAM_AGENT_BIND:DREAM_AGENT_PORT`, accepts authenticated requests from the Dashboard API, and executes Docker Compose operations on its behalf. This avoids mounting the Docker socket into the container (a significant security risk).
 
 ## How It Runs
 
@@ -14,7 +14,7 @@ The Dashboard API runs inside a Docker container and cannot directly run `docker
 | macOS | Started by the installer (`installers/macos/install-macos.sh`) |
 | Windows | Started by the installer (`installers/windows/phases/07-devtools.ps1`, managed via `dream.ps1`) |
 
-The agent is started during installation (phase 07 on Linux) and binds to `127.0.0.1` only — it is not accessible from the network.
+The agent is started during installation. macOS and Windows bind to `127.0.0.1` by default. Linux auto-detects the Docker bridge gateway so containers can reach the agent, and falls back to `127.0.0.1` if bridge detection fails. It does not bind to `0.0.0.0` unless `DREAM_AGENT_BIND` is explicitly set.
 
 ## Configuration
 
@@ -23,6 +23,7 @@ The agent reads its configuration from the `.env` file in the DreamServer instal
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DREAM_AGENT_KEY` | *(none)* | API key for authenticating requests. Falls back to `DASHBOARD_API_KEY` if unset. |
+| `DREAM_AGENT_BIND` | Platform-specific | Bind address. macOS/Windows default to `127.0.0.1`; Linux uses the Docker bridge gateway when detected, otherwise `127.0.0.1`. |
 | `DREAM_AGENT_PORT` | `7710` | Port the agent listens on. |
 | `GPU_BACKEND` | `nvidia` | Passed to `resolve-compose-stack.sh` when building compose flags. |
 | `TIER` | `1` | Hardware tier, passed to compose stack resolution. |
@@ -139,7 +140,7 @@ If the container does not exist yet (e.g. image is still pulling), a 200 respons
 The host agent is a **critical security boundary** because it can start and stop Docker containers on the host.
 
 Protections in place:
-- **Localhost only**: Binds to `127.0.0.1`, not `0.0.0.0`
+- **Scoped network binding**: macOS/Windows bind to `127.0.0.1`; Linux binds to the Docker bridge gateway when detected so containers can reach the agent. It does not bind to `0.0.0.0` unless explicitly configured.
 - **API key auth**: All mutation endpoints require Bearer token authentication
 - **Core service protection**: Core services (loaded from `config/core-service-ids.json` with hardcoded fallback) cannot be managed
 - **Service ID validation**: Regex-validated, must map to an actual extension directory with a manifest

@@ -24,6 +24,7 @@ import shutil
 import time
 import urllib.error
 import urllib.request
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -228,21 +229,26 @@ def _infer_tier(gpu_info) -> str:
     return "Minimal"
 
 
+def _infer_gpu_count(gpu_info) -> int:
+    """Infer GPU count from the GPU_COUNT env var or the display name."""
+    gpu_count_env = os.environ.get("GPU_COUNT", "")
+    if gpu_count_env.isdigit():
+        return int(gpu_count_env)
+    if " × " in gpu_info.name:
+        try:
+            return int(gpu_info.name.rsplit(" × ", 1)[-1])
+        except ValueError:
+            pass
+    if " + " in gpu_info.name:
+        return gpu_info.name.count(" + ") + 1
+    return 1
+
+
 def _serialize_gpu(gpu_info) -> Optional[dict]:
     if not gpu_info:
         return None
 
-    gpu_count = 1
-    gpu_count_env = os.environ.get("GPU_COUNT", "")
-    if gpu_count_env.isdigit():
-        gpu_count = int(gpu_count_env)
-    elif " × " in gpu_info.name:
-        try:
-            gpu_count = int(gpu_info.name.rsplit(" × ", 1)[-1])
-        except ValueError:
-            pass
-    elif " + " in gpu_info.name:
-        gpu_count = gpu_info.name.count(" + ") + 1
+    gpu_count = _infer_gpu_count(gpu_info)
 
     gpu_data = {
         "name": gpu_info.name,
@@ -700,9 +706,8 @@ def _render_env_from_values(values: dict[str, str]) -> str:
         if commented_assignment:
             key = commented_assignment.group(1)
             seen.add(key)
-            value = values.get(key, "")
-            if value != "":
-                output_lines.append(f"{key}={value}")
+            if key in values:
+                output_lines.append(f"{key}={values[key]}")
             else:
                 output_lines.append(line)
             continue
@@ -765,7 +770,7 @@ def _check_host_agent_available() -> bool:
     try:
         with urllib.request.urlopen(f"{AGENT_URL}/health", timeout=3) as response:
             return response.status == 200
-    except Exception:
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError):
         return False
 
 
@@ -860,10 +865,19 @@ def _prepare_env_save(payload: dict[str, Any]) -> tuple[str, list[dict[str, Any]
 
 # --- App ---
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    asyncio.create_task(collect_metrics())
+    asyncio.create_task(_poll_service_health())
+    asyncio.create_task(gpu_router.poll_gpu_history())
+    yield
+
+
 app = FastAPI(
     title="Dream Server Dashboard API",
     version="2.0.0",
-    description="System status API for Dream Server Dashboard"
+    description="System status API for Dream Server Dashboard",
+    lifespan=_lifespan,
 )
 
 # --- CORS ---
@@ -1078,13 +1092,14 @@ async def status(api_key: str = Depends(verify_api_key)):
 async def api_status(api_key: str = Depends(verify_api_key)):
     """Dashboard-compatible status endpoint.
 
-    Wrapped in a top-level try/except so that a transient failure in any
-    sub-call (GPU, health checks, llama metrics …) never returns a raw 500
-    to the dashboard — the frontend would flash "0/17" otherwise.
+    Catches transient I/O failures from sub-calls (GPU, health checks,
+    llama metrics …) and returns a safe fallback. Programming errors
+    (AttributeError, KeyError, TypeError) propagate so they surface in
+    tests instead of being masked.
     """
     try:
         return await _build_api_status()
-    except Exception:
+    except (asyncio.TimeoutError, OSError):
         logger.exception("/api/status handler failed — returning safe fallback")
         return {
             "gpu": None, "services": [], "model": None,
@@ -1132,19 +1147,6 @@ async def _build_api_status() -> dict:
 
     gpu_data = None
     if gpu_info:
-        # Infer gpu_count from display name ("RTX 4090 × 2") or env var GPU_COUNT
-        gpu_count = 1
-        gpu_count_env = os.environ.get("GPU_COUNT", "")
-        if gpu_count_env.isdigit():
-            gpu_count = int(gpu_count_env)
-        elif " \u00d7 " in gpu_info.name:
-            try:
-                gpu_count = int(gpu_info.name.rsplit(" \u00d7 ", 1)[-1])
-            except ValueError:
-                pass
-        elif " + " in gpu_info.name:
-            gpu_count = gpu_info.name.count(" + ") + 1
-
         gpu_data = {
             "name": gpu_info.name,
             "vramUsed": round(gpu_info.memory_used_mb / 1024, 1),
@@ -1153,7 +1155,7 @@ async def _build_api_status() -> dict:
             "temperature": gpu_info.temperature_c,
             "memoryType": gpu_info.memory_type,
             "backend": gpu_info.gpu_backend,
-            "gpu_count": gpu_count,
+            "gpu_count": _infer_gpu_count(gpu_info),
         }
         if gpu_info.power_w is not None:
             gpu_data["powerDraw"] = gpu_info.power_w
@@ -1175,21 +1177,7 @@ async def _build_api_status() -> dict:
             "eta": bootstrap_info.eta_seconds, "speedMbps": bootstrap_info.speed_mbps
         }
 
-    tier = "Unknown"
-    if gpu_info:
-        vram_gb = gpu_info.memory_total_mb / 1024
-        if gpu_info.memory_type == "unified" and gpu_info.gpu_backend == "amd":
-            tier = "Strix Halo 90+" if vram_gb >= 90 else "Strix Halo Compact"
-        elif vram_gb >= 80:
-            tier = "Professional"
-        elif vram_gb >= 24:
-            tier = "Prosumer"
-        elif vram_gb >= 16:
-            tier = "Standard"
-        elif vram_gb >= 8:
-            tier = "Entry"
-        else:
-            tier = "Minimal"
+    tier = _infer_tier(gpu_info)
 
     result = {
         "gpu": gpu_data, "services": services_data, "model": model_data,
@@ -1360,7 +1348,7 @@ async def api_settings_env_save(
         try:
             err_payload = json.loads(exc.read().decode("utf-8"))
             detail = err_payload.get("error", detail)
-        except Exception:
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
             pass
         raise HTTPException(status_code=503, detail={"message": detail}) from exc
     except urllib.error.URLError as exc:
@@ -1420,7 +1408,7 @@ async def api_settings_env_apply(
         try:
             payload = json.loads(exc.read().decode("utf-8"))
             detail = payload.get("error", detail)
-        except Exception:
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
             pass
         raise HTTPException(status_code=503, detail={"message": detail}) from exc
     except urllib.error.URLError as exc:
@@ -1461,16 +1449,6 @@ async def _poll_service_health():
         except Exception:
             logger.exception("Service health poll failed")
         await asyncio.sleep(_SERVICE_POLL_INTERVAL)
-
-
-# --- Startup ---
-
-@app.on_event("startup")
-async def startup_event():
-    """Start background tasks."""
-    asyncio.create_task(collect_metrics())
-    asyncio.create_task(_poll_service_health())
-    asyncio.create_task(gpu_router.poll_gpu_history())
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@ services:
     image: lscr.io/linuxserver/piper:1.6.3
     container_name: dream-piper-audio
     ports:
-      - "127.0.0.1:${PIPER_PORT:-10200}:10200"
+      - "${BIND_ADDRESS:-127.0.0.1}:${PIPER_PORT:-10200}:10200"
     volumes:
       - ./data/piper:/config/piper
     environment:

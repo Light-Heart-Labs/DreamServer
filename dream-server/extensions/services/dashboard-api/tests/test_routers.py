@@ -278,8 +278,23 @@ def test_privacy_shield_status_with_mock(test_client):
 # ---------------------------------------------------------------------------
 
 
-def test_api_status_authenticated(test_client):
+def test_api_status_authenticated(test_client, monkeypatch):
     """GET /api/status with auth → 200, returns full system status."""
+    monkeypatch.setattr(
+        "main._build_api_status",
+        AsyncMock(return_value={
+            "gpu": None,
+            "services": [],
+            "model": None,
+            "bootstrap": {},
+            "uptime": 0,
+            "version": "test",
+            "tier": "Unknown",
+            "cpu": {},
+            "ram": {},
+            "inference": {},
+        }),
+    )
     resp = test_client.get("/api/status", headers=test_client.auth_headers)
     assert resp.status_code == 200
     data = resp.json()

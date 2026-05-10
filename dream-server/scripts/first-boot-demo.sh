@@ -129,25 +129,25 @@ SERVICES_OK=0
 SERVICES_TOTAL=0
 
 # Core services
-((SERVICES_TOTAL++))
+((SERVICES_TOTAL++)) || true
 if check_service "LLM (llama-server)" "$LLM_URL" "/health"; then
-    ((SERVICES_OK++))
+    ((SERVICES_OK++)) || true
     LLM_AVAILABLE=true
 else
     LLM_AVAILABLE=false
 fi
 
-((SERVICES_TOTAL++))
+((SERVICES_TOTAL++)) || true
 if check_service "Open WebUI" "$WEBUI_URL" "/"; then
-    ((SERVICES_OK++))
+    ((SERVICES_OK++)) || true
 fi
 
 # Optional services
 if curl -sf "${WHISPER_URL}/health" > /dev/null 2>&1; then
     success "Whisper STT is running (voice input enabled)"
     WHISPER_AVAILABLE=true
-    ((SERVICES_OK++))
-    ((SERVICES_TOTAL++))
+    ((SERVICES_OK++)) || true
+    ((SERVICES_TOTAL++)) || true
 else
     info "Whisper STT not running (voice input disabled)"
     WHISPER_AVAILABLE=false
@@ -156,8 +156,8 @@ fi
 if curl -sf "${PIPER_URL}" > /dev/null 2>&1; then
     success "OpenTTS TTS is running (voice output enabled)"
     PIPER_AVAILABLE=true
-    ((SERVICES_OK++))
-    ((SERVICES_TOTAL++))
+    ((SERVICES_OK++)) || true
+    ((SERVICES_TOTAL++)) || true
 else
     info "OpenTTS TTS not running (voice output disabled)"
     PIPER_AVAILABLE=false
@@ -166,8 +166,8 @@ fi
 if curl -sf "${N8N_URL}/healthz" > /dev/null 2>&1; then
     success "n8n Workflows is running (automation enabled)"
     N8N_AVAILABLE=true
-    ((SERVICES_OK++))
-    ((SERVICES_TOTAL++))
+    ((SERVICES_OK++)) || true
+    ((SERVICES_TOTAL++)) || true
 else
     info "n8n not running (automation disabled)"
     N8N_AVAILABLE=false
