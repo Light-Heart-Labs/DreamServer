@@ -9,6 +9,12 @@ RESET='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SERVICES_DIR="${SCRIPT_DIR}/services"
+VALIDATION_ENV_FILE="$(mktemp)"
+
+cleanup() {
+    rm -f "$VALIDATION_ENV_FILE"
+}
+trap cleanup EXIT
 
 # Check docker availability
 if ! command -v docker >/dev/null 2>&1; then
@@ -29,16 +35,33 @@ total=0
 passed=0
 failed=0
 
+generate_validation_env_file() {
+    : > "$VALIDATION_ENV_FILE"
+
+    # Feed docker compose with placeholder values for `${VAR:?must be set}` checks.
+    # This keeps templates strict while still allowing syntax validation.
+    while IFS= read -r var_name; do
+        [ -n "$var_name" ] || continue
+        printf "%s=%s\n" "$var_name" "validation-placeholder" >> "$VALIDATION_ENV_FILE"
+    done < <(
+        grep -RhoE '\$\{[A-Za-z_][A-Za-z0-9_]*:\?[^}]*\}' "$SERVICES_DIR" \
+          | sed -E 's/^\$\{([A-Za-z_][A-Za-z0-9_]*):\?.*$/\1/' \
+          | sort -u
+    )
+}
+
 validate_compose() {
     local file="$1"
     local extra_file="${2:-}"
 
     if [ -n "$extra_file" ]; then
-        docker compose -f "$file" -f "$extra_file" config --quiet
+        docker compose --env-file "$VALIDATION_ENV_FILE" -f "$file" -f "$extra_file" config --quiet
     else
-        docker compose -f "$file" config --quiet
+        docker compose --env-file "$VALIDATION_ENV_FILE" -f "$file" config --quiet
     fi
 }
+
+generate_validation_env_file
 
 for service_dir in "${SERVICES_DIR}"/*/; do
     service_name="$(basename "$service_dir")"
