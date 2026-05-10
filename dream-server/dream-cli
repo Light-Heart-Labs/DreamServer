@@ -616,7 +616,7 @@ _compose_run_with_summary() {
 # socket access to the logged-in user, so the check is Linux-only.
 #=============================================================================
 _check_docker_access() {
-    [[ "$(uname -s)" == "Darwin" ]] && return 0
+    [[ "$(uname -s)" == Linux* ]] || return 0
     if id -nG 2>/dev/null | grep -qw docker && docker ps >/dev/null 2>&1; then
         return 0
     fi

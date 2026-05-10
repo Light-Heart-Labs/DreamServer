@@ -883,12 +883,15 @@ else
 
     # ── Rebuild local-built images ─────────────────────────────────────
     # Mirrors phases/11-services.sh on Linux: local Dockerfiles (dashboard,
-    # dashboard-api, ape, token-spy, privacy-shield) can drift from the
-    # baked images, so we always rebuild without cache before `up -d`.
+    # dashboard-api, ape, token-spy, privacy-shield, and Apple-Silicon
+    # DreamForge builds) can drift from the baked images, so we always
+    # rebuild without cache before `up -d`.
     # ComfyUI has no Apple-Silicon variant (only amd/nvidia/multigpu); the
     # llama-server runs natively on macOS via Metal — neither is built here.
     ai "Rebuilding local-built images (no-cache)..."
     _macos_build_services=(dashboard dashboard-api ape token-spy privacy-shield)
+    _dreamforge_pull_policy="$(grep -m1 '^DREAMFORGE_PULL_POLICY=' "${INSTALL_DIR}/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'\''[:space:]' || true)"
+    [[ "$_dreamforge_pull_policy" == "build" ]] && _macos_build_services+=(dreamforge)
     declare -a _macos_build_pids _macos_build_names
     for _svc in "${_macos_build_services[@]}"; do
         docker compose "${COMPOSE_FLAGS[@]}" build --no-cache "$_svc" >> "$DS_LOG_FILE" 2>&1 &

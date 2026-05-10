@@ -597,7 +597,7 @@ if ($dryRun) {
             exit 1
         }
 
-        Write-AI "Running: docker compose $($composeFlags -join ' ') up -d"
+        Write-AI "Running: docker compose $($composeFlags -join ' ') up -d --no-build"
         # PS 5.1 treats ANY stderr output from native commands as NativeCommandError.
         # Silence stderr-as-error so $LASTEXITCODE reflects the real compose exit code.
         # Write output to log file to avoid ForEach-Object pipeline hang on failure.
