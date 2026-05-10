@@ -275,6 +275,14 @@ def _scan_user_compose_content(compose_path):
         volumes = svc_def.get("volumes", [])
         if isinstance(volumes, list):
             for vol in volumes:
+                if isinstance(vol, dict):
+                    source = str(vol.get("source", ""))
+                    target = str(vol.get("target", ""))
+                    if "docker.sock" in source or "docker.sock" in target:
+                        reject(f"service '{svc_name}' mounts the Docker socket")
+                    if source.startswith("/"):
+                        reject(f"service '{svc_name}' bind-mounts absolute host path '{source}'")
+                    continue
                 vol_str = str(vol)
                 if "docker.sock" in vol_str:
                     reject(f"service '{svc_name}' mounts the Docker socket")

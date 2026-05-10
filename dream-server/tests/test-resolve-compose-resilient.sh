@@ -25,6 +25,9 @@ FAILED=0
 pass() { echo -e "  ${GREEN}✓ PASS${NC} $1"; PASSED=$((PASSED + 1)); }
 fail() { echo -e "  ${RED}✗ FAIL${NC} $1"; FAILED=$((FAILED + 1)); }
 skip() { echo -e "  ${YELLOW}⊘ SKIP${NC} $1"; }
+contains_path() {
+    printf '%s\n' "$1" | tr '\\' '/' | grep -q "$2"
+}
 
 echo ""
 echo "╔═══════════════════════════════════════════════╗"
@@ -189,7 +192,7 @@ traversal_stderr=$(cat "$traversal_stderr_file")
 
 if [[ $traversal_exit -ne 0 ]]; then
     fail "Traversal compose_file caused resolver to crash (exit $traversal_exit)"
-elif echo "$traversal_stdout" | grep -q "etc/passwd"; then
+elif contains_path "$traversal_stdout" "etc/passwd"; then
     fail "Traversal path INCLUDED in resolved stack (security regression)"
 else
     pass "Traversal compose_file rejected from resolved stack"
@@ -223,7 +226,7 @@ abs_stderr=$(cat "$abs_stderr_file")
 
 if [[ $abs_exit -ne 0 ]]; then
     fail "Resolver crashed on absolute compose_file (DoS regression, exit $abs_exit)"
-elif echo "$abs_stdout" | grep -q "/etc/shadow"; then
+elif contains_path "$abs_stdout" "etc/shadow"; then
     fail "Absolute path INCLUDED in resolved stack (security regression)"
 else
     pass "Resolver handled absolute compose_file gracefully"
@@ -257,7 +260,7 @@ ut_stderr=$(cat "$ut_stderr_file")
 
 if [[ $ut_exit -ne 0 ]]; then
     fail "User-ext traversal caused resolver to crash (exit $ut_exit)"
-elif echo "$ut_stdout" | grep -q "etc/passwd"; then
+elif contains_path "$ut_stdout" "etc/passwd"; then
     fail "User-ext traversal path INCLUDED in resolved stack (security regression)"
 else
     pass "User-ext traversal compose_file rejected from resolved stack"
@@ -295,7 +298,7 @@ bp_stdout=$(bash "$ROOT_DIR/scripts/resolve-compose-stack.sh" \
     2>"$bp_stderr_file") || true
 bp_stderr=$(cat "$bp_stderr_file")
 
-if echo "$bp_stdout" | grep -q "user-bareports/compose.yaml"; then
+if contains_path "$bp_stdout" "user-bareports/compose.yaml"; then
     fail "User-ext with 0.0.0.0 port INCLUDED in resolved stack"
 else
     pass "User-ext with 0.0.0.0 port excluded from resolved stack"
@@ -332,7 +335,7 @@ priv_stdout=$(bash "$ROOT_DIR/scripts/resolve-compose-stack.sh" \
     2>"$priv_stderr_file") || true
 priv_stderr=$(cat "$priv_stderr_file")
 
-if echo "$priv_stdout" | grep -q "user-priv/compose.yaml"; then
+if contains_path "$priv_stdout" "user-priv/compose.yaml"; then
     fail "User-ext privileged INCLUDED in resolved stack"
 else
     pass "User-ext privileged excluded from resolved stack"
@@ -368,7 +371,7 @@ build_stdout=$(bash "$ROOT_DIR/scripts/resolve-compose-stack.sh" \
     2>"$build_stderr_file") || true
 build_stderr=$(cat "$build_stderr_file")
 
-if echo "$build_stdout" | grep -q "user-build/compose.yaml"; then
+if contains_path "$build_stdout" "user-build/compose.yaml"; then
     fail "User-ext build INCLUDED in resolved stack"
 else
     pass "User-ext build excluded from resolved stack"
@@ -406,7 +409,7 @@ sock_stdout=$(bash "$ROOT_DIR/scripts/resolve-compose-stack.sh" \
     2>"$sock_stderr_file") || true
 sock_stderr=$(cat "$sock_stderr_file")
 
-if echo "$sock_stdout" | grep -q "user-sock/compose.yaml"; then
+if contains_path "$sock_stdout" "user-sock/compose.yaml"; then
     fail "User-ext docker.sock INCLUDED in resolved stack"
 else
     pass "User-ext docker.sock excluded from resolved stack"
@@ -419,7 +422,47 @@ else
 fi
 
 # ============================================================================
-# 19. User-ext compose with BIND_ADDRESS-default loopback port must be ACCEPTED
+# 19. User-ext compose with long-form absolute bind mount must be rejected
+# ============================================================================
+mkdir -p "$TEMP_DIR/data/user-extensions/user-dict-bind"
+cat > "$TEMP_DIR/data/user-extensions/user-dict-bind/manifest.yaml" <<'EOF'
+schema_version: dream.services.v1
+service:
+  id: user-dict-bind
+  name: User Dict Bind
+  compose_file: compose.yaml
+  gpu_backends: ["nvidia", "amd", "apple"]
+EOF
+cat > "$TEMP_DIR/data/user-extensions/user-dict-bind/compose.yaml" <<'EOF'
+services:
+  user-dict-bind-svc:
+    image: nginx:latest
+    volumes:
+      - type: bind
+        source: /etc
+        target: /host-etc
+EOF
+
+dict_bind_stderr_file="$TEMP_DIR/user-dict-bind.stderr"
+dict_bind_stdout=$(bash "$ROOT_DIR/scripts/resolve-compose-stack.sh" \
+    --script-dir "$TEMP_DIR" --tier 1 --gpu-backend nvidia --skip-broken \
+    2>"$dict_bind_stderr_file") || true
+dict_bind_stderr=$(cat "$dict_bind_stderr_file")
+
+if contains_path "$dict_bind_stdout" "user-dict-bind/compose.yaml"; then
+    fail "User-ext long-form bind mount INCLUDED in resolved stack"
+else
+    pass "User-ext long-form bind mount excluded from resolved stack"
+fi
+
+if echo "$dict_bind_stderr" | grep -qi "WARNING.*user-dict-bind.*bind-mounts absolute host path"; then
+    pass "WARNING emitted for user-ext long-form bind mount"
+else
+    fail "Expected WARNING for user-ext long-form bind mount"
+fi
+
+# ============================================================================
+# 20. User-ext compose with BIND_ADDRESS-default loopback port must be ACCEPTED
 # ============================================================================
 mkdir -p "$TEMP_DIR/data/user-extensions/user-loopback-default"
 cat > "$TEMP_DIR/data/user-extensions/user-loopback-default/manifest.yaml" <<'EOF'
@@ -442,14 +485,14 @@ ld_stdout=$(bash "$ROOT_DIR/scripts/resolve-compose-stack.sh" \
     --script-dir "$TEMP_DIR" --tier 1 --gpu-backend nvidia --skip-broken \
     2>/dev/null) || true
 
-if echo "$ld_stdout" | grep -q "user-loopback-default/compose.yaml"; then
+if contains_path "$ld_stdout" "user-loopback-default/compose.yaml"; then
     pass "User-ext with BIND_ADDRESS-default loopback port accepted"
 else
     fail "User-ext with BIND_ADDRESS-default loopback port should be accepted"
 fi
 
 # ============================================================================
-# 20. docker-compose.override.yml with bare 0.0.0.0 port must be rejected
+# 21. docker-compose.override.yml with bare 0.0.0.0 port must be rejected
 # ============================================================================
 cat > "$TEMP_DIR/docker-compose.override.yml" <<'EOF'
 services:
@@ -478,7 +521,7 @@ else
 fi
 
 # ============================================================================
-# 21. docker-compose.override.yml with loopback ports must be ACCEPTED
+# 22. docker-compose.override.yml with loopback ports must be ACCEPTED
 # ============================================================================
 cat > "$TEMP_DIR/docker-compose.override.yml" <<'EOF'
 services:
@@ -502,7 +545,7 @@ fi
 rm -f "$TEMP_DIR/docker-compose.override.yml"
 
 # ============================================================================
-# 22. User-ext compose with core-service-ID name collision must be REJECTED
+# 23. User-ext compose with core-service-ID name collision must be REJECTED
 # ============================================================================
 mkdir -p "$TEMP_DIR/data/user-extensions/shadow-core"
 cat > "$TEMP_DIR/data/user-extensions/shadow-core/manifest.yaml" <<'EOF'
@@ -527,7 +570,7 @@ coll_stdout=$(USER_EXTENSIONS_DIR="$TEMP_DIR/data/user-extensions" \
     2>"$coll_stderr_file") || true
 coll_stderr=$(cat "$coll_stderr_file")
 
-if echo "$coll_stdout" | grep -q "shadow-core/compose.yaml"; then
+if contains_path "$coll_stdout" "shadow-core/compose.yaml"; then
     fail "User-ext shadowing core service name INCLUDED in resolved stack"
 else
     pass "User-ext shadowing core service name excluded from resolved stack"
