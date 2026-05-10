@@ -1208,22 +1208,25 @@ class _ImmediateThread:
 
 class TestEnableRetry:
 
-    def _write_manifest(self, ext_dir: Path, with_hook: bool = True):
+    def _write_manifest(self, ext_dir: Path, with_hook: bool = True,
+                        service_lines: str = ""):
         ext_dir.mkdir(parents=True, exist_ok=True)
+        service_block = "service:\n  port: 1234\n"
+        if service_lines:
+            service_block += service_lines
         if with_hook:
             hook = ext_dir / "setup.sh"
             hook.write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
             hook.chmod(0o755)
             (ext_dir / "manifest.yaml").write_text(
-                "service:\n"
-                "  port: 1234\n"
+                service_block +
                 "  hooks:\n"
                 "    post_install: setup.sh\n",
                 encoding="utf-8",
             )
         else:
             (ext_dir / "manifest.yaml").write_text(
-                "service:\n  port: 1234\n",
+                service_block,
                 encoding="utf-8",
             )
 
@@ -1280,6 +1283,9 @@ class TestEnableRetry:
         hook_cmds = []
 
         def fake_run(cmd, *args, **kwargs):
+            if cmd[:3] == ["docker", "inspect", "--format"]:
+                return subprocess.CompletedProcess(args=cmd, returncode=0,
+                                                   stdout="running|", stderr="")
             hook_cmds.append(cmd)
             return subprocess.CompletedProcess(args=cmd, returncode=0,
                                                stdout="", stderr="")
@@ -1307,6 +1313,67 @@ class TestEnableRetry:
         # docker compose start was called after the hook
         assert ("fakesvc", "start") in compose_calls
         # Progress landed on 'started'
+        progress = self._progress(data_dir, "fakesvc")
+        assert progress is not None
+        assert progress["status"] == "started"
+
+    def test_retry_startup_check_failure_writes_error(self, retry_env, monkeypatch):
+        _, data_dir, builtin_root, _ = retry_env
+        ext_dir = builtin_root / "fakesvc"
+        self._write_manifest(
+            ext_dir, with_hook=False,
+            service_lines="  startup_timeout: 1\n",
+        )
+        self._write_progress_file(data_dir, "fakesvc", "error")
+
+        monkeypatch.setattr(_mod, "docker_compose_action",
+                            lambda sid, act: (True, ""))
+        ticks = iter([0, 0, 2])
+        monkeypatch.setattr(_mod.time, "monotonic", lambda: next(ticks, 2))
+        monkeypatch.setattr(_mod.time, "sleep", lambda *_args: None)
+
+        inspect_calls = []
+
+        def fake_run(cmd, *args, **kwargs):
+            inspect_calls.append(cmd)
+            return subprocess.CompletedProcess(args=cmd, returncode=0,
+                                               stdout="exited|boom", stderr="")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+
+        handler = _FakeHandler(self._body("fakesvc"))
+        _mod.AgentHandler._handle_extension(handler, "start")
+
+        assert handler.response_code == 202
+        assert any(cmd[:3] == ["docker", "inspect", "--format"]
+                   for cmd in inspect_calls)
+        progress = self._progress(data_dir, "fakesvc")
+        assert progress is not None
+        assert progress["status"] == "error"
+        assert "state=exited" in (progress["error"] or "")
+        assert "boom" in (progress["error"] or "")
+
+    def test_retry_startup_check_opt_out_writes_started(self, retry_env, monkeypatch):
+        _, data_dir, builtin_root, _ = retry_env
+        ext_dir = builtin_root / "fakesvc"
+        self._write_manifest(
+            ext_dir, with_hook=False,
+            service_lines="  startup_check: false\n",
+        )
+        self._write_progress_file(data_dir, "fakesvc", "error")
+
+        monkeypatch.setattr(_mod, "docker_compose_action",
+                            lambda sid, act: (True, ""))
+
+        def fake_run(*args, **kwargs):
+            pytest.fail("startup_check false should not inspect container state")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+
+        handler = _FakeHandler(self._body("fakesvc"))
+        _mod.AgentHandler._handle_extension(handler, "start")
+
+        assert handler.response_code == 202
         progress = self._progress(data_dir, "fakesvc")
         assert progress is not None
         assert progress["status"] == "started"

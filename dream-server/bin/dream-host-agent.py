@@ -554,6 +554,43 @@ def _enable_retry_work(service_id: str) -> None:
         if not ok:
             _write_progress(service_id, "error", "Start failed", error=err)
             return
+
+        retry_manifest = _read_manifest(ext_dir)
+        retry_service_def = retry_manifest.get("service", {}) if retry_manifest else {}
+        if not isinstance(retry_service_def, dict):
+            retry_service_def = {}
+        container_name = retry_service_def.get("container_name") or f"dream-{service_id}"
+        startup_check = retry_service_def.get("startup_check", True)
+
+        if startup_check:
+            startup_timeout = retry_service_def.get("startup_timeout", 15)
+            deadline = time.monotonic() + startup_timeout
+            state: str | None = None
+            state_error = ""
+            while time.monotonic() < deadline:
+                try:
+                    inspect_result = subprocess.run(
+                        ["docker", "inspect", "--format",
+                         "{{.State.Status}}|{{.State.Error}}", container_name],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                except subprocess.TimeoutExpired:
+                    inspect_result = None
+                if inspect_result is not None and inspect_result.returncode == 0:
+                    parts = inspect_result.stdout.strip().split("|", 1)
+                    state = parts[0] if parts else ""
+                    state_error = parts[1] if len(parts) > 1 else ""
+                    if state == "running":
+                        break
+                time.sleep(1)
+
+            if state != "running":
+                msg = f"Container did not reach running state within {startup_timeout}s (state={state or 'unknown'})"
+                if state_error:
+                    msg += f": {state_error}"
+                _write_progress(service_id, "error", "Start failed", error=msg)
+                return
+
         _write_progress(service_id, "started", "Service started")
     except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
         logger.exception("Enable-retry failed for %s", service_id)
