@@ -371,21 +371,18 @@ def test_render_env_uncomments_commented_key_with_value(commented_example_templa
     assert "LLAMA_ARG_TENSOR_SPLIT=3,1" in rendered.splitlines()
 
 
-def test_render_env_uncomments_commented_key_absent_from_values(commented_example_template):
-    """Documents the intentional behaviour change in the #529 fix: a commented
-    key in .env.example that is absent from ``values`` is now rendered as an
-    uncommented empty assignment (``KEY=``) rather than preserving the comment.
+def test_render_env_preserves_commented_key_absent_from_values(commented_example_template):
+    """Absent commented defaults should stay commented on dashboard saves.
 
-    The active-assignment branch already had this behaviour (see
-    ``output_lines.append(f"{key}={values.get(key, '')}")`` at line 696);
-    the commented_assignment branch now matches for symmetry.
+    Explicit empty values are meaningful, but missing values should not turn
+    optional template defaults into active empty assignments.
     """
     from main import _render_env_from_values
 
     rendered = _render_env_from_values({})  # nothing in values
     lines = rendered.splitlines()
-    assert "LLAMA_ARG_TENSOR_SPLIT=" in lines
-    assert not any(line.lstrip().startswith("# LLAMA_ARG_TENSOR_SPLIT=") for line in lines)
+    assert "LLAMA_ARG_TENSOR_SPLIT=" not in lines
+    assert any(line.lstrip().startswith("# LLAMA_ARG_TENSOR_SPLIT=") for line in lines)
 
 
 # --- Production schema secret-flag coverage ---

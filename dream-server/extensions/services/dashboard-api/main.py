@@ -706,7 +706,10 @@ def _render_env_from_values(values: dict[str, str]) -> str:
         if commented_assignment:
             key = commented_assignment.group(1)
             seen.add(key)
-            output_lines.append(f"{key}={values.get(key, '')}")
+            if key in values:
+                output_lines.append(f"{key}={values[key]}")
+            else:
+                output_lines.append(line)
             continue
 
         output_lines.append(line)
