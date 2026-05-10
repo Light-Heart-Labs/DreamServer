@@ -16,9 +16,9 @@
 #           LLAMA_SERVER_GPU_UUIDS, LLAMA_ARG_SPLIT_MODE, LLAMA_ARG_TENSOR_SPLIT,
 #           chapter(), ai(), ai_ok(), ai_warn(), log(), warn(), error()
 # Provides: WEBUI_SECRET, N8N_PASS, LITELLM_KEY, LIVEKIT_SECRET,
-#           DASHBOARD_API_KEY, OPENCODE_SERVER_PASSWORD, OPENCLAW_TOKEN,
-#           OPENCLAW_PROVIDER_NAME, OPENCLAW_PROVIDER_URL, OPENCLAW_MODEL,
-#           OPENCLAW_CONTEXT, GPU_ASSIGNMENT_JSON_B64 (in .env)
+#           DASHBOARD_API_KEY, SHIELD_API_KEY, OPENCODE_SERVER_PASSWORD,
+#           OPENCLAW_TOKEN, OPENCLAW_PROVIDER_NAME, OPENCLAW_PROVIDER_URL,
+#           OPENCLAW_MODEL, OPENCLAW_CONTEXT, GPU_ASSIGNMENT_JSON_B64 (in .env)
 #
 # Modder notes:
 #   This is the largest phase. Modify .env generation, add new config files,
@@ -155,9 +155,11 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
         # Generate OPENCLAW_TOKEN (used by compose env and inject-token.js)
         OPENCLAW_TOKEN=$(openssl rand -hex 24 2>/dev/null || head -c 24 /dev/urandom | xxd -p)
         # Note: inject-token.js regenerates /home/node/.openclaw/openclaw.json
-        # on every container start — that path lives in the container's ephemeral
-        # overlay, so no installer seeding is needed. Only workspace/ is persisted,
-        # via the bind mount at ./config/openclaw/workspace (see below).
+        # on every container start, so that file stays ephemeral. OpenClaw also
+        # writes agent, cron, and canvas state under /home/node/.openclaw; those
+        # paths are bind-mounted under data/openclaw/home. workspace/ is
+        # persisted separately under config/openclaw/workspace.
+        mkdir -p "$INSTALL_DIR/data/openclaw/home"/{agents,canvas,cron}
         # Create workspace directory (must exist before Docker Compose,
         # otherwise Docker auto-creates it as root and the container can't write to it)
         mkdir -p "$INSTALL_DIR/config/openclaw/workspace/memory"
@@ -219,6 +221,7 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
     LIVEKIT_SECRET=$(_env_get LIVEKIT_API_SECRET "$(openssl rand -base64 32 2>/dev/null || head -c 32 /dev/urandom | base64)")
     DASHBOARD_API_KEY=$(_env_get DASHBOARD_API_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
     DREAM_AGENT_KEY=$(_env_get DREAM_AGENT_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
+    SHIELD_API_KEY=$(_env_get SHIELD_API_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
     DIFY_SECRET_KEY=$(_env_get DIFY_SECRET_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
     QDRANT_API_KEY=$(_env_get QDRANT_API_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
     OPENCODE_SERVER_PASSWORD=$(_env_get OPENCODE_SERVER_PASSWORD "$(openssl rand -base64 16 2>/dev/null || head -c 16 /dev/urandom | base64)")
@@ -416,6 +419,7 @@ LANGFUSE_PORT=${LANGFUSE_PORT}
 WEBUI_SECRET=${WEBUI_SECRET}
 DASHBOARD_API_KEY=${DASHBOARD_API_KEY}
 DREAM_AGENT_KEY=${DREAM_AGENT_KEY}
+SHIELD_API_KEY=${SHIELD_API_KEY}
 N8N_USER=admin@dreamserver.local
 N8N_PASS=${N8N_PASS}
 LITELLM_KEY=${LITELLM_KEY}

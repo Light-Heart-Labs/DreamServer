@@ -65,6 +65,7 @@ ENABLE_VOICE=false
 ENABLE_WORKFLOWS=false
 ENABLE_RAG=false
 ENABLE_OPENCLAW=false
+ENABLE_BRAVE_SEARCH=false
 # Langfuse defaults OFF because its clickhouse + postgres + minio stack adds
 # ~500MB baseline memory. Enable via --langfuse, --all, or post-install
 # `dream enable langfuse`. --no-langfuse honored as explicit override so a
@@ -804,6 +805,27 @@ else
     fi
     unset _langfuse_svc_dir
 
+    # Brave Search is a paid-API, post-install opt-in service. Keep its compose
+    # fragment disabled during installer-driven stack assembly so it does not
+    # start without a user-provided BRAVE_SEARCH_API_KEY.
+    _brave_svc_dir="${EXT_DIR}/brave-search"
+    if [[ -d "$_brave_svc_dir" ]]; then
+        _brave_compose="${_brave_svc_dir}/compose.yaml"
+        if [[ "${ENABLE_BRAVE_SEARCH:-false}" == "true" ]]; then
+            if [[ ! -f "$_brave_compose" && -f "${_brave_compose}.disabled" ]]; then
+                mv "${_brave_compose}.disabled" "$_brave_compose"
+                ai_ok "Brave Search compose re-enabled"
+            fi
+        else
+            if [[ -f "$_brave_compose" ]]; then
+                mv "$_brave_compose" "${_brave_compose}.disabled"
+                log "Brave Search compose disabled (API key not configured)"
+            fi
+        fi
+        unset _brave_compose
+    fi
+    unset _brave_svc_dir
+
     if [[ -d "$EXT_DIR" ]]; then
         for SVC_DIR in "$EXT_DIR"/*/; do
             [[ ! -d "$SVC_DIR" ]] && continue
@@ -848,6 +870,7 @@ else
                 qdrant|embeddings) $ENABLE_RAG || SKIP=true ;;
                 openclaw)      $ENABLE_OPENCLAW || SKIP=true ;;
                 langfuse)      $ENABLE_LANGFUSE || SKIP=true ;;
+                brave-search)  [[ "${ENABLE_BRAVE_SEARCH:-false}" == "true" ]] || SKIP=true ;;
             esac
             $SKIP && continue
 

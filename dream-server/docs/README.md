@@ -33,6 +33,7 @@ Links from this directory use `../` for the repo root (e.g. `../README.md`, `../
 | [MULTI-USER-SETUP.md](MULTI-USER-SETUP.md) | Operators | Expose and tune one install for multiple users |
 | [PROFILES.md](PROFILES.md) | Reference | Docker Compose profiles (historical reference) |
 | [MODE-SWITCH.md](MODE-SWITCH.md) | Operators | Cloud/local/hybrid deployment modes (planned) |
+| [VLLM-SETUP.md](VLLM-SETUP.md) | Operators | Optional vLLM setup notes for high-concurrency NVIDIA inference |
 
 ## Troubleshooting
 

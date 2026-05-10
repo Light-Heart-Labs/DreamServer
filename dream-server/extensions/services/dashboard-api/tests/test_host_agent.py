@@ -3,6 +3,7 @@
 import importlib.util
 import io
 import json
+import subprocess
 import sys
 from pathlib import Path, PurePosixPath
 
@@ -659,34 +660,41 @@ class TestInvalidateComposeCache:
 # --- Install setup-hook env allowlist (regression) ---
 #
 # Locks in the fix that strips host-agent secrets from the env passed to
-# extension setup hooks during _handle_install. A source-level check is used
-# because the subprocess.run call lives inside a nested closure started on a
-# daemon thread, which makes dynamic mocking fragile.
+# extension setup hooks. The env-construction + subprocess.run call lives in
+# the shared `_run_post_install_hook` helper (used by both _handle_install
+# and _enable_retry_work). A source-level check is used because the helper
+# is invoked from a nested closure on a daemon thread, which makes dynamic
+# mocking fragile.
 
 
 class TestInstallHookEnvAllowlist:
+
+    def _hook_helper_source(self):
+        import inspect
+        return inspect.getsource(_mod._run_post_install_hook)
 
     def _install_source(self):
         import inspect
         return inspect.getsource(_mod.AgentHandler._handle_install)
 
     def test_setup_hook_subprocess_run_passes_env_kwarg(self):
-        src = self._install_source()
+        src = self._hook_helper_source()
         assert "env=hook_env" in src, (
             "setup_hook subprocess.run must pass env=hook_env "
             "(regression: do not fall back to inheriting os.environ)"
         )
 
     def test_setup_hook_env_excludes_host_agent_secrets(self):
-        src = self._install_source()
-        for secret in ("AGENT_API_KEY", "DREAM_AGENT_KEY", "DASHBOARD_API_KEY"):
-            assert secret not in src, (
-                f"_handle_install must not reference {secret}; "
-                "extension setup hooks must not receive host-agent secrets"
-            )
+        # Both the helper and the call-site must stay secret-free.
+        for src in (self._hook_helper_source(), self._install_source()):
+            for secret in ("AGENT_API_KEY", "DREAM_AGENT_KEY", "DASHBOARD_API_KEY"):
+                assert secret not in src, (
+                    f"setup_hook code path must not reference {secret}; "
+                    "extension setup hooks must not receive host-agent secrets"
+                )
 
     def test_setup_hook_env_contains_allowlist_keys(self):
-        src = self._install_source()
+        src = self._hook_helper_source()
         for key in (
             "PATH", "HOME", "SERVICE_ID", "SERVICE_PORT",
             "SERVICE_DATA_DIR", "DREAM_VERSION", "GPU_BACKEND", "HOOK_NAME",
@@ -696,7 +704,7 @@ class TestInstallHookEnvAllowlist:
             )
 
     def test_setup_hook_uses_resolve_hook_with_post_install(self):
-        src = self._install_source()
+        src = self._hook_helper_source()
         assert '_resolve_hook(ext_dir, "post_install")' in src, (
             "setup_hook must use _resolve_hook(..., 'post_install'); "
             "the legacy _resolve_setup_hook has been removed"
@@ -1026,6 +1034,174 @@ class TestHandleModelDownloadCancel:
         assert proc.killed is True
 
 
+class TestNarrowInstallPullFlags:
+    """Filter flags used by the install pull step.
+
+    Audit follow-up on PR #1057: narrowing must drop -f entries
+    pointing at OTHER extensions, but keep base/GPU overlay and the
+    target extension's own fragments.
+    """
+
+    def _ext_dirs(self, tmp_path):
+        builtins = tmp_path / "extensions" / "services"
+        users = tmp_path / "user-extensions"
+        builtins.mkdir(parents=True)
+        users.mkdir(parents=True)
+        return builtins, users
+
+    def test_drops_other_extension_compose(self, tmp_path, monkeypatch):
+        builtins, users = self._ext_dirs(tmp_path)
+        target_dir = builtins / "perplexica"
+        other_dir = builtins / "searxng"
+        target_dir.mkdir()
+        other_dir.mkdir()
+        target_compose = target_dir / "compose.yaml"
+        other_compose = other_dir / "compose.yaml"
+        target_compose.write_text("services: {}\n")
+        other_compose.write_text("services: {}\n")
+
+        monkeypatch.setattr(_mod, "INSTALL_DIR", tmp_path)
+        monkeypatch.setattr(_mod, "EXTENSIONS_DIR", builtins)
+        monkeypatch.setattr(_mod, "USER_EXTENSIONS_DIR", users)
+
+        flags = [
+            "-f", str(tmp_path / "docker-compose.base.yml"),
+            "-f", str(tmp_path / "docker-compose.nvidia.yml"),
+            "-f", str(target_compose),
+            "-f", str(other_compose),
+        ]
+        narrowed = _mod._narrow_install_pull_flags(flags, "perplexica")
+
+        assert "-f" in narrowed
+        assert str(other_compose) not in narrowed
+        assert str(target_compose) in narrowed
+
+    def test_keeps_base_and_gpu_overlay(self, tmp_path, monkeypatch):
+        builtins, users = self._ext_dirs(tmp_path)
+        target_dir = builtins / "perplexica"
+        target_dir.mkdir()
+        target_compose = target_dir / "compose.yaml"
+        target_compose.write_text("services: {}\n")
+
+        monkeypatch.setattr(_mod, "INSTALL_DIR", tmp_path)
+        monkeypatch.setattr(_mod, "EXTENSIONS_DIR", builtins)
+        monkeypatch.setattr(_mod, "USER_EXTENSIONS_DIR", users)
+
+        base = str(tmp_path / "docker-compose.base.yml")
+        gpu = str(tmp_path / "docker-compose.nvidia.yml")
+        flags = ["-f", base, "-f", gpu, "-f", str(target_compose)]
+        narrowed = _mod._narrow_install_pull_flags(flags, "perplexica")
+
+        assert base in narrowed
+        assert gpu in narrowed
+        assert str(target_compose) in narrowed
+
+    def test_user_extension_target_is_kept(self, tmp_path, monkeypatch):
+        builtins, users = self._ext_dirs(tmp_path)
+        target_dir = users / "my-ext"
+        other_dir = builtins / "searxng"
+        target_dir.mkdir()
+        other_dir.mkdir()
+        target_compose = target_dir / "compose.yaml"
+        other_compose = other_dir / "compose.yaml"
+        target_compose.write_text("services: {}\n")
+        other_compose.write_text("services: {}\n")
+
+        monkeypatch.setattr(_mod, "INSTALL_DIR", tmp_path)
+        monkeypatch.setattr(_mod, "EXTENSIONS_DIR", builtins)
+        monkeypatch.setattr(_mod, "USER_EXTENSIONS_DIR", users)
+
+        flags = ["-f", str(target_compose), "-f", str(other_compose)]
+        narrowed = _mod._narrow_install_pull_flags(flags, "my-ext")
+
+        assert str(target_compose) in narrowed
+        assert str(other_compose) not in narrowed
+
+
+class TestNarrowedComposeSetResolves:
+    """Validate that the narrowed compose set parses and contains the
+    target service. Audit follow-up on PR #1057.
+    """
+
+    def test_returns_false_when_config_exits_nonzero(self, monkeypatch):
+        recorded = []
+
+        def fake_run(cmd, **kwargs):
+            recorded.append(cmd)
+            return _SubprocessResult(returncode=1, stdout="", stderr="depends on undefined service")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+        ok = _mod._narrowed_compose_set_resolves(
+            ["-f", "/tmp/base.yml"], "perplexica", "/tmp", 60,
+        )
+        assert ok is False
+        assert recorded[0][:2] == ["docker", "compose"]
+        assert "config" in recorded[0] and "--services" in recorded[0]
+
+    def test_returns_false_when_target_service_missing_from_output(self, monkeypatch):
+        def fake_run(cmd, **kwargs):
+            return _SubprocessResult(returncode=0, stdout="searxng\nllama-server\n", stderr="")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+        ok = _mod._narrowed_compose_set_resolves([], "perplexica", "/tmp", 60)
+        assert ok is False
+
+    def test_returns_true_when_target_service_listed(self, monkeypatch):
+        def fake_run(cmd, **kwargs):
+            return _SubprocessResult(returncode=0, stdout="perplexica\nsearxng\n", stderr="")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+        ok = _mod._narrowed_compose_set_resolves([], "perplexica", "/tmp", 60)
+        assert ok is True
+
+    def test_returns_false_on_subprocess_error(self, monkeypatch):
+        def fake_run(cmd, **kwargs):
+            raise OSError("docker not found")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+        ok = _mod._narrowed_compose_set_resolves([], "perplexica", "/tmp", 60)
+        assert ok is False
+
+
+class TestInstallPullFallsBackOnUnresolvedNarrow:
+    """Source-level wire-up checks for the install pull fallback.
+
+    These tests assert only that `_handle_install` *references* the
+    helpers and contains the fallback assignment token; behavioural
+    correctness of the narrow filter and the validator is covered by
+    `TestNarrowInstallPullFlags` and `TestNarrowedComposeSetResolves`
+    above. The token-presence pattern matches the established
+    `TestInstallStartCommandNoDeps` convention in this file.
+    """
+
+    def test_install_references_narrow_helpers(self):
+        import inspect
+        src = inspect.getsource(_mod.AgentHandler._handle_install)
+        assert "_narrowed_compose_set_resolves" in src, (
+            "_handle_install source must reference _narrowed_compose_set_resolves"
+        )
+        assert "_narrow_install_pull_flags" in src, (
+            "_handle_install source must reference _narrow_install_pull_flags"
+        )
+
+    def test_install_source_contains_full_flags_fallback_token(self):
+        import inspect
+        src = inspect.getsource(_mod.AgentHandler._handle_install)
+        # Token-only check: confirms a `pull_flags = flags` assignment
+        # exists somewhere in the handler. Does not verify control flow.
+        assert "pull_flags = flags" in src, (
+            "_handle_install source must contain a `pull_flags = flags` "
+            "assignment (the fallback token)"
+        )
+
+
+class _SubprocessResult:
+    """Minimal stand-in for subprocess.CompletedProcess."""
+
+    def __init__(self, returncode: int, stdout: str, stderr: str):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
 # --- _precreate_data_dirs + install flow (PR 2A regressions) ---
 #
 # Defect 1/2: _run_install and _precreate_data_dirs must use _find_ext_dir()
@@ -1172,3 +1348,289 @@ class TestInstallRunningStateVerification:
         assert 'startup_check = install_service_def.get("startup_check", True)' in src
         # The state-poll loop is conditionally entered.
         assert "if startup_check:" in src
+
+
+# --- Enable-retry (PR 3A regression) ---
+#
+# When /v1/extension/start is called against a service whose extension-progress
+# file shows status=error (prior failed install), the host agent must:
+#   * re-run the post_install hook if declared (env vars populated by the hook
+#     may be missing from the previous failure),
+#   * write progress transitions (starting → setup_hook → started/error) so the
+#     dashboard UI updates instead of displaying the stale error, and
+#   * fall back to the existing synchronous compose path for any service that
+#     isn't in an error state.
+#
+# Pre-fix, _handle_extension hit docker_compose_action directly without writing
+# progress or re-running the hook, leaving the UI permanently stuck.
+
+
+class _ImmediateThread:
+    """Run thread targets synchronously so tests can assert on results."""
+    def __init__(self, target=None, daemon=None, **kwargs):
+        self._target = target
+
+    def start(self):
+        self._target()
+
+
+class TestEnableRetry:
+
+    def _write_manifest(self, ext_dir: Path, with_hook: bool = True,
+                        service_lines: str = ""):
+        ext_dir.mkdir(parents=True, exist_ok=True)
+        service_block = "service:\n  port: 1234\n"
+        if service_lines:
+            service_block += service_lines
+        if with_hook:
+            hook = ext_dir / "setup.sh"
+            hook.write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
+            hook.chmod(0o755)
+            (ext_dir / "manifest.yaml").write_text(
+                service_block +
+                "  hooks:\n"
+                "    post_install: setup.sh\n",
+                encoding="utf-8",
+            )
+        else:
+            (ext_dir / "manifest.yaml").write_text(
+                service_block,
+                encoding="utf-8",
+            )
+
+    def _write_progress_file(self, data_dir: Path, service_id: str, status: str):
+        progress_dir = data_dir / "extension-progress"
+        progress_dir.mkdir(parents=True, exist_ok=True)
+        (progress_dir / f"{service_id}.json").write_text(
+            json.dumps({"service_id": service_id, "status": status}),
+            encoding="utf-8",
+        )
+
+    def _progress(self, data_dir: Path, service_id: str):
+        pf = data_dir / "extension-progress" / f"{service_id}.json"
+        if not pf.exists():
+            return None
+        return json.loads(pf.read_text(encoding="utf-8"))
+
+    def _body(self, service_id: str) -> bytes:
+        return json.dumps({"service_id": service_id}).encode("utf-8")
+
+    @pytest.fixture
+    def retry_env(self, tmp_path, monkeypatch):
+        pytest.importorskip("yaml")
+        install_dir = tmp_path / "install"
+        install_dir.mkdir()
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        builtin_root = tmp_path / "builtin"
+        user_root = tmp_path / "user"
+        builtin_root.mkdir()
+        user_root.mkdir()
+
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+        monkeypatch.setattr(_mod, "DATA_DIR", data_dir)
+        monkeypatch.setattr(_mod, "EXTENSIONS_DIR", builtin_root)
+        monkeypatch.setattr(_mod, "USER_EXTENSIONS_DIR", user_root)
+        monkeypatch.setattr(_mod, "AGENT_API_KEY", "test-key")
+
+        # Drop the per-service lock so retries across tests don't deadlock.
+        _mod._service_locks.pop("fakesvc", None)
+
+        # Force threading.Thread to run targets synchronously so the assertions
+        # below execute after the retry worker completes.
+        monkeypatch.setattr(_mod.threading, "Thread", _ImmediateThread)
+
+        return install_dir, data_dir, builtin_root, user_root
+
+    def test_retry_after_error_runs_hook_and_writes_started(self, retry_env, monkeypatch):
+        _, data_dir, builtin_root, _ = retry_env
+        ext_dir = builtin_root / "fakesvc"
+        self._write_manifest(ext_dir, with_hook=True)
+        self._write_progress_file(data_dir, "fakesvc", "error")
+
+        hook_cmds = []
+
+        def fake_run(cmd, *args, **kwargs):
+            if cmd[:3] == ["docker", "inspect", "--format"]:
+                return subprocess.CompletedProcess(args=cmd, returncode=0,
+                                                   stdout="running|", stderr="")
+            hook_cmds.append(cmd)
+            return subprocess.CompletedProcess(args=cmd, returncode=0,
+                                               stdout="", stderr="")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+
+        compose_calls = []
+
+        def fake_compose(sid, action):
+            compose_calls.append((sid, action))
+            return True, ""
+
+        monkeypatch.setattr(_mod, "docker_compose_action", fake_compose)
+
+        handler = _FakeHandler(self._body("fakesvc"))
+        _mod.AgentHandler._handle_extension(handler, "start")
+
+        assert handler.response_code == 202
+        assert handler.parse_response()["status"] == "retrying"
+        # post_install hook was invoked via bash against setup.sh
+        assert any(
+            len(c) >= 2 and c[0] == "bash" and c[1].endswith("setup.sh")
+            for c in hook_cmds
+        ), f"expected setup.sh bash invocation, saw {hook_cmds}"
+        # docker compose start was called after the hook
+        assert ("fakesvc", "start") in compose_calls
+        # Progress landed on 'started'
+        progress = self._progress(data_dir, "fakesvc")
+        assert progress is not None
+        assert progress["status"] == "started"
+
+    def test_retry_startup_check_failure_writes_error(self, retry_env, monkeypatch):
+        _, data_dir, builtin_root, _ = retry_env
+        ext_dir = builtin_root / "fakesvc"
+        self._write_manifest(
+            ext_dir, with_hook=False,
+            service_lines="  startup_timeout: 1\n",
+        )
+        self._write_progress_file(data_dir, "fakesvc", "error")
+
+        monkeypatch.setattr(_mod, "docker_compose_action",
+                            lambda sid, act: (True, ""))
+        ticks = iter([0, 0, 2])
+        monkeypatch.setattr(_mod.time, "monotonic", lambda: next(ticks, 2))
+        monkeypatch.setattr(_mod.time, "sleep", lambda *_args: None)
+
+        inspect_calls = []
+
+        def fake_run(cmd, *args, **kwargs):
+            inspect_calls.append(cmd)
+            return subprocess.CompletedProcess(args=cmd, returncode=0,
+                                               stdout="exited|boom", stderr="")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+
+        handler = _FakeHandler(self._body("fakesvc"))
+        _mod.AgentHandler._handle_extension(handler, "start")
+
+        assert handler.response_code == 202
+        assert any(cmd[:3] == ["docker", "inspect", "--format"]
+                   for cmd in inspect_calls)
+        progress = self._progress(data_dir, "fakesvc")
+        assert progress is not None
+        assert progress["status"] == "error"
+        assert "state=exited" in (progress["error"] or "")
+        assert "boom" in (progress["error"] or "")
+
+    def test_retry_startup_check_opt_out_writes_started(self, retry_env, monkeypatch):
+        _, data_dir, builtin_root, _ = retry_env
+        ext_dir = builtin_root / "fakesvc"
+        self._write_manifest(
+            ext_dir, with_hook=False,
+            service_lines="  startup_check: false\n",
+        )
+        self._write_progress_file(data_dir, "fakesvc", "error")
+
+        monkeypatch.setattr(_mod, "docker_compose_action",
+                            lambda sid, act: (True, ""))
+
+        def fake_run(*args, **kwargs):
+            pytest.fail("startup_check false should not inspect container state")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+
+        handler = _FakeHandler(self._body("fakesvc"))
+        _mod.AgentHandler._handle_extension(handler, "start")
+
+        assert handler.response_code == 202
+        progress = self._progress(data_dir, "fakesvc")
+        assert progress is not None
+        assert progress["status"] == "started"
+
+    def test_retry_hook_failure_writes_error_and_skips_compose(self, retry_env, monkeypatch):
+        _, data_dir, builtin_root, _ = retry_env
+        ext_dir = builtin_root / "fakesvc"
+        self._write_manifest(ext_dir, with_hook=True)
+        self._write_progress_file(data_dir, "fakesvc", "error")
+
+        def fake_run(cmd, *args, **kwargs):
+            return subprocess.CompletedProcess(args=cmd, returncode=1,
+                                               stdout="", stderr="hook boom")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+
+        compose_calls = []
+        monkeypatch.setattr(
+            _mod, "docker_compose_action",
+            lambda sid, act: (compose_calls.append((sid, act)) or (True, "")),
+        )
+
+        handler = _FakeHandler(self._body("fakesvc"))
+        _mod.AgentHandler._handle_extension(handler, "start")
+
+        assert handler.response_code == 202
+        progress = self._progress(data_dir, "fakesvc")
+        assert progress is not None
+        assert progress["status"] == "error"
+        assert "hook boom" in (progress["error"] or "")
+        # Hook failure must NOT proceed to compose start
+        assert compose_calls == []
+
+    def test_no_progress_file_uses_sync_path_without_progress_write(self, retry_env, monkeypatch):
+        _, data_dir, builtin_root, _ = retry_env
+        ext_dir = builtin_root / "fakesvc"
+        self._write_manifest(ext_dir, with_hook=True)
+        # Deliberately no progress file.
+
+        hook_cmds = []
+
+        def fake_run(cmd, *args, **kwargs):
+            hook_cmds.append(cmd)
+            return subprocess.CompletedProcess(args=cmd, returncode=0,
+                                               stdout="", stderr="")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+        monkeypatch.setattr(_mod, "docker_compose_action",
+                            lambda sid, act: (True, ""))
+
+        handler = _FakeHandler(self._body("fakesvc"))
+        _mod.AgentHandler._handle_extension(handler, "start")
+
+        # Synchronous success → 200, not 202
+        assert handler.response_code == 200
+        assert handler.parse_response()["status"] == "ok"
+        # Sync path must not re-run the hook
+        assert not any(
+            len(c) >= 2 and c[0] == "bash" and c[1].endswith("setup.sh")
+            for c in hook_cmds
+        )
+        # Sync path must not write a progress file
+        assert self._progress(data_dir, "fakesvc") is None
+
+    def test_progress_status_started_uses_sync_path(self, retry_env, monkeypatch):
+        _, data_dir, builtin_root, _ = retry_env
+        ext_dir = builtin_root / "fakesvc"
+        self._write_manifest(ext_dir, with_hook=True)
+        self._write_progress_file(data_dir, "fakesvc", "started")
+
+        hook_cmds = []
+
+        def fake_run(cmd, *args, **kwargs):
+            hook_cmds.append(cmd)
+            return subprocess.CompletedProcess(args=cmd, returncode=0,
+                                               stdout="", stderr="")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+        monkeypatch.setattr(_mod, "docker_compose_action",
+                            lambda sid, act: (True, ""))
+
+        handler = _FakeHandler(self._body("fakesvc"))
+        _mod.AgentHandler._handle_extension(handler, "start")
+
+        assert handler.response_code == 200
+        # Sync path must not re-run the hook
+        assert not any(
+            len(c) >= 2 and c[0] == "bash" and c[1].endswith("setup.sh")
+            for c in hook_cmds
+        )
+        # Progress must be unchanged
+        assert self._progress(data_dir, "fakesvc")["status"] == "started"

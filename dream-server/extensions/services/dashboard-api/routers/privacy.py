@@ -92,10 +92,14 @@ async def get_privacy_shield_stats(api_key: str = Depends(verify_api_key)):
     _ps = SERVICES.get("privacy-shield", {})
     shield_port = int(os.environ.get("SHIELD_PORT", str(_ps.get("port", 0))))
     shield_url = f"http://{_ps.get('host', 'privacy-shield')}:{shield_port}"
+    shield_api_key = os.environ.get("SHIELD_API_KEY", "")
+    if not shield_api_key:
+        return {"error": "SHIELD_API_KEY not configured", "enabled": False}
+    headers = {"Authorization": f"Bearer {shield_api_key}"}
 
     try:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
-            async with session.get(f"{shield_url}/stats") as resp:
+            async with session.get(f"{shield_url}/stats", headers=headers) as resp:
                 if resp.status == 200:
                     return await resp.json()
                 else:

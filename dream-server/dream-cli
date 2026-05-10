@@ -1165,6 +1165,14 @@ cmd_update() {
 
     ensure_llama_cpu_budget
 
+    # Upsert SHIELD_API_KEY when missing (pre-PR-#1069 upgrade path).
+    # Without it the dashboard Privacy Shield stats panel fails after
+    # update because dashboard-api can no longer authenticate its
+    # proxied /stats call. Mirrors the env-generator.sh upsert pattern.
+    if [[ -z "$(_env_get_raw "SHIELD_API_KEY")" ]]; then
+        _env_set "SHIELD_API_KEY" "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p | tr -d '\n')"
+    fi
+
     local flags_str
     flags_str=$(get_compose_flags)
     local -a flags

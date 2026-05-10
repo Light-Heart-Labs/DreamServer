@@ -503,6 +503,12 @@ if ($dryRun) {
             }
         } elseif ($gpuInfo.Backend -eq "amd") {
             $composeFlags += @("-f", "installers/windows/docker-compose.windows-amd.yml")
+            # Local-LLM readiness sidecar: gates open-webui on the native inference
+            # server (Lemonade or llama-server.exe) becoming healthy. Only added
+            # when a native server actually runs (AMD non-cloud); cloud mode loads
+            # the windows-amd.yml overlay too but starts no native server, so the
+            # sidecar would block open-webui forever there.
+            $composeFlags += @("-f", "installers/windows/docker-compose.windows-amd.local.yml")
         } else {
             # No supported GPU detected (Intel integrated, etc.) -- use CPU-only overlay
             Write-AIWarn "No supported GPU detected. Using CPU-only inference (slower)."
@@ -557,6 +563,8 @@ if ($dryRun) {
                     "embeddings" { if (-not $enableRag)       { $skip = $true } }
                     "openclaw"   { if (-not $enableOpenClaw)  { $skip = $true } }
                     "comfyui"    { if (-not $enableComfyui)   { $skip = $true } }
+                    # Paid API extension; users enable it post-install after adding a key.
+                    "brave-search" { $skip = $true }
                 }
                 if ($skip) { continue }
 

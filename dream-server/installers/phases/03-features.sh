@@ -127,6 +127,7 @@ if ! $DRY_RUN; then
     _sync_extension_compose "${ENABLE_COMFYUI:-}"    comfyui    "ComfyUI"       "image generation not enabled"
     _sync_extension_compose "${ENABLE_DREAMFORGE:-}" dreamforge "DreamForge"    "agent system not enabled"
     _sync_extension_compose "${ENABLE_LANGFUSE:-}"   langfuse   "Langfuse"      "LLM observability not enabled"
+    _sync_extension_compose "${ENABLE_BRAVE_SEARCH:-false}" brave-search "Brave Search" "Brave Search API not enabled"
 fi
 
 # Re-resolve compose flags now that feature selection may have disabled services.
