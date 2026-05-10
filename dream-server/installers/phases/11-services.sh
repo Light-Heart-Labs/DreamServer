@@ -25,6 +25,58 @@ if $DRY_RUN; then
 else
     cd "$INSTALL_DIR" || exit 1
 
+    _phase11_env_set() {
+        local key="$1" value="$2" env_file="$INSTALL_DIR/.env" tmp_file
+        [[ -f "$env_file" ]] || return 0
+        tmp_file="${env_file}.tmp.$$"
+        awk -v k="$key" -v v="$value" '
+            BEGIN { found = 0 }
+            index($0, k "=") == 1 { print k "=" v; found = 1; next }
+            { print }
+            END { if (!found) print k "=" v }
+        ' "$env_file" > "$tmp_file" && cat "$tmp_file" > "$env_file" && rm -f "$tmp_file"
+    }
+
+    _phase11_apply_cpu_fallback() {
+        local missing="$1"
+        show_amd_gpu_device_guidance "$missing"
+        apply_cpu_gpu_fallback "Falling back to CPU mode before launching services."
+
+        if [[ "${TIER_FORCED:-false}" != "true" ]]; then
+            TIER="$(select_cpu_fallback_tier "${RAM_GB:-0}")"
+            log "CPU fallback tier selected: $TIER"
+        fi
+
+        load_backend_contract "cpu" || true
+        LLM_HEALTHCHECK_URL="${BACKEND_PUBLIC_HEALTH_URL:-http://localhost:8080/health}"
+        LLM_PUBLIC_API_PORT="${BACKEND_PUBLIC_API_PORT:-8080}"
+        OPENCLAW_PROVIDER_NAME_DEFAULT="${BACKEND_PROVIDER_NAME:-local-llama}"
+        OPENCLAW_PROVIDER_URL_DEFAULT="${BACKEND_PROVIDER_URL:-http://llama-server:8080/v1}"
+        resolve_tier_config
+        GPU_BACKEND="cpu"
+
+        _phase11_env_set GPU_BACKEND "$GPU_BACKEND"
+        _phase11_env_set DREAM_MODE "local"
+        _phase11_env_set LLM_API_URL "http://llama-server:8080"
+        _phase11_env_set LLM_MODEL "$LLM_MODEL"
+        _phase11_env_set GGUF_FILE "$GGUF_FILE"
+        _phase11_env_set MAX_CONTEXT "$MAX_CONTEXT"
+        _phase11_env_set CTX_SIZE "$MAX_CONTEXT"
+        _phase11_env_set AUDIO_STT_MODEL "Systran/faster-whisper-base"
+        _phase11_env_set LLAMA_SERVER_IMAGE "${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-b8248}"
+        ai_ok "Rewrote .env for CPU fallback"
+    }
+
+    if [[ "${GPU_BACKEND:-}" == "amd" ]] && ! amd_gpu_runtime_devices_available; then
+        _amd_missing_devices="$(amd_gpu_missing_devices_csv)"
+        if [[ "${GPU_BACKEND_FORCED:-false}" == "true" ]]; then
+            ai_bad "GPU_BACKEND=amd was explicitly requested, but required AMD device nodes are missing."
+            show_amd_gpu_device_guidance "$_amd_missing_devices"
+            exit 1
+        fi
+        _phase11_apply_cpu_fallback "$_amd_missing_devices"
+    fi
+
     # Re-resolve compose flags against the actual install directory.
     # Phase 03 may have disabled services (e.g., ComfyUI on Tier 0) after
     # COMPOSE_FLAGS was first set in Phase 02, making the cached value stale.

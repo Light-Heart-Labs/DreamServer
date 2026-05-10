@@ -146,6 +146,132 @@ calculate_llama_cpu_budget() {
     echo "$limit $reservation $available"
 }
 
+ds_in_container() {
+    [[ -f /.dockerenv ]] && return 0
+    [[ -f /run/.containerenv ]] && return 0
+    if command -v systemd-detect-virt >/dev/null 2>&1; then
+        systemd-detect-virt --container --quiet 2>/dev/null && return 0
+    fi
+    if [[ -f /proc/1/cgroup ]] && grep -qiE '(docker|containerd|kubepods|lxc|libpod)' /proc/1/cgroup 2>/dev/null; then
+        return 0
+    fi
+    if [[ -f /proc/1/environ ]] && awk -v RS='\0' -F= '$1 == "container" { found = 1 } END { exit !found }' /proc/1/environ 2>/dev/null; then
+        return 0
+    fi
+    return 1
+}
+
+ds_container_label() {
+    if command -v systemd-detect-virt >/dev/null 2>&1; then
+        local virt
+        virt=$(systemd-detect-virt --container 2>/dev/null || true)
+        [[ -n "$virt" && "$virt" != "none" ]] && { echo "$virt"; return 0; }
+    fi
+    if [[ -f /proc/1/environ ]]; then
+        local env_container
+        env_container=$(awk -v RS='\0' -F= '$1 == "container" { print $2; exit }' /proc/1/environ 2>/dev/null || true)
+        [[ -n "$env_container" ]] && { echo "$env_container"; return 0; }
+    fi
+    if [[ -f /.dockerenv ]]; then
+        echo "docker"
+    elif [[ -f /run/.containerenv ]]; then
+        echo "container"
+    elif [[ -f /proc/1/cgroup ]] && grep -qiE 'lxc|lxd' /proc/1/cgroup 2>/dev/null; then
+        echo "lxc"
+    else
+        echo "container"
+    fi
+}
+
+amd_gpu_missing_runtime_devices() {
+    local root="${DREAM_AMD_DEVICE_ROOT:-/dev}"
+    local kfd="$root/kfd"
+    local dri="$root/dri"
+    local missing=()
+
+    if [[ -n "${DREAM_AMD_DEVICE_ROOT:-}" ]]; then
+        [[ -e "$kfd" ]] || missing+=("$kfd")
+    else
+        [[ -c "$kfd" ]] || missing+=("$kfd")
+    fi
+
+    if [[ ! -d "$dri" ]]; then
+        missing+=("$dri")
+    elif ! compgen -G "$dri/renderD*" >/dev/null; then
+        missing+=("$dri/renderD*")
+    fi
+
+    printf '%s\n' "${missing[@]}"
+}
+
+amd_gpu_runtime_devices_available() {
+    [[ -z "$(amd_gpu_missing_runtime_devices)" ]]
+}
+
+amd_gpu_missing_devices_csv() {
+    local missing
+    missing="$(amd_gpu_missing_runtime_devices | xargs || true)"
+    printf '%s' "${missing// /, }"
+}
+
+show_amd_gpu_device_guidance() {
+    local missing="${1:-$(amd_gpu_missing_devices_csv)}"
+    ai_warn "AMD GPU device nodes unavailable: ${missing:-unknown}"
+    if ds_in_container; then
+        local container_label
+        container_label="$(ds_container_label)"
+        ai "Container environment detected (${container_label}). LXD/LXC containers can see CPU/sysfs clues while GPU device nodes stay hidden."
+        ai "For LXD GPU acceleration, pass the devices from the host, for example:"
+        ai "  lxc config device add <container> gpu gpu"
+        ai "  lxc config device add <container> kfd unix-char path=/dev/kfd"
+    else
+        ai "On native Linux, make sure the amdgpu/amdkfd modules are loaded and /dev/dri/renderD* exists."
+        ai "  sudo modprobe amdgpu"
+        ai "  sudo modprobe amdkfd"
+    fi
+}
+
+apply_cpu_gpu_fallback() {
+    local reason="${1:-AMD GPU runtime devices are unavailable.}"
+    ai_warn "$reason"
+    ai "Using CPU mode so installation can complete without GPU passthrough."
+
+    GPU_BACKEND="cpu"
+    GPU_NAME="None (CPU fallback)"
+    GPU_VRAM=0
+    GPU_COUNT=0
+    GPU_MEMORY_TYPE="none"
+    GPU_DEVICE_ID=""
+    HAS_NPU=false
+    [[ "${DREAM_MODE:-local}" == "lemonade" ]] && DREAM_MODE="local"
+    BACKEND_ID="cpu"
+    CAP_LLM_BACKEND="cpu"
+    CAP_GPU_VENDOR="cpu"
+    CAP_GPU_NAME="$GPU_NAME"
+    CAP_GPU_VRAM_MB=0
+    CAP_GPU_COUNT=0
+    CAP_GPU_MEMORY_TYPE="none"
+    CAP_RECOMMENDED_TIER=""
+    CAP_COMPOSE_OVERLAYS=""
+}
+
+select_cpu_fallback_tier() {
+    local ram_gb="${1:-0}"
+    if ! [[ "$ram_gb" =~ ^[0-9]+$ ]]; then
+        ram_gb=0
+    fi
+
+    if [[ "$ram_gb" -ge 96 ]]; then
+        echo "3"
+    elif [[ "$ram_gb" -ge 48 ]]; then
+        echo "2"
+    elif [[ "$ram_gb" -lt 12 ]]; then
+        echo "0"
+    else
+        echo "1"
+    fi
+}
+
 detect_gpu() {
     GPU_BACKEND="cpu"  # default to CPU-only fallback
     GPU_MEMORY_TYPE="none"

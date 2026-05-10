@@ -90,6 +90,16 @@ if [[ -x "$RESOLVER" ]]; then
     else
         pass "CPU path includes base compose"
     fi
+
+    set +e
+    strix_cpu_out=$(cd "$ROOT_DIR" && bash "$RESOLVER" --script-dir "$ROOT_DIR" --tier SH_LARGE --gpu-backend cpu 2>&1)
+    strix_cpu_rc=$?
+    set -e
+    if [[ $strix_cpu_rc -eq 0 ]] && echo "$strix_cpu_out" | grep -q "docker-compose.cpu.yml" && ! echo "$strix_cpu_out" | grep -q "docker-compose.amd.yml"; then
+        pass "CPU backend overrides Strix Halo tier compose overlay"
+    else
+        fail "CPU backend should not select AMD overlay for Strix Halo tier"
+    fi
 fi
 
 # 4. Tier map or detection: tier 1 works without GPU

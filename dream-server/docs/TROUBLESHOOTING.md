@@ -38,6 +38,28 @@ sudo nvidia-ctk runtime configure --runtime=docker
 sudo systemctl restart docker
 ```
 
+### AMD GPU Devices Missing in LXD/LXC
+
+**Error:** installer reports missing `/dev/kfd`, `/dev/dri`, or `/dev/dri/renderD*`, or AMD services never become healthy inside an LXD container.
+
+**Cause:** LXD/LXC containers can expose enough host CPU/sysfs information for Dream Server to recognize AMD/Strix Halo hardware while still hiding the actual GPU device nodes that Docker must mount into ROCm containers.
+
+**Fix for GPU acceleration:** pass the GPU devices from the LXD host into the container, then re-run the installer.
+
+```bash
+lxc config set <container> security.nesting=true
+lxc config device add <container> gpu gpu
+lxc config device add <container> kfd unix-char path=/dev/kfd
+```
+
+**CPU fallback:** if you do not need GPU acceleration inside the container, run:
+
+```bash
+GPU_BACKEND=cpu ./install.sh
+```
+
+Fresh installs now fall back to CPU mode automatically when AMD is auto-detected but the required device nodes are unavailable inside a container. If you explicitly force `GPU_BACKEND=amd`, the installer fails fast with passthrough guidance instead.
+
 ---
 
 ## Startup Issues

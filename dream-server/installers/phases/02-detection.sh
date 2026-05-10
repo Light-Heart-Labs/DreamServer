@@ -27,6 +27,15 @@
 dream_progress 12 "detection" "Detecting GPU hardware"
 chapter "SYSTEM DETECTION"
 
+GPU_BACKEND_REQUESTED="${GPU_BACKEND:-}"
+GPU_BACKEND_FORCED=false
+[[ "${GPU_BACKEND_REQUESTED,,}" == "amd" ]] && GPU_BACKEND_FORCED=true
+GPU_BACKEND_FORCED_CPU=false
+[[ "${GPU_BACKEND_REQUESTED,,}" == "cpu" ]] && GPU_BACKEND_FORCED_CPU=true
+TIER_REQUESTED="${TIER:-}"
+TIER_FORCED=false
+[[ -n "$TIER_REQUESTED" ]] && TIER_FORCED=true
+
 # Cloud mode: skip GPU detection entirely
 if [[ "${DREAM_MODE:-local}" == "cloud" ]]; then
     ai "Cloud mode — skipping GPU detection"
@@ -108,22 +117,43 @@ DISK_AVAIL=$(df -BG "$HOME" | tail -1 | awk '{print $4}' | tr -d 'G')
 log "Available disk: ${DISK_AVAIL}GB"
 
 # GPU Detection
-ai "Detecting GPU..."
-detect_gpu || true
+if [[ "$GPU_BACKEND_FORCED_CPU" == "true" ]]; then
+    ai "GPU_BACKEND=cpu requested - skipping GPU detection"
+    apply_cpu_gpu_fallback "GPU_BACKEND=cpu was requested."
+else
+    ai "Detecting GPU..."
+    detect_gpu || true
 
-if [[ "${CAP_PROFILE_LOADED:-false}" == "true" ]]; then
-    case "${CAP_LLM_BACKEND:-}" in
-        amd)   GPU_BACKEND="amd" ;;
-        intel) GPU_BACKEND="intel" ;;
-        cpu)   GPU_BACKEND="cpu" ;;
-        apple) GPU_BACKEND="apple" ;;
-        *) GPU_BACKEND="nvidia" ;;
-    esac
-    [[ -n "${CAP_GPU_MEMORY_TYPE:-}" ]] && GPU_MEMORY_TYPE="${CAP_GPU_MEMORY_TYPE}"
-    [[ -n "${CAP_GPU_NAME:-}" ]] && GPU_NAME="${CAP_GPU_NAME}"
-    [[ -n "${CAP_GPU_VRAM_MB:-}" ]] && GPU_VRAM="${CAP_GPU_VRAM_MB}"
-    [[ -n "${CAP_GPU_COUNT:-}" ]] && GPU_COUNT="${CAP_GPU_COUNT}"
-    log "Capabilities override detection: backend=${GPU_BACKEND}, memory=${GPU_MEMORY_TYPE}, tier=${CAP_RECOMMENDED_TIER:-unknown}"
+    if [[ "${CAP_PROFILE_LOADED:-false}" == "true" ]]; then
+        case "${CAP_LLM_BACKEND:-}" in
+            amd)   GPU_BACKEND="amd" ;;
+            intel) GPU_BACKEND="intel" ;;
+            cpu)   GPU_BACKEND="cpu" ;;
+            apple) GPU_BACKEND="apple" ;;
+            *) GPU_BACKEND="nvidia" ;;
+        esac
+        [[ -n "${CAP_GPU_MEMORY_TYPE:-}" ]] && GPU_MEMORY_TYPE="${CAP_GPU_MEMORY_TYPE}"
+        [[ -n "${CAP_GPU_NAME:-}" ]] && GPU_NAME="${CAP_GPU_NAME}"
+        [[ -n "${CAP_GPU_VRAM_MB:-}" ]] && GPU_VRAM="${CAP_GPU_VRAM_MB}"
+        [[ -n "${CAP_GPU_COUNT:-}" ]] && GPU_COUNT="${CAP_GPU_COUNT}"
+        log "Capabilities override detection: backend=${GPU_BACKEND}, memory=${GPU_MEMORY_TYPE}, tier=${CAP_RECOMMENDED_TIER:-unknown}"
+    fi
+
+    if [[ "$GPU_BACKEND" == "amd" ]] && ! amd_gpu_runtime_devices_available; then
+        _amd_missing_devices="$(amd_gpu_missing_devices_csv)"
+        if [[ "${GPU_BACKEND_FORCED:-false}" == "true" ]]; then
+            ai_bad "GPU_BACKEND=amd was explicitly requested, but required AMD device nodes are missing."
+            show_amd_gpu_device_guidance "$_amd_missing_devices"
+            error "Cannot continue with AMD GPU mode until device passthrough is available."
+        elif ds_in_container; then
+            ai_warn "AMD hardware was detected, but this container cannot access the AMD GPU devices."
+            show_amd_gpu_device_guidance "$_amd_missing_devices"
+            apply_cpu_gpu_fallback "Falling back to CPU mode because AMD GPU passthrough is unavailable in this container."
+        else
+            ai_warn "AMD GPU runtime devices not ready yet: ${_amd_missing_devices:-unknown}"
+            ai "Continuing for now; AMD tuning will try to load kernel modules before services start."
+        fi
+    fi
 fi
 
 BACKEND_ID="$GPU_BACKEND"
@@ -155,7 +185,7 @@ fi
 #-----------------------------------------------------------------------------
 # If detect_gpu found no working GPU, check if it's a fixable driver/Secure Boot issue
 # (Only for NVIDIA — AMD APU is handled above)
-if [[ $GPU_COUNT -eq 0 && "$GPU_BACKEND" != "amd" ]] && ! $DRY_RUN; then
+if [[ "${GPU_BACKEND_FORCED_CPU:-false}" != "true" && $GPU_COUNT -eq 0 && "$GPU_BACKEND" != "amd" ]] && ! $DRY_RUN; then
     fix_nvidia_secure_boot || true
 fi
 

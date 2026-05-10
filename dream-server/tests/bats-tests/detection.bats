@@ -244,6 +244,50 @@ _setup_amd_sysfs() {
     assert_equal "$GPU_MEMORY_TYPE" "unified"
 }
 
+@test "amd_gpu_runtime_devices_available: accepts mocked AMD device nodes" {
+    export DREAM_AMD_DEVICE_ROOT="$BATS_TEST_TMPDIR/dev"
+    mkdir -p "$DREAM_AMD_DEVICE_ROOT/dri"
+    touch "$DREAM_AMD_DEVICE_ROOT/kfd"
+    touch "$DREAM_AMD_DEVICE_ROOT/dri/renderD128"
+
+    run amd_gpu_runtime_devices_available
+    assert_success
+}
+
+@test "amd_gpu_runtime_devices_available: reports missing AMD device nodes" {
+    export DREAM_AMD_DEVICE_ROOT="$BATS_TEST_TMPDIR/dev"
+    mkdir -p "$DREAM_AMD_DEVICE_ROOT/dri"
+
+    run amd_gpu_runtime_devices_available
+    assert_failure
+
+    run amd_gpu_missing_devices_csv
+    assert_success
+    assert_output --partial "$DREAM_AMD_DEVICE_ROOT/kfd"
+    assert_output --partial "$DREAM_AMD_DEVICE_ROOT/dri/renderD*"
+}
+
+@test "apply_cpu_gpu_fallback: resets AMD capability state to CPU" {
+    GPU_BACKEND="amd"
+    GPU_NAME="AMD APU"
+    GPU_VRAM=98304
+    GPU_COUNT=1
+    GPU_MEMORY_TYPE="unified"
+    CAP_LLM_BACKEND="amd"
+    CAP_RECOMMENDED_TIER="SH_LARGE"
+    CAP_COMPOSE_OVERLAYS="docker-compose.base.yml,docker-compose.amd.yml"
+
+    apply_cpu_gpu_fallback "test fallback"
+
+    assert_equal "$GPU_BACKEND" "cpu"
+    assert_equal "$GPU_COUNT" "0"
+    assert_equal "$GPU_VRAM" "0"
+    assert_equal "$GPU_MEMORY_TYPE" "none"
+    assert_equal "$CAP_LLM_BACKEND" "cpu"
+    assert_equal "$CAP_RECOMMENDED_TIER" ""
+    assert_equal "$CAP_COMPOSE_OVERLAYS" ""
+}
+
 @test "detect_gpu: does not misidentify discrete AMD GPU as APU" {
     # Future discrete card: 32 GB VRAM, 16 GB GTT — should NOT be an APU
     _setup_amd_sysfs $(( 32 * 1073741824 )) $(( 16 * 1073741824 ))

@@ -90,6 +90,13 @@ elif tier in {"AP_ULTRA", "AP_PRO", "AP_BASE"}:
     elif existing(["docker-compose.base.yml"]):
         resolved = ["docker-compose.base.yml"]
         primary = "docker-compose.base.yml"
+elif gpu_backend == "cpu":
+    if existing(["docker-compose.base.yml", "docker-compose.cpu.yml"]):
+        resolved = ["docker-compose.base.yml", "docker-compose.cpu.yml"]
+        primary = "docker-compose.cpu.yml"
+    elif existing(["docker-compose.base.yml"]):
+        resolved = ["docker-compose.base.yml"]
+        primary = "docker-compose.base.yml"
 elif tier in {"SH_LARGE", "SH_COMPACT"}:
     if existing(["docker-compose.base.yml", "docker-compose.amd.yml"]):
         resolved = ["docker-compose.base.yml", "docker-compose.amd.yml"]
@@ -105,13 +112,6 @@ elif gpu_backend == "amd":
     if existing(["docker-compose.base.yml", "docker-compose.amd.yml"]):
         resolved = ["docker-compose.base.yml", "docker-compose.amd.yml"]
         primary = "docker-compose.amd.yml"
-elif gpu_backend == "cpu":
-    if existing(["docker-compose.base.yml", "docker-compose.cpu.yml"]):
-        resolved = ["docker-compose.base.yml", "docker-compose.cpu.yml"]
-        primary = "docker-compose.cpu.yml"
-    elif existing(["docker-compose.base.yml"]):
-        resolved = ["docker-compose.base.yml"]
-        primary = "docker-compose.base.yml"
 elif gpu_backend in ("intel", "sycl") or tier in ("ARC", "ARC_LITE"):
     if existing(["docker-compose.base.yml", "docker-compose.arc.yml"]):
         resolved = ["docker-compose.base.yml", "docker-compose.arc.yml"]
