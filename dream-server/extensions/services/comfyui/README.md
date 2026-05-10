@@ -102,6 +102,46 @@ Place model files in the appropriate subdirectory under `./data/comfyui/models/`
 - `startup.sh` — Entrypoint script: sets up model symlinks and launches ComfyUI server
 - `Dockerfile` — Container build definition (used by NVIDIA overlay)
 
+## LTX-2.3 Video Generation
+
+ComfyUI ships an official workflow template for Lightricks LTX-2.3 text-to-video. The template is correctly tuned out of the box — many third-party tutorials substitute defaults that produce visibly worse output. Use the official template.
+
+### Required model files
+
+Place under `./data/comfyui/models/` (NVIDIA layout; for AMD use `./data/comfyui/ComfyUI/models/`):
+
+| File | Subdirectory |
+|---|---|
+| `ltx-2.3-22b-dev-fp8.safetensors` | `checkpoints/` |
+| `ltx-2.3-22b-distilled-lora-384.safetensors` | `loras/` |
+| `gemma_3_12B_it_fp4_mixed.safetensors` | `text_encoders/` |
+| `ltx-2.3-spatial-upscaler-x2-1.0.safetensors` | `latent_upscale_models/` |
+
+All four are published by Lightricks on Hugging Face. Combined disk footprint is roughly 30–35 GB.
+
+### Loading the workflow
+
+1. Open ComfyUI at `http://localhost:8188`
+2. **Workflow → Browse Templates → Video → LTX-2.3 T2V** (`video_ltx2_3_t2v.json`)
+3. Verify all four model loader nodes resolve (no red boxes)
+
+### Tuning that matters
+
+Validated against side-by-side A/B comparisons; the official template defaults are correct, common substitutions look noticeably worse:
+
+| Setting | Use | Avoid |
+|---|---|---|
+| Sampler | `euler_cfg_pp` | vanilla `euler` |
+| CFG | `1.0` | typical `3.0` |
+| Sigmas | `ManualSigmas` (template values) | `BasicScheduler` |
+| LoRA strength | `0.5` | `1.0` |
+
+### Operating envelope
+
+- **VRAM**: ~22–24 GB peak (fp8 22B checkpoint + Gemma encoder).
+- **Throughput**: ~45–55 s for a 5 s, 1280×704 clip on a single Blackwell-class NVIDIA GPU using the default two-stage workflow.
+- **Power-cap tolerance**: throughput holds at a 500 W per-GPU cap; below ~360 W the V/f curve begins to bind. Going from a 500 W to 600 W cap buys roughly +11% throughput.
+
 ## Troubleshooting
 
 **ComfyUI not starting (long start period):**
