@@ -116,7 +116,7 @@ Don't generalize this past the rig it was measured on. Test both for your specif
 
 Qwen3 chat templates emit thinking blocks (`<think>…</think>`) by default. If you're routing vLLM into a UI or agent that doesn't strip them, output will look broken or chatty. The fix is to set `chat_template_kwargs.enable_thinking = false` on each request.
 
-Dream Server already has a working in-tree example: [`extensions/services/perplexica/vllm-nothink-proxy.mjs`](../extensions/services/perplexica/vllm-nothink-proxy.mjs) — a tiny Node proxy that forces this flag for every chat completion. Read it as a reference if you need to wrap a Qwen3-on-vLLM endpoint.
+Perplexica is the closest in-tree integration point today: its [`compose.yaml`](../extensions/services/perplexica/compose.yaml) reads `LLM_API_URL` and passes it through as an OpenAI-compatible base URL. If you route Perplexica or another Dream Server consumer to Qwen3 on vLLM, add a small proxy or client-side request hook that forces this flag for every chat completion.
 
 ### Power cap behavior (NVIDIA)
 
@@ -136,7 +136,7 @@ The cost of doubling `--max-model-len` is doubling the per-slot KV allocation, w
 
 ## Existing Dream Server integration
 
-vLLM is not a first-class extension yet, but one piece of evidence that it already runs alongside the stack: `extensions/services/perplexica/vllm-nothink-proxy.mjs`. Perplexica can be pointed at a vLLM container on the dream-network in place of the default `llama-server` — the proxy handles the Qwen3 think-mode quirk so the chat output stays clean. Look at it both as a working integration and as a template for any other consumer that needs the same workaround.
+vLLM is not a first-class extension yet, but Perplexica can already be pointed at an OpenAI-compatible vLLM container on the `dream-network` in place of the default `llama-server` by changing `LLM_API_URL`. Treat that as the current integration seam: Dream Server has a consumer that can talk to vLLM, while a production-ready vLLM service wrapper still belongs in future work.
 
 ---
 
