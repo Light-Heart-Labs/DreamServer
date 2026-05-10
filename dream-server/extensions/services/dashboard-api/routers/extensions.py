@@ -1120,7 +1120,8 @@ def _install_from_library(service_id: str) -> None:
         staged_compose = staged / "compose.yaml"
         if staged_compose.exists():
             _scan_compose_content(staged_compose, trusted=True)
-            # Rewrite build.context to the absolute final extension dir.
+            # Rewrite build.context to an absolute path under the final
+            # extension dir.
             # Compose resolves relative contexts against the project dir
             # (INSTALL_DIR), not the extension dir, so "context: ." would
             # look for the Dockerfile in INSTALL_DIR/Dockerfile and fail.
@@ -1137,8 +1138,9 @@ def _rewrite_build_context(compose_path: Path, final_dir: Path) -> None:
     Library extensions ship `build: { context: ., ... }` so they're portable
     inside the library, but `docker compose` resolves relative contexts
     against the compose project directory (INSTALL_DIR), not the extension's
-    own directory. After staging, rewrite each service's build.context to
-    the absolute path of the final post-rename extension directory.
+    own directory. After staging, rewrite each service's relative
+    build.context to the matching absolute path under the final post-rename
+    extension directory.
 
     Idempotent: absolute paths are left alone (in case the compose was
     already rewritten on a previous attempt).
@@ -1153,8 +1155,23 @@ def _rewrite_build_context(compose_path: Path, final_dir: Path) -> None:
     if not isinstance(services, dict):
         return
 
-    final_dir_str = str(final_dir)
+    final_dir = final_dir.resolve()
     changed = False
+
+    def is_absolute_context(context: str) -> bool:
+        return os.path.isabs(context) or context.startswith("/")
+
+    def resolve_relative_context(service_name: str, context: str) -> str:
+        rewritten = (final_dir / context).resolve()
+        if not rewritten.is_relative_to(final_dir):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Service '{service_name}' build.context escapes the "
+                    "extension directory"
+                ),
+            )
+        return str(rewritten)
 
     for service_name, service in services.items():
         if not isinstance(service, dict):
@@ -1165,12 +1182,13 @@ def _rewrite_build_context(compose_path: Path, final_dir: Path) -> None:
 
         if isinstance(build, str):
             # Short-form `build: <path>` — normalize to dict form
-            if os.path.isabs(build):
+            if is_absolute_context(build):
                 continue
-            service["build"] = {"context": final_dir_str}
+            rewritten_context = resolve_relative_context(service_name, build)
+            service["build"] = {"context": rewritten_context}
             logger.info(
                 "Rewrote build context for service '%s' from '%s' to '%s'",
-                service_name, build, final_dir_str,
+                service_name, build, rewritten_context,
             )
             changed = True
             continue
@@ -1179,18 +1197,19 @@ def _rewrite_build_context(compose_path: Path, final_dir: Path) -> None:
             context = build.get("context")
             if context is None:
                 # Compose default is `.`; make it explicit and absolute
-                build["context"] = final_dir_str
+                build["context"] = str(final_dir)
                 logger.info(
                     "Set build context for service '%s' to '%s' (was implicit)",
-                    service_name, final_dir_str,
+                    service_name, final_dir,
                 )
                 changed = True
                 continue
-            if isinstance(context, str) and not os.path.isabs(context):
-                build["context"] = final_dir_str
+            if isinstance(context, str) and not is_absolute_context(context):
+                rewritten_context = resolve_relative_context(service_name, context)
+                build["context"] = rewritten_context
                 logger.info(
                     "Rewrote build context for service '%s' from '%s' to '%s'",
-                    service_name, context, final_dir_str,
+                    service_name, context, rewritten_context,
                 )
                 changed = True
 

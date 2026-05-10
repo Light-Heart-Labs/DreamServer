@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from fastapi import HTTPException
 
 from routers.extensions import _rewrite_build_context
 
@@ -36,7 +37,7 @@ def test_rewrites_relative_dot_context(tmp_path, caplog):
         _rewrite_build_context(compose, final_dir)
 
     data = _read(compose)
-    assert data["services"]["audiocraft"]["build"]["context"] == str(final_dir)
+    assert data["services"]["audiocraft"]["build"]["context"] == str(final_dir.resolve())
     assert data["services"]["audiocraft"]["build"]["dockerfile"] == "Dockerfile"
     assert any("Rewrote build context" in rec.message for rec in caplog.records)
 
@@ -55,7 +56,9 @@ def test_rewrites_other_relative_context(tmp_path):
     _rewrite_build_context(compose, final_dir)
 
     data = _read(compose)
-    assert data["services"]["foo"]["build"]["context"] == str(final_dir)
+    assert data["services"]["foo"]["build"]["context"] == str(
+        (final_dir / "subdir").resolve()
+    )
 
 
 def test_short_form_string_build(tmp_path):
@@ -70,7 +73,24 @@ def test_short_form_string_build(tmp_path):
     _rewrite_build_context(compose, final_dir)
 
     data = _read(compose)
-    assert data["services"]["foo"]["build"] == {"context": str(final_dir)}
+    assert data["services"]["foo"]["build"] == {"context": str(final_dir.resolve())}
+
+
+def test_short_form_preserves_relative_suffix(tmp_path):
+    compose = tmp_path / "compose.yaml"
+    final_dir = Path("/var/lib/dream/user-extensions/foo")
+    _write(compose, {
+        "services": {
+            "foo": {"build": "docker"},
+        },
+    })
+
+    _rewrite_build_context(compose, final_dir)
+
+    data = _read(compose)
+    assert data["services"]["foo"]["build"] == {
+        "context": str((final_dir / "docker").resolve())
+    }
 
 
 def test_missing_context_key_is_added(tmp_path):
@@ -85,7 +105,7 @@ def test_missing_context_key_is_added(tmp_path):
     _rewrite_build_context(compose, final_dir)
 
     data = _read(compose)
-    assert data["services"]["foo"]["build"]["context"] == str(final_dir)
+    assert data["services"]["foo"]["build"]["context"] == str(final_dir.resolve())
     assert data["services"]["foo"]["build"]["dockerfile"] == "Dockerfile"
 
 
@@ -153,9 +173,25 @@ def test_multiple_services_mixed(tmp_path):
     _rewrite_build_context(compose, final_dir)
 
     data = _read(compose)
-    assert data["services"]["needs_rewrite"]["build"]["context"] == str(final_dir)
+    assert data["services"]["needs_rewrite"]["build"]["context"] == str(final_dir.resolve())
     assert data["services"]["already_abs"]["build"]["context"] == "/keep/me"
     assert "build" not in data["services"]["no_build"]
+
+
+def test_rejects_context_that_escapes_extension_dir(tmp_path):
+    compose = tmp_path / "compose.yaml"
+    final_dir = Path("/var/lib/dream/user-extensions/foo")
+    _write(compose, {
+        "services": {
+            "foo": {"build": {"context": "../bar"}},
+        },
+    })
+
+    with pytest.raises(HTTPException) as exc:
+        _rewrite_build_context(compose, final_dir)
+
+    assert exc.value.status_code == 400
+    assert "escapes the extension directory" in exc.value.detail
 
 
 def test_invalid_yaml_root_no_crash(tmp_path):
