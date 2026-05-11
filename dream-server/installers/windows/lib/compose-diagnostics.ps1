@@ -129,7 +129,10 @@ function ConvertTo-DreamComposeRedactedLine {
 
     $redacted = $Line
     if ($redacted -match '(?i)(KEY|TOKEN|SECRET|PASSWORD|PASS|SALT|AUTH|CREDENTIAL)' -and $redacted -match '[:=]') {
-        $redacted = $redacted -replace '([:=]\s*)[^\s,}]+', '${1}[REDACTED]'
+        $separatorMatch = [regex]::Match($redacted, '[:=]\s*')
+        if ($separatorMatch.Success) {
+            $redacted = $redacted.Substring(0, $separatorMatch.Index + $separatorMatch.Length) + "[REDACTED]"
+        }
     }
 
     foreach ($value in $SensitiveValues) {

@@ -121,9 +121,9 @@ EOF
             "DASHBOARD_API_KEY: [REDACTED]",
             "OPENCLAW_TOKEN: [REDACTED]"
         )) {
-            if ($text -notlike "*$needle*") { throw "missing $needle" }
+            if (-not $text.Contains($needle)) { throw "missing $needle" }
         }
-        if ($text -like "*super-secret-dashboard-key*" -or $text -like "*super-secret-openclaw-token*") {
+        if ($text.Contains("super-secret-dashboard-key") -or $text.Contains("super-secret-openclaw-token")) {
             throw "sensitive compose config value leaked"
         }
     '; then
