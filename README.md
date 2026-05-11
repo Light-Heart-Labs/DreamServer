@@ -8,7 +8,7 @@ A handful of companies control the vast majority of global AI traffic — and wi
 
 If AI is becoming critical infrastructure, it shouldn’t be rented. Self-hosting local AI should be a sovereign human right, not a career choice.
 
-**Dream Server is the exit.** A fully local AI stack — LLM inference, chat, voice, agents, workflows, RAG, image generation, and privacy tools — deployed on your hardware with a single command. No cloud. No subscriptions. No one watching.
+**Dream Server is the exit.** A local-first AI stack — LLM inference, chat, voice, agents, workflows, RAG, image generation, and privacy tools — deployed on your hardware with a single command. No cloud required. No subscriptions required. No one watching. Cloud and hybrid API modes are optional when you choose them.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/Light-Heart-Labs/DreamServer)](https://github.com/Light-Heart-Labs/DreamServer/stargazers)
@@ -24,17 +24,17 @@ If AI is becoming critical infrastructure, it shouldn’t be rented. Self-hostin
 
 ---
 
-> **Platform Support — March 2026**
+> **Current Platform Support**
 >
 > | Platform | Status |
 > |----------|--------|
-> | **Linux** (NVIDIA + AMD) | **Supported** — install and run today |
+> | **Linux** (NVIDIA + AMD + Intel Arc) | **Supported** — install and run today |
 > | **Windows** (NVIDIA + AMD) | **Supported** — install and run today |
 > | **macOS** (Apple Silicon) | **Supported** — install and run today |
 >
 > **Tested Linux distros:** Ubuntu 24.04/22.04, Debian 12, Fedora 41+, Arch Linux, CachyOS, openSUSE Tumbleweed. Other distros using apt, dnf, pacman, or zypper should also work — [open an issue](https://github.com/Light-Heart-Labs/DreamServer/issues) if yours doesn't.
 >
-> **Windows:** Requires Docker Desktop with WSL2 backend. NVIDIA GPUs use Docker GPU passthrough; AMD Strix Halo runs natively with Lemonade (NPU + ROCm + Vulkan acceleration).
+> **Windows:** Requires Docker Desktop with WSL2 backend. NVIDIA GPUs use Docker GPU passthrough; AMD Strix Halo runs through the platform-specific accelerated path documented in the Windows installer and support matrix.
 >
 > **macOS:** Requires Apple Silicon (M1+) and Docker Desktop. llama-server runs natively with Metal GPU acceleration; all other services run in Docker.
 >
@@ -50,14 +50,16 @@ We built Dream Server so you don't have to.
 
 - **One command** — detects your GPU, picks the right model, generates credentials, launches everything
 - **Chatting in under 2 minutes** — bootstrap mode gives you a working model instantly while your full model downloads in the background
-- **13 services, pre-wired** — chat, agents, voice, workflows, search, RAG, image generation, privacy tools. All talking to each other out of the box
+- **Full service stack, pre-wired** — chat, agents, voice, workflows, search, RAG, image generation, privacy tools, observability, and developer tools. All talking to each other out of the box
 - **Fully moddable** — every service is an extension. Drop in a folder, run `dream enable`, done
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.3.2/dream-server/get-dream-server.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/main/dream-server/get-dream-server.sh | bash
 ```
 
 Open **http://localhost:3000** and start chatting.
+
+> **API endpoint:** llama-server is exposed on **http://localhost:11434** by default (`OLLAMA_PORT`) and runs on port `8080` inside Docker. Open WebUI stays on **http://localhost:3000**.
 
 > **No GPU?** Dream Server also runs in cloud mode — same full stack, powered by OpenAI/Anthropic/Together APIs instead of local inference:
 > ```bash
@@ -94,7 +96,7 @@ cd DreamServer/dream-server
 Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) with WSL2 backend enabled.
 **Install Docker Desktop first and make sure it is running before you start.**
 
-Open **PowerShell as Administrator** and run:
+Open a normal **PowerShell** session and run:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
@@ -104,6 +106,7 @@ cd DreamServer
 ```
 
 > The `Set-ExecutionPolicy` command allows the installer script to run in the current session. It does not change your system-wide policy.
+> Running as Administrator is not recommended for the installer because user-level paths such as `.opencode`, `data/`, and `.env` can be created with admin-owned permissions.
 
 The installer detects your GPU, picks the right model, generates credentials, starts all services, and creates a Desktop shortcut to the Dashboard. Manage with `.\dream-server\installers\windows\dream.ps1 status`.
 
@@ -133,8 +136,9 @@ See the [macOS Quickstart](dream-server/docs/MACOS-QUICKSTART.md) for details.
 
 ### Chat & Inference
 - **Open WebUI** — full-featured chat interface with conversation history, web search, document upload, and [30+ languages](https://docs.openwebui.com)
-- **llama-server** — high-performance LLM inference with continuous batching, auto-selected for your GPU
+- **llama-server** — high-performance LLM inference with continuous batching, auto-selected for your GPU; host API defaults to `localhost:11434`, container API runs on `8080`
 - **LiteLLM** — API gateway supporting local/cloud/hybrid modes
+- **TEI Embeddings** — text embedding service for RAG and search workflows
 
 ### Voice
 - **Whisper** — speech-to-text
@@ -143,11 +147,16 @@ See the [macOS Quickstart](dream-server/docs/MACOS-QUICKSTART.md) for details.
 ### Agents & Automation
 - **OpenClaw** — autonomous AI agent framework
 - **n8n** — workflow automation with 400+ integrations (Slack, email, databases, APIs)
+- **APE** — Agent Policy Engine for auditing and governing autonomous tool calls
+- **OpenCode** — browser-based AI coding assistant wired to the local stack
+- **DreamForge** — developer/build service extension for Dream Server workflows
+- **Memory Shepherd** — host/systemd helper for agent memory lifecycle management
 
 ### Knowledge & Search
 - **Qdrant** — vector database for retrieval-augmented generation (RAG)
 - **SearXNG** — self-hosted web search (no tracking)
 - **Perplexica** — deep research engine
+- **Brave Search** — optional paid Brave Search API integration
 
 ### Creative
 - **ComfyUI** — node-based image generation
@@ -155,40 +164,52 @@ See the [macOS Quickstart](dream-server/docs/MACOS-QUICKSTART.md) for details.
 ### Privacy & Ops
 - **Privacy Shield** — PII scrubbing proxy for API calls
 - **Dashboard** — real-time GPU metrics, service health, model management
+- **Dashboard API** — service health, setup, status, metrics, and management API behind the dashboard
+- **Token Spy** — token usage monitor for local and proxied LLM traffic
+- **Langfuse** — optional LLM observability and tracing
 
 ---
 
 ## Hardware Auto-Detection
 
-The installer detects your GPU and picks the optimal model automatically. No manual configuration.
+The installer detects your GPU and picks the optimal model automatically. No manual configuration is required for the default path.
+
+The current model map supports `MODEL_PROFILE=qwen` by default, plus `MODEL_PROFILE=gemma4` and `MODEL_PROFILE=auto` for Gemma 4 tiers where supported. Override tier selection with `./install.sh --tier 3`; override the model family with `MODEL_PROFILE=gemma4 ./install.sh` or `MODEL_PROFILE=auto ./install.sh`.
 
 ### NVIDIA
 
-| VRAM | Model | Example GPUs |
-|------|-------|--------------|
-| < 8 GB | Qwen3.5 2B (Q4_K_M) | Any GPU or CPU-only |
-| 8–11 GB | Qwen3.5 9B (Q4_K_M) | RTX 4060 Ti, RTX 3060 12GB |
-| 12–20 GB | Qwen3.5 9B (Q4_K_M) | RTX 3090, RTX 4080 |
-| 20–40 GB | Qwen3 30B-A3B MoE (Q4_K_M) | RTX 4090, A6000 |
-| 40+ GB | Qwen3 30B-A3B (MoE, Q4_K_M) | A100, multi-GPU |
-| 90+ GB | Qwen3 Coder Next (80B MoE, Q4_K_M) | Multi-GPU A100/H100 |
+| Tier | VRAM | Qwen profile | Gemma 4 profile | Context | Example GPUs |
+|------|------|--------------|-----------------|---------|--------------|
+| 0 | < 8 GB or CPU-only fallback | Qwen3.5 2B (Q4_K_M) | Qwen3.5 2B (bootstrap-friendly minimum) | 8K | Any GPU or CPU-only |
+| 1 | 8–11 GB | Qwen3.5 9B (Q4_K_M) | Gemma 4 E2B IT (Q4_K_M) | 16K | RTX 4060, RTX 3060 12GB |
+| 2 | 12–20 GB | Qwen3.5 9B (Q4_K_M) | Gemma 4 E4B IT (Q4_K_M) | 32K | RTX 3090, RTX 4080 |
+| 3 | 20–40 GB | Qwen3 30B-A3B MoE (Q4_K_M) | Gemma 4 26B-A4B IT (Q4_K_M) | 32K Qwen / 16K Gemma | RTX 4090, A6000 |
+| 4 | 40+ GB | Qwen3 30B-A3B MoE (Q4_K_M) | Gemma 4 31B IT (Q4_K_M) | 128K Qwen / 64K Gemma | A100, H100, multi-GPU |
+| NV_ULTRA | 90+ GB | Qwen3 Coder Next (Q4_K_M) | Gemma 4 31B IT (Q4_K_M) | 128K | Multi-GPU A100/H100 |
 
 ### AMD Strix Halo (Unified Memory)
 
-| Unified RAM | Model | Hardware |
-|-------------|-------|----------|
-| 64–89 GB | Qwen3 30B-A3B (30B MoE) | Ryzen AI MAX+ 395 (64GB) |
-| 90+ GB | Qwen3 Coder Next (80B MoE) | Ryzen AI MAX+ 395 (96GB) |
+| Tier | Unified RAM | Qwen profile | Gemma 4 profile | Context | Hardware |
+|------|-------------|--------------|-----------------|---------|----------|
+| SH_COMPACT | 64–89 GB | Qwen3 30B-A3B MoE (Q4_K_M) | Gemma 4 26B-A4B IT (Q4_K_M) | 128K Qwen / 64K Gemma | Ryzen AI MAX+ 395 (64GB) |
+| SH_LARGE | 90+ GB | Qwen3 Coder Next (Q4_K_M) | Gemma 4 31B IT (Q4_K_M) | 128K | Ryzen AI MAX+ 395 (96GB) |
 
 ### Apple Silicon (Unified Memory, Metal)
 
-| Unified RAM | Model | Example Hardware |
-|-------------|-------|-----------------|
-| < 16 GB | Qwen3.5 2B (Q4_K_M) | M1/M2 base (8GB) |
-| 16–24 GB | Qwen3.5 9B (Q4_K_M) | M4 Mac Mini (16GB) |
-| 32 GB | Qwen3.5 9B (Q4_K_M) | M4 Pro Mac Mini, M3 Max MacBook Pro |
-| 48 GB | Qwen3 30B-A3B (MoE, Q4_K_M) | M4 Pro (48GB), M2 Max (48GB) |
-| 64+ GB | Qwen3 30B-A3B (MoE, Q4_K_M) | M2 Ultra Mac Studio, M4 Max (64GB+) |
+| Tier | Unified RAM | Qwen profile | Gemma 4 profile | Context | Example Hardware |
+|------|-------------|--------------|-----------------|---------|-----------------|
+| 0 | < 16 GB | Qwen3.5 2B (Q4_K_M) | Qwen3.5 2B (bootstrap-friendly minimum) | 8K | M1/M2 base (8GB) |
+| 1 | 16–24 GB | Qwen3.5 9B (Q4_K_M) | Gemma 4 E2B IT (Q4_K_M) | 16K | M4 Mac Mini (16GB) |
+| 2 | 32 GB | Qwen3.5 9B (Q4_K_M) | Gemma 4 E4B IT (Q4_K_M) | 32K | M4 Pro Mac Mini, M3 Max MacBook Pro |
+| 3 | 48 GB | Qwen3 30B-A3B MoE (Q4_K_M) | Gemma 4 26B-A4B IT (Q4_K_M) | 32K Qwen / 16K Gemma | M4 Pro (48GB), M2 Max (48GB) |
+| 4 | 64+ GB | Qwen3 30B-A3B MoE (Q4_K_M) | Gemma 4 31B IT (Q4_K_M) | 128K Qwen / 64K Gemma | M2 Ultra Mac Studio, M4 Max (64GB+) |
+
+### Intel Arc (Linux, SYCL)
+
+| Tier | VRAM | Qwen profile | Gemma 4 profile | Context | Example Hardware |
+|------|------|--------------|-----------------|---------|------------------|
+| ARC_LITE | 6–11 GB | Qwen3.5 4B (Q4_K_M) | Gemma 4 E2B IT (Q4_K_M) | 16K | Arc A380, Arc A750 |
+| ARC | 12+ GB | Qwen3.5 9B (Q4_K_M) | Gemma 4 E4B IT (Q4_K_M) | 32K | Arc A770 16GB, newer Arc GPUs |
 
 Override tier selection: `./install.sh --tier 3`
 
@@ -232,7 +253,13 @@ If the new model isn't downloaded yet, pre-fetch it first:
 dream model swap T3                    # Then swap (restarts llama-server)
 ```
 
-Already have a GGUF you want to use? Drop it in `data/models/`, update `GGUF_FILE` and `LLM_MODEL` in `.env`, and restart:
+Already have a GGUF you want to use? Drop it in `data/models/`, update `GGUF_FILE` and `LLM_MODEL` in `.env`, and restart with the CLI:
+
+```bash
+dream restart llm
+```
+
+Or restart the container directly from the installed `dream-server` directory:
 
 ```bash
 docker compose restart llama-server
@@ -299,8 +326,8 @@ Other tools get you part of the way. Dream Server gets you the whole way.
 |---|:---:|:---:|:---:|
 | **Scope** | Full AI stack — inference to agents to workflows | LLM + chat | LLM only |
 | One-command install | Everything, auto-configured | LLM + chat only | LLM only |
-| Hardware auto-detect + model selection | NVIDIA + AMD Strix Halo | No | No |
-| AMD APU unified memory support | ROCm + llama-server | Partial (Vulkan) | No |
+| Hardware auto-detect + model selection | NVIDIA + AMD Strix Halo + Apple Silicon + Intel Arc + CPU/cloud fallback | No | No |
+| AMD APU unified memory support | Platform-specific accelerated backend, selected by installer | Partial (Vulkan) | No |
 | Autonomous AI agents | OpenClaw | No | No |
 | Workflow automation | n8n (400+ integrations) | No | No |
 | Voice (STT + TTS) | Whisper + Kokoro | No | No |
