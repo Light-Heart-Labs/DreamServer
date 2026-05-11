@@ -432,6 +432,17 @@ MODELS_INI_EOF
         echo ""
         ai_warn "Some services failed. Check: docker compose logs"
         ai_warn "Log file: $LOG_FILE"
+        if command -v write_compose_failure_report >/dev/null 2>&1; then
+            _compose_report_path="$(write_compose_failure_report \
+                "$INSTALL_DIR" \
+                "install-core phase 11 docker compose up" \
+                "$DOCKER_COMPOSE_CMD $COMPOSE_FLAGS up -d --remove-orphans --no-build" \
+                "$LOG_FILE" \
+                "${GPU_BACKEND:-unknown}" \
+                "Open the saved report, fix the failed image/port/compose error it identifies, then re-run ./install.sh." |
+                tail -n 1)" || true
+            [[ -n "${_compose_report_path:-}" ]] && ai_warn "Compose failure report saved: $_compose_report_path"
+        fi
     fi
 
     # ── Bootstrap: launch background full-model download + auto hot-swap ──

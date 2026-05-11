@@ -655,7 +655,11 @@ if ($dryRun) {
         }
         if ($composeExit -ne 0) {
             Write-AIError "docker compose up failed (exit code: $composeExit)"
-            Write-DreamComposeDiagnostics -InstallDir $installDir -ComposeFlags $composeFlags -Phase "install-windows.ps1 docker compose up -d"
+            Write-DreamComposeDiagnostics -InstallDir $installDir -ComposeFlags $composeFlags `
+                -ComposeArgs @("up", "-d", "--remove-orphans", "--no-build") `
+                -ComposeLogPath $_composeLog `
+                -Phase "install-windows.ps1 docker compose up -d" `
+                -SaveReport
             exit 1
         }
         Write-AISuccess "Docker services started"

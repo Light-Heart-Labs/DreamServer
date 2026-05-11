@@ -114,6 +114,9 @@ source "${LIB_DIR}/tier-map.sh"
 source "${LIB_DIR}/detection.sh"
 source "${LIB_DIR}/preflight-fs.sh"
 source "${LIB_DIR}/env-generator.sh"
+if [[ -f "${SOURCE_ROOT}/installers/lib/compose-failure-report.sh" ]]; then
+    source "${SOURCE_ROOT}/installers/lib/compose-failure-report.sh"
+fi
 
 # ── File-local helpers ──
 # Build a launchd-friendly PATH that includes Docker and Homebrew prefixes.
@@ -947,14 +950,28 @@ else
     ai_ok "Local images rebuilt"
 
     ai "Running: docker compose ${COMPOSE_FLAGS[*]} up -d --remove-orphans --no-build"
+    _compose_up_log="${INSTALL_DIR}/logs/compose-up.log"
+    mkdir -p "${INSTALL_DIR}/logs"
+    : > "$_compose_up_log"
     set +o pipefail  # pipefail would abort on compose exit before PIPESTATUS is read; capture it first
-    docker compose "${COMPOSE_FLAGS[@]}" up -d --remove-orphans --no-build 2>&1 | while IFS= read -r line; do
+    docker compose "${COMPOSE_FLAGS[@]}" up -d --remove-orphans --no-build 2>&1 | tee -a "$_compose_up_log" | while IFS= read -r line; do
         echo "  $line"
     done
     compose_exit="${PIPESTATUS[0]}"
     set -o pipefail
 
     if [[ "$compose_exit" -ne 0 ]]; then
+        if command -v write_compose_failure_report >/dev/null 2>&1; then
+            _compose_report_path="$(COMPOSE_FLAGS_REPORT="${COMPOSE_FLAGS[*]}" write_compose_failure_report \
+                "$INSTALL_DIR" \
+                "install-macos docker compose up" \
+                "docker compose ${COMPOSE_FLAGS[*]} up -d --remove-orphans --no-build" \
+                "$_compose_up_log" \
+                "apple" \
+                "Open the saved report, fix the failed image/port/compose error it identifies, then re-run ./installers/macos.sh." |
+                tail -n 1)" || true
+            [[ -n "${_compose_report_path:-}" ]] && ai_warn "Compose failure report saved: $_compose_report_path"
+        fi
         ai_err "docker compose up failed"
         exit 1
     fi
