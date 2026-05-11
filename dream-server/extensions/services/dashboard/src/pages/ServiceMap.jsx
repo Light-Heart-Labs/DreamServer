@@ -41,6 +41,28 @@ const CATEGORY_MAP = {
   opencode: 'user-facing',
 }
 
+const NAME_TO_ID = {
+  'APE (Agent Policy Engine)': 'ape',
+  'ComfyUI (Image Generation)': 'comfyui',
+  'Dashboard (Control Center)': 'dashboard',
+  'Dashboard API (System Status)': 'dashboard-api',
+  DreamForge: 'dreamforge',
+  'Kokoro (TTS)': 'tts',
+  'LiteLLM (API Gateway)': 'litellm',
+  'llama-server (LLM Inference)': 'llama-server',
+  'n8n (Workflows)': 'n8n',
+  'Open WebUI (Chat)': 'open-webui',
+  'OpenClaw (Agents)': 'openclaw',
+  'OpenCode (IDE)': 'opencode',
+  'Perplexica (Deep Research)': 'perplexica',
+  'Privacy Shield (PII Protection)': 'privacy-shield',
+  'Qdrant (Vector DB)': 'qdrant',
+  'SearXNG (Web Search)': 'searxng',
+  'TEI (Embeddings)': 'embeddings',
+  'Token Spy (Usage Monitor)': 'token-spy',
+  'Whisper (STT)': 'whisper',
+}
+
 // source depends on target. Unknown extension dependencies are not guessed.
 const KNOWN_EDGES = [
   ['open-webui', 'litellm', 'LLM proxy'],
@@ -96,15 +118,35 @@ function normalizeStatus(status) {
   return status || 'unknown'
 }
 
-function buildTopology(statusData) {
+function slugServiceName(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+function resolveServiceId(service) {
+  const explicitId = service.id || service.service_id || service.key
+  if (explicitId) return explicitId
+  return NAME_TO_ID[service.name] || slugServiceName(service.name)
+}
+
+export function buildTopology(statusData) {
   const services = Array.isArray(statusData?.services) ? statusData.services : []
-  const nodes = services.map(service => ({
-    id: service.id,
-    name: service.name || service.id,
-    status: normalizeStatus(service.status),
-    port: service.external_port || service.port || '',
-    category: CATEGORY_MAP[service.id] || 'other',
-  }))
+  const nodes = services
+    .map(service => {
+      const id = resolveServiceId(service)
+      if (!id) return null
+      return {
+        id,
+        name: service.name || id,
+        status: normalizeStatus(service.status),
+        port: service.external_port || service.port || '',
+        category: CATEGORY_MAP[id] || 'other',
+      }
+    })
+    .filter(Boolean)
   const nodeById = new Map(nodes.map(node => [node.id, node]))
   const edges = KNOWN_EDGES
     .filter(([source, target]) => nodeById.has(source) && nodeById.has(target))

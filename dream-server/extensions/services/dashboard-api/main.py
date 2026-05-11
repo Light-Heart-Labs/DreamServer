@@ -278,6 +278,7 @@ def _serialize_model(model_info) -> Optional[dict]:
 def _serialize_services(service_statuses: list[ServiceStatus], uptime: int) -> list[dict]:
     return [
         {
+            "id": service.id,
             "name": service.name,
             "status": service.status,
             "port": service.external_port,
@@ -294,6 +295,7 @@ def _fallback_services() -> list[dict]:
         if not external_port:
             continue
         links.append({
+            "id": service_id,
             "name": config.get("name", service_id),
             "status": "unknown",
             "port": external_port,
@@ -1161,7 +1163,7 @@ async def _build_api_status() -> dict:
             gpu_data["powerDraw"] = gpu_info.power_w
         gpu_data["memoryLabel"] = "VRAM Partition" if gpu_info.memory_type == "unified" else "VRAM"
 
-    services_data = [{"name": s.name, "status": s.status, "port": s.external_port, "uptime": uptime if s.status == "healthy" else None} for s in service_statuses]
+    services_data = _serialize_services(service_statuses, uptime)
 
     model_data = None
     if model_info:
