@@ -79,9 +79,9 @@ function Get-DreamComposeFailedImages {
     }
 
     $pattern = '([a-z0-9._-]+([.:][0-9]+)?/)?[a-z0-9._/-]+:[A-Za-z0-9._-]+'
-    $matches = @()
+    $imageMatches = @()
     try {
-        $matches = Select-String -Path $ComposeLogPath -Pattern $pattern -AllMatches -ErrorAction Stop |
+        $imageMatches = Select-String -Path $ComposeLogPath -Pattern $pattern -AllMatches -ErrorAction Stop |
             ForEach-Object { $_.Matches.Value } |
             Where-Object {
                 $_ -match 'ghcr\.io|docker\.io|quay\.io|nvidia|llama|dream|open-webui|qdrant|speaches|comfy|litellm|perplexica'
@@ -93,7 +93,7 @@ function Get-DreamComposeFailedImages {
         return @()
     }
 
-    return @($matches)
+    return @($imageMatches)
 }
 
 function Add-DreamComposePortReport {
