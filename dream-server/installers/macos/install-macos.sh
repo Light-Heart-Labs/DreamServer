@@ -117,6 +117,7 @@ source "${LIB_DIR}/env-generator.sh"
 if [[ -f "${SOURCE_ROOT}/installers/lib/compose-failure-report.sh" ]]; then
     source "${SOURCE_ROOT}/installers/lib/compose-failure-report.sh"
 fi
+source "${SOURCE_ROOT}/installers/lib/readiness-summary.sh"
 
 # ── File-local helpers ──
 # Build a launchd-friendly PATH that includes Docker and Homebrew prefixes.
@@ -1327,5 +1328,17 @@ if ! $ALL_HEALTHY; then
     echo -e "  ${GRN}./dream-macos.sh status${NC}"
     echo ""
 fi
+
+{
+    printf 'Dashboard|http://127.0.0.1:3001|dream-dashboard|http://localhost:3001\n'
+    printf 'Chat UI (Open WebUI)|http://127.0.0.1:3000|dream-webui|http://localhost:3000\n'
+    printf 'llama-server|http://127.0.0.1:8080/health||http://localhost:8080/v1\n'
+    printf 'Dashboard API|http://127.0.0.1:3002/health|dream-dashboard-api|http://localhost:3002\n'
+    printf 'LiteLLM|http://127.0.0.1:4000/health/readiness|dream-litellm|http://localhost:4000\n'
+    printf 'Perplexica|http://127.0.0.1:3004|dream-perplexica|http://localhost:3004\n'
+    $ENABLE_VOICE && printf 'Whisper (STT)|http://127.0.0.1:9000/health|dream-whisper|http://localhost:9000\n'
+    $ENABLE_WORKFLOWS && printf 'n8n|http://127.0.0.1:5678/healthz|dream-n8n|http://localhost:5678\n'
+    [[ -x "$OPENCODE_BIN" ]] && printf 'OpenCode (IDE)|http://127.0.0.1:%s||http://localhost:%s\n' "$OPENCODE_PORT" "$OPENCODE_PORT"
+} | dream_readiness_summary "./dream-macos.sh status" "$DS_LOG_FILE" "http://localhost:3001"
 
 show_success_card

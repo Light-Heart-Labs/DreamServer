@@ -71,6 +71,7 @@ $LibDir = Join-Path $ScriptDir "lib"
 . (Join-Path $LibDir "env-generator.ps1")
 . (Join-Path $LibDir "llm-endpoint.ps1")
 . (Join-Path $LibDir "opencode-config.ps1")
+. (Join-Path $LibDir "readiness-summary.ps1")
 
 # ── Phase context variables ───────────────────────────────────────────────────
 # These are plain (non-$script:) variables set in the orchestrator scope.
@@ -966,6 +967,56 @@ if ($perplexicaOk) {
 } else {
     Write-AIWarn "Perplexica auto-config skipped -- complete setup at http://localhost:3004"
 }
+
+$readinessEnv = Get-WindowsDreamEnvMap -InstallDir $installDir
+function Get-ReadinessPort {
+    param([string]$Name, [string]$Default)
+    if ($readinessEnv.ContainsKey($Name) -and -not [string]::IsNullOrWhiteSpace($readinessEnv[$Name])) {
+        return $readinessEnv[$Name]
+    }
+    return $Default
+}
+
+$dashboardPort = Get-ReadinessPort -Name "DASHBOARD_PORT" -Default "3001"
+$webuiPort = Get-ReadinessPort -Name "WEBUI_PORT" -Default "3000"
+$dashboardApiPort = Get-ReadinessPort -Name "DASHBOARD_API_PORT" -Default "3002"
+$litellmPort = Get-ReadinessPort -Name "LITELLM_PORT" -Default "4000"
+$perplexicaPort = Get-ReadinessPort -Name "PERPLEXICA_PORT" -Default "3004"
+$llmContainer = if ($useLemonade -or $cloudMode -or $gpuInfo.Backend -eq "amd") { "" } else { "dream-llama-server" }
+$readinessChecks = @(
+    @{ Name = "Dashboard"; Url = "http://localhost:$dashboardPort"; Container = "dream-dashboard"; OpenUrl = "http://localhost:$dashboardPort" }
+    @{ Name = "Chat UI (Open WebUI)"; Url = "http://localhost:$webuiPort"; Container = "dream-webui"; OpenUrl = "http://localhost:$webuiPort" }
+    @{ Name = $llmEndpoint.Name; Url = $llmEndpoint.HealthUrl; Container = $llmContainer; OpenUrl = $llmEndpoint.BaseUrl }
+    @{ Name = "Dashboard API"; Url = "http://localhost:$dashboardApiPort/health"; Container = "dream-dashboard-api"; OpenUrl = "http://localhost:$dashboardApiPort" }
+    @{ Name = "LiteLLM"; Url = "http://localhost:$litellmPort/health/readiness"; Container = "dream-litellm"; OpenUrl = "http://localhost:$litellmPort" }
+    @{ Name = "Perplexica"; Url = "http://localhost:$perplexicaPort"; Container = "dream-perplexica"; OpenUrl = "http://localhost:$perplexicaPort" }
+)
+if ($enableVoice) {
+    $whisperPort = Get-ReadinessPort -Name "WHISPER_PORT" -Default "9000"
+    $ttsPort = Get-ReadinessPort -Name "TTS_PORT" -Default "8880"
+    $readinessChecks += @{ Name = "Whisper (STT)"; Url = "http://localhost:$whisperPort/health"; Container = "dream-whisper"; OpenUrl = "http://localhost:$whisperPort" }
+    $readinessChecks += @{ Name = "Kokoro (TTS)"; Url = "http://localhost:$ttsPort/health"; Container = "dream-tts"; OpenUrl = "http://localhost:$ttsPort" }
+}
+if ($enableWorkflows) {
+    $n8nPort = Get-ReadinessPort -Name "N8N_PORT" -Default "5678"
+    $readinessChecks += @{ Name = "n8n"; Url = "http://localhost:$n8nPort/healthz"; Container = "dream-n8n"; OpenUrl = "http://localhost:$n8nPort" }
+}
+if ($enableRag) {
+    $qdrantPort = Get-ReadinessPort -Name "QDRANT_PORT" -Default "6333"
+    $readinessChecks += @{ Name = "Qdrant"; Url = "http://localhost:$qdrantPort"; Container = "dream-qdrant"; OpenUrl = "http://localhost:$qdrantPort" }
+}
+if ($enableOpenClaw) {
+    $openClawPort = Get-ReadinessPort -Name "OPENCLAW_PORT" -Default "7860"
+    $readinessChecks += @{ Name = "OpenClaw"; Url = "http://localhost:$openClawPort"; Container = "dream-openclaw"; OpenUrl = "http://localhost:$openClawPort" }
+}
+if ($enableComfyui) {
+    $comfyPort = Get-ReadinessPort -Name "COMFYUI_PORT" -Default "8188"
+    $readinessChecks += @{ Name = "ComfyUI"; Url = "http://localhost:$comfyPort"; Container = "dream-comfyui"; OpenUrl = "http://localhost:$comfyPort" }
+}
+Write-DreamInstallReadinessSummary -Checks $readinessChecks `
+    -StatusCommand ".\dream.ps1 status" `
+    -LogPath (Join-Path $installDir "logs\install.log") `
+    -DashboardUrl "http://localhost:$dashboardPort"
 
 # ── Desktop & Start Menu shortcuts ───────────────────────────────────────────
 try {
