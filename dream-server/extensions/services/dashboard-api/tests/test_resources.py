@@ -167,10 +167,14 @@ class TestServiceResources:
         assert "open-webui" in ids
 
         llama = next(s for s in data["services"] if s["id"] == "llama-server")
+        assert llama["type"] == "docker"
+        assert llama["restartable"] is True
+        assert llama["restart_unavailable_reason"] is None
         assert llama["container"]["cpu_percent"] == 45.0
         assert llama["disk"]["data_gb"] == 16.5
 
         webui = next(s for s in data["services"] if s["id"] == "open-webui")
+        assert webui["restartable"] is True
         assert webui["container"]["cpu_percent"] == 10.0
         assert webui["disk"] is None
 
@@ -243,5 +247,111 @@ class TestServiceResources:
         data = resp.json()
         orphaned = next(s for s in data["services"] if s["id"] == "orphaned-svc")
         assert orphaned["name"] == "orphaned-svc"
+        assert orphaned["type"] == "unknown"
+        assert orphaned["restartable"] is False
+        assert "not declared" in orphaned["restart_unavailable_reason"]
         assert orphaned["container"] is None
         assert orphaned["disk"]["data_gb"] == 2.0
+
+    def test_host_systemd_service_is_not_restartable(self, test_client, monkeypatch):
+        """Host-level services are reported but excluded from Docker restart."""
+        self._clear_resource_cache()
+
+        monkeypatch.setattr("routers.resources.SERVICES", {
+            "opencode": {
+                "name": "OpenCode",
+                "type": "host-systemd",
+                "container_name": "",
+            },
+        })
+        monkeypatch.setattr("routers.resources.GPU_BACKEND", "nvidia")
+
+        with patch("routers.resources._fetch_container_stats", return_value=[]), \
+             patch("routers.resources._scan_service_disk", return_value={}):
+            resp = test_client.get(
+                "/api/services/resources",
+                headers=test_client.auth_headers,
+            )
+
+        assert resp.status_code == 200
+        service = resp.json()["services"][0]
+        assert service["id"] == "opencode"
+        assert service["type"] == "host-systemd"
+        assert service["restartable"] is False
+        assert "Host-level" in service["restart_unavailable_reason"]
+
+    def test_restart_service_calls_host_agent(self, test_client, monkeypatch):
+        """POST /api/services/{id}/restart validates the service and proxies to host agent."""
+        monkeypatch.setattr("routers.resources.SERVICES", {
+            "ape": {"name": "APE", "container_name": "dream-ape"},
+        })
+
+        with patch("routers.resources._post_agent_json", return_value={
+            "status": "ok",
+            "service_id": "ape",
+            "action": "restart",
+        }) as post_agent:
+            resp = test_client.post(
+                "/api/services/ape/restart",
+                headers=test_client.auth_headers,
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["action"] == "restart"
+        post_agent.assert_called_once_with(
+            "/v1/service/restart",
+            {"service_id": "ape"},
+        )
+
+    def test_restart_service_rejects_unknown_service(self, test_client, monkeypatch):
+        """Restart endpoint only allows services known to DreamServer config."""
+        monkeypatch.setattr("routers.resources.SERVICES", {})
+
+        resp = test_client.post(
+            "/api/services/not-installed/restart",
+            headers=test_client.auth_headers,
+        )
+
+        assert resp.status_code == 404
+
+    def test_restart_service_rejects_non_docker_service(self, test_client, monkeypatch):
+        """Restart endpoint rejects known services that do not map to Docker."""
+        monkeypatch.setattr("routers.resources.SERVICES", {
+            "opencode": {
+                "name": "OpenCode",
+                "type": "host-systemd",
+                "container_name": "",
+            },
+        })
+
+        with patch("routers.resources._post_agent_json") as post_agent:
+            resp = test_client.post(
+                "/api/services/opencode/restart",
+                headers=test_client.auth_headers,
+            )
+
+        assert resp.status_code == 400
+        assert "Host-level" in resp.json()["detail"]
+        post_agent.assert_not_called()
+
+    def test_restart_dashboard_uses_delayed_host_agent_restart(self, test_client, monkeypatch):
+        """Restarting dashboard/API is delayed so the initiating request can return."""
+        monkeypatch.setattr("routers.resources.SERVICES", {
+            "dashboard-api": {"name": "Dashboard API", "container_name": "dream-dashboard-api"},
+        })
+
+        with patch("routers.resources._post_agent_json", return_value={
+            "status": "accepted",
+            "service_id": "dashboard-api",
+            "action": "restart",
+        }) as post_agent:
+            resp = test_client.post(
+                "/api/services/dashboard-api/restart",
+                headers=test_client.auth_headers,
+            )
+
+        assert resp.status_code == 200
+        post_agent.assert_called_once_with(
+            "/v1/service/restart",
+            {"service_id": "dashboard-api", "delay_seconds": 1},
+        )

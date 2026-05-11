@@ -493,7 +493,9 @@ def _run_post_install_hook(service_id: str, ext_dir: Path) -> tuple[bool, str]:
 
     _write_progress(service_id, "setup_hook", "Running setup...")
     manifest = _read_manifest(ext_dir)
-    service_def = manifest.get("service", {}) if manifest else {}
+    if manifest is None:
+        return False, f"Service manifest is unavailable: {service_id}"
+    service_def = manifest.get("service", {})
     if not isinstance(service_def, dict):
         service_def = {}
     hook_env = {
@@ -802,6 +804,31 @@ def _find_ext_dir(service_id: str) -> Path | None:
     return None
 
 
+def _service_has_docker_container(service_id: str) -> tuple[bool, str]:
+    """Return whether service_id maps to a Docker container restart target."""
+    ext_dir = _find_ext_dir(service_id)
+    if ext_dir is None:
+        if service_id in CORE_SERVICE_IDS:
+            return True, ""
+        return False, f"Service not found: {service_id}"
+
+    manifest = _read_manifest(ext_dir)
+    if manifest is None:
+        return False, f"Service manifest is unavailable: {service_id}"
+    service_def = manifest.get("service", {})
+    if not isinstance(service_def, dict):
+        return False, f"Service manifest is invalid: {service_id}"
+    service_type = service_def.get("type", "docker") or "docker"
+    if service_type == "host-systemd":
+        return False, f"Service is host-level, not a Docker container: {service_id}"
+    if service_type != "docker":
+        return False, f"Service type is not Docker: {service_id}"
+    container_name = service_def.get("container_name", f"dream-{service_id}")
+    if not isinstance(container_name, str) or not container_name.strip():
+        return False, f"Service does not declare a Docker container: {service_id}"
+    return True, ""
+
+
 def _is_other_ext_compose(fpath: str, service_id: str, ext_roots: tuple) -> bool:
     """True if fpath points to an extension compose file owned by an
     extension other than service_id. Used to filter `-f` args from the
@@ -971,6 +998,8 @@ class AgentHandler(BaseHTTPRequestHandler):
             self._handle_extension_sync_config()
         elif self.path == "/v1/service/logs":
             self._handle_service_logs()
+        elif self.path == "/v1/service/restart":
+            self._handle_service_restart()
         elif self.path == "/v1/model/download":
             self._handle_model_download()
         elif self.path == "/v1/model/download/cancel":
@@ -1508,6 +1537,98 @@ class AgentHandler(BaseHTTPRequestHandler):
             json_response(self, 503, {"error": "Log fetch timed out"})
         except Exception as exc:
             json_response(self, 500, {"error": f"Failed to fetch logs: {exc}"})
+
+    def _handle_service_restart(self):
+        """Restart one known DreamServer service container."""
+        if not check_auth(self):
+            return
+        body = read_json_body(self)
+        if body is None:
+            return
+
+        sid = body.get("service_id", "")
+        if not isinstance(sid, str) or not SERVICE_ID_RE.match(sid):
+            json_response(self, 400, {"error": "Invalid service_id"})
+            return
+
+        has_container, restart_error = _service_has_docker_container(sid)
+        if not has_container:
+            status = 404 if restart_error.startswith("Service not found") else 400
+            json_response(self, status, {"error": restart_error})
+            return
+
+        lock = _service_locks[sid]
+        if not lock.acquire(blocking=False):
+            json_response(self, 409, {"error": f"Operation already in progress for {sid}"})
+            return
+
+        try:
+            delay_seconds = min(max(float(body.get("delay_seconds", 0) or 0), 0), 10)
+        except (ValueError, TypeError):
+            json_response(self, 400, {"error": "Invalid delay_seconds"})
+            lock.release()
+            return
+
+        container_name = _resolve_container_name(sid)
+
+        def restart_container():
+            if delay_seconds > 0:
+                time.sleep(delay_seconds)
+            result = subprocess.run(
+                ["docker", "restart", container_name],
+                capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode != 0:
+                stderr = (result.stderr or result.stdout or "").strip()
+                status = 404 if "no such container" in stderr.lower() else 500
+                json_response(self, status, {
+                    "error": f"docker restart failed: {stderr[:500]}",
+                    "service_id": sid,
+                    "container_name": container_name,
+                })
+                return
+            json_response(self, 200, {
+                "status": "ok",
+                "service_id": sid,
+                "container_name": container_name,
+                "action": "restart",
+            })
+
+        def restart_container_later():
+            try:
+                if delay_seconds > 0:
+                    time.sleep(delay_seconds)
+                result = subprocess.run(
+                    ["docker", "restart", container_name],
+                    capture_output=True, text=True, timeout=60,
+                )
+                if result.returncode != 0:
+                    stderr = (result.stderr or result.stdout or "").strip()
+                    logger.warning("Delayed restart failed for %s (%s): %s", sid, container_name, stderr[:500])
+            except Exception as exc:
+                logger.warning("Delayed restart failed for %s (%s): %s", sid, container_name, exc)
+            finally:
+                lock.release()
+
+        if delay_seconds > 0:
+            threading.Thread(target=restart_container_later, daemon=True).start()
+            json_response(self, 202, {
+                "status": "accepted",
+                "service_id": sid,
+                "container_name": container_name,
+                "action": "restart",
+                "delay_seconds": delay_seconds,
+            })
+            return
+
+        try:
+            restart_container()
+        except subprocess.TimeoutExpired:
+            json_response(self, 503, {"error": "Service restart timed out"})
+        except Exception as exc:
+            json_response(self, 500, {"error": f"Failed to restart service: {exc}"})
+        finally:
+            lock.release()
 
 
     def _handle_setup_hook(self):
