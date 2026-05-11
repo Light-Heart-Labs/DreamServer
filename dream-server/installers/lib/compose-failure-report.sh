@@ -48,6 +48,47 @@ _dream_report_failed_images() {
         | head -n 20 || true
 }
 
+_dream_report_redact_stream() {
+    local env_file="${1:-}"
+    awk -v env_file="$env_file" '
+        BEGIN {
+            secret_re = "(key|token|secret|password|pass|salt|auth|credential)"
+            if (env_file != "") {
+                while ((getline line < env_file) > 0) {
+                    sub(/\r$/, "", line)
+                    if (line !~ /^[A-Za-z_][A-Za-z0-9_]*=/) {
+                        continue
+                    }
+                    split(line, parts, "=")
+                    key = parts[1]
+                    value = substr(line, length(key) + 2)
+                    gsub(/^["\047]|["\047]$/, "", value)
+                    if (length(value) >= 4 && tolower(key) ~ secret_re) {
+                        sensitive_values[++sensitive_count] = value
+                    }
+                }
+                close(env_file)
+            }
+        }
+        {
+            out = $0
+            lowered = tolower(out)
+            if (lowered ~ secret_re && match(out, /[:=][[:space:]]*/)) {
+                out = substr(out, 1, RSTART + RLENGTH - 1) "[REDACTED]"
+            }
+            for (i = 1; i <= sensitive_count; i++) {
+                value = sensitive_values[i]
+                pos = index(out, value)
+                while (pos > 0) {
+                    out = substr(out, 1, pos - 1) "[REDACTED]" substr(out, pos + length(value))
+                    pos = index(out, value)
+                }
+            }
+            print out
+        }
+    '
+}
+
 write_compose_failure_report() {
     local install_dir="$1"
     local phase="$2"
@@ -71,7 +112,8 @@ write_compose_failure_report() {
         echo "Phase: $phase"
         echo ""
         echo "Privacy note"
-        echo "- This report avoids dumping the full .env, but docker compose config can still include interpolated values."
+        echo "- This report avoids dumping the full .env."
+        echo "- Compose config output is redacted for common secret fields and known sensitive .env values."
         echo "- Review before posting publicly."
         echo ""
         echo "Summary"
@@ -112,10 +154,10 @@ write_compose_failure_report() {
         echo "Docker info"
         docker info 2>&1 | sed -n '1,80p' || true
         echo ""
-        echo "Compose config tail"
+        echo "Compose config tail (redacted)"
         if command -v docker >/dev/null 2>&1; then
             # shellcheck disable=SC2086
-            docker compose $report_compose_flags config 2>&1 | tail -n 80 || true
+            docker compose $report_compose_flags config 2>&1 | _dream_report_redact_stream "$env_file" | tail -n 80 || true
         else
             echo "docker command not found"
         fi

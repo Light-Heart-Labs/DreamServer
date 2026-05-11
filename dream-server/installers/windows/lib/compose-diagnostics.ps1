@@ -96,6 +96,50 @@ function Get-DreamComposeFailedImages {
     return @($imageMatches)
 }
 
+function Get-DreamComposeSensitiveEnvValues {
+    param([string]$InstallDir)
+
+    $envPath = Join-Path $InstallDir ".env"
+    if (-not (Test-Path $envPath)) { return @() }
+
+    $values = @()
+    try {
+        foreach ($line in (Get-Content $envPath -ErrorAction Stop)) {
+            if ($line -notmatch '^([A-Za-z_][A-Za-z0-9_]*)=(.*)$') { continue }
+            $key = $Matches[1]
+            $value = $Matches[2].Trim().Trim('"').Trim("'")
+            if ($value.Length -ge 4 -and $key -match '(?i)(KEY|TOKEN|SECRET|PASSWORD|PASS|SALT|AUTH|CREDENTIAL)') {
+                $values += $value
+            }
+        }
+    }
+    catch {
+        return @()
+    }
+
+    return @($values | Sort-Object -Unique)
+}
+
+function ConvertTo-DreamComposeRedactedLine {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Line,
+        [string[]]$SensitiveValues = @()
+    )
+
+    $redacted = $Line
+    if ($redacted -match '(?i)(KEY|TOKEN|SECRET|PASSWORD|PASS|SALT|AUTH|CREDENTIAL)' -and $redacted -match '[:=]') {
+        $redacted = $redacted -replace '([:=]\s*)[^\s,}]+', '${1}[REDACTED]'
+    }
+
+    foreach ($value in $SensitiveValues) {
+        if ([string]::IsNullOrWhiteSpace($value)) { continue }
+        $redacted = $redacted.Replace($value, "[REDACTED]")
+    }
+
+    return $redacted
+}
+
 function Add-DreamComposePortReport {
     param(
         [Parameter(Mandatory = $true)]
@@ -138,7 +182,9 @@ function Add-DreamComposeCommandSection {
         [Parameter(Mandatory = $true)]
         [scriptblock]$Command,
         [int]$First = 0,
-        [int]$Last = 0
+        [int]$Last = 0,
+        [switch]$RedactSecrets,
+        [string[]]$SensitiveValues = @()
     )
 
     "" | Add-Content -Path $ReportPath -Encoding UTF8
@@ -147,6 +193,11 @@ function Add-DreamComposeCommandSection {
         $output = & $Command 2>&1 | ForEach-Object { $_.ToString() }
         if ($output) {
             $lines = @($output)
+            if ($RedactSecrets) {
+                $lines = $lines | ForEach-Object {
+                    ConvertTo-DreamComposeRedactedLine -Line $_ -SensitiveValues $SensitiveValues
+                }
+            }
             if ($First -gt 0) {
                 $lines | Select-Object -First $First | Add-Content -Path $ReportPath -Encoding UTF8
             }
@@ -202,7 +253,8 @@ function Write-DreamComposeFailureReport {
         "Phase: $Phase",
         "",
         "Privacy note",
-        "- This report avoids dumping the full .env, but docker compose config can still include interpolated values.",
+        "- This report avoids dumping the full .env.",
+        "- Compose config output is redacted for common secret fields and known sensitive .env values.",
         "- Review before posting publicly.",
         "",
         "Summary",
@@ -243,9 +295,10 @@ function Write-DreamComposeFailureReport {
     Push-Location $InstallDir
     try {
         $envArgs = Get-DreamComposeEnvFileArgs -InstallDir $InstallDir
+        $sensitiveValues = @(Get-DreamComposeSensitiveEnvValues -InstallDir $InstallDir)
         Add-DreamComposeCommandSection -ReportPath $reportPath -Title "Docker version" -First 60 -Command { & docker version }
         Add-DreamComposeCommandSection -ReportPath $reportPath -Title "Docker info" -First 80 -Command { & docker info }
-        Add-DreamComposeCommandSection -ReportPath $reportPath -Title "Compose config tail" -Last 80 -Command { & docker compose @ComposeFlags @envArgs config }
+        Add-DreamComposeCommandSection -ReportPath $reportPath -Title "Compose config tail (redacted)" -Last 80 -RedactSecrets -SensitiveValues $sensitiveValues -Command { & docker compose @ComposeFlags @envArgs config }
         Add-DreamComposeCommandSection -ReportPath $reportPath -Title "Compose ps" -First 80 -Command { & docker compose @ComposeFlags @envArgs ps -a }
     }
     finally {

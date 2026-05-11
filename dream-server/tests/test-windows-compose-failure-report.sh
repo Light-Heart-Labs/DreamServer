@@ -40,8 +40,9 @@ echo ""
 check 'function Write-DreamComposeFailureReport' "$DIAG_LIB" "report writer function exists"
 check 'install-report-$stamp.txt' "$DIAG_LIB" "report uses install-report timestamp path"
 check 'Get-DreamComposeFailedImages' "$DIAG_LIB" "report extracts failed images from compose log"
+check 'ConvertTo-DreamComposeRedactedLine' "$DIAG_LIB" "report has compose config redaction helper"
 check 'Get-NetTCPConnection' "$DIAG_LIB" "report includes Windows port checks"
-check 'docker compose @ComposeFlags @envArgs config' "$DIAG_LIB" "report captures compose config"
+check 'Compose config tail (redacted)' "$DIAG_LIB" "report captures redacted compose config"
 check '[switch]$SaveReport' "$DIAG_LIB" "diagnostics only save report when requested"
 check '-ComposeLogPath $_composeLog' "$INSTALL_PS1" "installer passes compose log to diagnostics"
 check '-ComposeArgs @("up", "-d", "--remove-orphans", "--no-build")' "$INSTALL_PS1" "installer passes exact compose up args"
@@ -51,6 +52,87 @@ if grep -q "Write-DreamComposeDiagnostics .*SaveReport" "$ROOT_DIR/installers/wi
     fail "dream.ps1 command failures should not create install reports by default"
 else
     pass "dream.ps1 diagnostics remain console-only by default"
+fi
+
+if command -v pwsh >/dev/null 2>&1; then
+    TMP_DIR="$(mktemp -d)"
+    cleanup() { rm -rf "$TMP_DIR"; }
+    trap cleanup EXIT
+
+    INSTALL_DIR="$TMP_DIR/dream-server"
+    mkdir -p "$TMP_DIR/bin" "$INSTALL_DIR/logs"
+
+    cat > "$TMP_DIR/bin/docker" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$1" == "version" ]]; then
+  echo "Docker version 29.2.1"
+  exit 0
+fi
+if [[ "$1" == "info" ]]; then
+  echo "Server Version: 29.2.1"
+  exit 0
+fi
+if [[ "$1" == "compose" ]]; then
+  if [[ "$*" == *" config"* ]]; then
+    echo "services:"
+    echo "  dashboard-api:"
+    echo "    environment:"
+    echo "      DASHBOARD_API_KEY: super-secret-dashboard-key"
+    echo "      OPENCLAW_TOKEN: super-secret-openclaw-token"
+    exit 0
+  fi
+  if [[ "$*" == *" ps -a"* ]]; then
+    echo "NAME IMAGE COMMAND SERVICE CREATED STATUS PORTS"
+    exit 0
+  fi
+fi
+exit 0
+EOF
+    chmod +x "$TMP_DIR/bin/docker"
+
+    cat > "$INSTALL_DIR/.env" <<'EOF'
+GPU_BACKEND=nvidia
+LLAMA_SERVER_IMAGE=ghcr.io/ggml-org/llama.cpp:server-cuda-b8648
+DASHBOARD_API_KEY=super-secret-dashboard-key
+OPENCLAW_TOKEN=super-secret-openclaw-token
+OLLAMA_PORT=39134
+EOF
+
+    cat > "$INSTALL_DIR/logs/compose-up.log" <<'EOF'
+Error response from daemon: failed to resolve reference "ghcr.io/ggml-org/llama.cpp:server-cuda-b8648": not found
+EOF
+
+    if PATH="$TMP_DIR/bin:$PATH" DIAG_LIB="$DIAG_LIB" INSTALL_DIR="$INSTALL_DIR" pwsh -NoProfile -Command '
+        $ErrorActionPreference = "Stop"
+        . $env:DIAG_LIB
+        $report = Write-DreamComposeFailureReport `
+            -InstallDir $env:INSTALL_DIR `
+            -ComposeFlags @("-f", "docker-compose.base.yml") `
+            -ComposeArgs @("up", "-d") `
+            -Phase "test phase" `
+            -ComposeLogPath (Join-Path $env:INSTALL_DIR "logs/compose-up.log")
+        if (-not (Test-Path $report)) { throw "report not created" }
+        $text = Get-Content $report -Raw
+        foreach ($needle in @(
+            "Dream Server install failure report",
+            "GPU backend: nvidia",
+            "ghcr.io/ggml-org/llama.cpp:server-cuda-b8648",
+            "Compose config tail (redacted)",
+            "DASHBOARD_API_KEY: [REDACTED]",
+            "OPENCLAW_TOKEN: [REDACTED]"
+        )) {
+            if ($text -notlike "*$needle*") { throw "missing $needle" }
+        }
+        if ($text -like "*super-secret-dashboard-key*" -or $text -like "*super-secret-openclaw-token*") {
+            throw "sensitive compose config value leaked"
+        }
+    '; then
+        pass "PowerShell report writer creates redacted report with mocked docker"
+    else
+        fail "PowerShell report writer runtime behavior failed"
+    fi
+else
+    pass "PowerShell runtime behavior skipped (pwsh unavailable)"
 fi
 
 echo ""

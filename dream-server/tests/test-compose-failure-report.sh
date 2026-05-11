@@ -51,6 +51,8 @@ DASHBOARD_PORT=39001
 DASHBOARD_API_PORT=39002
 LITELLM_PORT=39040
 SEARXNG_PORT=39888
+DASHBOARD_API_KEY=super-secret-dashboard-key
+OPENCLAW_TOKEN=super-secret-openclaw-token
 EOF
 
 cat > "$INSTALL_DIR/.compose-flags" <<'EOF'
@@ -80,6 +82,10 @@ if [[ "$1" == "compose" ]]; then
     echo "services:"
     echo "  llama-server:"
     echo "    image: ghcr.io/ggml-org/llama.cpp:server-cuda-b8648"
+    echo "  dashboard-api:"
+    echo "    environment:"
+    echo "      DASHBOARD_API_KEY: super-secret-dashboard-key"
+    echo "      OPENCLAW_TOKEN: super-secret-openclaw-token"
     exit 0
   fi
   if [[ "$*" == *" ps -a"* ]]; then
@@ -125,7 +131,13 @@ assert_contains "$report_path" "LLAMA_SERVER_IMAGE=ghcr.io/ggml-org/llama.cpp:se
 assert_contains "$report_path" "- ghcr.io/ggml-org/llama.cpp:server-cuda-b8648" "report extracts failed image"
 assert_contains "$report_path" "- dashboard:39001" "report includes port checks"
 assert_contains "$report_path" "Docker version" "report includes docker version section"
-assert_contains "$report_path" "Compose config tail" "report includes compose config section"
+assert_contains "$report_path" "Compose config tail (redacted)" "report includes redacted compose config section"
+assert_contains "$report_path" "DASHBOARD_API_KEY: [REDACTED]" "report redacts compose config secret fields"
+if grep -Fq "super-secret-dashboard-key" "$report_path" || grep -Fq "super-secret-openclaw-token" "$report_path"; then
+    fail "report leaks sensitive compose config values"
+else
+    pass "report does not leak sensitive compose config values"
+fi
 assert_contains "$report_path" "Fix the missing image tag, then re-run ./install.sh." "report records next step"
 
 echo ""
