@@ -184,8 +184,10 @@ function Resolve-GemmaTierConfig {
         [string]$RequestedProfile
     )
 
-    $runtimeImage = "ghcr.io/ggml-org/llama.cpp:server-cuda-b8648"
-    $runtimeTag = "b8648"
+    # Keep this aligned with docker-compose.nvidia.yml so preflight validates
+    # the same CUDA runtime image compose will start.
+    $runtimeImage = "ghcr.io/ggml-org/llama.cpp:server-cuda-b9014"
+    $runtimeTag = "b9014"
 
     switch ($Tier) {
         "CLOUD" {

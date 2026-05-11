@@ -31,7 +31,7 @@ if [[ "$GPU_BACKEND" == "amd" ]]; then
 elif [[ "$GPU_BACKEND" == "cpu" ]]; then
     PULL_LIST+=("${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-b8248}|LLAMA-SERVER — downloading the brain (CPU)")
 else
-    PULL_LIST+=("${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda-b8248}|LLAMA-SERVER — downloading the brain (NVIDIA CUDA)")
+    PULL_LIST+=("${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda-b9014}|LLAMA-SERVER — downloading the brain (NVIDIA CUDA)")
 fi
 PULL_LIST+=("ghcr.io/open-webui/open-webui:v0.7.2|OPEN WEBUI — interface module")
 PULL_LIST+=("itzcrazykns1337/perplexica:slim-latest@sha256:6e399abf4ff587822b0ef0df11f36088fb928e17ac61556fe89beb68d48c378e|PERPLEXICA — deep research engine")
@@ -52,6 +52,50 @@ fi
 if $DRY_RUN; then
     ai "[DRY RUN] I would download ${#PULL_LIST[@]} modules."
 else
+    if [[ "${DREAM_MODE:-local}" != "cloud" && ( "$GPU_BACKEND" == "nvidia" || "$GPU_BACKEND" == "cpu" || "$GPU_BACKEND" == "intel" || "$GPU_BACKEND" == "sycl" ) ]]; then
+        _llama_image=""
+        _llama_label=""
+        _llama_index=-1
+        for _idx in "${!PULL_LIST[@]}"; do
+            entry="${PULL_LIST[$_idx]}"
+            _entry_img="${entry%%|*}"
+            _entry_label="${entry##*|}"
+            if [[ "$_entry_label" == LLAMA-SERVER* ]]; then
+                _llama_image="$_entry_img"
+                _llama_label="$_entry_label"
+                _llama_index="$_idx"
+                break
+            fi
+        done
+
+        if [[ -n "$_llama_image" ]]; then
+            ai "Validating llama-server image tag before download..."
+            if [[ -z "${LLAMA_SERVER_IMAGE_FALLBACK:-}" && -f "$INSTALL_DIR/.env" ]]; then
+                _llama_fallback_from_env="$(sed -n 's/^LLAMA_SERVER_IMAGE_FALLBACK=//p' "$INSTALL_DIR/.env" 2>/dev/null | head -n 1 || true)"
+                _llama_fallback_from_env="${_llama_fallback_from_env#\"}"
+                _llama_fallback_from_env="${_llama_fallback_from_env%\"}"
+                _llama_fallback_from_env="${_llama_fallback_from_env#\'}"
+                _llama_fallback_from_env="${_llama_fallback_from_env%\'}"
+                [[ -n "$_llama_fallback_from_env" ]] && LLAMA_SERVER_IMAGE_FALLBACK="$_llama_fallback_from_env"
+            fi
+            _validated_llama_image=""
+            if ! validate_docker_image_or_fallback _validated_llama_image "$_llama_image" "llama-server" "LLAMA_SERVER_IMAGE_FALLBACK"; then
+                exit 1
+            fi
+            if [[ "$_validated_llama_image" != "$_llama_image" ]]; then
+                LLAMA_SERVER_IMAGE="$_validated_llama_image"
+                PULL_LIST[$_llama_index]="${_validated_llama_image}|${_llama_label}"
+                if [[ -f "$INSTALL_DIR/.env" ]]; then
+                    if grep -q '^LLAMA_SERVER_IMAGE=' "$INSTALL_DIR/.env"; then
+                        sed -i.bak "s|^LLAMA_SERVER_IMAGE=.*|LLAMA_SERVER_IMAGE=${_validated_llama_image}|" "$INSTALL_DIR/.env" && rm -f "$INSTALL_DIR/.env.bak"
+                    else
+                        printf '\nLLAMA_SERVER_IMAGE=%s\n' "$_validated_llama_image" >> "$INSTALL_DIR/.env"
+                    fi
+                fi
+            fi
+        fi
+    fi
+
     echo ""
     bootline
     echo -e "${BGRN}DOWNLOAD SEQUENCE${NC}"
