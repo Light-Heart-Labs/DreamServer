@@ -5,14 +5,17 @@ import json
 import logging
 import os
 import re
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
 import aiohttp
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field, field_validator
 
-from config import SERVICES, PERSONAS, SETUP_CONFIG_DIR, INSTALL_DIR
+from config import SERVICES, PERSONAS, SETUP_CONFIG_DIR, INSTALL_DIR, AGENT_URL, DREAM_AGENT_KEY
 from models import PersonaRequest, ChatRequest
 from security import verify_api_key
 
@@ -222,3 +225,93 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
     except aiohttp.ClientError:
         logger.exception("Cannot reach LLM backend")
         raise HTTPException(status_code=503, detail="Cannot reach LLM backend")
+
+
+# ---------------------------------------------------------------------------
+# AP-mode awareness for the first-boot wizard
+#
+# When the device is hosting its own setup AP (PR-10), the wizard needs to:
+#   1. Know it's running in AP mode (so it can show different copy)
+#   2. Collect home WiFi credentials
+#   3. Trigger an orchestrated handoff: tear down AP → join home network
+#
+# Both endpoints are thin proxies over the host-agent.
+# ---------------------------------------------------------------------------
+
+
+class WifiHandoffRequest(BaseModel):
+    ssid: str = Field(..., min_length=1, max_length=32)
+    password: str = Field(default="", max_length=63)
+
+    @field_validator("ssid")
+    @classmethod
+    def _ssid_no_control_chars(cls, v: str) -> str:
+        if any(c in v for c in ("\n", "\r", "\0")):
+            raise ValueError("ssid contains invalid characters")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def _password_no_control_chars(cls, v: str) -> str:
+        if any(c in v for c in ("\n", "\r", "\0")):
+            raise ValueError("password contains invalid characters")
+        return v
+
+
+def _proxy_agent(path: str, method: str = "GET", payload: dict | None = None, timeout: int = 30) -> dict:
+    """Forward to host-agent. Translates HTTPError → HTTPException; never
+    logs the request body (Wi-Fi passwords stay out of logs)."""
+    headers = {"Authorization": f"Bearer {DREAM_AGENT_KEY}"}
+    data = None
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(f"{AGENT_URL}{path}", data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            body = response.read().decode("utf-8")
+            return json.loads(body) if body else {}
+    except urllib.error.HTTPError as exc:
+        detail = f"Host agent returned HTTP {exc.code}"
+        try:
+            err_payload = json.loads(exc.read().decode("utf-8"))
+            detail = err_payload.get("error", detail)
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+            pass
+        logger.info("host-agent %s %s -> %s", method, path, exc.code)
+        raise HTTPException(status_code=exc.code, detail=detail) from exc
+    except urllib.error.URLError as exc:
+        logger.warning("host-agent %s %s unreachable: %s", method, path, exc)
+        raise HTTPException(status_code=503, detail="Dream host agent is not reachable.") from exc
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.exception("host-agent %s %s failed", method, path)
+        raise HTTPException(status_code=500, detail=f"Host agent call failed: {exc}") from exc
+
+
+@router.get("/api/setup/ap-mode-status", dependencies=[Depends(verify_api_key)])
+async def setup_ap_mode_status() -> dict:
+    """Return the device's AP-mode state. Used by the wizard to decide
+    whether to render the "you're on the setup AP" flow or the normal one.
+
+    Returns `{"status": "inactive"}` when AP mode isn't running. When
+    active, the body carries SSID, gateway IP, and timing — see
+    docs/AP-MODE.md.
+    """
+    return await asyncio.to_thread(_proxy_agent, "/v1/ap-mode/status", "GET", None, 10)
+
+
+@router.post("/api/setup/wifi-handoff", dependencies=[Depends(verify_api_key)])
+async def setup_wifi_handoff(payload: WifiHandoffRequest) -> dict:
+    """Trigger the AP-mode → home-network handoff. The host-agent does the
+    actual orchestration on a background thread and writes
+    /run/dream-ap-mode/handoff-status.json with the eventual result.
+    Returns 202 from the host-agent (scheduled) — connectivity to the
+    wizard drops within a few seconds of this call returning.
+    """
+    return await asyncio.to_thread(
+        _proxy_agent,
+        "/v1/network/wifi-handoff",
+        "POST",
+        {"ssid": payload.ssid, "password": payload.password},
+        15,
+    )

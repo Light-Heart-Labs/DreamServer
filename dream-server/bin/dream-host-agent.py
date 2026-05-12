@@ -864,6 +864,100 @@ def _narrowed_compose_set_resolves(narrowed_flags: list, service_id: str,
     return service_id in result.stdout.split()
 
 
+def _wifi_handoff_worker(ssid: str, password: str) -> None:
+    """Background worker for /v1/network/wifi-handoff.
+
+    Sequence:
+      1. Sleep 3s so the HTTP 202 response has time to flush to the wizard.
+      2. `systemctl stop dream-ap-mode` — tears down hostapd/dnsmasq and
+         hands the interface back to NetworkManager (ap-mode.sh ExecStop
+         handles the cleanup).
+      3. Wait briefly for the interface to settle.
+      4. `nmcli device wifi connect <ssid> password <pwd>`.
+      5. On success: write handoff-status.json with status=ok.
+      6. On failure: write handoff-status.json with status=error AND
+         re-enable dream-ap-mode so the user isn't stranded.
+
+    All errors are caught — this runs in a daemon thread and a crash
+    would silently strand the device. The result file is the only
+    feedback channel after the HTTP response is gone.
+    """
+    handoff_dir = Path("/run/dream-ap-mode")
+    handoff_dir.mkdir(parents=True, exist_ok=True)
+    status_path = handoff_dir / "handoff-status.json"
+
+    def _write_status(status: str, **extra) -> None:
+        payload = {
+            "status": status,
+            "ssid": ssid,
+            "at": datetime.now(timezone.utc).isoformat(),
+            **extra,
+        }
+        try:
+            status_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            status_path.chmod(0o600)
+        except OSError as exc:
+            logger.error("wifi-handoff: failed to write status file: %s", exc)
+
+    # Step 1: give the HTTP response time to flush.
+    time.sleep(3)
+
+    # Step 2: tear down AP.
+    logger.info("wifi-handoff: stopping dream-ap-mode")
+    try:
+        subprocess.run(
+            ["systemctl", "stop", "dream-ap-mode"],
+            check=False, capture_output=True, timeout=20,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        _write_status("error", stage="ap-teardown", reason=str(exc))
+        return
+
+    # Step 3: settle period for NM to reclaim the interface.
+    time.sleep(2)
+
+    # Step 4: try to join the target network.
+    logger.info("wifi-handoff: connecting to %s", ssid)
+    args = ["nmcli", "device", "wifi", "connect", ssid]
+    if password:
+        args += ["password", password]
+    try:
+        result = subprocess.run(
+            args, capture_output=True, text=True, timeout=45,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        _write_status("error", stage="wifi-connect", reason=str(exc))
+        _restart_ap_for_recovery()
+        return
+
+    if result.returncode != 0:
+        raw = (result.stderr or result.stdout or "").strip()[:300]
+        _write_status(
+            "error",
+            stage="wifi-connect",
+            reason=raw or "nmcli connect failed",
+            returncode=result.returncode,
+        )
+        _restart_ap_for_recovery()
+        return
+
+    logger.info("wifi-handoff: connected to %s", ssid)
+    _write_status("ok")
+
+
+def _restart_ap_for_recovery() -> None:
+    """Bring dream-ap-mode back up after a failed handoff so the user
+    can reach the wizard again and retry."""
+    logger.info("wifi-handoff: recovering — restarting dream-ap-mode")
+    try:
+        subprocess.run(
+            ["systemctl", "start", "dream-ap-mode"],
+            check=False, capture_output=True, timeout=30,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        logger.error("wifi-handoff: AP recovery failed: %s", exc)
+
+
 class AgentHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         logger.info(fmt, *args)
@@ -983,6 +1077,8 @@ class AgentHandler(BaseHTTPRequestHandler):
             self._handle_invalidate_compose_cache()
         elif self.path == "/v1/env/update":
             self._handle_env_update()
+        elif self.path == "/v1/network/wifi-handoff":
+            self._handle_network_wifi_handoff()
         else:
             json_response(self, 404, {"error": "Not found"})
 
@@ -993,6 +1089,77 @@ class AgentHandler(BaseHTTPRequestHandler):
         invalidate_compose_cache()
         logger.info("compose-flags cache invalidated")
         json_response(self, 200, {"status": "ok"})
+
+    def _handle_network_wifi_handoff(self):
+        """End-of-wizard handoff: tear down AP mode and join a real Wi-Fi network.
+
+        This is a deliberate exception to PR-10's "no AP enable/disable from
+        HTTP" policy:
+          * Direction is one-way — disable AP, join home network. Can't
+            lock anyone out: the worst case is the device ends up on
+            its home network (where it was supposed to be all along).
+          * Bundled with the wizard's final "Finish" action. Not a general
+            "stop AP" endpoint.
+          * If the connect fails, the background script brings the AP
+            back up so the user isn't stranded.
+
+        The HTTP response returns immediately after validating + scheduling
+        the background work, because the caller (the wizard, served by the
+        dashboard) is about to lose the TCP connection when AP teardown
+        starts. Result is written to /run/dream-ap-mode/handoff-status.json
+        for post-hoc inspection.
+        """
+        if not check_auth(self):
+            return
+        if platform.system() != "Linux":
+            json_response(self, 501, {"error": "Wi-Fi handoff requires Linux"})
+            return
+        if shutil.which("nmcli") is None or shutil.which("systemctl") is None:
+            json_response(self, 501, {
+                "error": "nmcli + systemctl required for Wi-Fi handoff",
+            })
+            return
+
+        body = read_json_body(self)
+        if body is None:
+            return
+
+        ssid = body.get("ssid", "")
+        password = body.get("password", "")
+
+        if not isinstance(ssid, str) or not ssid or len(ssid) > 32:
+            json_response(self, 400, {"error": "ssid must be 1-32 chars"})
+            return
+        if any(c in ssid for c in ("\n", "\r", "\0")):
+            json_response(self, 400, {"error": "ssid contains invalid characters"})
+            return
+        if not isinstance(password, str) or len(password) > 63:
+            json_response(self, 400, {"error": "password must be 0-63 chars"})
+            return
+        if any(c in password for c in ("\n", "\r", "\0")):
+            json_response(self, 400, {"error": "password contains invalid characters"})
+            return
+
+        logger.info(
+            "wifi-handoff scheduled ssid=%s password_set=%s",
+            ssid, bool(password),
+        )
+
+        # Fire-and-forget background worker. The HTTP response flushes
+        # immediately so the wizard sees confirmation before connectivity
+        # dies during teardown.
+        thread = threading.Thread(
+            target=_wifi_handoff_worker,
+            args=(ssid, password),
+            daemon=True,
+        )
+        thread.start()
+
+        json_response(self, 202, {
+            "status": "scheduled",
+            "ssid": ssid,
+            "message": "AP teardown + Wi-Fi connect started; connectivity will drop briefly.",
+        })
 
     def _handle_env_update(self):
         """Write a validated .env file. Dashboard-api delegates here because the
