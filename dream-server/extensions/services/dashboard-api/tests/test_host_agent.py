@@ -860,6 +860,181 @@ class _FakeHandler:
         return json.loads(self.wfile.getvalue().decode("utf-8"))
 
 
+class TestServiceRestart:
+    """Direct host-agent tests for POST /v1/service/restart behavior."""
+
+    def _write_manifest(self, ext_root: Path, service_id: str, service_block: str):
+        pytest.importorskip("yaml")
+        ext_dir = ext_root / service_id
+        ext_dir.mkdir(parents=True, exist_ok=True)
+        (ext_dir / "manifest.yaml").write_text(
+            "schema_version: dream.services.v1\n"
+            "service:\n"
+            f"  id: {service_id}\n"
+            f"{service_block}",
+            encoding="utf-8",
+        )
+
+    def _configure(self, tmp_path, monkeypatch):
+        builtin_root = tmp_path / "builtin"
+        user_root = tmp_path / "user"
+        builtin_root.mkdir()
+        user_root.mkdir()
+        monkeypatch.setattr(_mod, "EXTENSIONS_DIR", builtin_root)
+        monkeypatch.setattr(_mod, "USER_EXTENSIONS_DIR", user_root)
+        monkeypatch.setattr(_mod, "CORE_SERVICE_IDS", set())
+        monkeypatch.setattr(_mod, "AGENT_API_KEY", "test-key")
+        return builtin_root, user_root
+
+    def _body(self, service_id: str, **extra) -> bytes:
+        return json.dumps({"service_id": service_id, **extra}).encode("utf-8")
+
+    def test_valid_restart_calls_docker_restart(self, tmp_path, monkeypatch):
+        builtin_root, _ = self._configure(tmp_path, monkeypatch)
+        self._write_manifest(
+            builtin_root,
+            "ape",
+            "  name: APE\n"
+            "  container_name: dream-ape\n",
+        )
+        _mod._service_locks.pop("ape", None)
+        monkeypatch.setattr(_mod, "_resolve_container_name", lambda sid: "dream-ape")
+
+        calls = []
+
+        def fake_run(cmd, *args, **kwargs):
+            calls.append(cmd)
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+
+        handler = _FakeHandler(self._body("ape"))
+        _mod.AgentHandler._handle_service_restart(handler)
+
+        assert handler.response_code == 200
+        assert handler.parse_response()["action"] == "restart"
+        assert calls == [["docker", "restart", "dream-ape"]]
+
+    def test_restart_requires_auth(self, tmp_path, monkeypatch):
+        self._configure(tmp_path, monkeypatch)
+        handler = _FakeHandler(self._body("ape"), headers={"Authorization": "Bearer wrong"})
+
+        _mod.AgentHandler._handle_service_restart(handler)
+
+        assert handler.response_code == 403
+
+    def test_invalid_service_id_rejected(self, tmp_path, monkeypatch):
+        self._configure(tmp_path, monkeypatch)
+        handler = _FakeHandler(self._body("../ape"))
+
+        _mod.AgentHandler._handle_service_restart(handler)
+
+        assert handler.response_code == 400
+        assert handler.parse_response()["error"] == "Invalid service_id"
+
+    def test_unknown_service_rejected(self, tmp_path, monkeypatch):
+        self._configure(tmp_path, monkeypatch)
+        handler = _FakeHandler(self._body("not-installed"))
+
+        _mod.AgentHandler._handle_service_restart(handler)
+
+        assert handler.response_code == 404
+        assert "not-installed" in handler.parse_response()["error"]
+
+    def test_host_systemd_service_rejected_before_docker(self, tmp_path, monkeypatch):
+        builtin_root, _ = self._configure(tmp_path, monkeypatch)
+        self._write_manifest(
+            builtin_root,
+            "opencode",
+            "  name: OpenCode\n"
+            "  type: host-systemd\n"
+            "  container_name: \"\"\n",
+        )
+
+        def fake_run(*args, **kwargs):
+            pytest.fail("host-systemd service must not run docker restart")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+
+        handler = _FakeHandler(self._body("opencode"))
+        _mod.AgentHandler._handle_service_restart(handler)
+
+        assert handler.response_code == 400
+        assert "host-level" in handler.parse_response()["error"].lower()
+
+    def test_extension_without_manifest_is_not_restartable(self, tmp_path, monkeypatch):
+        builtin_root, _ = self._configure(tmp_path, monkeypatch)
+        (builtin_root / "broken").mkdir()
+
+        def fake_run(*args, **kwargs):
+            pytest.fail("missing manifest service must not run docker restart")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+
+        handler = _FakeHandler(self._body("broken"))
+        _mod.AgentHandler._handle_service_restart(handler)
+
+        assert handler.response_code == 400
+        assert "manifest" in handler.parse_response()["error"].lower()
+
+    def test_concurrent_restart_returns_409(self, tmp_path, monkeypatch):
+        builtin_root, _ = self._configure(tmp_path, monkeypatch)
+        self._write_manifest(
+            builtin_root,
+            "ape",
+            "  name: APE\n"
+            "  container_name: dream-ape\n",
+        )
+        lock = _mod._service_locks["ape"]
+        assert lock.acquire(blocking=False) is True
+        try:
+            handler = _FakeHandler(self._body("ape"))
+            _mod.AgentHandler._handle_service_restart(handler)
+        finally:
+            lock.release()
+            _mod._service_locks.pop("ape", None)
+
+        assert handler.response_code == 409
+
+    def test_delayed_restart_returns_accepted_and_releases_lock(self, tmp_path, monkeypatch):
+        builtin_root, _ = self._configure(tmp_path, monkeypatch)
+        self._write_manifest(
+            builtin_root,
+            "dashboard-api",
+            "  name: Dashboard API\n"
+            "  container_name: dream-dashboard-api\n",
+        )
+        _mod._service_locks.pop("dashboard-api", None)
+        monkeypatch.setattr(_mod, "_resolve_container_name", lambda sid: "dream-dashboard-api")
+        monkeypatch.setattr(_mod.time, "sleep", lambda *_args: None)
+
+        class ImmediateThread:
+            def __init__(self, target=None, daemon=None, **kwargs):
+                self._target = target
+
+            def start(self):
+                self._target()
+
+        monkeypatch.setattr(_mod.threading, "Thread", ImmediateThread)
+
+        calls = []
+
+        def fake_run(cmd, *args, **kwargs):
+            calls.append(cmd)
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+
+        handler = _FakeHandler(self._body("dashboard-api", delay_seconds=1))
+        _mod.AgentHandler._handle_service_restart(handler)
+
+        assert handler.response_code == 202
+        assert handler.parse_response()["status"] == "accepted"
+        assert calls == [["docker", "restart", "dream-dashboard-api"]]
+        assert _mod._service_locks["dashboard-api"].acquire(blocking=False) is True
+        _mod._service_locks["dashboard-api"].release()
+
+
 @pytest.fixture
 def env_update_env(tmp_path, monkeypatch):
     """Wire up INSTALL_DIR/DATA_DIR/AGENT_API_KEY for _handle_env_update tests."""
