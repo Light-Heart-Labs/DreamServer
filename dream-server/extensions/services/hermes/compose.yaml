@@ -21,6 +21,13 @@ services:
       # The actual provider/model wiring lives in cli-config.yaml (mounted below).
       - OPENAI_BASE_URL=${HERMES_LLM_BASE_URL:-http://llama-server:8080/v1}
       - OPENAI_API_KEY=${HERMES_LLM_API_KEY:-sk-dream-hermes-local}
+      # Voice (TTS) — upstream's _resolve_openai_audio_client_config()
+      # reads VOICE_TOOLS_OPENAI_KEY / OPENAI_API_KEY for the audio client
+      # and ignores tts.openai.api_key in cli-config.yaml. Without this,
+      # TTS would silently inherit the LLM key; setting it explicitly
+      # documents the dependency and lets operators rotate them
+      # separately if they swap in a remote TTS later.
+      - VOICE_TOOLS_OPENAI_KEY=${HERMES_TTS_API_KEY:-sk-dream-hermes-local}
       # Aggressive timeouts for local cold starts — llama-server can take
       # >60s to load a model under heavy use.
       - HERMES_API_TIMEOUT=1800

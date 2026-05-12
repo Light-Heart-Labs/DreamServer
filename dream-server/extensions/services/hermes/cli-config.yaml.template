@@ -109,7 +109,11 @@ tts:
   openai:
     # Dream Server's Kokoro TTS container.
     base_url: http://tts:8880/v1
-    api_key: sk-dream-hermes-local
+    # NOTE: api_key is NOT read from this file for TTS — upstream's
+    # _resolve_openai_audio_client_config() only honours
+    # VOICE_TOOLS_OPENAI_KEY / OPENAI_API_KEY for the audio client.
+    # The key is set in extensions/services/hermes/compose.yaml as
+    # VOICE_TOOLS_OPENAI_KEY; do not add api_key here.
     # Kokoro voices — pick from the set Kokoro publishes via /v1/voices:
     #   af_heart, af_bella, af_sky, am_adam, am_michael
     # Matches the voice set Dream Server's SetupWizard exposes.
