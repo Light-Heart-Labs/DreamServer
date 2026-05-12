@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar'
 import SetupWizard from './components/SetupWizard'
 import { useSystemStatus } from './hooks/useSystemStatus'
 import { useVersion } from './hooks/useVersion'
+import { useFirstRun } from './hooks/useFirstRun'
 import { getInternalRoutes } from './plugins/registry'
 import SplashScreen from './components/SplashScreen'
 
@@ -30,26 +31,24 @@ function App() {
   )
   const { status, loading, error } = useSystemStatus()
   const { version, dismissUpdate } = useVersion()
-  const [firstRun, setFirstRun] = useState(false)
+  // Server-side first-run flag (sourced from /api/setup/status). localStorage
+  // was per-browser and gave the wrong answer on re-imaged devices or fresh
+  // browsers. The hook returns firstRun=false while it's loading or if the
+  // API call fails, so the normal app shell is the safe default.
+  const { firstRun, refresh: refreshFirstRun } = useFirstRun()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     return getStorageValue(globalThis.localStorage, 'dream-sidebar-collapsed') === 'true'
   })
 
   useEffect(() => {
-    const hasVisited = getStorageValue(globalThis.localStorage, 'dream-dashboard-visited')
-    if (!hasVisited) {
-      setFirstRun(true)
-    }
-  }, [])
-
-  useEffect(() => {
     setStorageValue(globalThis.localStorage, 'dream-sidebar-collapsed', String(sidebarCollapsed))
   }, [sidebarCollapsed])
 
-  const dismissFirstRun = () => {
-    setStorageValue(globalThis.localStorage, 'dream-dashboard-visited', 'true')
-    setFirstRun(false)
-  }
+  const dismissFirstRun = useCallback(() => {
+    // SetupWizard's saveConfig has already POSTed /api/setup/complete; we
+    // re-fetch the server flag so the next mount sees the new state.
+    refreshFirstRun()
+  }, [refreshFirstRun])
 
   const routes = useMemo(() => getInternalRoutes({ status, loading }), [status, loading])
   const handleToggle = useCallback(() => setSidebarCollapsed(c => !c), [])

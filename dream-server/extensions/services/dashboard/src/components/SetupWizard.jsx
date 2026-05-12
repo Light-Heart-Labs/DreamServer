@@ -146,9 +146,20 @@ export default function SetupWizard({ onComplete }) {
     }
   }
 
-  const saveConfig = () => {
+  const saveConfig = async () => {
+    // localStorage retains the wizard's *answers* (voice / userName etc.)
+    // for the dashboard to consult later, but is no longer the source of
+    // truth for "have we onboarded?" — that lives on the server now.
     localStorage.setItem('dream-config', JSON.stringify(config))
-    localStorage.setItem('dream-dashboard-visited', 'true')
+    try {
+      // The server endpoint writes setup-complete.json which the
+      // useFirstRun hook reads. Best-effort: if it fails (e.g. dashboard-api
+      // restarting mid-wizard) we still dismiss the wizard so the user
+      // isn't trapped, and rely on the next refresh to converge.
+      await fetch('/api/setup/complete', { method: 'POST' })
+    } catch (err) {
+      console.error('Failed to mark setup complete on server:', err)
+    }
     onComplete()
   }
 
