@@ -24,23 +24,28 @@ import {
 
 const PROGRESS_KEY = 'dream-firstboot-progress'
 
+// NOTE: this picker records a preference today; it does NOT enable
+// extensions or start services. The matching backend wiring lives in
+// the Extensions panel (and a follow-up PR will let Finish apply the
+// chosen preset there). Until then the blurbs describe the *intent*
+// of each stack, with the copy honest that nothing changes yet.
 const STACK_OPTIONS = [
   {
     id: 'chat',
     title: 'Chat only',
-    blurb: 'Just the chat surface — fastest setup, smallest footprint.',
+    blurb: 'Just the chat surface. This is what runs out of the box.',
     Icon: MessageSquare,
   },
   {
     id: 'chat-agents',
     title: 'Chat + Agents',
-    blurb: 'Adds n8n workflows and the agent runtime so models can do work for you.',
+    blurb: 'Adds n8n workflows and the agent runtime — enable from Extensions after setup.',
     Icon: Workflow,
   },
   {
     id: 'everything',
     title: 'Everything',
-    blurb: 'Voice in/out, image generation, search, the whole stack. Take some time to download.',
+    blurb: 'Voice, image generation, search, the whole catalog — enable from Extensions after setup.',
     Icon: Boxes,
   },
 ]
@@ -241,7 +246,9 @@ function WelcomeStep({ deviceName, setDeviceName, onNext }) {
           spellCheck={false}
         />
         <span className="text-xs text-theme-text-muted mt-2 block">
-          Reachable at <code className="text-theme-accent">{deviceName.trim() || 'dream'}.local</code> on your network. Letters, numbers, and dashes only.
+          We&apos;ll save this preference. Once mDNS is configured the device will be
+          reachable at <code className="text-theme-accent">{deviceName.trim() || 'dream'}.local</code>.
+          Letters, numbers, and dashes only.
         </span>
       </label>
 
@@ -289,7 +296,8 @@ function UserStep({ username, setUsername, onNext, onBack }) {
           spellCheck={false}
         />
         <span className="text-xs text-theme-text-muted mt-2 block">
-          Open WebUI will display this name when they land on chat.
+          Recorded with the invite for the audit trail. Open WebUI may still ask the
+          recipient to sign in or pick a profile name on first arrival.
         </span>
       </label>
 
@@ -392,9 +400,9 @@ function ConfirmStep({ deviceName, username, stack, onBack, onFinish, finishing,
       </p>
 
       <dl className="bg-theme-card border border-theme-border rounded-xl divide-y divide-theme-border mb-8">
-        <Row label="Device name" value={deviceName.trim() || 'dream'} hint={`.local on your network`} />
+        <Row label="Device name" value={deviceName.trim() || 'dream'} hint="saved as preference" />
         <Row label="First user" value={username.trim()} />
-        <Row label="Stack" value={stackTitle} />
+        <Row label="Stack" value={stackTitle} hint="enable extras from Extensions" />
       </dl>
 
       {error && (
@@ -501,7 +509,8 @@ function DoneScreen({ invite, onDone }) {
       <h1 className="text-3xl font-bold text-theme-text mb-3">You&apos;re set.</h1>
       <p className="text-theme-text-muted mb-6 leading-relaxed">
         Here&apos;s the magic link for <strong className="text-theme-text">{invite.target_username}</strong>.
-        They scan or tap it to land straight in chat.
+        They scan or tap it to reach the chat surface. (Open WebUI may still prompt for a
+        sign-in until SSO is wired up.)
       </p>
 
       {qrDataUrl ? (
