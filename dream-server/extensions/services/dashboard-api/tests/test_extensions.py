@@ -778,6 +778,139 @@ class TestEnableExtensionHookReturnHandling:
         assert data["warnings"] == []
         assert data["message"] == "Extension enabled and started."
 
+    def test_multi_svc_pre_start_failure_on_dep_does_not_warn(
+        self, test_client, monkeypatch, tmp_path,
+    ):
+        """Multi-svc mixed-outcome: dep pre_start fails, main proceeds.
+
+        Covers fork issue #494's "pre_start failures must be terminal for
+        the failing service but must not pollute the warnings array" path.
+        Dep's pre_start failure writes its own error progress and is
+        treated as terminal (no start, no post_start) — the warnings
+        accumulator only collects post_start failures. Main service's
+        hooks all succeed but agent_ok stays False because one of the
+        services in enabled_services failed pre_start, so
+        restart_required is True.
+        """
+        user_dir = tmp_path / "user"
+        user_dir.mkdir(exist_ok=True)
+        # Dep ext (no further deps).
+        dep_dir = user_dir / "dep"
+        dep_dir.mkdir()
+        (dep_dir / "compose.yaml.disabled").write_text(_SAFE_COMPOSE)
+        (dep_dir / "manifest.yaml").write_text(yaml.dump({
+            "schema_version": "dream.services.v1",
+            "service": {"id": "dep", "name": "dep"},
+        }))
+        # Main ext, depends_on dep.
+        main_dir = user_dir / "main-ext"
+        main_dir.mkdir()
+        (main_dir / "compose.yaml.disabled").write_text(_SAFE_COMPOSE)
+        (main_dir / "manifest.yaml").write_text(yaml.dump({
+            "schema_version": "dream.services.v1",
+            "service": {"id": "main-ext", "name": "main-ext",
+                         "depends_on": ["dep"]},
+        }))
+        _patch_mutation_config(monkeypatch, tmp_path, user_dir=user_dir)
+
+        monkeypatch.setattr(
+            "routers.extensions._call_agent", lambda action, sid: True,
+        )
+        # pre_start fails for dep; everything else succeeds.
+        monkeypatch.setattr(
+            "routers.extensions._call_agent_hook",
+            lambda sid, hook: not (sid == "dep" and hook == "pre_start"),
+        )
+        monkeypatch.setattr(
+            "routers.extensions._call_agent_invalidate_compose_cache",
+            lambda: None,
+        )
+
+        resp = test_client.post(
+            "/api/extensions/main-ext/enable?auto_enable_deps=true",
+            headers=test_client.auth_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["action"] == "enabled"
+        # pre_start failure on dep keeps agent_ok False → restart required.
+        assert data["restart_required"] is True
+        # warnings collects only post_start failures, so dep's pre_start
+        # failure must NOT appear here.
+        assert data["warnings"] == []
+        # Both services were activated (dep auto-enabled, then main).
+        assert "dep" in data["enabled_services"]
+        assert "main-ext" in data["enabled_services"]
+
+        # Dep got an error-progress file recording the pre_start failure.
+        dep_progress = tmp_path / "extension-progress" / "dep.json"
+        assert dep_progress.exists()
+        progress = json.loads(dep_progress.read_text())
+        assert progress["status"] == "error"
+        assert "pre_start hook failed" in progress["error"]
+
+    def test_multi_svc_post_start_failure_on_main_only_warns_main(
+        self, test_client, monkeypatch, tmp_path,
+    ):
+        """Multi-svc mixed-outcome: dep all-pass, main post_start fails.
+
+        Covers fork issue #494's "warnings must name the failing service
+        and not double-count clean dependencies" path. Dep enables clean
+        with no warning entry; main's post_start failure produces exactly
+        one warning string identifying main-ext. Post_start is non-fatal,
+        so agent_ok stays True and restart_required is False.
+        """
+        user_dir = tmp_path / "user"
+        user_dir.mkdir(exist_ok=True)
+        dep_dir = user_dir / "dep"
+        dep_dir.mkdir()
+        (dep_dir / "compose.yaml.disabled").write_text(_SAFE_COMPOSE)
+        (dep_dir / "manifest.yaml").write_text(yaml.dump({
+            "schema_version": "dream.services.v1",
+            "service": {"id": "dep", "name": "dep"},
+        }))
+        main_dir = user_dir / "main-ext"
+        main_dir.mkdir()
+        (main_dir / "compose.yaml.disabled").write_text(_SAFE_COMPOSE)
+        (main_dir / "manifest.yaml").write_text(yaml.dump({
+            "schema_version": "dream.services.v1",
+            "service": {"id": "main-ext", "name": "main-ext",
+                         "depends_on": ["dep"]},
+        }))
+        _patch_mutation_config(monkeypatch, tmp_path, user_dir=user_dir)
+
+        monkeypatch.setattr(
+            "routers.extensions._call_agent", lambda action, sid: True,
+        )
+        # post_start fails ONLY for main-ext.
+        monkeypatch.setattr(
+            "routers.extensions._call_agent_hook",
+            lambda sid, hook: not (sid == "main-ext" and hook == "post_start"),
+        )
+        monkeypatch.setattr(
+            "routers.extensions._call_agent_invalidate_compose_cache",
+            lambda: None,
+        )
+
+        resp = test_client.post(
+            "/api/extensions/main-ext/enable?auto_enable_deps=true",
+            headers=test_client.auth_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["action"] == "enabled"
+        # post_start is non-fatal → agent_ok stays True.
+        assert data["restart_required"] is False
+        # Exactly one warning, naming the main service only.
+        assert isinstance(data["warnings"], list)
+        assert len(data["warnings"]) == 1
+        assert "main-ext" in data["warnings"][0]
+        assert "post_start hook failed" in data["warnings"][0]
+        # Dep must NOT show up in warnings (it cleanly enabled).
+        assert all("dep" not in w.split(":")[0] for w in data["warnings"])
+        assert "dep" in data["enabled_services"]
+        assert "main-ext" in data["enabled_services"]
+
 
 # --- Disable endpoint ---
 
@@ -2186,6 +2319,58 @@ class TestExtensionLifecycleStatus:
         )
         assert resp.status_code == 400
         assert "privileged" in resp.json()["detail"]
+
+    def test_stale_started_unhealthy(self, monkeypatch, tmp_path):
+        """Stale 'started' progress + container reporting unhealthy → 'unhealthy'.
+
+        Covers fork issue #485 (and the L194 branch added by merged PR #1037):
+        when the installer wrote ``status="started"`` more than 5 min ago
+        (i.e., past the 300s recency window in _compute_extension_status),
+        the progress entry must NOT keep the catalog stuck on "installing".
+        Instead the user-extension health-check branch must run and surface
+        the container's actual ServiceStatus — here, "unhealthy".
+
+        The progress timestamp is computed as ``now - 305s`` rather than a
+        fixed past date because ``_read_progress`` suppresses any
+        non-error progress older than 3600s; a fixed date would silently
+        return None and exercise the wrong path (the "no progress at all"
+        case rather than the "stale started progress" case).
+        """
+        from datetime import datetime, timedelta, timezone
+
+        from routers.extensions import _compute_extension_status
+
+        user_dir = tmp_path / "user"
+        ext_dir = user_dir / "my-ext"
+        ext_dir.mkdir(parents=True)
+        (ext_dir / "compose.yaml").write_text(_SAFE_COMPOSE)
+
+        monkeypatch.setattr("routers.extensions.DATA_DIR", str(tmp_path))
+        monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", user_dir)
+        monkeypatch.setattr("routers.extensions.GPU_BACKEND", "nvidia")
+        monkeypatch.setattr("routers.extensions.SERVICES", {})
+
+        progress_dir = tmp_path / "extension-progress"
+        progress_dir.mkdir()
+        # 305s old: past the 300s "started"-recency window in
+        # _compute_extension_status, but well within _read_progress's
+        # 3600s general-staleness ceiling, so the progress is read but
+        # ignored and the user-ext health branch runs.
+        stale_ts = (datetime.now(timezone.utc) - timedelta(seconds=305)).isoformat()
+        progress_data = {
+            "service_id": "my-ext",
+            "status": "started",
+            "phase_label": "Service started",
+            "error": None,
+            "started_at": stale_ts,
+            "updated_at": stale_ts,
+        }
+        (progress_dir / "my-ext.json").write_text(json.dumps(progress_data))
+
+        ext = _make_catalog_ext("my-ext")
+        services_by_id = {"my-ext": _make_service_status("my-ext", "unhealthy")}
+        status = _compute_extension_status(ext, services_by_id)
+        assert status == "unhealthy"
 
 
 # --- Symlink handling ---

@@ -173,7 +173,8 @@ teardown() {
     assert_equal "$LLM_MODEL" "gemma-4-e4b-it"
     assert_equal "$GGUF_FILE" "gemma-4-E4B-it-Q4_K_M.gguf"
     assert_equal "$MAX_CONTEXT" "32768"
-    assert_equal "$LLAMA_CPP_RELEASE_TAG_OVERRIDE" "b8648"
+    assert_equal "$LLAMA_SERVER_IMAGE" "ghcr.io/ggml-org/llama.cpp:server-cuda-b9014"
+    assert_equal "$LLAMA_CPP_RELEASE_TAG_OVERRIDE" "b9014"
 }
 
 @test "resolve_tier_config: qwen profile preserves current tier 2 mapping" {

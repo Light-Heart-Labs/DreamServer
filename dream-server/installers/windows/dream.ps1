@@ -810,11 +810,29 @@ function Invoke-Agent {
             $pidDir = Split-Path $pidFile
             New-Item -ItemType Directory -Path $pidDir -Force -ErrorAction SilentlyContinue | Out-Null
 
-            # Prepend Docker to PATH so the agent can find docker.exe
-            # (Docker Desktop may not be in the system PATH yet after fresh install)
+            # Start agent through a hidden PowerShell host so manual starts do
+            # not leave a visible cmd.exe window. Prepend Docker to PATH so the
+            # agent can find docker.exe (Docker Desktop may not be in the
+            # system PATH yet after fresh install).
             $_dockerBin = "C:\Program Files\Docker\Docker\resources\bin"
-            $_agentArgs = "set `"PATH=$_dockerBin;%PATH%`" && `"$($_python3.Source)`" `"$agentScript`" --port $port --pid-file `"$pidFile`" --install-dir `"$InstallDir`" 2>> `"$logFile`""
-            Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $_agentArgs `
+            $_psQuote = {
+                param([string]$Value)
+                "'" + ($Value -replace "'", "''") + "'"
+            }
+            $_dockerPathLiteral = & $_psQuote "$_dockerBin;"
+            $_pythonLiteral = & $_psQuote $_python3.Source
+            $_agentScriptLiteral = & $_psQuote $agentScript
+            $_pidFileLiteral = & $_psQuote $pidFile
+            $_installDirLiteral = & $_psQuote $InstallDir
+            $_logFileLiteral = & $_psQuote $logFile
+            $_agentCommand = @"
+`$env:PATH = $_dockerPathLiteral + `$env:PATH
+`$agentArgs = @($_agentScriptLiteral, '--port', '$port', '--pid-file', $_pidFileLiteral, '--install-dir', $_installDirLiteral)
+Start-Process -FilePath $_pythonLiteral -ArgumentList `$agentArgs -WorkingDirectory $_installDirLiteral -WindowStyle Hidden -RedirectStandardError $_logFileLiteral
+"@
+            $_encodedAgentCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($_agentCommand))
+            Start-Process -FilePath "powershell.exe" `
+                -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-EncodedCommand", $_encodedAgentCommand `
                 -WindowStyle Hidden -WorkingDirectory $InstallDir
 
             Start-Sleep -Seconds 3

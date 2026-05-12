@@ -91,6 +91,26 @@ _run_resolver() {
         bash "$SCRIPT_UNDER_TEST" --script-dir "$FIXTURE_DIR" "$@"
 }
 
+_assert_output_path() {
+    local needle="$1"
+    local normalized="${output//\\//}"
+    if [[ "$normalized" != *"$needle"* ]]; then
+        echo "expected output to contain path: $needle" >&2
+        echo "$output" >&2
+        return 1
+    fi
+}
+
+_refute_output_path() {
+    local needle="$1"
+    local normalized="${output//\\//}"
+    if [[ "$normalized" == *"$needle"* ]]; then
+        echo "expected output not to contain path: $needle" >&2
+        echo "$output" >&2
+        return 1
+    fi
+}
+
 # ---------------------------------------------------------------------------
 # Issue #489 — gpu_backends filter on user extensions.
 # ---------------------------------------------------------------------------
@@ -100,7 +120,7 @@ _run_resolver() {
 
     _run_resolver --gpu-backend nvidia --tier 1
     assert_success
-    refute_output --partial "data/user-extensions/amdsvc/compose.yaml"
+    _refute_output_path "data/user-extensions/amdsvc/compose.yaml"
 }
 
 @test "user-ext (DRAFT, needs #1051): nvidia-only manifest is included on nvidia backend" {
@@ -108,7 +128,7 @@ _run_resolver() {
 
     _run_resolver --gpu-backend nvidia --tier 1
     assert_success
-    assert_output --partial "data/user-extensions/nvsvc/compose.yaml"
+    _assert_output_path "data/user-extensions/nvsvc/compose.yaml"
 }
 
 @test "user-ext (DRAFT, needs #1051): 'all' in gpu_backends is included on every backend" {
@@ -116,7 +136,7 @@ _run_resolver() {
 
     _run_resolver --gpu-backend amd --tier 1
     assert_success
-    assert_output --partial "data/user-extensions/anysvc/compose.yaml"
+    _assert_output_path "data/user-extensions/anysvc/compose.yaml"
 }
 
 @test "user-ext (DRAFT, needs #1051): 'none' in gpu_backends is included on every backend (CPU-only services)" {
@@ -124,7 +144,7 @@ _run_resolver() {
 
     _run_resolver --gpu-backend amd --tier 1
     assert_success
-    assert_output --partial "data/user-extensions/cpusvc/compose.yaml"
+    _assert_output_path "data/user-extensions/cpusvc/compose.yaml"
 }
 
 @test "user-ext (DRAFT, needs #1051): empty gpu_backends excludes the extension on every backend" {
@@ -137,7 +157,7 @@ _run_resolver() {
 
     _run_resolver --gpu-backend nvidia --tier 1
     assert_success
-    refute_output --partial "data/user-extensions/emptysvc/compose.yaml"
+    _refute_output_path "data/user-extensions/emptysvc/compose.yaml"
 }
 
 @test "user-ext: legacy extension with no manifest at all is still included (compat carve-out)" {
@@ -147,11 +167,11 @@ _run_resolver() {
     # Either way the extension's compose.yaml must appear in the resolved set.
     local ext_dir="$FIXTURE_DIR/data/user-extensions/legacysvc"
     mkdir -p "$ext_dir"
-    : > "$ext_dir/compose.yaml"
+    printf 'services: {}\n' > "$ext_dir/compose.yaml"
 
     _run_resolver --gpu-backend nvidia --tier 1
     assert_success
-    assert_output --partial "data/user-extensions/legacysvc/compose.yaml"
+    _assert_output_path "data/user-extensions/legacysvc/compose.yaml"
 }
 
 # ---------------------------------------------------------------------------
@@ -164,8 +184,8 @@ _run_resolver() {
 
     DREAM_MODE=local _run_resolver --gpu-backend nvidia --tier 1
     assert_success
-    assert_output --partial "data/user-extensions/localsvc/compose.yaml"
-    assert_output --partial "data/user-extensions/localsvc/compose.local.yaml"
+    _assert_output_path "data/user-extensions/localsvc/compose.yaml"
+    _assert_output_path "data/user-extensions/localsvc/compose.local.yaml"
 }
 
 @test "user-ext (DRAFT, needs #1051): compose.local.yaml is excluded on apple backend (deadlock guard)" {
@@ -184,8 +204,8 @@ _run_resolver() {
 
     DREAM_MODE=local _run_resolver --gpu-backend apple --tier AP_BASE
     assert_success
-    assert_output --partial "data/user-extensions/applelocalsvc/compose.yaml"
-    refute_output --partial "data/user-extensions/applelocalsvc/compose.local.yaml"
+    _assert_output_path "data/user-extensions/applelocalsvc/compose.yaml"
+    _refute_output_path "data/user-extensions/applelocalsvc/compose.local.yaml"
 }
 
 @test "user-ext (DRAFT, needs #1051): compose.multigpu.yaml is included when --gpu-count > 1" {
@@ -194,8 +214,8 @@ _run_resolver() {
 
     _run_resolver --gpu-backend nvidia --tier 1 --gpu-count 2
     assert_success
-    assert_output --partial "data/user-extensions/multisvc/compose.yaml"
-    assert_output --partial "data/user-extensions/multisvc/compose.multigpu.yaml"
+    _assert_output_path "data/user-extensions/multisvc/compose.yaml"
+    _assert_output_path "data/user-extensions/multisvc/compose.multigpu.yaml"
 }
 
 @test "user-ext (DRAFT, needs #1051): compose.multigpu.yaml is NOT included when --gpu-count == 1" {
@@ -204,8 +224,8 @@ _run_resolver() {
 
     _run_resolver --gpu-backend nvidia --tier 1 --gpu-count 1
     assert_success
-    assert_output --partial "data/user-extensions/multisvc/compose.yaml"
-    refute_output --partial "data/user-extensions/multisvc/compose.multigpu.yaml"
+    _assert_output_path "data/user-extensions/multisvc/compose.yaml"
+    _refute_output_path "data/user-extensions/multisvc/compose.multigpu.yaml"
 }
 
 @test "user-ext: compose.<gpu>.yaml overlay is included when present (already on main)" {
@@ -218,6 +238,6 @@ _run_resolver() {
 
     _run_resolver --gpu-backend nvidia --tier 1
     assert_success
-    assert_output --partial "data/user-extensions/gpusvc/compose.yaml"
-    assert_output --partial "data/user-extensions/gpusvc/compose.nvidia.yaml"
+    _assert_output_path "data/user-extensions/gpusvc/compose.yaml"
+    _assert_output_path "data/user-extensions/gpusvc/compose.nvidia.yaml"
 }

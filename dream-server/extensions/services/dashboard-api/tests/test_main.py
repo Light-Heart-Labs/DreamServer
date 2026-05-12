@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from main import get_allowed_origins, _build_api_status, TTLCache
+from main import get_allowed_origins, _build_api_status, _fallback_services, _serialize_services, TTLCache
 
 
 # --- get_allowed_origins ---
@@ -559,6 +559,53 @@ class TestStatusEndpoint:
         data = resp.json()
         assert data["gpu"]["name"] == "RTX 4090"
         assert data["uptime_seconds"] == 3600
+
+
+# --- /api/status service serialization ---
+
+
+class TestApiStatusServiceSerialization:
+
+    def test_serialize_services_includes_service_id(self):
+        from models import ServiceStatus
+        services = [
+            ServiceStatus(
+                id="llama-server",
+                name="llama-server (LLM Inference)",
+                port=8080,
+                external_port=11434,
+                status="healthy",
+            )
+        ]
+
+        serialized = _serialize_services(services, uptime=42)
+
+        assert serialized == [{
+            "id": "llama-server",
+            "name": "llama-server (LLM Inference)",
+            "status": "healthy",
+            "port": 11434,
+            "uptime": 42,
+        }]
+
+    def test_fallback_services_include_service_ids(self, monkeypatch):
+        monkeypatch.setattr("main.SERVICES", {
+            "dashboard-api": {
+                "name": "Dashboard API (System Status)",
+                "port": 3002,
+                "external_port": 3002,
+            }
+        })
+
+        serialized = _fallback_services()
+
+        assert serialized == [{
+            "id": "dashboard-api",
+            "name": "Dashboard API (System Status)",
+            "status": "unknown",
+            "port": 3002,
+            "uptime": None,
+        }]
 
 
 # --- /api/status fallback on exception ---

@@ -3,11 +3,12 @@
 import asyncio
 import json
 import logging
+import re
 import urllib.error
 import urllib.request
 from pathlib import Path
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from config import AGENT_URL, DATA_DIR, DREAM_AGENT_KEY, GPU_BACKEND, SERVICES
 from helpers import dir_size_gb
@@ -15,6 +16,7 @@ from security import verify_api_key
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["resources"])
+_SERVICE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 _DATA_DIR_MAP = {
     "models": "llama-server",
@@ -26,6 +28,19 @@ _DATA_DIR_MAP = {
     "tts": "tts",
     "whisper": "whisper",
 }
+
+
+def _service_restartability(config: dict) -> tuple[bool, str | None]:
+    """Return whether a service can be restarted with docker restart."""
+    service_type = config.get("type", "docker") or "docker"
+    if service_type == "host-systemd":
+        return False, "Host-level service; restart outside Docker"
+    if service_type != "docker":
+        return False, f"Service type {service_type} is not a Docker container"
+    container_name = config.get("container_name")
+    if not isinstance(container_name, str) or not container_name.strip():
+        return False, "No Docker container is declared"
+    return True, None
 
 
 def _scan_service_disk() -> dict[str, dict]:
@@ -56,6 +71,32 @@ def _fetch_container_stats() -> list[dict]:
     except (urllib.error.HTTPError, urllib.error.URLError, OSError):
         logger.debug("Could not fetch container stats from host agent")
         return []
+
+
+def _post_agent_json(path: str, body: dict, timeout: int = 65) -> dict:
+    """POST JSON to the host agent and return its JSON response."""
+    url = f"{AGENT_URL}{path}"
+    payload = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {DREAM_AGENT_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode() or "{}")
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read().decode() or "{}").get("error")
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            detail = exc.reason
+        raise HTTPException(status_code=exc.code, detail=detail or "Host agent request failed") from exc
+    except (urllib.error.URLError, OSError) as exc:
+        raise HTTPException(status_code=503, detail=f"Host agent unavailable: {exc}") from exc
 
 
 @router.get("/api/services/resources")
@@ -93,10 +134,11 @@ async def service_resources(api_key: str = Depends(verify_api_key)):
     # This correctly handles non-standard names (dream-webui -> open-webui)
     # when container_name is populated in SERVICES (by PR E's config.py change).
     # Falls back to dream-{sid} convention when container_name is missing.
-    container_to_service = {
-        svc.get("container_name", f"dream-{sid}"): sid
-        for sid, svc in SERVICES.items()
-    }
+    container_to_service = {}
+    for sid, svc in SERVICES.items():
+        cname = svc.get("container_name", f"dream-{sid}")
+        if isinstance(cname, str) and cname.strip():
+            container_to_service[cname] = sid
 
     stats_by_id = {}
     for stat in container_stats:
@@ -106,9 +148,13 @@ async def service_resources(api_key: str = Depends(verify_api_key)):
 
     services = []
     for service_id, config in SERVICES.items():
+        restartable, restart_unavailable_reason = _service_restartability(config)
         entry = {
             "id": service_id,
             "name": config["name"],
+            "type": config.get("type", "docker") or "docker",
+            "restartable": restartable,
+            "restart_unavailable_reason": restart_unavailable_reason,
             "container": stats_by_id.get(service_id),
             "disk": disk_usage.get(service_id),
         }
@@ -118,7 +164,15 @@ async def service_resources(api_key: str = Depends(verify_api_key)):
     known_ids = set(SERVICES.keys())
     for sid, disk in disk_usage.items():
         if sid not in known_ids:
-            services.append({"id": sid, "name": sid, "container": None, "disk": disk})
+            services.append({
+                "id": sid,
+                "name": sid,
+                "type": "unknown",
+                "restartable": False,
+                "restart_unavailable_reason": "Service is not declared in the active manifest set",
+                "container": None,
+                "disk": disk,
+            })
 
     total_cpu = sum(s.get("cpu_percent", 0) for s in container_stats)
     total_mem = sum(s.get("memory_used_mb", 0) for s in container_stats)
@@ -135,3 +189,34 @@ async def service_resources(api_key: str = Depends(verify_api_key)):
             "docker_desktop_memory": GPU_BACKEND == "apple",
         },
     }
+
+
+@router.post("/api/services/{service_id}/restart")
+async def restart_service(service_id: str, api_key: str = Depends(verify_api_key)):
+    """Restart a single known DreamServer service via the host agent."""
+    if not _SERVICE_ID_RE.match(service_id):
+        raise HTTPException(status_code=400, detail="Invalid service_id")
+    if service_id not in SERVICES:
+        raise HTTPException(status_code=404, detail=f"Service not found: {service_id}")
+    restartable, restart_unavailable_reason = _service_restartability(SERVICES[service_id])
+    if not restartable:
+        raise HTTPException(
+            status_code=400,
+            detail=restart_unavailable_reason or f"Service cannot be restarted: {service_id}",
+        )
+
+    body = {"service_id": service_id}
+    if service_id in {"dashboard", "dashboard-api"}:
+        # Restarting the UI proxy or the API synchronously can kill the very
+        # request that initiated it. Let the host agent acknowledge first.
+        body["delay_seconds"] = 1
+
+    result = await asyncio.to_thread(
+        _post_agent_json,
+        "/v1/service/restart",
+        body,
+    )
+
+    from main import _cache  # noqa: PLC0415 — deferred import to avoid circular dependency
+    _cache._store.pop("service_resources_containers", None)
+    return result
