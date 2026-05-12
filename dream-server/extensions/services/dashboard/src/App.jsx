@@ -1,6 +1,7 @@
 import { Routes, Route } from 'react-router-dom'
 import { useState, useEffect, Suspense, useMemo, useCallback, lazy } from 'react'
 import Sidebar from './components/Sidebar'
+import InstallPromptBanner from './components/InstallPromptBanner'
 import { useSystemStatus } from './hooks/useSystemStatus'
 import { useVersion } from './hooks/useVersion'
 import { useFirstRun } from './hooks/useFirstRun'
@@ -120,6 +121,12 @@ function App() {
           </Routes>
         </Suspense>
       </main>
+
+      {/* Smart PWA install nudge — only renders when the user has shown
+          enough engagement (3+ visits) AND the browser is willing to
+          install. No-op on already-installed PWAs and on browsers that
+          can't install (e.g. Firefox desktop). See usePwaInstallPrompt. */}
+      <InstallPromptBanner />
     </div>
   )
 }

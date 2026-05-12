@@ -51,6 +51,12 @@ vi.mock('./components/SplashScreen', () => ({
   }
 }))
 
+// InstallPromptBanner depends on browser PWA events we don't simulate
+// in these App-level tests; render nothing so it doesn't interfere.
+vi.mock('./components/InstallPromptBanner', () => ({
+  default: () => null,
+}))
+
 describe('App', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn(() =>
