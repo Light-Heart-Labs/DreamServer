@@ -48,10 +48,16 @@
 
 	# Static "you need an invite" page lives at /auth/required. Always
 	# accessible; this is where unauthenticated requests get bounced.
+	#
+	# `templates` lets index.html substitute `{{env "HERMES_PROXY_AUTH_DOCS_URL"}}`
+	# at response time, so operators can point recipients at a help doc /
+	# admin-contact page via env var without editing the HTML. The page
+	# only renders the "Need help?" row when the var is non-empty.
 	@auth_static path /auth/required* /auth/static/*
 	handle @auth_static {
 		root * /srv/auth-required
 		try_files {path} /index.html
+		templates
 		file_server
 	}
 
