@@ -9,10 +9,10 @@ Set via env vars in `docker-compose.base.yml`. These flow into Open WebUI's runt
 | Variable | Default | What it controls |
 |---|---|---|
 | `WEBUI_NAME` | `Dream` | The display name. Appears as the browser tab title, the header inside the chat UI, and — critically — the label next to the Dream icon when the user adds the chat to their phone's home screen. |
-| `WEBUI_URL` | `http://${DREAM_DEVICE_NAME}.local/chat` | The public URL Open WebUI uses for share links, OAuth callbacks, and PWA install metadata. Points at the dream-proxy on `:80`, which routes `/chat` to Open WebUI — this is the URL end users actually reach, not the direct `:3000` port. |
+| `WEBUI_URL` | empty | Optional public URL Open WebUI uses for share links, OAuth callbacks, and PWA install metadata. Leave empty for traditional localhost usage. Headless/proxy installs should set it to `http://chat.${DREAM_DEVICE_NAME}.local` after dream-proxy + mDNS are enabled; tunnels should use their public URL. |
 | `DREAM_DEVICE_NAME` | `dream` | The mDNS hostname segment. Drives `${...}.local` and is reused by future remote-access integrations. |
 
-A user installing Dream Server today already sees "Dream" everywhere instead of "Open WebUI", and adding the PWA to a phone's home screen produces a tile labeled "Dream".
+After opening a reachable chat URL, users see "Dream" everywhere instead of "Open WebUI", and adding the PWA to a phone's home screen produces a tile labeled "Dream".
 
 ## What's not branded yet (follow-up work)
 
@@ -56,7 +56,7 @@ Asset production needs design input (Dream logo, brand palette) before this dire
 
 After this PR merges, on a running Dream Server:
 
-1. Browse to `http://dream.local:3000` (or the configured URL).
+1. Browse to the reachable chat URL: `http://localhost:3000` for traditional local usage, or `http://chat.dream.local` after enabling dream-proxy + mDNS.
 2. The browser tab should read "Dream" — not "Open WebUI".
 3. On a phone, after adding the page to the home screen, the icon label should read "Dream".
 4. Inside the chat UI, the top-left header should read "Dream".
