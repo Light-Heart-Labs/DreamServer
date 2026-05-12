@@ -11,6 +11,9 @@ services:
     environment:
       # Override the upstream from .env if the operator's wiring differs.
       - HERMES_PROXY_UPSTREAM=${HERMES_PROXY_UPSTREAM:-dream-hermes:9119}
+      # Optional help URL surfaced on the "you need an invite" page via
+      # Caddy `templates` substitution. Empty hides the row entirely.
+      - HERMES_PROXY_AUTH_DOCS_URL=${HERMES_PROXY_AUTH_DOCS_URL:-}
     volumes:
       # Caddyfile is read-only; mounting :ro reduces the blast radius if
       # the container were ever compromised.
