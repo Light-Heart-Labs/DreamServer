@@ -3,9 +3,19 @@ services:
     image: tailscale/tailscale:v1.78.0
     container_name: dream-tailscale
     restart: unless-stopped
-    # network_mode: host is required for Tailscale to share the host's
-    # network namespace — that's what makes services on 127.0.0.1:<port>
-    # reachable as <hostname>.<tailnet>.ts.net:<port> from the tailnet.
+    # network_mode: host puts the Tailscale daemon in the host's network
+    # namespace so the device's tailnet IP (100.x.y.z) is the host
+    # itself. **It does NOT make loopback-bound services reachable
+    # from the tailnet.** Incoming tailnet packets arrive on the host's
+    # Tailscale interface, not 127.0.0.1, so a service bound to
+    # 127.0.0.1:3000 still refuses them. To make Dream Server services
+    # reachable over the tailnet, also:
+    #   - Enable dream-proxy (port 80 with host-based routing)
+    #   - Set BIND_ADDRESS=0.0.0.0 in .env so the proxy listens on
+    #     the LAN interface (which is the same interface the tailscaled
+    #     daemon is observing).
+    # See docs/TAILSCALE.md "Prerequisites for tailnet reachability".
+    #
     # Linux only. macOS + Docker Desktop need a different topology
     # (userspace networking + tailscale serve); not supported in v1.
     network_mode: host
@@ -32,9 +42,11 @@ services:
       # is just incoming).
       - TS_EXTRA_ARGS=--advertise-tags=tag:dream
       # Userspace mode is OFF — we want full kernel networking so the
-      # dashboard/chat ports on the host are exposed to the tailnet via
-      # network_mode: host. TS_USERSPACE=true is for the inverse
-      # (container reaches the tailnet) which isn't what we need.
+      # tailscaled daemon ends up sharing the host's network namespace.
+      # That places the device's tailnet IP on the host (rather than
+      # inside the container) so Dream's host-bound services can answer
+      # tailnet traffic — provided they're bound to 0.0.0.0 / a real
+      # interface, not loopback. See the network_mode comment above.
       - TS_USERSPACE=false
     volumes:
       - ./data/tailscale:/var/lib/tailscale
