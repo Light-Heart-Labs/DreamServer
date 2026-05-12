@@ -64,6 +64,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, field_validator
 
+import session_signer
 from security import verify_api_key
 
 logger = logging.getLogger(__name__)
@@ -80,6 +81,9 @@ MAX_EXPIRY_SECONDS = 86400
 MAX_TOKENS_RETAINED = 200  # cap audit log growth
 
 _WEBUI_URL_DEFAULT = "http://localhost:3000"
+_PUBLIC_URL_DEFAULT = "http://dreamserver.local"
+# Session cookie TTL — 12 hours of rolling chat access after redemption.
+SESSION_TTL_SECONDS = 12 * 3600
 
 # Rate-limit table — {ip: (failed_count, window_start_epoch)}
 # Single-process FastAPI, no need for shared state across workers.
@@ -281,17 +285,31 @@ def _qr_data_url(text: str) -> Optional[str]:
 # --- Endpoint URL builders ---
 
 
+def _public_base() -> str:
+    """The proxy origin — all magic-link + redirect URLs build off this.
+
+    The dream-proxy (Caddy on :80) is the canonical entry point on the LAN.
+    Routes:
+      /auth/*  → dashboard-api (this service)  — redemption endpoint lives here
+      /chat    → Open WebUI                     — where redemption redirects to
+    The user scans the QR, hits the proxy, the proxy routes /auth/* to us,
+    we set the cookie, then 302 to /chat (same origin → cookie travels along).
+    """
+    return (os.environ.get("DREAM_PUBLIC_URL") or _PUBLIC_URL_DEFAULT).rstrip("/")
+
+
 def _chat_url() -> str:
-    """The URL we redirect successful redemptions to."""
-    return os.environ.get("WEBUI_URL") or _WEBUI_URL_DEFAULT
+    """Where a successful redemption redirects to (chat surface, proxied)."""
+    return f"{_public_base()}/chat"
 
 
 def _magic_link_url(token: str) -> str:
-    """Public URL the user scans to redeem."""
-    base = os.environ.get("DREAM_PUBLIC_URL") or _chat_url()
-    # Strip trailing slash, append the redeem path. dashboard-api serves the
-    # /auth/magic-link/{token} route — see main.py app.include_router.
-    return f"{base.rstrip('/')}/auth/magic-link/{token}"
+    """Public URL the user scans/clicks to redeem.
+
+    Routed through the dream-proxy on :80 so the redemption cookie is set
+    on the proxy origin — same origin the chat UI is reached from.
+    """
+    return f"{_public_base()}/auth/magic-link/{token}"
 
 
 # --- Endpoints ---
@@ -397,11 +415,13 @@ def redeem_magic_link(token: str, request: Request, response: Response) -> Redir
         })
         _write_store(store)
 
-    # Build the response. The session cookie is a fresh random value — it's
-    # *not* the magic-link token (the token is single-use; the session lives
-    # longer). For Phase 1 the cookie is informational/auditable; deeper
-    # integration with Open WebUI's own session is the follow-up.
-    session_token = secrets.token_urlsafe(24)
+    # Build the response. The session cookie is HMAC-signed (see
+    # session_signer.py) so dashboard-api / dream-proxy can verify it
+    # statelessly via /api/auth/verify-session. The cookie is *not* the
+    # magic-link token (the token is single-use; the session lives longer).
+    # If DREAM_SESSION_SECRET isn't configured, issue() raises — surface
+    # the misconfig loudly rather than minting unverifiable cookies.
+    session_token = session_signer.issue(ttl_seconds=SESSION_TTL_SECONDS)
     secure_cookie = request.url.scheme == "https"
 
     logger.info(
@@ -413,7 +433,7 @@ def redeem_magic_link(token: str, request: Request, response: Response) -> Redir
     redirect.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=session_token,
-        max_age=DEFAULT_EXPIRY_SECONDS * 12,  # 12-hour rolling session
+        max_age=SESSION_TTL_SECONDS,
         httponly=True,
         samesite="lax",
         secure=secure_cookie,

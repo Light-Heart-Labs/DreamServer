@@ -27,9 +27,15 @@ import pytest
 def magic_link_module(tmp_path, monkeypatch):
     """Reload routers.magic_link with an isolated DATA_DIR and clean state."""
     monkeypatch.setenv("DREAM_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("DREAM_SESSION_SECRET", "test-secret-for-magic-link-tests")
     monkeypatch.delenv("DREAM_PUBLIC_URL", raising=False)
     monkeypatch.delenv("WEBUI_URL", raising=False)
     monkeypatch.delenv("DREAM_TRUST_FORWARDED", raising=False)
+
+    # session_signer reads DREAM_SESSION_SECRET at import time, so any
+    # already-loaded copy keeps the old value. Force-set it for the test.
+    import session_signer
+    session_signer._set_secret_for_tests("test-secret-for-magic-link-tests")
 
     # Reimport so module-level constants pick up the new DATA_DIR.
     from routers import magic_link as ml
@@ -140,6 +146,38 @@ def test_generate_respects_public_url_env(magic_link_client, monkeypatch, magic_
     assert resp.json()["url"].startswith("http://dream.local:3002/auth/magic-link/")
 
 
+def test_generate_url_defaults_to_proxy_host_when_public_url_unset(magic_link_client):
+    """With no DREAM_PUBLIC_URL set, the URL builds off the proxy default
+    (http://dreamserver.local) — NOT localhost:3000 (Open WebUI direct).
+    The user is supposed to hit the dream-proxy, not Open WebUI directly,
+    because the redemption endpoint lives in dashboard-api."""
+    resp = magic_link_client.post(
+        "/api/auth/magic-link/generate",
+        json={"target_username": "alice"},
+        headers=magic_link_client.auth_headers,
+    )
+    assert resp.status_code == 200
+    url = resp.json()["url"]
+    assert url.startswith("http://dreamserver.local/auth/magic-link/"), url
+    assert "localhost:3000" not in url
+    assert ":3002" not in url  # not dashboard-api direct either
+
+
+def test_generate_strips_trailing_slash_from_public_url(magic_link_client, monkeypatch, magic_link_module):
+    """An operator who sets DREAM_PUBLIC_URL=http://x/ must not produce a
+    double-slash in the magic-link URL."""
+    monkeypatch.setenv("DREAM_PUBLIC_URL", "http://dream.local/")
+    resp = magic_link_client.post(
+        "/api/auth/magic-link/generate",
+        json={"target_username": "carol"},
+        headers=magic_link_client.auth_headers,
+    )
+    assert resp.status_code == 200
+    url = resp.json()["url"]
+    assert "//auth/" not in url, f"double-slash leak in {url}"
+    assert url.startswith("http://dream.local/auth/magic-link/")
+
+
 # ---------------------------------------------------------------------------
 # Generate validation
 # ---------------------------------------------------------------------------
@@ -216,6 +254,48 @@ def test_redeem_sets_cookie_and_redirects(magic_link_client, magic_link_module):
     assert b"samesite=lax" in cookie_blob
     # Username hint is readable by the chat UI's JS (not HttpOnly).
     assert b"dream-target-user=alice" in cookie_blob
+
+
+def test_redeem_issues_signed_cookie_that_verifies(magic_link_client, magic_link_module):
+    """The dream-session cookie set by redemption must round-trip through
+    session_signer.verify() — that's what dream-proxy's forward_auth will
+    call on every protected request."""
+    import session_signer
+
+    gen = magic_link_client.post(
+        "/api/auth/magic-link/generate",
+        json={"target_username": "alice"},
+        headers=magic_link_client.auth_headers,
+    )
+    token = gen.json()["token"]
+
+    resp = magic_link_client.get(f"/auth/magic-link/{token}", follow_redirects=False)
+    assert resp.status_code == 302
+    cookie = resp.cookies.get("dream-session")
+    assert cookie, "redemption did not set dream-session cookie"
+
+    ok, reason = session_signer.verify(cookie)
+    assert ok is True, f"signed cookie did not verify: {reason}"
+
+
+def test_redeem_redirects_to_proxy_chat_path(magic_link_client, magic_link_module, monkeypatch):
+    """Successful redemption 302s to the proxy /chat path (so the freshly-
+    set cookie is on the same origin the chat UI is reached from)."""
+    monkeypatch.setenv("DREAM_PUBLIC_URL", "http://dream.local")
+    # Re-import to pick up the new env var for _public_base() lookups.
+    import session_signer
+    session_signer._set_secret_for_tests("test-secret-for-magic-link-tests")
+
+    gen = magic_link_client.post(
+        "/api/auth/magic-link/generate",
+        json={"target_username": "alice"},
+        headers=magic_link_client.auth_headers,
+    )
+    token = gen.json()["token"]
+
+    resp = magic_link_client.get(f"/auth/magic-link/{token}", follow_redirects=False)
+    assert resp.status_code == 302
+    assert resp.headers["location"] == "http://dream.local/chat"
 
 
 def test_redeem_marks_token_used(magic_link_client, magic_link_module):
