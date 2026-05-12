@@ -1,0 +1,62 @@
+schema_version: dream.services.v1
+
+compatibility:
+  dream_min: "2.0.0"
+
+service:
+  id: dream-proxy
+  name: Dream Server (Web)
+  aliases: [proxy, gateway, web]
+  container_name: dream-proxy
+  default_host: dream-proxy
+  # Standard HTTP — what `http://<device>.local` (no port) actually hits.
+  port: 80
+  external_port_env: DREAM_PROXY_PORT
+  external_port_default: 80
+  health: /health
+  ui_path: /
+  health_timeout: 10
+  type: docker
+  gpu_backends: [all]
+  compose_file: compose.yaml
+  category: optional
+  depends_on: [dashboard]
+  description: >
+    Caddy reverse proxy that fronts Dream Server's web surface on port 80.
+    Without this extension, the dashboard / chat / API services bind to
+    127.0.0.1 by default, so `http://<device>.local` (no port) doesn't
+    resolve to anything. With it, the standard port works:
+        /          → dashboard (port 3001)
+        /chat      → Open WebUI (port 3000)
+        /api/      → dashboard-api (port 3002)
+        /auth/     → dashboard-api (magic-link redemption)
+    This is the LAN-facing entry point. Other Dream Server services
+    stay loopback-bound; the proxy is the only thing that opens up.
+
+  env_vars:
+    - key: DREAM_PROXY_PORT
+      default: "80"
+      description: Host port the proxy listens on (default 80; standard HTTP)
+    - key: DREAM_PROXY_TLS_PORT
+      default: "443"
+      description: Host port for HTTPS (default 443; only used when DREAM_PROXY_TLS is enabled)
+    - key: DREAM_PROXY_BIND
+      default: "0.0.0.0"
+      description: |
+        Bind address for the proxy's host port. 0.0.0.0 (default for this
+        extension) exposes it on the LAN; that's the whole point. Override
+        to 127.0.0.1 to keep the proxy localhost-only.
+
+features:
+  - id: lan-web
+    name: LAN web entry
+    description: Single port-80 entry for dashboard, chat, and API on `<device>.local`
+    icon: Globe
+    category: networking
+    requirements:
+      services: [dashboard]
+      vram_gb: 0
+    enabled_services_all: [dream-proxy]
+    setup_time: Ready
+    priority: 1
+    gpu_backends: [all]

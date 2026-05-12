@@ -1,0 +1,78 @@
+# Dream Server — LAN-facing reverse proxy
+#
+# Without this proxy, Dream Server services bind to 127.0.0.1 by default —
+# `http://<device>.local` (no port) hits nothing on the LAN. With it,
+# port 80 becomes the single user-facing entry and routes paths to the
+# right backend.
+#
+# Routing:
+#   /health      → respond "ok" (Docker / dashboard health probe)
+#   /api/*       → dashboard-api (port 3002)
+#   /auth/*      → dashboard-api (magic-link redemption flow)
+#   /chat        → Open WebUI (port 3000) — strips the /chat prefix
+#   /chat/*      → Open WebUI (port 3000)
+#   /  (default) → dashboard (port 3001)
+#
+# Security posture:
+#   * The proxy is the LAN-facing surface; everything behind it stays
+#     loopback-bound on the host. Trust is delegated to whatever cookie /
+#     API-key checks each backend already implements.
+#   * No auth gate at the proxy itself. The dashboard has its API-key auth;
+#     Open WebUI has its own auth (WEBUI_AUTH=true by default); dashboard-api
+#     gates its own /api endpoints. Adding another layer here would
+#     duplicate without strengthening.
+#   * For exposure beyond the trusted LAN, put this behind Tailscale
+#     (PR-12 of the onboarding plan). Do NOT publish this port to the
+#     public internet without TLS + an additional auth layer.
+
+{
+	# HTTP only by default. TLS via tailscale-cert / Caddy-issued certs is
+	# a separate concern documented in docs/DREAM-PROXY.md.
+	auto_https off
+	admin off
+	log {
+		output stdout
+		format console
+		level INFO
+	}
+}
+
+:80 {
+	# Health endpoint — anonymous, never proxied.
+	@health path /health
+	handle @health {
+		respond "ok" 200
+	}
+
+	# Magic-link redemption + dashboard-api endpoints route to dashboard-api.
+	# Order matters: /api/* and /auth/* must be matched BEFORE the catch-all
+	# below would send them to the dashboard SPA.
+	@api path /api/* /auth/*
+	handle @api {
+		reverse_proxy dashboard-api:3002 {
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Host {host}
+		}
+	}
+
+	# Chat surface — Open WebUI. The /chat prefix is stripped before
+	# forwarding so Open WebUI sees requests at its expected paths.
+	@chat path /chat /chat/*
+	handle @chat {
+		uri strip_prefix /chat
+		reverse_proxy open-webui:8080 {
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Host {host}
+			# Open WebUI's WS endpoint for streaming — Caddy handles WS
+			# automatically when it sees the Upgrade header, no extra config.
+		}
+	}
+
+	# Everything else → the dashboard SPA. React Router handles the rest.
+	handle {
+		reverse_proxy dashboard:3001 {
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Host {host}
+		}
+	}
+}
