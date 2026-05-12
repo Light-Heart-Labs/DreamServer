@@ -641,6 +641,24 @@ def json_response(handler, code: int, body: dict):
     handler.wfile.write(payload)
 
 
+def _network_supported(handler) -> bool:
+    """Linux + nmcli precondition for Wi-Fi endpoints. Sends a 501 on failure
+    so the caller doesn't need to repeat the check; returns True only when
+    nmcli is callable.
+    """
+    if platform.system() != "Linux":
+        json_response(handler, 501, {
+            "error": f"Wi-Fi management only supported on Linux (this is {platform.system()})",
+        })
+        return False
+    if shutil.which("nmcli") is None:
+        json_response(handler, 501, {
+            "error": "nmcli not found; install NetworkManager to enable Wi-Fi management",
+        })
+        return False
+    return True
+
+
 def check_auth(handler) -> bool:
     auth = handler.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
@@ -904,6 +922,10 @@ class AgentHandler(BaseHTTPRequestHandler):
             self._handle_model_list()
         elif self.path == "/v1/model/status":
             self._handle_model_status()
+        elif self.path == "/v1/network/wifi-scan":
+            self._handle_network_wifi_scan()
+        elif self.path == "/v1/network/status":
+            self._handle_network_status()
         else:
             json_response(self, 404, {"error": "Not found"})
 
@@ -1012,6 +1034,10 @@ class AgentHandler(BaseHTTPRequestHandler):
             self._handle_invalidate_compose_cache()
         elif self.path == "/v1/env/update":
             self._handle_env_update()
+        elif self.path == "/v1/network/wifi-connect":
+            self._handle_network_wifi_connect()
+        elif self.path == "/v1/network/wifi-forget":
+            self._handle_network_wifi_forget()
         else:
             json_response(self, 404, {"error": "Not found"})
 
@@ -1022,6 +1048,263 @@ class AgentHandler(BaseHTTPRequestHandler):
         invalidate_compose_cache()
         logger.info("compose-flags cache invalidated")
         json_response(self, 200, {"status": "ok"})
+
+    # ------------------------------------------------------------------
+    # Wi-Fi / network management (Linux + NetworkManager only)
+    # ------------------------------------------------------------------
+    #
+    # These endpoints back the first-boot wizard's "join a network" step.
+    # Linux + nmcli is the only supported path today; macOS and Windows
+    # return 501 with a clear platform message so the wizard can fall
+    # back to "use ethernet / configure manually" without crashing.
+    #
+    # Security:
+    #   * Wi-Fi passwords are NEVER logged. Only the SSID and "password set"
+    #     boolean go to logs.
+    #   * Passwords pass through argv to nmcli. On modern Linux with
+    #     `kernel.yama.ptrace_scope >= 1` (default on Ubuntu/Fedora) and
+    #     the host-agent running as root, only root processes can see the
+    #     cmdline — that's an acceptable v1 posture. Hardening this further
+    #     (`nmcli con add` + secrets file) is a follow-up.
+    #   * SSID is rejected if it contains control characters; nmcli's own
+    #     argv parsing handles spaces and most special characters fine.
+
+    def _handle_network_wifi_scan(self):
+        if not check_auth(self):
+            return
+        if not _network_supported(self):
+            return
+        # Best-effort rescan — fresh networks take 5-10s to populate. We
+        # tolerate the rescan failing (e.g. radio off) and read whatever
+        # cached list nmcli has.
+        try:
+            subprocess.run(
+                ["nmcli", "device", "wifi", "rescan"],
+                capture_output=True, timeout=10,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+
+        try:
+            result = subprocess.run(
+                ["nmcli", "-t", "-e", "no", "-f",
+                 "SSID,SIGNAL,SECURITY,IN-USE", "device", "wifi", "list"],
+                capture_output=True, text=True, timeout=15,
+            )
+        except subprocess.TimeoutExpired:
+            json_response(self, 504, {"error": "nmcli wifi list timed out"})
+            return
+        except OSError as exc:
+            json_response(self, 500, {"error": f"nmcli failed: {exc}"})
+            return
+
+        if result.returncode != 0:
+            stderr = (result.stderr or "").strip()[:200]
+            json_response(self, 503, {"error": stderr or "nmcli wifi list failed"})
+            return
+
+        networks = []
+        seen_ssids = set()
+        for line in result.stdout.splitlines():
+            # Format: SSID:SIGNAL:SECURITY:IN-USE (IN-USE is empty or "*")
+            parts = line.split(":")
+            if len(parts) < 4:
+                continue
+            ssid, signal_str, security, in_use_str = parts[0], parts[1], parts[2], parts[3]
+            if not ssid or ssid in seen_ssids:
+                # nmcli sometimes returns multiple rows per SSID (each BSSID).
+                # We collapse on SSID and keep the strongest signal seen.
+                continue
+            seen_ssids.add(ssid)
+            try:
+                signal_pct = int(signal_str)
+            except (ValueError, TypeError):
+                signal_pct = 0
+            networks.append({
+                "ssid": ssid,
+                "signal": signal_pct,
+                "security": security or "open",
+                "in_use": in_use_str == "*",
+            })
+
+        # Strongest signal first — that's the order the wizard wants to display.
+        networks.sort(key=lambda n: -n["signal"])
+        json_response(self, 200, {"networks": networks})
+
+    def _handle_network_wifi_connect(self):
+        if not check_auth(self):
+            return
+        if not _network_supported(self):
+            return
+        body = read_json_body(self)
+        if body is None:
+            return
+
+        ssid = body.get("ssid", "")
+        password = body.get("password", "")
+
+        if not isinstance(ssid, str) or not ssid or len(ssid) > 32:
+            json_response(self, 400, {"error": "ssid must be 1-32 chars"})
+            return
+        if any(c in ssid for c in ("\n", "\r", "\0")):
+            json_response(self, 400, {"error": "ssid contains invalid characters"})
+            return
+        if not isinstance(password, str) or len(password) > 63:
+            # WPA2 PSK max is 63 chars. Open networks pass empty string.
+            json_response(self, 400, {"error": "password must be 0-63 chars"})
+            return
+        if any(c in password for c in ("\n", "\r", "\0")):
+            json_response(self, 400, {"error": "password contains invalid characters"})
+            return
+
+        logger.info(
+            "wifi-connect ssid=%s password_set=%s", ssid, bool(password)
+        )
+
+        args = ["nmcli", "device", "wifi", "connect", ssid]
+        if password:
+            args += ["password", password]
+
+        try:
+            result = subprocess.run(
+                args, capture_output=True, text=True, timeout=45,
+            )
+        except subprocess.TimeoutExpired:
+            json_response(self, 504, {"error": "Connection attempt timed out"})
+            return
+        except OSError as exc:
+            json_response(self, 500, {"error": f"nmcli failed: {exc}"})
+            return
+
+        if result.returncode != 0:
+            # nmcli errors don't echo the password. Map common ones to
+            # something the wizard can show without leaking internals.
+            raw = (result.stderr or result.stdout or "").strip()[:300]
+            lowered = raw.lower()
+            if "secrets were required" in lowered or "(7)" in raw:
+                err_msg = "Wrong password"
+            elif "no network with ssid" in lowered or "not found" in lowered:
+                err_msg = "Network not found"
+            elif "timeout" in lowered:
+                err_msg = "Connection timed out"
+            else:
+                err_msg = raw or "Connection failed"
+            json_response(self, 400, {
+                "error": err_msg, "code": result.returncode,
+            })
+            return
+
+        json_response(self, 200, {"success": True, "ssid": ssid})
+
+    def _handle_network_wifi_forget(self):
+        """Delete a saved NetworkManager connection profile by name."""
+        if not check_auth(self):
+            return
+        if not _network_supported(self):
+            return
+        body = read_json_body(self)
+        if body is None:
+            return
+
+        connection = body.get("connection", "")
+        if not isinstance(connection, str) or not connection or len(connection) > 64:
+            json_response(self, 400, {"error": "connection must be 1-64 chars"})
+            return
+        if any(c in connection for c in ("\n", "\r", "\0")):
+            json_response(self, 400, {"error": "connection contains invalid characters"})
+            return
+
+        try:
+            result = subprocess.run(
+                ["nmcli", "connection", "delete", connection],
+                capture_output=True, text=True, timeout=15,
+            )
+        except subprocess.TimeoutExpired:
+            json_response(self, 504, {"error": "nmcli delete timed out"})
+            return
+        except OSError as exc:
+            json_response(self, 500, {"error": f"nmcli failed: {exc}"})
+            return
+
+        if result.returncode != 0:
+            stderr = (result.stderr or "").strip()[:200]
+            json_response(self, 400, {"error": stderr or "Forget failed"})
+            return
+
+        json_response(self, 200, {"success": True, "connection": connection})
+
+    def _handle_network_status(self):
+        if not check_auth(self):
+            return
+        if platform.system() != "Linux":
+            json_response(self, 200, {
+                "platform_supported": False,
+                "platform": platform.system(),
+                "reason": "Wi-Fi management requires Linux + NetworkManager",
+            })
+            return
+        if shutil.which("nmcli") is None:
+            json_response(self, 200, {
+                "platform_supported": False,
+                "reason": "nmcli not installed",
+            })
+            return
+
+        try:
+            result = subprocess.run(
+                ["nmcli", "-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device", "status"],
+                capture_output=True, text=True, timeout=5,
+            )
+        except subprocess.TimeoutExpired:
+            json_response(self, 504, {"error": "nmcli timed out"})
+            return
+        except OSError as exc:
+            json_response(self, 500, {"error": f"nmcli failed: {exc}"})
+            return
+
+        devices = []
+        wifi_connected = False
+        for line in result.stdout.splitlines():
+            parts = line.split(":")
+            if len(parts) < 4:
+                continue
+            device, typ, state, connection = parts[0], parts[1], parts[2], parts[3]
+            if state != "connected":
+                continue
+            ip_addr = ""
+            gateway = ""
+            try:
+                ip_result = subprocess.run(
+                    ["nmcli", "-t", "-f", "IP4.ADDRESS,IP4.GATEWAY",
+                     "device", "show", device],
+                    capture_output=True, text=True, timeout=5,
+                )
+                for ip_line in ip_result.stdout.splitlines():
+                    if ip_line.startswith("IP4.ADDRESS"):
+                        _, _, val = ip_line.partition(":")
+                        ip_addr = val.split("/")[0]
+                    elif ip_line.startswith("IP4.GATEWAY"):
+                        _, _, val = ip_line.partition(":")
+                        gateway = val
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+
+            devices.append({
+                "device": device,
+                "type": typ,
+                "state": state,
+                "connection": connection,
+                "ip": ip_addr,
+                "gateway": gateway,
+            })
+            if typ == "wifi":
+                wifi_connected = True
+
+        json_response(self, 200, {
+            "platform_supported": True,
+            "devices": devices,
+            "wifi_connected": wifi_connected,
+        })
 
     def _handle_env_update(self):
         """Write a validated .env file. Dashboard-api delegates here because the

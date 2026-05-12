@@ -5,14 +5,18 @@ import json
 import logging
 import os
 import re
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import aiohttp
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field, field_validator
 
-from config import SERVICES, PERSONAS, SETUP_CONFIG_DIR, INSTALL_DIR
+from config import SERVICES, PERSONAS, SETUP_CONFIG_DIR, INSTALL_DIR, AGENT_URL, DREAM_AGENT_KEY
 from models import PersonaRequest, ChatRequest
 from security import verify_api_key
 
@@ -222,3 +226,139 @@ async def chat(request: ChatRequest, api_key: str = Depends(verify_api_key)):
     except aiohttp.ClientError:
         logger.exception("Cannot reach LLM backend")
         raise HTTPException(status_code=503, detail="Cannot reach LLM backend")
+
+
+# ---------------------------------------------------------------------------
+# Network configuration — Wi-Fi scan / connect / status
+#
+# These are thin proxies in front of dream-host-agent. Network mutation needs
+# root, so the dashboard-api never touches nmcli directly — it forwards to
+# the host-agent which runs as root and has the actual platform integration.
+#
+# The host-agent already enforces:
+#   * Linux + nmcli precondition (returns 501 otherwise)
+#   * SSID/password validation (length + control chars)
+#   * Password is never logged
+#
+# So this layer just validates the request shape, forwards it, and translates
+# host-agent errors into FastAPI HTTPException with sensible status codes.
+# ---------------------------------------------------------------------------
+
+
+class WifiConnectRequest(BaseModel):
+    ssid: str = Field(..., min_length=1, max_length=32)
+    password: str = Field(default="", max_length=63)
+
+    @field_validator("ssid")
+    @classmethod
+    def _ssid_no_control_chars(cls, v: str) -> str:
+        if any(c in v for c in ("\n", "\r", "\0")):
+            raise ValueError("ssid contains invalid characters")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def _password_no_control_chars(cls, v: str) -> str:
+        if any(c in v for c in ("\n", "\r", "\0")):
+            raise ValueError("password contains invalid characters")
+        return v
+
+
+def _call_agent(path: str, method: str = "GET", payload: dict | None = None, timeout: int = 60) -> dict:
+    """Forward a request to the host-agent.
+
+    Raises HTTPException with a status code derived from the host-agent's
+    response — 503 when the agent itself is unreachable, otherwise the
+    upstream status. Never logs the request payload (which may contain
+    Wi-Fi passwords); logs only the path and resulting status.
+    """
+    headers = {
+        "Authorization": f"Bearer {DREAM_AGENT_KEY}",
+    }
+    data = None
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        f"{AGENT_URL}{path}",
+        data=data,
+        headers=headers,
+        method=method,
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            body = response.read().decode("utf-8")
+            return json.loads(body) if body else {}
+    except urllib.error.HTTPError as exc:
+        # The host-agent returns structured JSON errors. Surface them.
+        detail = f"Host agent returned HTTP {exc.code}"
+        try:
+            err_payload = json.loads(exc.read().decode("utf-8"))
+            detail = err_payload.get("error", detail)
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+            pass
+        logger.info("host-agent %s %s -> %s", method, path, exc.code)
+        raise HTTPException(status_code=exc.code, detail=detail) from exc
+    except urllib.error.URLError as exc:
+        logger.warning("host-agent %s %s unreachable: %s", method, path, exc)
+        raise HTTPException(
+            status_code=503,
+            detail="Dream host agent is not reachable.",
+        ) from exc
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.exception("host-agent %s %s failed", method, path)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Host agent call failed: {exc}",
+        ) from exc
+
+
+@router.get("/api/setup/wifi-scan", dependencies=[Depends(verify_api_key)])
+async def setup_wifi_scan() -> dict:
+    """Return nearby Wi-Fi networks (Linux + NetworkManager only)."""
+    return await asyncio.to_thread(_call_agent, "/v1/network/wifi-scan", "GET", None, 25)
+
+
+@router.post("/api/setup/wifi-connect", dependencies=[Depends(verify_api_key)])
+async def setup_wifi_connect(payload: WifiConnectRequest) -> dict:
+    """Attempt to join a Wi-Fi network. Returns 400 on wrong-password or unknown SSID."""
+    return await asyncio.to_thread(
+        _call_agent,
+        "/v1/network/wifi-connect",
+        "POST",
+        {"ssid": payload.ssid, "password": payload.password},
+        60,
+    )
+
+
+@router.get("/api/setup/network-status", dependencies=[Depends(verify_api_key)])
+async def setup_network_status() -> dict:
+    """Current network state: connected interface, IP, gateway, Wi-Fi flag.
+
+    Always returns 200 even on non-Linux — the response carries
+    `platform_supported: false` so the wizard can render a fallback.
+    """
+    return await asyncio.to_thread(_call_agent, "/v1/network/status", "GET", None, 10)
+
+
+class WifiForgetRequest(BaseModel):
+    connection: str = Field(..., min_length=1, max_length=64)
+
+    @field_validator("connection")
+    @classmethod
+    def _no_control_chars(cls, v: str) -> str:
+        if any(c in v for c in ("\n", "\r", "\0")):
+            raise ValueError("connection contains invalid characters")
+        return v
+
+
+@router.post("/api/setup/wifi-forget", dependencies=[Depends(verify_api_key)])
+async def setup_wifi_forget(payload: WifiForgetRequest) -> dict:
+    """Delete a saved NetworkManager connection profile."""
+    return await asyncio.to_thread(
+        _call_agent,
+        "/v1/network/wifi-forget",
+        "POST",
+        {"connection": payload.connection},
+        15,
+    )
