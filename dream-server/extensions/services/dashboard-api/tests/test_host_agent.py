@@ -1741,8 +1741,14 @@ class TestEnableRetryEdgeCases:
 
         # Retry path engaged → 202 (accept-then-thread).
         assert handler.response_code == 202
-        # No subprocess invocation: there is no hook to run.
-        assert hook_cmds == []
+        # No hook-script invocation: there is no hook to run. (The startup_check
+        # path from PR #1039 still calls subprocess.run for `docker inspect`
+        # to poll container state — filter those out and only assert no hook ran.)
+        hook_invocations = [
+            c for c in hook_cmds
+            if not (isinstance(c, list) and len(c) >= 2 and c[0] == "docker" and c[1] == "inspect")
+        ]
+        assert hook_invocations == []
         # Worker landed on 'started' (not 'setup_hook' or 'error').
         progress = self._read_progress(data_dir, "fakesvc")
         assert progress is not None
