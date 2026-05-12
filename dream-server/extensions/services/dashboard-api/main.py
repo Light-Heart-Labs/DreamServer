@@ -53,6 +53,7 @@ from agent_monitor import collect_metrics
 from routers import (
     workflows, features, setup, updates, agents, privacy, extensions,
     gpu as gpu_router, resources, voice, models as models_router, templates,
+    auth as auth_router,
 )
 
 
@@ -925,6 +926,7 @@ app.include_router(resources.router)
 app.include_router(voice.router)
 app.include_router(models_router.router)
 app.include_router(templates.router)
+app.include_router(auth_router.router)
 
 
 # ================================================================

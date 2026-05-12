@@ -221,6 +221,10 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
     LIVEKIT_SECRET=$(_env_get LIVEKIT_API_SECRET "$(openssl rand -base64 32 2>/dev/null || head -c 32 /dev/urandom | base64)")
     DASHBOARD_API_KEY=$(_env_get DASHBOARD_API_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
     DREAM_AGENT_KEY=$(_env_get DREAM_AGENT_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
+    # HMAC key for signing dream-session cookies (magic-link redemption).
+    # 32 random bytes hex-encoded. Rotating invalidates every issued cookie —
+    # the only revocation mechanism we have today, so don't rotate casually.
+    DREAM_SESSION_SECRET=$(_env_get DREAM_SESSION_SECRET "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
     SHIELD_API_KEY=$(_env_get SHIELD_API_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
     DIFY_SECRET_KEY=$(_env_get DIFY_SECRET_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
     QDRANT_API_KEY=$(_env_get QDRANT_API_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
@@ -420,6 +424,7 @@ LANGFUSE_PORT=${LANGFUSE_PORT}
 WEBUI_SECRET=${WEBUI_SECRET}
 DASHBOARD_API_KEY=${DASHBOARD_API_KEY}
 DREAM_AGENT_KEY=${DREAM_AGENT_KEY}
+DREAM_SESSION_SECRET=${DREAM_SESSION_SECRET}
 SHIELD_API_KEY=${SHIELD_API_KEY}
 N8N_USER=admin@dreamserver.local
 N8N_PASS=${N8N_PASS}
