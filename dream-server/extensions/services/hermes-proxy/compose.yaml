@@ -8,9 +8,19 @@ services:
     restart: unless-stopped
     depends_on:
       - hermes
+      # forward_auth needs dashboard-api up to verify sessions. Compose
+      # depends_on only sequences start-up, not health — Caddy will get
+      # 502s for verify-session until dashboard-api is responding, at
+      # which point users get bounced to /auth/required (correct behaviour
+      # for the brief window).
+      - dashboard-api
     environment:
       # Override the upstream from .env if the operator's wiring differs.
       - HERMES_PROXY_UPSTREAM=${HERMES_PROXY_UPSTREAM:-dream-hermes:9119}
+      # Where forward_auth sends its session-verify sub-request. Defaults
+      # to the in-network dashboard-api container; override if dashboard-api
+      # lives on a different host or non-standard port.
+      - DREAM_AUTH_UPSTREAM=${DREAM_AUTH_UPSTREAM:-dream-dashboard-api:3002}
       # Optional help URL surfaced on the "you need an invite" page via
       # Caddy `templates` substitution. Empty hides the row entirely.
       - HERMES_PROXY_AUTH_DOCS_URL=${HERMES_PROXY_AUTH_DOCS_URL:-}

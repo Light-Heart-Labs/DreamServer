@@ -6,9 +6,9 @@ When this extension is enabled:
 
 - Hermes itself binds **internal-only** (no host port).
 - The proxy binds the LAN-facing port (default `9120`) — that's what users browse to.
-- Every request to the proxy is inspected for the `dream-session` cookie that magic-link redemption (PR-4) sets in the user's browser.
-- No cookie → 303 redirect to a static "you need an invite" page.
-- Cookie present → traffic is forwarded to `dream-hermes:9119`. Hermes's own [per-process session token model](HERMES.md#security-posture) then handles per-request `/api/` auth.
+- Every request to the proxy is verified via `forward_auth` against dashboard-api's `/api/auth/verify-session` endpoint — which HMAC-validates the `dream-session` cookie's signature against `DREAM_SESSION_SECRET`.
+- Verified (HTTP 200 from the verify endpoint) → traffic is forwarded to `dream-hermes:9119`. Hermes's own [per-process session token model](HERMES.md#security-posture) then handles per-request `/api/` auth.
+- Not verified (HTTP 401 — missing cookie, bad signature, or expired) → 303 redirect to a static "you need an invite" page.
 
 ## Why this design
 
@@ -43,13 +43,16 @@ dream enable hermes-proxy
 #    → Save the QR / URL
 
 # 4. Recipient scans the QR on their phone
-#    → Lands on dashboard-api's /auth/magic-link/<token>
-#    → Redemption sets the dream-session cookie
-#    → 302 redirect to chat (or wherever the scope says)
-#    → They now have a valid cookie for any Hermes proxy access too
+#    → Lands on the dream-proxy at <device>.local/auth/magic-link/<token>
+#    → Redemption sets the HMAC-signed dream-session cookie on <device>.local
+#    → 302 redirect to /chat (same origin → cookie travels along)
+#    → They now have a valid cookie for any same-host port too (cookies
+#      are scoped by host, not port — so <device>.local:9120 will receive
+#      it as well)
 
-# 5. Recipient browses to http://hermes.<device>.local:9120
-#    → Proxy sees the dream-session cookie → forward
+# 5. Recipient browses to http://<device>.local:9120
+#    → Proxy forward_auths to dashboard-api/api/auth/verify-session
+#    → Signature check passes → forward to Hermes
 #    → Hermes serves the SPA → they chat
 ```
 
@@ -60,19 +63,20 @@ If the recipient hasn't yet redeemed an invite, step 5 lands them on the "you ne
 ```
 Phone / laptop
    │
-   ▼  http://hermes.<device>.local:9120
+   ▼  http://<device>.local:9120
 ┌──────────────────────────────────────────┐
 │  dream-hermes-proxy  (Caddy, ~50MB)      │
 │                                          │
 │  Caddyfile match rules:                  │
 │    /health, /favicon.ico → respond       │
 │    /auth/required*       → static files  │
-│    cookie has dream-session → reverse_   │
-│                                 proxy    │
-│    everything else        → 303 redirect │
+│    everything else        → forward_auth │
 │                                          │
-│  Listens on :9120, forwards to           │
-│  dream-hermes:9119                       │
+│  forward_auth sub-request:               │
+│    GET /api/auth/verify-session →        │
+│      dashboard-api:3002                  │
+│        2xx → reverse_proxy dream-hermes  │
+│        401 → 303 to /auth/required       │
 └──────────┬───────────────────────────────┘
            │
            ▼  internal Docker bridge network only
@@ -89,39 +93,48 @@ Phone / laptop
        llama-server (existing)
 ```
 
-## What "cookie present" actually means
+## What gets verified
 
-The `dream-session` cookie is set by the dashboard-api's magic-link redemption (`routers/magic_link.py`). The cookie:
+The `dream-session` cookie is set by the dashboard-api's magic-link redemption (`routers/magic_link.py`) and signed with HMAC-SHA256 against `DREAM_SESSION_SECRET` (see `session_signer.py`). The cookie:
 
 - Is `HttpOnly` (JS can't read it)
 - Has `SameSite=Lax` (sent on top-level navigation cross-origin GETs, blocked on background cross-site POSTs)
-- Is `Secure` when the dashboard-api was reached over HTTPS
+- Is `Secure` when the redemption host was reached over HTTPS
 - Has `Max-Age = 12h` from redemption
-- Contains a random `secrets.token_urlsafe(24)` value (NOT the magic-link token itself)
+- Carries `<random-id>.<expiry-epoch>.<hmac-signature>` — the signature is what gates validity, not presence
 
-The proxy checks **presence and non-emptiness**. It does NOT:
+On every request the proxy issues a sub-request to `dashboard-api/api/auth/verify-session`, which:
 
-- Cross-check the cookie value against any server-side store (PR-4 doesn't keep one — see [Limitations](#known-limitations))
-- Validate the user identity carried by the cookie (there is none)
-- Verify the cookie's signature (it's not signed today)
+1. Splits the cookie value on `.`
+2. Recomputes the HMAC over `<random-id>.<expiry-epoch>` and constant-time-compares it (`hmac.compare_digest`) against the claimed signature
+3. Checks the embedded expiry hasn't passed
 
-In effect: anyone who can read another user's `dream-session` cookie value can pass the proxy gate. The cookie's `HttpOnly` and same-origin properties make casual sharing hard but not impossible (a malicious browser extension on the redeemed user's device could exfiltrate it; a screenshot of devtools could leak it).
+Any failure (missing cookie, tampered signature, expired timestamp, missing server-side secret) returns a single byte-identical 401 response so an attacker can't probe which step failed.
 
-For the Dream Server trust model (single home, trusted LAN, family-scale users), this is the v1 trade-off. The proxy explicitly says "**gating**, not identification."
+What this catches:
+- Forged cookies (any value not signed with the secret fails the HMAC check)
+- Expired cookies (server-side expiry, independent of the browser's `Max-Age`)
+- Tampered cookies (changing the `<random-id>` or extending `<expiry-epoch>` invalidates the signature)
+
+What this does NOT do:
+- Identify which user is behind a request — the cookie is opaque (the random-id is not a username)
+- Track per-cookie revocation. Today's only revocation mechanism is rotating `DREAM_SESSION_SECRET`, which invalidates every issued cookie. A future PR could add a revocation list keyed on the random-id; the cookie format reserves space for it.
+
+For the Dream Server trust model (single home, trusted LAN, family-scale users), this gives real signature-based gating without a session store. The proxy explicitly says "**gating**, not identification."
 
 ## Known limitations
 
 1. **No real multi-user.** All authed users share one Hermes — same memories, skills, persona, sessions. Mom can see Dad's chats and vice-versa. Treat Hermes as "the family's agent."
 
-2. **No server-side cookie validation.** Today's PR-4 redemption sets the cookie but doesn't store the issued session in a server-side store. Anyone with the raw cookie value can use it. A future PR could add a sessions table that the proxy validates against, but that's not this extension.
+2. **Stolen cookies are valid until expiry or secret rotation.** The cookie is signed, but if it's exfiltrated (malicious browser extension, leaked screenshot, etc.) the attacker can use it until the 12h expiry passes or the operator rotates `DREAM_SESSION_SECRET`. There's no per-cookie revocation today. The signed format reserves the random-id field for a future revocation list.
 
-3. **No per-request user identification.** The proxy doesn't add an `X-Dream-User` header to forwarded requests. Hermes can't know "this request is from Alice" — only "this request is from someone with a valid invite."
+3. **No per-request user identification.** The proxy doesn't add an `X-Dream-User` header to forwarded requests. Hermes can't know "this request is from Alice" — only "this request is from someone with a valid signed cookie."
 
 4. **The cookie's `dream-target-user` field is ignored by the proxy.** Magic-link redemption sets a second cookie naming the target username, but the proxy doesn't surface it to Hermes (there's no Hermes-side hook to consume it).
 
 5. **Direct access to Hermes is now blocked.** Anyone who was reaching Hermes at `:9119` before this extension lands needs to switch to `:9120` (the proxy port). If they want raw direct access for testing, they can `docker exec dream-hermes` or temporarily re-add a `ports:` binding to the Hermes compose.
 
-6. **Caddy's auth check is `header_regexp` on the `Cookie` header.** That's text-based — it doesn't parse cookie semantics. The match anchor `(?:^|;\s*)dream-session=[^;]+` covers the common cases but a deliberately-malformed `Cookie` header could in theory slip past. In practice browsers never send malformed Cookie headers, and an attacker who can set arbitrary HTTP headers already has bigger leverage.
+6. **`DREAM_SESSION_SECRET` must be configured.** With no secret set, `verify-session` returns 401 for every request (and `issue()` raises during magic-link redemption) — the proxy gate effectively becomes "nobody passes." Set a 32+-byte random value in `.env` before enabling `hermes-proxy`.
 
 ## Future: Option B — per-user Hermes
 
