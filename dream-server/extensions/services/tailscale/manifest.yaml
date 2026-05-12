@@ -8,8 +8,13 @@ service:
   name: Tailscale (Remote Access)
   aliases: [remote, vpn]
   container_name: dream-tailscale
-  # Tailscale runs in host network mode on Linux — no port exposed at the
-  # container layer. Health is checked via `tailscale status` over docker exec.
+  # `host_network: true` opts this service out of the audit's port-mapping +
+  # health-path requirements. Tailscale uses `network_mode: host` so its
+  # daemon shares the host's network namespace — there's no Docker-mapped
+  # port and no HTTP health endpoint, so those manifest fields don't apply.
+  # Liveness is checked via the compose healthcheck (`tailscale status
+  # --json`) instead. See scripts/audit-extensions.py.
+  host_network: true
   port: 0
   health_timeout: 30
   type: docker

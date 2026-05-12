@@ -488,12 +488,19 @@ def validate_records(
                 path=record.manifest_path,
             )
 
+        # `host_network: true` marks services that use Docker's
+        # `network_mode: host` (Tailscale being the canonical example) — they
+        # don't have a Docker-mapped port or an HTTP health endpoint, so the
+        # port/health requirements don't apply. The flag also flips off the
+        # compose-port-mismatch check further down.
+        host_network = bool(service.get("host_network"))
+
         port = parse_positive_int(service.get("port"))
-        if port is None:
+        if port is None and not host_network:
             record.add_issue("error", "service-port-invalid", "service.port must be a positive integer", path=record.manifest_path)
 
         health = str(service.get("health") or "")
-        if not health.startswith("/"):
+        if not health.startswith("/") and not host_network:
             record.add_issue(
                 "error",
                 "service-health-invalid",
@@ -693,7 +700,11 @@ def validate_records(
                     path=source_paths.get("base", record.manifest_path),
                 )
 
-        if port is not None:
+        if port is not None and not host_network:
+            # host-network services share the host's network namespace; their
+            # listen ports come from whatever process binds inside the host,
+            # not from Docker's port mapping. Skipping this check is what
+            # makes host_network: true viable in the first place.
             port_matches = False
             for definition in definitions.values():
                 if port in extract_target_ports(definition):

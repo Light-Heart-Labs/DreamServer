@@ -18,7 +18,7 @@ Tradeoff: every device that needs to reach Dream Server has to install the Tails
 ```
         ┌────────── Your phone (away from home) ──────────┐
         │  Tailscale client running                       │
-        │  browser opens https://dream.tail-xxxxx.ts.net  │
+        │  browser opens http://dream.tail-xxxxx.ts.net   │
         └──────────────────────┬──────────────────────────┘
                                │
                                │  encrypted WireGuard
@@ -33,14 +33,25 @@ Tradeoff: every device that needs to reach Dream Server has to install the Tails
         │     dream-tailscale container in host-net mode)│
         │                                                │
         │  Container's tailscaled exposes the HOST'S     │
-        │  network namespace to the tailnet — so the     │
-        │  dashboard on :3001 and chat on :3000 are      │
-        │  reachable on dream.tail-xxxxx.ts.net:3001     │
-        │  and :3000 with zero extra config.             │
+        │  network namespace to the tailnet. The         │
+        │  reachable surface is whatever the host        │
+        │  itself is listening on. With dream-proxy on   │
+        │  port 80 and BIND_ADDRESS=0.0.0.0, that's the  │
+        │  same /chat, /api/*, /auth/* paths users see   │
+        │  on the LAN.                                   │
         └────────────────────────────────────────────────┘
 ```
 
-The container uses `network_mode: host` so the Tailscale daemon and the dashboard share the same network namespace. That's what makes the dashboard's normal ports (`3000`, `3001`, `3002`) automatically reachable over the tailnet.
+The container uses `network_mode: host` so the Tailscale daemon and the dashboard share the same network namespace. **What that buys you depends entirely on what the host is binding to** (see Prerequisites below).
+
+## Prerequisites for tailnet reachability
+
+Joining the tailnet only gets the device a `100.x.y.z` IP and a `dream.tail-xxxxx.ts.net` DNS name. For an HTTP request from another tailnet member to actually load chat, the host has to be listening on the right port and address:
+
+1. **`dream-proxy` is enabled.** It listens on port 80 and routes `/chat`, `/api/*`, `/auth/*` to the right backend. With it, tailnet clients browse to `http://dream.tail-xxxxx.ts.net` (no port). Without it, only the per-service ports work (`:3000`, `:3001`, `:3002`) and only if those are LAN-bound.
+2. **`BIND_ADDRESS=0.0.0.0` in `.env`.** The default `127.0.0.1` means the proxy / dashboard / chat only accept loopback connections — even though tailscaled is in the same namespace, an incoming tailnet packet looks like any other LAN packet, not loopback. Set `BIND_ADDRESS=0.0.0.0` so the host's listen sockets accept those connections.
+
+If you ship a fresh install with Tailscale enabled but neither of the above, `tailscale status` will show the device authed but `http://dream.tail-xxxxx.ts.net` will hang or refuse. The dashboard's Tailscale page surfaces both conditions when they're missing.
 
 ## Setup
 
@@ -97,9 +108,14 @@ curl -H "Authorization: Bearer ${DASHBOARD_API_KEY}" \
 From any other device on your tailnet:
 
 ```bash
-# After installing the Tailscale client and signing into the same tailnet:
-curl http://dream.tail-abcde.ts.net:3001
-# Or from a browser: http://dream.tail-abcde.ts.net:3001
+# After installing the Tailscale client and signing into the same tailnet,
+# AND with dream-proxy enabled + BIND_ADDRESS=0.0.0.0 on the device:
+curl http://dream.tail-abcde.ts.net/api/status
+# Or from a browser: http://dream.tail-abcde.ts.net (lands at /chat via the proxy)
+
+# To bypass the proxy and hit a specific service directly, use its port
+# (only works when BIND_ADDRESS=0.0.0.0):
+curl http://dream.tail-abcde.ts.net:3001  # dashboard direct
 ```
 
 ## After the auth key has done its job
