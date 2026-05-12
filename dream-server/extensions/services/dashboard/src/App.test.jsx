@@ -32,9 +32,12 @@ vi.mock('./plugins/registry', () => ({
   getSidebarExternalLinks: vi.fn(() => [])
 }))
 
-vi.mock('./components/SetupWizard', () => ({
+// FirstBoot is lazy-imported in App.jsx and rendered fullscreen when
+// firstRun=true. Mock it as a sync component so tests don't need to
+// await Suspense.
+vi.mock('./pages/FirstBoot', () => ({
   default: ({ onComplete }) => (
-    <div data-testid="setup-wizard">
+    <div data-testid="first-boot">
       <button onClick={onComplete}>Complete</button>
     </div>
   )
@@ -67,16 +70,19 @@ describe('App', () => {
     expect(document.querySelector('aside')).toBeInTheDocument()
   })
 
-  test('shows SetupWizard when server reports first_run=true', () => {
+  test('shows FirstBoot when server reports first_run=true', async () => {
     useFirstRun.mockReturnValue({ firstRun: true, loading: false, error: null, refresh: vi.fn() })
     render(<App />)
-    expect(screen.getByTestId('setup-wizard')).toBeInTheDocument()
+    // FirstBoot is lazy-loaded under Suspense; await its appearance.
+    expect(await screen.findByTestId('first-boot')).toBeInTheDocument()
+    // Sidebar must NOT render during onboarding — the wizard owns the screen.
+    expect(document.querySelector('aside')).not.toBeInTheDocument()
   })
 
-  test('hides SetupWizard when server reports first_run=false', () => {
+  test('hides FirstBoot when server reports first_run=false', () => {
     useFirstRun.mockReturnValue({ firstRun: false, loading: false, error: null, refresh: vi.fn() })
     render(<App />)
-    expect(screen.queryByTestId('setup-wizard')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('first-boot')).not.toBeInTheDocument()
   })
 
   test('renders sidebar', () => {

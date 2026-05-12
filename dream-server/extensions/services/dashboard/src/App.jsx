@@ -1,12 +1,16 @@
 import { Routes, Route } from 'react-router-dom'
-import { useState, useEffect, Suspense, useMemo, useCallback } from 'react'
+import { useState, useEffect, Suspense, useMemo, useCallback, lazy } from 'react'
 import Sidebar from './components/Sidebar'
-import SetupWizard from './components/SetupWizard'
 import { useSystemStatus } from './hooks/useSystemStatus'
 import { useVersion } from './hooks/useVersion'
 import { useFirstRun } from './hooks/useFirstRun'
 import { getInternalRoutes } from './plugins/registry'
 import SplashScreen from './components/SplashScreen'
+
+// Phone-first first-boot wizard. Mounted instead of the normal app shell
+// when useFirstRun() reports firstRun=true. Lazy-loaded so the wizard
+// bundle isn't paid for on every page load after onboarding.
+const FirstBoot = lazy(() => import('./pages/FirstBoot'))
 
 function getStorageValue(storage, key) {
   try {
@@ -53,6 +57,29 @@ function App() {
   const routes = useMemo(() => getInternalRoutes({ status, loading }), [status, loading])
   const handleToggle = useCallback(() => setSidebarCollapsed(c => !c), [])
 
+  // First-boot path: render the FirstBoot SPA fullscreen and lock out the
+  // rest of the dashboard. The user can't reach Settings / Extensions / etc.
+  // until they've completed onboarding — that simplifies the wizard story
+  // (one path, no escape hatches) and prevents half-configured devices
+  // from getting halfway-set-up.
+  if (firstRun) {
+    return (
+      <div className="min-h-screen bg-theme-bg text-theme-text">
+        {!splashDone && <SplashScreen onComplete={() => {
+          setStorageValue(globalThis.sessionStorage, 'dream-splash-shown', '1')
+          setSplashDone(true)
+        }} />}
+        <Suspense fallback={
+          <div className="min-h-screen flex items-center justify-center">
+            <div className="font-mono text-sm text-theme-accent tracking-widest animate-pulse">DREAM SERVER</div>
+          </div>
+        }>
+          <FirstBoot onComplete={dismissFirstRun} />
+        </Suspense>
+      </div>
+    )
+  }
+
   return (
     <div className="flex min-h-screen bg-theme-bg text-theme-text relative">
       {!splashDone && <SplashScreen onComplete={() => {
@@ -66,10 +93,6 @@ function App() {
       />
 
       <main className={`dashboard-market-shell flex-1 transition-all duration-200 ${sidebarCollapsed ? 'ml-20' : 'ml-64'}`}>
-        {firstRun && (
-          <SetupWizard onComplete={dismissFirstRun} />
-        )}
-
         {status?.bootstrap?.active && (
           <BootstrapBanner bootstrap={status.bootstrap} />
         )}
