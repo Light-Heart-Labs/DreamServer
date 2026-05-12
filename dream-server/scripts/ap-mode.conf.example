@@ -23,7 +23,8 @@
 DREAM_AP_SSID="Dream-Setup-XXXX"
 
 # WPA2 password. Must be at least 8 characters. Recommend 12+ random
-# characters baked in per device.
+# characters baked in per device. The script refuses this placeholder
+# value so images do not accidentally ship a known AP password.
 DREAM_AP_PASSWORD="changeme-set-per-device"
 
 # ----------------------------------------------------------------------------

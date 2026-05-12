@@ -66,20 +66,34 @@ err() { printf '[ap-mode] ERROR: %s\n' "$*" >&2; }
 # fails we exit with an error rather than guessing.
 _netmask_to_prefix() {
   local mask="$1"
-  local count=0 octet
-  for octet in $(printf '%s' "$mask" | tr '.' ' '); do
+  local count=0 octet bits seen_zero=0
+  local -a octets
+  IFS='.' read -r -a octets <<< "$mask"
+  if (( ${#octets[@]} != 4 )); then
+    err "invalid netmask '$mask' (expected four octets)"
+    return 1
+  fi
+  for octet in "${octets[@]}"; do
     case "$octet" in
-      255) count=$((count + 8)) ;;
-      254) count=$((count + 7)) ;;
-      252) count=$((count + 6)) ;;
-      248) count=$((count + 5)) ;;
-      240) count=$((count + 4)) ;;
-      224) count=$((count + 3)) ;;
-      192) count=$((count + 2)) ;;
-      128) count=$((count + 1)) ;;
-      0)   count=$((count + 0)) ;;
+      255) bits=8 ;;
+      254) bits=7 ;;
+      252) bits=6 ;;
+      248) bits=5 ;;
+      240) bits=4 ;;
+      224) bits=3 ;;
+      192) bits=2 ;;
+      128) bits=1 ;;
+      0)   bits=0 ;;
       *)   err "invalid netmask octet '$octet' in '$mask'"; return 1 ;;
     esac
+    if (( seen_zero && bits > 0 )); then
+      err "invalid non-contiguous netmask '$mask'"
+      return 1
+    fi
+    if (( bits < 8 )); then
+      seen_zero=1
+    fi
+    count=$((count + bits))
   done
   printf '%s' "$count"
 }
@@ -121,6 +135,10 @@ require_password() {
   if [[ -z "${DREAM_AP_PASSWORD}" ]]; then
     log "WARNING: DREAM_AP_PASSWORD unset — bringing up an open AP."
     log "  Set DREAM_AP_PASSWORD in ${CONF_DIR}/ap-mode.conf to require auth."
+  elif [[ "${DREAM_AP_PASSWORD,,}" == "changeme-set-per-device" ]]; then
+    err "DREAM_AP_PASSWORD still has the example placeholder value"
+    err "set a unique per-device AP password in ${CONF_DIR}/ap-mode.conf"
+    return 1
   elif [[ ${#DREAM_AP_PASSWORD} -lt 8 ]]; then
     err "DREAM_AP_PASSWORD must be at least 8 characters (WPA2 minimum)"
     return 1
@@ -285,9 +303,9 @@ cmd_up() {
   write_dnsmasq_conf
   install_iptables_rules
 
-  # Start daemons via systemd-run --scope so they're easy to track + kill
-  # without each needing a wrapper unit. --no-block lets us continue.
-  if ! pgrep -f "hostapd ${HOSTAPD_CONF}" >/dev/null; then
+  # Start daemons directly and track them with PID files so teardown can
+  # cleanly stop only the processes started for AP mode.
+  if ! pgrep -f "hostapd .*${HOSTAPD_CONF}" >/dev/null; then
     hostapd -B -P "${HOSTAPD_PID}" "${HOSTAPD_CONF}" \
       || { err "hostapd failed to start — check journalctl"; cmd_down; return 1; }
   fi
@@ -314,7 +332,7 @@ cmd_down() {
     kill "$(cat "${HOSTAPD_PID}")" 2>/dev/null || true
     rm -f "${HOSTAPD_PID}"
   fi
-  pkill -f "hostapd ${HOSTAPD_CONF}" 2>/dev/null || true
+  pkill -f "hostapd .*${HOSTAPD_CONF}" 2>/dev/null || true
 
   if [[ -f "${DNSMASQ_PID}" ]]; then
     kill "$(cat "${DNSMASQ_PID}")" 2>/dev/null || true
@@ -365,4 +383,6 @@ HEREDOC
   esac
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

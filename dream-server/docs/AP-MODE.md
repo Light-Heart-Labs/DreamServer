@@ -82,8 +82,8 @@ sudo install -d -m 0755 /etc/dream
 sudo install -m 0600 /dream-server/scripts/ap-mode.conf.example /etc/dream/ap-mode.conf
 sudo $EDITOR /etc/dream/ap-mode.conf  # set DREAM_AP_SSID + DREAM_AP_PASSWORD
 
-# 3. Install the systemd unit. The installer templates __INSTALL_DIR__ already
-#    for dream-host-agent.service; use the same substitution here.
+# 3. Install the systemd unit. Manual installs must render __INSTALL_DIR__
+#    before copying the unit into /etc/systemd/system.
 sudo cp /dream-server/scripts/systemd/dream-ap-mode.service /etc/systemd/system/
 sudo sed -i 's|__INSTALL_DIR__|/dream-server|g' /etc/systemd/system/dream-ap-mode.service
 sudo systemctl daemon-reload
@@ -109,7 +109,7 @@ All settings are bash variables sourced from `/etc/dream/ap-mode.conf`. See `scr
 | Variable | Default | Notes |
 |---|---|---|
 | `DREAM_AP_SSID` | `Dream-Setup` | Network name. Include a per-unit suffix to avoid collisions. |
-| `DREAM_AP_PASSWORD` | empty | WPA2 passphrase. Empty → open AP (allowed but warned). |
+| `DREAM_AP_PASSWORD` | empty | WPA2 passphrase. Empty → open AP (allowed but warned). The example placeholder is refused so images do not ship a known password. |
 | `DREAM_AP_INTERFACE` | `wlan0` | Must support AP mode. Check with `iw list \| grep -A4 'Supported interface modes' \| grep AP`. |
 | `DREAM_AP_GATEWAY_IP` | `192.168.7.1` | IP that resolves every hostname (captive-portal trick). |
 | `DREAM_AP_NETMASK` | `255.255.255.0` | |
