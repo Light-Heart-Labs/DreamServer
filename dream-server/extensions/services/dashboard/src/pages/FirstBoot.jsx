@@ -119,7 +119,18 @@ export default function FirstBoot({ onComplete }) {
       const inviteData = await genResp.json()
 
       // Flip the server-side sentinel so this device is "configured".
-      await fetch('/api/setup/complete', { method: 'POST' })
+      // Check the response — an earlier draft fired the request and
+      // moved on regardless of status, which left the server in
+      // first-run mode while the UI said "You're set." If complete
+      // fails, throw and let the catch surface the error to the user
+      // (with the invite still safely visible on the previous screen).
+      const completeResp = await fetch('/api/setup/complete', { method: 'POST' })
+      if (!completeResp.ok) {
+        const body = await completeResp.json().catch(() => ({}))
+        throw new Error(
+          body.detail || `Failed to mark setup complete (${completeResp.status}). Your invite was generated; ask the admin to re-run setup.`,
+        )
+      }
 
       setInvite(inviteData)
       clearProgress()
