@@ -1,0 +1,28 @@
+[Unit]
+Description=Dream Server first-boot AP mode (hostapd + dnsmasq captive portal)
+# Run before user-facing networking services so the AP is up by the time
+# anyone tries to scan it. Conflicts with NetworkManager managing the AP
+# interface — ap-mode.sh handles releasing it explicitly.
+After=network-pre.target
+Before=NetworkManager.service
+
+# OPT-IN. This unit is installed but NOT enabled by the installer.
+# Enable it manually with `systemctl enable --now dream-ap-mode`
+# only after writing /etc/dream/ap-mode.conf with the AP credentials.
+# See docs/AP-MODE.md.
+
+[Service]
+Type=forking
+# ap-mode.sh launches hostapd + dnsmasq in the background then exits.
+# Both daemons write PID files into /run/dream-ap-mode/.
+ExecStart=__INSTALL_DIR__/scripts/ap-mode.sh up
+ExecStop=__INSTALL_DIR__/scripts/ap-mode.sh down
+PIDFile=/run/dream-ap-mode/hostapd.pid
+RemainAfterExit=yes
+# Don't restart automatically — if hostapd died, we want the operator
+# to see why. Auto-restart would hide a deeper problem (bad config,
+# driver, kernel) behind retry loops.
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

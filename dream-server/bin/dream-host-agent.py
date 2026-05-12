@@ -964,6 +964,8 @@ class AgentHandler(BaseHTTPRequestHandler):
             self._handle_network_status()
         elif self.path == "/v1/tailscale/status":
             self._handle_tailscale_status()
+        elif self.path == "/v1/ap-mode/status":
+            self._handle_ap_mode_status()
         else:
             json_response(self, 404, {"error": "Not found"})
 
@@ -1049,6 +1051,32 @@ class AgentHandler(BaseHTTPRequestHandler):
             "magic_dns_suffix": magic_dns,
             "tailnet_name": tailnet_name,
         })
+
+    def _handle_ap_mode_status(self):
+        """Read-only AP-mode status snapshot.
+
+        Reads /run/dream-ap-mode/state.json which ap-mode.sh writes
+        when the AP is up. Returns {"status": "inactive"} if the file
+        doesn't exist. NEVER enables or disables AP mode itself —
+        toggling is operator-only via systemctl, by design (turning
+        on an AP from an HTTP endpoint is a great way to lock yourself
+        out of a remote box).
+        """
+        if not check_auth(self):
+            return
+        state_path = Path("/run/dream-ap-mode/state.json")
+        if not state_path.exists():
+            json_response(self, 200, {"status": "inactive"})
+            return
+        try:
+            data = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            json_response(self, 503, {
+                "status": "unknown",
+                "error": f"could not read AP state file: {exc}",
+            })
+            return
+        json_response(self, 200, data)
 
     def _handle_service_stats(self):
         """Return CPU/memory stats for all Dream-managed containers."""
