@@ -6,7 +6,17 @@ services:
     container_name: dream-proxy
     restart: unless-stopped
     depends_on:
+      # All three are routed by Caddy; depends_on is for ordering, not
+      # health. Cold-start 502s are normal until the upstream comes up.
       - dashboard
+      - dashboard-api
+      - open-webui
+    environment:
+      # Caddy substitutes {$DREAM_DEVICE_NAME:dream} in the Caddyfile at
+      # server-start, building per-service hostnames (chat.<name>.local,
+      # auth.<name>.local, etc.). Falls back to "dream" if .env is missing
+      # the value, so the proxy still comes up on a fresh box.
+      - DREAM_DEVICE_NAME=${DREAM_DEVICE_NAME:-dream}
     volumes:
       - ./extensions/services/dream-proxy/Caddyfile:/etc/caddy/Caddyfile:ro
       # Caddy persists its own state (certs, ACME data) — empty for the

@@ -6,7 +6,10 @@ compatibility:
 service:
   id: dream-proxy
   name: Dream Server (Web)
-  aliases: [proxy, gateway, web]
+  # `web` was here in an earlier draft but collided with open-webui's
+  # existing alias. The extension audit blocks aliases owned by another
+  # service; keeping it scoped to proxy/gateway.
+  aliases: [proxy, gateway]
   container_name: dream-proxy
   default_host: dream-proxy
   # Standard HTTP — what `http://<device>.local` (no port) actually hits.
@@ -20,18 +23,26 @@ service:
   gpu_backends: [all]
   compose_file: compose.yaml
   category: optional
-  depends_on: [dashboard]
+  # Every upstream the Caddyfile routes to. Compose depends_on only
+  # sequences start-up, not health, so 502s during a cold start are
+  # expected and harmless; this list makes the routed surface explicit
+  # for operators/dependency-graph tooling.
+  depends_on: [dashboard, dashboard-api, open-webui]
   description: >
-    Caddy reverse proxy that fronts Dream Server's web surface on port 80.
-    Without this extension, the dashboard / chat / API services bind to
-    127.0.0.1 by default, so `http://<device>.local` (no port) doesn't
-    resolve to anything. With it, the standard port works:
-        /          → dashboard (port 3001)
-        /chat      → Open WebUI (port 3000)
-        /api/      → dashboard-api (port 3002)
-        /auth/     → dashboard-api (magic-link redemption)
-    This is the LAN-facing entry point. Other Dream Server services
-    stay loopback-bound; the proxy is the only thing that opens up.
+    Caddy reverse proxy fronting Dream Server's web surface on port 80
+    with host-based routing. Without this extension, the dashboard / chat
+    / API services bind to 127.0.0.1 by default, so `http://<device>.local`
+    doesn't resolve to anything. With it, each surface gets its own
+    subdomain on the mDNS hostname:
+        <device>.local           → 302 redirect to chat
+        chat.<device>.local      → Open WebUI (root-mounted)
+        dashboard.<device>.local → Dream Dashboard (operator UI)
+        auth.<device>.local      → dashboard-api (magic-link redemption)
+        api.<device>.local       → dashboard-api (admin /api/*)
+        hermes.<device>.local    → hermes-proxy (when enabled)
+    Per-subdomain routing means every backend stays root-mounted (no
+    subpath gymnastics) and the dream-session cookie can be Domain-scoped
+    to <device>.local so SSO works across all of them.
 
   env_vars:
     - key: DREAM_PROXY_PORT
