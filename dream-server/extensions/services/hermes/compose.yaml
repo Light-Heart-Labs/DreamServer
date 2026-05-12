@@ -75,7 +75,13 @@ services:
       - gateway
       - run
     healthcheck:
-      test: ["CMD", "curl", "-fs", "http://127.0.0.1:9119/api/health"]
+      # Hermes's dashboard auth gates everything under /api/* (returns 401),
+      # so /api/health is NOT a usable healthcheck — curl -fs would fail
+      # and the container would be perpetually unhealthy. Verified against
+      # the SHA-pinned image during smoke test: the unauthenticated
+      # endpoints are /healthz, /health, /status, /ping at the root.
+      # /healthz is the convention closest to k8s-style probes.
+      test: ["CMD", "curl", "-fs", "http://127.0.0.1:9119/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
