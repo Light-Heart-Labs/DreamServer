@@ -82,6 +82,14 @@ services:
       ENABLE_OLLAMA_API: "false"
       OPENAI_API_BASE_URL: "${LLM_API_URL:-http://llama-server:8080}/v1"
       OPENAI_API_KEY: ""
+      # PWA / branding — surfaces as the app title, page title, and PWA install name.
+      # When a user adds Dream to their home screen, this is the label they see
+      # next to the Dream icon. Defaults to "Dream"; users can override per-install.
+      WEBUI_NAME: "${WEBUI_NAME:-Dream}"
+      # Public URL used by Open WebUI for share links and OAuth callbacks.
+      # Defaults to the local-network URL; override when fronted by a reverse
+      # proxy / Tailscale Funnel / Cloudflare Tunnel.
+      WEBUI_URL: "${WEBUI_URL:-http://${DREAM_DEVICE_NAME:-dream}.local:${WEBUI_PORT:-3000}}"
       WEBUI_AUTH: "${WEBUI_AUTH:-true}"
       WEBUI_SECRET_KEY: "${WEBUI_SECRET:?WEBUI_SECRET must be set — run the installer or add it to .env}"
       ENABLE_WEB_SEARCH: "true"
