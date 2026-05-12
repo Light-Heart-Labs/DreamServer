@@ -1,0 +1,66 @@
+# Hermes Agent configuration — Dream Server defaults.
+#
+# This file is mounted into the upstream image at
+# /opt/hermes/cli-config.yaml.example, which Hermes's entrypoint copies into
+# /opt/data/config.yaml on first start IF that file doesn't already exist.
+# Re-running `dream enable hermes` after editing here won't overwrite an
+# existing config — delete /opt/data/config.yaml manually if you want to
+# reset to these defaults.
+#
+# Documentation for every key: https://hermes-agent.nousresearch.com/docs/
+
+# =============================================================================
+# Model — points at Dream Server's local LLM by default
+# =============================================================================
+model:
+  # The local model name. Defaults to Dream's LLM_MODEL via the
+  # OPENAI_BASE_URL Hermes inspects. The provider override below makes
+  # the actual model lookup happen against llama-server's /v1/models.
+  default: "qwen3.5-9b"
+
+  # provider=custom = any OpenAI-compatible local server. Aliases:
+  # ollama, vllm, llamacpp. We pick "custom" for portability.
+  provider: "custom"
+
+  # base_url is overridden at container start by OPENAI_BASE_URL env
+  # (which compose.yaml wires to http://llama-server:8080/v1). The
+  # value here is the fallback if the env var is unset.
+  base_url: "http://llama-server:8080/v1"
+
+# =============================================================================
+# Terminal backend — where tool calls execute
+# =============================================================================
+# Hermes can run tools in a few different sandboxes. For Dream Server we keep
+# it local-to-the-container: no SSH out, no Modal/Daytona, no Docker-in-Docker.
+# The container IS the sandbox.
+terminal:
+  backend: "local"
+
+# =============================================================================
+# Messaging gateways — DISABLED by default in Dream Server
+# =============================================================================
+# Hermes ships with Telegram / Discord / Slack / WhatsApp / Signal / email /
+# Teams / Google Chat / Matrix / Mattermost / SMS gateways. Dream Server users
+# reach Hermes via the web dashboard, not platform bots. Leave these off
+# unless you understand the security implications of each.
+#
+# To enable any of them, set the corresponding token in .env (TELEGRAM_TOKEN,
+# DISCORD_TOKEN, etc.) AND remove the disabled: true line from the
+# corresponding adapter config under upstream's gateway docs.
+gateway:
+  # Globally disable the messaging gateway runner. The `dashboard` subcommand
+  # is what compose.yaml starts; this just makes sure that if someone runs
+  # `docker exec dream-hermes hermes gateway run` it stays a no-op until
+  # they explicitly configure a platform.
+  enabled: false
+
+# =============================================================================
+# Compression — keep memory bounded on small devices
+# =============================================================================
+# Hermes auto-compacts long conversations. Lower threshold = more aggressive
+# compaction = lower disk + token costs but more summarization loss.
+context:
+  # Match the LLM's context window. Dream Server's default CTX_SIZE is 16384;
+  # bump this if you've raised CTX_SIZE in .env.
+  context_length: 16384
+  compact_threshold: 10000

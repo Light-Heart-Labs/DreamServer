@@ -1,0 +1,83 @@
+services:
+  hermes:
+    # SHA-pinned to NousResearch/hermes-agent@dd0923bb89ed2dd56f82cb63656a1323f6f42e6f
+    # (2026-05-12). Upstream's CI publishes a sha-<full-sha> tag for every main
+    # push, so this is an immutable reference. Bumping the pin is a deliberate
+    # review-and-smoke-test pass — see docs/HERMES.md "How to bump the pin."
+    image: nousresearch/hermes-agent:sha-dd0923bb89ed2dd56f82cb63656a1323f6f42e6f
+    container_name: dream-hermes
+    restart: unless-stopped
+    # NOT host networking — we use bridge so the container can resolve
+    # `llama-server` via Docker's internal DNS. Upstream's reference compose
+    # uses host mode; we deviate because Dream Server is multi-service and
+    # depends on inter-container service discovery.
+    environment:
+      # User remapping: match the host user so files written into the volume
+      # are owned by the user, not container-root. Same pattern as n8n.
+      - HERMES_UID=${UID:-10000}
+      - HERMES_GID=${GID:-10000}
+      # Point Hermes at the local LLM. provider=custom is the documented
+      # alias for any OpenAI-compatible local server (vLLM / llama.cpp / Ollama).
+      # The actual provider/model wiring lives in cli-config.yaml (mounted below).
+      - OPENAI_BASE_URL=${HERMES_LLM_BASE_URL:-http://llama-server:8080/v1}
+      - OPENAI_API_KEY=${HERMES_LLM_API_KEY:-sk-dream-hermes-local}
+      # Aggressive timeouts for local cold starts — llama-server can take
+      # >60s to load a model under heavy use.
+      - HERMES_API_TIMEOUT=1800
+      - HERMES_API_CALL_STALE_TIMEOUT=900
+      # Locale + timezone match the rest of the stack.
+      - TZ=${TIMEZONE:-UTC}
+      - HERMES_LANGUAGE=${HERMES_LANGUAGE:-en}
+    volumes:
+      # Persistent state: Hermes's HERMES_HOME. Sessions, skills, memories,
+      # cron jobs, audit logs all live here.
+      - ./data/hermes:/opt/data
+      # Bake our cli-config.yaml + SOUL.md as the defaults Hermes copies into
+      # HERMES_HOME on first start (its entrypoint copies these examples into
+      # /opt/data/ if the destination files don't exist yet). Mounting them
+      # over the in-image versions means our defaults win without needing
+      # a custom Dockerfile.
+      - ./extensions/services/hermes/cli-config.yaml.template:/opt/hermes/cli-config.yaml.example:ro
+      - ./extensions/services/hermes/SOUL.md.template:/opt/hermes/docker/SOUL.md:ro
+    ports:
+      # BIND_ADDRESS gates LAN exposure. Default 127.0.0.1 = localhost only.
+      # Set BIND_ADDRESS=0.0.0.0 in .env to make Hermes reachable on the LAN
+      # at hermes.<device>.local:9119 (mDNS) or via Tailscale.
+      - "${BIND_ADDRESS:-127.0.0.1}:${HERMES_PORT:-9119}:9119"
+    # Run only the dashboard subcommand. Upstream's image entrypoint defaults
+    # to `hermes` (no args) which is for interactive use. We want exactly the
+    # FastAPI + React UI. --insecure is required because the dashboard refuses
+    # non-loopback binds without it (it stores API keys); inside Dream Server's
+    # trusted-LAN posture this is the documented v1 trade-off. --no-open keeps
+    # Hermes from trying to open a browser inside the container.
+    command:
+      - dashboard
+      - --host
+      - 0.0.0.0
+      - --port
+      - "9119"
+      - --no-open
+      - --insecure
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://127.0.0.1:9119/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s  # skills sync + config bootstrap can take a while
+    # Hermes pulls in playwright + ffmpeg + chromium + ML deps — image is
+    # multi-GB. Reasonable resource caps so it doesn't crowd out the LLM.
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
