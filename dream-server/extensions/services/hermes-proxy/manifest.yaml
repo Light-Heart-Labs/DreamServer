@@ -5,8 +5,11 @@ compatibility:
 
 service:
   id: hermes-proxy
-  name: Hermes Auth Proxy
-  aliases: [hermes-gate]
+  # This is the user-facing sidebar tile for "Hermes Agent." The raw
+  # Hermes container (id: hermes) is internal-only; this proxy is the
+  # only entry point reachable from the LAN / Tailscale.
+  name: Hermes Agent
+  aliases: [hermes, agent, hermes-gate, hermes-auth-proxy]
   container_name: dream-hermes-proxy
   default_host: hermes-proxy
   port: 9120
@@ -21,8 +24,8 @@ service:
   category: optional
   depends_on: [hermes, dashboard-api]
   description: >
-    Caddy-based reverse proxy that fronts the Hermes Agent extension.
-    Verifies the `dream-session` cookie against dashboard-api's
+    User-facing entry point for the Hermes Agent. A Caddy reverse proxy
+    that verifies the `dream-session` cookie against dashboard-api's
     /api/auth/verify-session endpoint (Caddy forward_auth) — which
     HMAC-validates the cookie's signature against DREAM_SESSION_SECRET.
     Without a valid cookie, requests are bounced to a static "you need

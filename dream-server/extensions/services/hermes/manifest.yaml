@@ -5,8 +5,17 @@ compatibility:
 
 service:
   id: hermes
-  name: Hermes Agent
-  aliases: [agent, hermes-agent]
+  # Internal-only after the hermes-proxy extension landed. The user-facing
+  # "Hermes Agent" sidebar tile is published by hermes-proxy (port 9120),
+  # which gates access on Dream Server's magic-link cookie and forwards
+  # here. Hermes itself is reachable only on the Docker bridge network.
+  name: Hermes Agent (internal)
+  # `agent` was previously claimed here, but #1171 hands the user-facing
+  # "Hermes Agent" tile (and its aliases) to hermes-proxy — keeping the
+  # bare `agent` alias on both sides triggers an extension-audit collision.
+  # The internal-only tile is for tooling/debug, so a narrower alias list
+  # is fine here.
+  aliases: [hermes-agent, hermes-internal]
   container_name: dream-hermes
   default_host: hermes
   # Hermes's own dashboard listens on 9119 inside the container.
@@ -16,11 +25,11 @@ service:
   # under `expose:` so other containers on the bridge network (notably
   # hermes-proxy) can talk to dream-hermes:9119.
   port: 9119
-  # external_port_env / external_port_default are deliberately omitted —
   # with hermes-proxy enabled Hermes is internal-only (compose declares
   # the port under `expose:` not `ports:`). Surfacing a "browse to this
   # port" URL in /api/external-links would mislead users into bypassing
-  # the magic-link gate.
+  # the magic-link gate. Operators who want raw direct access can re-add
+  # a `ports:` binding in compose.yaml.
   #
   # /api/* is auth-gated by Hermes's dashboard (returns 401 without
   # credentials), so /api/health isn't usable as an external probe.
@@ -43,7 +52,8 @@ service:
     (Telegram / Discord / Slack / etc.) since the web dashboard is the
     surface we ship. The container runs `hermes gateway run` with the
     dashboard embedded (HERMES_DASHBOARD=1) so the scheduler that fires
-    cron jobs actually runs.
+    cron jobs actually runs. Reached through the hermes-proxy extension
+    (port 9120), not directly.
 
   env_vars:
     # HERMES_PORT is intentionally NOT exposed here. With this PR's

@@ -142,7 +142,7 @@ These were in the original integration plan but cut once we discovered Hermes sh
 - **Magic-link SSO** — magic-link cookie gates access to Hermes via the new `hermes-proxy` Caddy sidecar. ✅ shipped — see [docs/HERMES-SSO.md](HERMES-SSO.md). Known limitation: single shared Hermes for all users; real per-user isolation would require per-user containers.
 - **APE policy integration** — route Hermes's tool calls through APE for allow/deny + audit. APE is already in the stack; needs a small adapter inside or in front of Hermes.
 - **Voice in/out from Dream Server's whisper + kokoro** — Hermes has its own audio pipeline (the image bundles ffmpeg + playwright); verify whether it already proxies to local TTS/STT services or whether we need to wire that ourselves.
-- **Dream-side status panel** — surface Hermes's session count + skill inventory in the Dream dashboard. Lower priority since Hermes has its own `AnalyticsPage`.
+- **Dream-side status panel** — ✅ partially shipped via manifest cleanup. Sidebar now surfaces "Hermes Agent" as a single tile pointing at the proxy (port 9120), instead of double-listing raw Hermes + proxy. The deeper "session count / skill inventory inside the Dream dashboard" is intentionally deferred — Hermes ships its own `AnalyticsPage` that's strictly richer than anything we'd surface, and cross-surface scraping would require bypassing Hermes's own auth.
 - **Per-user Hermes containers** — if true multi-user becomes a felt need, spawn one Hermes per magic-link target_username and have the proxy route based on the redeemed identity. See [docs/HERMES-SSO.md](HERMES-SSO.md#future-option-b--per-user-hermes).
 
 ## Troubleshooting
