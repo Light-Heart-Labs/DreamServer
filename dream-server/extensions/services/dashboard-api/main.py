@@ -54,6 +54,7 @@ from routers import (
     workflows, features, setup, updates, agents, privacy, extensions,
     gpu as gpu_router, resources, voice, models as models_router, templates,
     auth as auth_router,
+    magic_link,
 )
 
 
@@ -925,6 +926,7 @@ app.include_router(voice.router)
 app.include_router(models_router.router)
 app.include_router(templates.router)
 app.include_router(auth_router.router)
+app.include_router(magic_link.router)
 
 
 # ================================================================
