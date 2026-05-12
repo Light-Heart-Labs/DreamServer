@@ -75,6 +75,18 @@ _status_color() {
     esac
 }
 
+_json_escape() {
+    local s="${1-}"
+    s=${s//\\/\\\\}
+    s=${s//\"/\\\"}
+    s=${s//$'\b'/\\b}
+    s=${s//$'\f'/\\f}
+    s=${s//$'\n'/\\n}
+    s=${s//$'\r'/\\r}
+    s=${s//$'\t'/\\t}
+    printf '%s' "$s"
+}
+
 # Print a separator of repeated characters filling the given width.
 # Usage: hr <width> [<char=─>]
 hr() {
@@ -1931,7 +1943,10 @@ cmd_list() {
                 status="disabled"
             fi
             (( _first == 1 )) || printf ','
-            printf '{"id":"%s","category":"%s","status":"%s"}' "$sid" "$cat" "$status"
+            printf '{"id":"%s","category":"%s","status":"%s"}' \
+                "$(_json_escape "$sid")" \
+                "$(_json_escape "$cat")" \
+                "$(_json_escape "$status")"
             _first=0
         done
         printf ']\n'
