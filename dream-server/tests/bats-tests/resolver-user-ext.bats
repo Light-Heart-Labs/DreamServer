@@ -71,14 +71,17 @@ ${svc_block}
 MANIFEST
     # Always create a placeholder compose.yaml so the GPU/mode overlay
     # discovery has something to attach to (the resolver only walks
-    # overlays when the base compose exists).
-    : > "$ext_dir/compose.yaml"
+    # overlays when the base compose exists). The resolver's user-ext
+    # content scanner requires a YAML mapping at the top level, so write
+    # a minimal `services: {}` block rather than an empty file.
+    printf 'services: {}\n' > "$ext_dir/compose.yaml"
 }
 
 _write_user_ext_overlay() {
     local ext="$1"
     local overlay_name="$2"
-    : > "$FIXTURE_DIR/data/user-extensions/$ext/$overlay_name"
+    # Same YAML-mapping requirement as the base compose above.
+    printf 'services: {}\n' > "$FIXTURE_DIR/data/user-extensions/$ext/$overlay_name"
 }
 
 # Run the resolver against the fixture. Args are extra flags
@@ -210,8 +213,8 @@ _run_resolver() {
     # test guards against a regression that drops it during the refactor.
     local ext_dir="$FIXTURE_DIR/data/user-extensions/gpusvc"
     mkdir -p "$ext_dir"
-    : > "$ext_dir/compose.yaml"
-    : > "$ext_dir/compose.nvidia.yaml"
+    printf 'services: {}\n' > "$ext_dir/compose.yaml"
+    printf 'services: {}\n' > "$ext_dir/compose.nvidia.yaml"
 
     _run_resolver --gpu-backend nvidia --tier 1
     assert_success
