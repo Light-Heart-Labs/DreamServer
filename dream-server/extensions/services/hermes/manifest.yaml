@@ -10,8 +10,9 @@ service:
   container_name: dream-hermes
   default_host: hermes
   # Hermes's own dashboard listens on 9119 inside the container. We expose
-  # the same port externally — keeps URLs intuitive when users follow the
-  # mDNS hostname (hermes.<device>.local:9119).
+  # the same port externally so direct LAN access (or curl-from-host
+  # debugging) hits a predictable URL. End users normally go through
+  # hermes-proxy on :9120 (auth-gated entry point); see HERMES-SSO.md.
   port: 9119
   external_port_env: HERMES_PORT
   external_port_default: 9119
@@ -27,20 +28,16 @@ service:
     Hermes Agent (Nous Research) — a self-improving generalist agent with
     persistent memory, autonomous skill creation, and 70+ built-in tools.
     Dream Server runs the upstream image pinned by SHA, points it at the
-    local LLM (llama-server), and disables the messaging gateways (Telegram /
-    Discord / Slack / etc.) since the web dashboard is the surface we ship.
-    Reachable on the LAN at hermes.<device>.local:9119 via mDNS.
+    local LLM (llama-server), and ships no messaging-platform adapters
+    (Telegram / Discord / Slack / etc.) since the web dashboard is the
+    surface we ship. The container runs `hermes gateway run` with the
+    dashboard embedded (HERMES_DASHBOARD=1) so the scheduler that fires
+    cron jobs actually runs.
 
   env_vars:
     - key: HERMES_PORT
       default: "9119"
       description: External port for Hermes's own dashboard (FastAPI + React UI)
-    - key: HERMES_MODEL_NAME
-      default: "qwen3.5-9b"
-      description: |
-        Model name passed to Hermes. Defaults to Dream Server's LLM_MODEL.
-        Hermes uses provider=custom so this is mostly a label — what matters
-        is HERMES_LLM_BASE_URL pointing at an OpenAI-compatible endpoint.
     - key: HERMES_LLM_BASE_URL
       default: "http://llama-server:8080/v1"
       description: OpenAI-compatible endpoint Hermes talks to. Defaults to Dream's llama-server.
@@ -49,6 +46,11 @@ service:
       description: |
         Dummy API key — llama-server doesn't validate it but the OpenAI SDK
         Hermes uses internally requires the field to be non-empty.
+    # Note: there is intentionally no HERMES_MODEL_NAME here. The model
+    # name lives in /opt/data/config.yaml after first start; an earlier
+    # draft exposed an env var, but the upstream image doesn't read it
+    # at runtime — only the YAML file. Edit the file (or delete it to
+    # re-copy from the template) to change the model.
 
 features:
   - id: hermes-agent
