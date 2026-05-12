@@ -8,7 +8,6 @@ Run with: pytest tests/test_setup_card.py
 """
 
 import importlib.util
-import os
 import subprocess
 import sys
 import struct
@@ -168,3 +167,49 @@ def test_cli_help_works_without_pillow():
     assert result.returncode == 0
     assert "ssid" in result.stdout.lower()
     assert "setup-url" in result.stdout.lower()
+
+
+# ---------------------------------------------------------------------------
+# Regression: 63-char WPA2 password must fit in the fallback column
+# ---------------------------------------------------------------------------
+
+
+@pillow_required
+def test_max_length_wpa_password_fits_in_fallback(tmp_path):
+    """Reviewer flagged the plaintext fallback overflowing for max-length
+    WPA2 passwords (63 chars). The fix auto-shrinks the mono font to fit
+    within the value column; this test renders such a password and inspects
+    the output pixels along the right margin to make sure the text didn't
+    bleed off the card edge.
+    """
+    from PIL import Image  # imported only when Pillow is available
+
+    # WPA2 PSK upper bound = 63 chars. Pick a worst-case glyph (wide M's).
+    password = "M" * 63
+    out = tmp_path / "card-max-password.png"
+    result = subprocess.run(
+        [
+            sys.executable, str(SCRIPT),
+            "--ssid", "DreamCard",
+            "--password", password,
+            "--setup-url", "http://192.168.7.1/setup",
+            "--output", str(out),
+        ],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+
+    # Inspect the right-edge column of the password row. Generator puts the
+    # password block roughly in the lower-middle of the card; the right
+    # margin should be pure background (no glyph pixels). Check a vertical
+    # strip 4 px wide along the very right edge in the password band.
+    img = Image.open(out).convert("RGB")
+    card_w, card_h = img.size
+    # Password row sits between ~y=1100 and y=1300 in the layout.
+    bg = (15, 15, 19)  # COLOR_BG
+    for x in range(card_w - 4, card_w):
+        for y in range(1100, 1300):
+            assert img.getpixel((x, y)) == bg, (
+                f"Pixel at ({x},{y}) is {img.getpixel((x, y))}, "
+                "expected card background — password text overflowed the column."
+            )

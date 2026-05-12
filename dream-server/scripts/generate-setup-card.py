@@ -75,6 +75,7 @@ def build_wifi_qr_payload(ssid: str, password: str, security: str = "WPA") -> st
 def render_qr(text: str, target_px: int):
     """Return a Pillow Image of the QR sized to ~target_px x target_px."""
     import qrcode  # noqa: PLC0415 — lazy import keeps --help fast
+    from PIL import Image  # noqa: PLC0415
     from qrcode.constants import ERROR_CORRECT_M
 
     # ERROR_CORRECT_M handles ~15% damage which is fine for a printed card.
@@ -90,7 +91,14 @@ def render_qr(text: str, target_px: int):
     img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
     # qrcode picks the cell size; final image dimensions vary by data length.
     # We rescale to the target so the card layout is predictable.
-    return img.resize((target_px, target_px))
+    #
+    # NEAREST is critical: the default resampling (BICUBIC) antialiases the
+    # cell edges, which turns the pure black/white QR into ~190 grayscale
+    # colors. That still scans in many cases, but printed cards must be
+    # crisp — a phone camera in suboptimal lighting can fail on the
+    # antialiased version. NEAREST keeps every pixel pure black or pure
+    # white, matching the source modules exactly.
+    return img.resize((target_px, target_px), resample=Image.Resampling.NEAREST)
 
 
 def render_card(
@@ -102,7 +110,7 @@ def render_card(
     serial: str | None = None,
 ):
     """Compose the full card image. Returns a Pillow Image."""
-    from PIL import Image, ImageDraw, ImageFont  # noqa: PLC0415
+    from PIL import Image, ImageDraw  # noqa: PLC0415
 
     card = Image.new("RGB", (CARD_W, CARD_H), COLOR_BG)
     draw = ImageDraw.Draw(card)
@@ -110,8 +118,10 @@ def render_card(
     title_font = _load_font(size=80, bold=True)
     heading_font = _load_font(size=42, bold=True)
     body_font = _load_font(size=32)
-    mono_font = _load_font(size=36, monospace=True)
     small_font = _load_font(size=24)
+    # Note: the monospace value font is no longer eagerly loaded — the
+    # password-overflow fix (auto-shrinking via _fit_font_to_width) picks
+    # a size per-row instead of using a single fixed mono_font.
 
     # --- Header band ---
     draw.text(
@@ -169,13 +179,22 @@ def render_card(
         ("password", password if password else "(open)"),
         ("then visit", setup_url),
     ]
+    # The value column starts at x=MARGIN+240 and must fit within the right
+    # margin (CARD_W - MARGIN). Anything wider gets shrunk to fit OR wrapped
+    # across lines. Max-length WPA2 passwords (63 chars) and long mDNS URLs
+    # both blow past the default mono font width otherwise — and a setup
+    # card where the password runs off the right edge defeats the point of
+    # having a fallback block.
+    value_x = MARGIN + 240
+    value_max_width = CARD_W - MARGIN - value_x  # pixels available
     row_y = fallback_y + 50
     for label, value in rows:
         draw.text((MARGIN, row_y), label.upper(), font=small_font, fill=COLOR_MUTED)
+        value_font = _fit_font_to_width(draw, value, value_max_width, base_size=36, min_size=18, monospace=True)
         draw.text(
-            (MARGIN + 240, row_y - 6),
+            (value_x, row_y - 6),
             value,
-            font=mono_font,
+            font=value_font,
             fill=COLOR_FG,
         )
         row_y += 70
@@ -199,6 +218,32 @@ def render_card(
         )
 
     return card
+
+
+def _fit_font_to_width(draw, text: str, max_width: int, base_size: int = 36,
+                       min_size: int = 18, monospace: bool = False):
+    """Return the largest font (at or below ``base_size``) whose ``text``
+    measures ``<= max_width`` pixels. Floors at ``min_size`` even if the
+    text is still wider, on the principle that an unreadable readable
+    fallback is more useful than a value clipped to the next-line.
+
+    Needed for the password row — WPA2 supports up to 63 characters, and
+    a 36-pt monospace render of that is wider than the available column.
+    Without auto-shrink, the value runs off the right edge of the card.
+    """
+    for size in range(base_size, min_size - 1, -2):
+        font = _load_font(size=size, monospace=monospace)
+        try:
+            bbox = draw.textbbox((0, 0), text, font=font)
+            width = bbox[2] - bbox[0]
+        except (AttributeError, OSError):
+            # Pillow's fallback bitmap font doesn't honor textbbox cleanly
+            # on every platform — assume it fits and return base size.
+            return font
+        if width <= max_width:
+            return font
+    # Floor: return the smallest size and accept the overflow as a last resort.
+    return _load_font(size=min_size, monospace=monospace)
 
 
 def _load_font(size: int, bold: bool = False, monospace: bool = False):

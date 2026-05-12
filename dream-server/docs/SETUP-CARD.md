@@ -17,7 +17,7 @@ Card is 1200×1800 px at 300 DPI = exactly 4×6 inches. Print on photo cardstock
 
 ## Requirements
 
-`pip install 'qrcode[pil]'` — that's it. `qrcode[pil]` pulls in Pillow as a transitive dep. Both are already in `extensions/services/dashboard-api/requirements.txt`, so if you've installed the dashboard-api you're done.
+`pip install 'qrcode[pil]'` — that's it. `qrcode[pil]` pulls in Pillow as a transitive dep. This is an operator-side tool, not a runtime service, so the deps aren't bundled with any Dream Server container; install them into whatever Python environment you run the script from. (If you've also installed the magic-link auth router from [#1155](https://github.com/Light-Heart-Labs/DreamServer/pull/1155), `qrcode[pil]` is in that service's `requirements.txt` already and you can reuse the same virtualenv — but the setup-card script does not depend on dashboard-api at runtime.)
 
 ## Usage
 
