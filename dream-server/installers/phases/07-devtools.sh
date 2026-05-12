@@ -328,3 +328,72 @@ if [[ -f "$INSTALL_DIR/bin/dream-host-agent.py" ]]; then
         ai_warn "python3 not found — dream host agent not installed"
     fi
 fi
+
+# ── Dream mDNS Announcer (publishes dream.local on the LAN) ──
+# Makes the device discoverable from any phone/laptop on the same network
+# without typing an IP. See docs/MDNS.md for details. Linux-only; macOS
+# announces hostname.local automatically via Bonjour, the script is a no-op
+# there. Windows support TBD.
+if [[ -f "$INSTALL_DIR/bin/dream-mdns.py" ]] && [[ "$(uname -s)" == "Linux" ]]; then
+    # Install python3-zeroconf via the system package manager. Non-fatal —
+    # mDNS is a quality-of-life feature; if zeroconf isn't available the
+    # device is still reachable by IP.
+    if ! python3 -c "import zeroconf" 2>/dev/null; then
+        ai "Installing python3-zeroconf (for mDNS announcer)..."
+        case "$PKG_MANAGER" in
+            apt)    sudo apt-get install -y python3-zeroconf 2>&1 | tee -a "$LOG_FILE" || \
+                        ai_warn "Failed to install python3-zeroconf via apt (non-fatal — mDNS announcer will not start)" ;;
+            dnf)    sudo dnf install -y python3-zeroconf 2>&1 | tee -a "$LOG_FILE" || \
+                        ai_warn "Failed to install python3-zeroconf via dnf (non-fatal — mDNS announcer will not start)" ;;
+            pacman) sudo pacman -S --noconfirm --needed python-zeroconf 2>&1 | tee -a "$LOG_FILE" || \
+                        ai_warn "Failed to install python-zeroconf via pacman (non-fatal — mDNS announcer will not start)" ;;
+            zypper) sudo zypper --non-interactive install python3-zeroconf 2>&1 | tee -a "$LOG_FILE" || \
+                        ai_warn "Failed to install python3-zeroconf via zypper (non-fatal — mDNS announcer will not start)" ;;
+            *)      ai_warn "Unknown package manager — install python3-zeroconf manually for mDNS" ;;
+        esac
+    fi
+
+    # Install the systemd unit alongside dream-host-agent. Reuses the same
+    # __PLACEHOLDER__ substitution pattern, the same user resolution
+    # (INSTALL_USER → SUDO_USER → whoami), and the same sudo discipline.
+    if python3 -c "import zeroconf" 2>/dev/null && \
+       (systemctl status >/dev/null 2>&1 || [[ -d /run/systemd/system ]]) && \
+       [[ -f "$INSTALL_DIR/scripts/systemd/dream-mdns.service" ]]; then
+        MDNS_PYTHON="$(command -v python3)"
+        # Reuse $_agent_user from the host-agent block above if set; otherwise
+        # resolve fresh. Falls back to the same heuristic.
+        if [[ -z "${_agent_user:-}" ]]; then
+            if [[ -n "${INSTALL_USER:-}" ]]; then
+                _agent_user="$INSTALL_USER"
+            elif [[ -n "${SUDO_USER:-}" ]]; then
+                _agent_user="$SUDO_USER"
+            else
+                _agent_user="$(whoami)"
+            fi
+        fi
+        svc_tmp="/tmp/dream-mdns.service.$$"
+        cp "$INSTALL_DIR/scripts/systemd/dream-mdns.service" "$svc_tmp"
+        sed -i "s|__INSTALL_DIR__|${INSTALL_DIR}|g" "$svc_tmp" 2>/dev/null || \
+            sed -i '' "s|__INSTALL_DIR__|${INSTALL_DIR}|g" "$svc_tmp"
+        sed -i "s|__HOME__|${HOME}|g" "$svc_tmp" 2>/dev/null || \
+            sed -i '' "s|__HOME__|${HOME}|g" "$svc_tmp"
+        sed -i "s|__PYTHON3__|${MDNS_PYTHON}|g" "$svc_tmp" 2>/dev/null || \
+            sed -i '' "s|__PYTHON3__|${MDNS_PYTHON}|g" "$svc_tmp"
+        sed -i "s|__INSTALL_USER__|${_agent_user}|g" "$svc_tmp" 2>/dev/null || \
+            sed -i '' "s|__INSTALL_USER__|${_agent_user}|g" "$svc_tmp"
+        if grep -q '__INSTALL_DIR__\|__HOME__\|__PYTHON3__\|__INSTALL_USER__' "$svc_tmp"; then
+            ai_warn "dream-mdns systemd unit has unrendered placeholders — check $svc_tmp"
+        else
+            sudo install -m 644 "$svc_tmp" /etc/systemd/system/dream-mdns.service
+            sudo systemctl daemon-reload 2>/dev/null || true
+            if sudo systemctl enable --now dream-mdns.service 2>&1 | tee -a "$LOG_FILE" >/dev/null; then
+                _device_name="$(grep -E '^DREAM_DEVICE_NAME=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || true)"
+                _device_name="${_device_name:-dream}"
+                ai_ok "Dream mDNS announcer installed — browse to http://${_device_name}.local from any device on your network"
+            else
+                ai_warn "Dream mDNS announcer failed to start (non-fatal — device is still reachable by IP)"
+            fi
+        fi
+        rm -f "$svc_tmp"
+    fi
+fi
