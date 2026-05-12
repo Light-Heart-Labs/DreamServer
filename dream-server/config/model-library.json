@@ -67,7 +67,7 @@
       "description": "Google's efficient small model. Good for quick tasks on budget hardware.",
       "tokens_per_sec_estimate": 110,
       "llm_model_name": "gemma-4-e2b-it",
-      "llama_server_image": "ghcr.io/ggml-org/llama.cpp:server-cuda-b8648"
+      "llama_server_image": "ghcr.io/ggml-org/llama.cpp:server-cuda-b9014"
     },
     {
       "id": "deepseek-r1-7b-q4",
@@ -101,7 +101,7 @@
       "description": "Google's mid-range model with strong multilingual and reasoning capabilities.",
       "tokens_per_sec_estimate": 85,
       "llm_model_name": "gemma-4-e4b-it",
-      "llama_server_image": "ghcr.io/ggml-org/llama.cpp:server-cuda-b8648"
+      "llama_server_image": "ghcr.io/ggml-org/llama.cpp:server-cuda-b9014"
     },
     {
       "id": "qwen3.5-9b-q4",
@@ -186,7 +186,7 @@
       "description": "Google's large MoE model. Strong at reasoning and analysis tasks.",
       "tokens_per_sec_estimate": 50,
       "llm_model_name": "gemma-4-26b-a4b-it",
-      "llama_server_image": "ghcr.io/ggml-org/llama.cpp:server-cuda-b8648"
+      "llama_server_image": "ghcr.io/ggml-org/llama.cpp:server-cuda-b9014"
     },
     {
       "id": "qwen3-30b-a3b-q4",
@@ -220,7 +220,7 @@
       "description": "Google's flagship dense model with 131K context. Top-tier quality for enterprise GPUs.",
       "tokens_per_sec_estimate": 40,
       "llm_model_name": "gemma-4-31b-it",
-      "llama_server_image": "ghcr.io/ggml-org/llama.cpp:server-cuda-b8648"
+      "llama_server_image": "ghcr.io/ggml-org/llama.cpp:server-cuda-b9014"
     },
     {
       "id": "deepseek-r1-32b-q4",

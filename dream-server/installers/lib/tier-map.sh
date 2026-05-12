@@ -44,8 +44,10 @@ configure_llama_runtime_defaults() {
     case "$MODEL_PROFILE_EFFECTIVE" in
         gemma4)
             # Gemma 4 GGUFs require a newer llama.cpp than the legacy DreamServer pin.
-            LLAMA_SERVER_IMAGE="ghcr.io/ggml-org/llama.cpp:server-cuda-b8648"
-            LLAMA_CPP_RELEASE_TAG_OVERRIDE="b8648"
+            # Keep this aligned with docker-compose.nvidia.yml so the installer
+            # pre-pulls the same image compose will start.
+            LLAMA_SERVER_IMAGE="ghcr.io/ggml-org/llama.cpp:server-cuda-b9014"
+            LLAMA_CPP_RELEASE_TAG_OVERRIDE="b9014"
             ;;
     esac
 }

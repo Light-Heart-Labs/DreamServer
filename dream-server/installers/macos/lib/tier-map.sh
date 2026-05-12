@@ -44,7 +44,7 @@ effective_model_profile() {
 configure_llama_runtime_defaults() {
     LLAMA_CPP_RELEASE_TAG_OVERRIDE=""
     case "$MODEL_PROFILE_EFFECTIVE" in
-        gemma4) LLAMA_CPP_RELEASE_TAG_OVERRIDE="b8648" ;;
+        gemma4) LLAMA_CPP_RELEASE_TAG_OVERRIDE="b9014" ;;
     esac
 }
 

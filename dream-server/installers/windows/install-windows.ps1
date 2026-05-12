@@ -615,6 +615,78 @@ if ($dryRun) {
             exit 1
         }
 
+        function Test-DreamDockerImageAvailable {
+            param([string]$Image)
+            if ([string]::IsNullOrWhiteSpace($Image)) { return $false }
+
+            & docker image inspect $Image *> $null
+            if ($LASTEXITCODE -eq 0) { return $true }
+
+            & docker manifest inspect $Image *> $null
+            return ($LASTEXITCODE -eq 0)
+        }
+
+        function Resolve-DreamDockerImageOrFallback {
+            param(
+                [string]$Image,
+                [string]$Label,
+                [string]$FallbackImage = ""
+            )
+
+            if (Test-DreamDockerImageAvailable -Image $Image) {
+                Write-AISuccess "$Label image available: $Image"
+                return $Image
+            }
+
+            $fallback = $FallbackImage
+            if ([string]::IsNullOrWhiteSpace($fallback)) {
+                $fallback = [Environment]::GetEnvironmentVariable("LLAMA_SERVER_IMAGE_FALLBACK")
+            }
+            if (-not [string]::IsNullOrWhiteSpace($fallback)) {
+                Write-AIWarn "$Label image unavailable: $Image"
+                Write-AIWarn "Trying explicit fallback from LLAMA_SERVER_IMAGE_FALLBACK: $fallback"
+                if (Test-DreamDockerImageAvailable -Image $fallback) {
+                    Write-AISuccess "$Label fallback image available: $fallback"
+                    return $fallback
+                }
+                Write-AIError "$Label fallback image is also unavailable: $fallback"
+            } else {
+                Write-AIError "$Label image is unavailable: $Image"
+            }
+
+            Write-AI "  Docker cannot resolve this image tag before service startup."
+            Write-AI "  Check the tag, registry access, and Docker Desktop network."
+            Write-AI "  To override intentionally, set LLAMA_SERVER_IMAGE to a valid image."
+            Write-AI "  To permit an explicit fallback, set LLAMA_SERVER_IMAGE_FALLBACK to a valid image."
+            return $null
+        }
+
+        if (-not $cloudMode -and $currentBackend -ne "amd") {
+            $envLlamaImage = ""
+            $envFallbackImage = ""
+            foreach ($line in Get-Content $_envCheck) {
+                if ($line -match '^LLAMA_SERVER_IMAGE=(.+)$') {
+                    $envLlamaImage = $Matches[1].Trim().Trim('"').Trim("'")
+                } elseif ($line -match '^LLAMA_SERVER_IMAGE_FALLBACK=(.+)$') {
+                    $envFallbackImage = $Matches[1].Trim().Trim('"').Trim("'")
+                }
+            }
+
+            if (-not [string]::IsNullOrWhiteSpace($envLlamaImage)) {
+                Write-AI "Validating llama-server image tag before startup..."
+                $validatedImage = Resolve-DreamDockerImageOrFallback -Image $envLlamaImage -Label "llama-server" -FallbackImage $envFallbackImage
+                if ([string]::IsNullOrWhiteSpace($validatedImage)) { exit 1 }
+
+                if ($validatedImage -ne $envLlamaImage) {
+                    $envLines = Get-Content $_envCheck
+                    $envLines = $envLines | ForEach-Object {
+                        if ($_ -match '^LLAMA_SERVER_IMAGE=') { "LLAMA_SERVER_IMAGE=$validatedImage" } else { $_ }
+                    }
+                    Write-Utf8NoBom -Path $_envCheck -Content ($envLines -join "`n")
+                }
+            }
+        }
+
         Write-AI "Running: docker compose $($composeFlags -join ' ') up -d --remove-orphans --no-build"
         # PS 5.1 treats ANY stderr output from native commands as NativeCommandError.
         # Silence stderr-as-error so $LASTEXITCODE reflects the real compose exit code.
