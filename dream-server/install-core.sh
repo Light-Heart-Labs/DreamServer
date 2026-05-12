@@ -97,7 +97,13 @@ TIER=""
 ENABLE_VOICE=true
 ENABLE_WORKFLOWS=true
 ENABLE_RAG=true
-ENABLE_OPENCLAW=true
+# Default agent flipped to Hermes Agent (Nous Research) on 2026-05-12.
+# OpenClaw is deprecated and will be removed in the next release; new
+# installs no longer enable it by default. Users who explicitly pass
+# --openclaw or upgrade an existing install with OpenClaw enabled keep
+# it working until the removal release. See docs/MIGRATION-OPENCLAW-TO-HERMES.md.
+ENABLE_HERMES=true
+ENABLE_OPENCLAW=false
 ENABLE_COMFYUI=true
 ENABLE_DREAMFORGE=true
 # Langfuse (LLM observability) defaults OFF on all tiers because its
@@ -130,7 +136,9 @@ Options:
     --no-workflows    Disable n8n workflow automation
     --rag             Enable RAG with Qdrant vector database
     --no-rag          Disable RAG / Qdrant
-    --openclaw        Enable OpenClaw AI agent framework
+    --hermes          Enable Hermes Agent (default; new default agent as of 2026-05-12)
+    --no-hermes       Disable Hermes Agent
+    --openclaw        Enable OpenClaw (DEPRECATED — see docs/MIGRATION-OPENCLAW-TO-HERMES.md)
     --no-openclaw     Disable OpenClaw
     --comfyui         Enable ComfyUI image generation
     --no-comfyui      Disable ComfyUI image generation (saves ~34GB)
@@ -181,6 +189,8 @@ while [[ $# -gt 0 ]]; do
         --no-workflows) ENABLE_WORKFLOWS=false; shift ;;
         --rag) ENABLE_RAG=true; shift ;;
         --no-rag) ENABLE_RAG=false; shift ;;
+        --hermes) ENABLE_HERMES=true; shift ;;
+        --no-hermes) ENABLE_HERMES=false; shift ;;
         --openclaw) ENABLE_OPENCLAW=true; shift ;;
         --no-openclaw) ENABLE_OPENCLAW=false; shift ;;
         --comfyui) ENABLE_COMFYUI=true; shift ;;
@@ -191,7 +201,10 @@ while [[ $# -gt 0 ]]; do
         # NOTE: with --all, --no-langfuse must appear AFTER --all on the command
         # line (flag processing is case-loop ordered, matching comfyui/dreamforge).
         --no-langfuse) ENABLE_LANGFUSE=false; shift ;;
-        --all) ENABLE_VOICE=true; ENABLE_WORKFLOWS=true; ENABLE_RAG=true; ENABLE_OPENCLAW=true; ENABLE_COMFYUI=true; ENABLE_DREAMFORGE=true; ENABLE_LANGFUSE=true; shift ;;
+        # --all enables Hermes (the new default agent) but NOT OpenClaw —
+        # the deprecated agent is opt-in via --openclaw for the deprecation
+        # release. Will be dropped entirely in the removal release.
+        --all) ENABLE_VOICE=true; ENABLE_WORKFLOWS=true; ENABLE_RAG=true; ENABLE_HERMES=true; ENABLE_COMFYUI=true; ENABLE_DREAMFORGE=true; ENABLE_LANGFUSE=true; shift ;;
         --non-interactive) INTERACTIVE=false; shift ;;
         --offline) OFFLINE_MODE=true; shift ;;
         --lan) BIND_ADDRESS="0.0.0.0"; shift ;;

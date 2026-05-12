@@ -1,5 +1,9 @@
 # OpenClaw Integration
 
+> ⚠️ **DEPRECATED as of 2026-05-12.** OpenClaw is replaced by [Hermes Agent](HERMES.md) as Dream Server's default agent. New installs no longer enable OpenClaw by default. This extension stays installable via `--openclaw` / `dream enable openclaw` for one release cycle, then is removed.
+>
+> **Migrating an existing install:** see [MIGRATION-OPENCLAW-TO-HERMES.md](MIGRATION-OPENCLAW-TO-HERMES.md). The two agents do not share storage; the migration is a clean break — your OpenClaw data stays on disk untouched but Hermes starts fresh.
+
 Run OpenClaw with your Dream Server for AI agent capabilities.
 
 ## What OpenClaw Adds

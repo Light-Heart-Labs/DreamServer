@@ -1,5 +1,7 @@
 # OpenClaw
 
+> ⚠️ **DEPRECATED as of 2026-05-12.** Replaced by **Hermes Agent** (see `extensions/services/hermes/` and [docs/HERMES.md](../../../docs/HERMES.md)). New Dream Server installs no longer enable OpenClaw by default. This extension stays installable for one release cycle, then is removed. Migration notes: [docs/MIGRATION-OPENCLAW-TO-HERMES.md](../../../docs/MIGRATION-OPENCLAW-TO-HERMES.md).
+
 Autonomous agent framework for Dream Server
 
 ## Overview
