@@ -6,6 +6,7 @@ import {
   Activity,
   Box,
   Network,
+  UserPlus,
 } from 'lucide-react'
 
 const Dashboard = lazy(() => import('../pages/Dashboard'))
@@ -14,6 +15,7 @@ const Extensions = lazy(() => import('../pages/Extensions'))
 const GPUMonitor = lazy(() => import('../pages/GPUMonitor'))
 const Models = lazy(() => import('../pages/Models'))
 const ServiceMap = lazy(() => import('../pages/ServiceMap'))
+const Invites = lazy(() => import('../pages/Invites'))
 
 export const coreRoutes = [
   {
@@ -66,6 +68,16 @@ export const coreRoutes = [
     getProps: () => ({}),
     sidebar: true,
     order: 3,
+  },
+  {
+    id: 'invites',
+    path: '/invites',
+    label: 'Invites',
+    icon: UserPlus,
+    component: Invites,
+    getProps: () => ({}),
+    sidebar: true,
+    order: 4,
   },
   {
     id: 'settings',
