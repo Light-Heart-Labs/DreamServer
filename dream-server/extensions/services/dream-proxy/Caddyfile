@@ -7,7 +7,7 @@
 # works across all of them.
 #
 # Hostnames the proxy answers (all pointing at the device's LAN IP via
-# mDNS; see docs/MDNS.md):
+# dream-mdns or equivalent DNS/hosts records):
 #
 #   <device>.local          — bare hostname: 302 redirect to chat
 #   chat.<device>.local     — Open WebUI (root-mounted)

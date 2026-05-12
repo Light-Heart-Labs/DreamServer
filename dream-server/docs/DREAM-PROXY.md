@@ -16,7 +16,7 @@ hermes.<device>.local    → hermes-proxy          (port 9120, when enabled)
 /health                  → Caddy itself ("ok") — served on every host for easy probing
 ```
 
-Each subdomain is announced via mDNS (see `docs/MDNS.md`) so it resolves on the LAN without DNS config. Other Dream services keep their loopback bindings. The proxy is the only thing that opens up to the LAN.
+Each subdomain needs a LAN name record pointing at the Dream Server device. The companion `dream-mdns` service handles this automatically when enabled; until then, add equivalent DNS/hosts records for the subdomains you want to use. Other Dream services keep their loopback bindings. The proxy is the only thing that opens up to the LAN.
 
 ## Why host-based and not path-based
 
@@ -52,10 +52,10 @@ curl http://auth.<device>.local/health   # → ok (Caddy)
 
 For the bare URL to actually load anything, two host-level conditions must hold:
 
-1. **`BIND_ADDRESS=0.0.0.0`** in `.env`. The proxy listens on the LAN interface; with loopback-only binding, the LAN can't reach it.
-2. **mDNS publishes the per-service subdomains.** `dream-mdns` does this automatically once `dream-proxy` is enabled — see `docs/MDNS.md`.
+1. **`DREAM_PROXY_BIND=0.0.0.0`** in `.env`, or left unset so the proxy's default applies. The proxy listens on the LAN interface; with `DREAM_PROXY_BIND=127.0.0.1`, the LAN can't reach it. Do not set global `BIND_ADDRESS=0.0.0.0` just for this — that exposes every service instead of only the proxy.
+2. **mDNS, DNS, or hosts-file records publish the per-service subdomains.** The companion `dream-mdns` service handles this automatically when enabled; without it, create equivalent records manually.
 
-The installer's first-boot flow handles both. If you're not using the installer, set the env var and run `dream enable dream-proxy` manually.
+The installer's first-boot flow handles both. If you're not using the installer, leave `DREAM_PROXY_BIND` at its default or set it explicitly, then run `dream enable dream-proxy` manually.
 
 ## Security posture
 
