@@ -80,3 +80,38 @@ compression:
   # Fraction of the conversation to retain after compaction. 0.5 = aim
   # for half the original token count post-summary.
   target_ratio: 0.5
+
+# =============================================================================
+# Voice — point at Dream Server's local Whisper + Kokoro services
+# =============================================================================
+# Both Dream Server's STT (speaches/whisper) and TTS (kokoro-fastapi) expose
+# OpenAI-compatible audio endpoints, so we use Hermes's built-in `openai`
+# provider for both, with custom base URLs targeting the internal Docker DNS.
+#
+# Requires whisper + tts extensions to be enabled. If they're not running,
+# Hermes's voice features will surface a clear error at call time.
+# Disable by setting provider back to upstream defaults (or 'local' for STT,
+# 'edge' for TTS) — both work without Dream Server's audio services.
+
+stt:
+  provider: openai
+  openai:
+    # Dream Server's Whisper container — internal Docker DNS, not external port.
+    base_url: http://whisper:8000/v1
+    # Whisper / speaches doesn't validate the API key, but the OpenAI SDK
+    # requires the field to be non-empty.
+    api_key: sk-dream-hermes-local
+    # Leave model unset — Hermes will use Hermes's default ('whisper-1');
+    # speaches accepts that and routes to whatever model it has loaded.
+
+tts:
+  provider: openai
+  openai:
+    # Dream Server's Kokoro TTS container.
+    base_url: http://tts:8880/v1
+    api_key: sk-dream-hermes-local
+    # Kokoro voices — pick from the set Kokoro publishes via /v1/voices:
+    #   af_heart, af_bella, af_sky, am_adam, am_michael
+    # Matches the voice set Dream Server's SetupWizard exposes.
+    voice: af_heart
+    model: kokoro

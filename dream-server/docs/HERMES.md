@@ -87,6 +87,7 @@ The first start takes a minute — image is ~3GB, Hermes runs its `skills_sync.p
 - **Model name:** `qwen3.5-9b` (Dream Server's default LLM — to switch models, edit `model.default` in `data/hermes/config.yaml` after first start; there is no env-var hook for this)
 - **Persona (`SOUL.md`):** a generalist Dream-Server-aware persona (see `extensions/services/hermes/SOUL.md.template`)
 - **Messaging gateways DISABLED:** Telegram / Discord / Slack / WhatsApp / Signal / Teams / Google Chat / Matrix / Mattermost / SMS — all off by default. Dream Server users reach Hermes via the web dashboard. To enable any platform, see [upstream messaging docs](https://hermes-agent.nousresearch.com/docs/user-guide/messaging/).
+- **Voice (STT + TTS):** Hermes's `openai`-provider STT + TTS pointed at Dream Server's local Whisper (`whisper:8000/v1`) and Kokoro (`tts:8880/v1`) services. Both are OpenAI-compatible, so no shim needed — config-only. Voices default to Kokoro's `af_heart`; change in `data/hermes/config.yaml` under `tts.openai.voice`. If you haven't enabled the `whisper` / `tts` extensions, voice features error at call time but text chat is unaffected.
 - **Network exposure:** controlled by Dream Server's `BIND_ADDRESS` (default `127.0.0.1` = localhost only). Set `BIND_ADDRESS=0.0.0.0` to make Hermes reachable on the LAN at port 9119.
 - **Resource caps:** 4 CPUs / 4GB RAM hard limit, 0.5 CPU / 1GB reservation. Hermes's playwright + ML deps can be hungry; adjust in `extensions/services/hermes/compose.yaml` if needed.
 
@@ -139,7 +140,7 @@ These were in the original integration plan but cut once we discovered Hermes sh
 - **mDNS announcement** — register `hermes.<device>.local` in the Dream Server mDNS announcer (`bin/dream-mdns.py` lands in [#1152](https://github.com/Light-Heart-Labs/DreamServer/pull/1152)). One-line follow-up after that PR merges.
 - **APE policy integration** — route Hermes's tool calls through APE for allow/deny + audit. APE is already in the stack; needs a small adapter inside or in front of Hermes.
 - **Magic-link SSO** — hand off magic-link redemptions ([#1155](https://github.com/Light-Heart-Labs/DreamServer/pull/1155)) into a Hermes auth session so family members don't need separate Hermes credentials.
-- **Voice in/out from Dream Server's whisper + kokoro** — Hermes has its own audio pipeline (the image bundles ffmpeg + playwright); verify whether it already proxies to local TTS/STT services or whether we need to wire that ourselves.
+- **Voice in/out from Dream Server's whisper + kokoro** — ✅ shipped as config-only: Hermes's built-in `openai`-provider STT + TTS pointed at `whisper:8000/v1` and `tts:8880/v1`. See `cli-config.yaml.template` `stt:` / `tts:` blocks.
 - **Dream-side status panel** — surface Hermes's session count + skill inventory in the Dream dashboard. Lower priority since Hermes has its own `AnalyticsPage`.
 
 ## Troubleshooting
