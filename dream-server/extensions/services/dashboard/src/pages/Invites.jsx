@@ -19,10 +19,10 @@ const fetchJson = async (url, init = {}, ms = 8000) => {
   }
 }
 
+// NOTE: only `chat` is wired through end-to-end right now. Wider scopes need
+// backend enforcement before they are safe to show as operator-facing choices.
 const SCOPES = [
-  { value: 'chat', label: 'Chat only', help: 'Recipient can use the chat surface.' },
-  { value: 'dashboard', label: 'Dashboard + chat', help: 'Recipient also sees the admin dashboard. Use sparingly.' },
-  { value: 'all', label: 'Full access', help: 'Everything. Treat like a co-admin invite.' },
+  { value: 'chat', label: 'Chat only', help: 'Recipient can reach the chat surface (Open WebUI). Other surfaces still require their own login.' },
 ]
 
 const EXPIRY_PRESETS = [
@@ -56,7 +56,7 @@ function tokenStatus(token) {
     return { label: 'used', tone: 'bg-theme-border text-theme-text-muted' }
   }
   if (token.redemption_count > 0) {
-    return { label: `reused × ${token.redemption_count}`, tone: 'bg-blue-500/20 text-blue-400' }
+    return { label: `reused x ${token.redemption_count}`, tone: 'bg-blue-500/20 text-blue-400' }
   }
   return { label: 'active', tone: 'bg-green-500/20 text-green-400' }
 }
@@ -120,7 +120,7 @@ export default function Invites() {
         <div>
           <h1 className="text-2xl font-bold text-theme-text">Invites</h1>
           <p className="text-theme-text-muted mt-1">
-            Share single-use magic links so other people can reach Dream Server without an account flow.
+            Share magic links so other people can get to the Dream Server chat surface quickly.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -187,8 +187,9 @@ function EmptyState({ onCreate }) {
       <Users size={40} className="mx-auto mb-4 text-theme-text-muted" />
       <h3 className="text-lg font-semibold text-theme-text mb-2">No invites yet</h3>
       <p className="text-sm text-theme-text-muted mb-6 max-w-md mx-auto">
-        Generate a magic link to let someone reach the chat surface from their phone.
-        They scan a QR or tap a link — no account, no password, no app store.
+        Generate a magic link so someone can reach the chat surface from their phone.
+        The link itself is the credential; anyone who opens it gets in, so share it the
+        way you would share a password.
       </p>
       <button
         onClick={onCreate}
@@ -229,7 +230,7 @@ function InviteRow({ token, onRevoke }) {
           {lastRedeemed && (
             <span>last used {lastRedeemed}</span>
           )}
-          <span className="font-mono opacity-70">{token.token_hash_prefix}…</span>
+          <span className="font-mono opacity-70">{token.token_hash_prefix}...</span>
         </div>
       </div>
       {isActive && (
@@ -319,7 +320,8 @@ function CreateInviteModal({ onClose, onCreated }) {
             maxLength={64}
           />
           <span className="text-xs text-theme-text-muted">
-            Open WebUI will use this as the display name when the recipient lands on chat.
+            Recorded with the invite for the audit trail. Open WebUI may still ask the
+            recipient to sign in or pick a profile name on first arrival.
           </span>
         </label>
 
@@ -422,7 +424,7 @@ function GeneratedInviteModal({ record, onClose }) {
           `/api/auth/magic-link/qr?url=${encodeURIComponent(record.url)}`,
         )
         if (!resp.ok) {
-          // 503 means the qrcode python lib isn't installed — fall back gracefully.
+          // 503 means the qrcode python lib isn't installed; fall back gracefully.
           setQrError('QR generation unavailable on the server.')
           return
         }
@@ -458,9 +460,13 @@ function GeneratedInviteModal({ record, onClose }) {
         url: record.url,
       })
     } catch {
-      // User cancelled the share sheet — no-op.
+      // User cancelled the share sheet; no-op.
     }
   }
+
+  const inviteCopy = record.reusable
+    ? 'Share this reusable link with the intended group. Each redemption is logged. Open WebUI may still prompt for a sign-in until SSO is wired up.'
+    : 'Share this link once. The recipient\'s first tap consumes it and drops them at the chat surface. Open WebUI may still prompt for a sign-in until SSO is wired up.'
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
@@ -478,10 +484,7 @@ function GeneratedInviteModal({ record, onClose }) {
           </button>
         </div>
 
-        <p className="text-sm text-theme-text-muted mb-4">
-          Share this link <strong className="text-theme-text">once</strong> — the recipient&apos;s first tap consumes it.
-          {record.reusable && ' This is a reusable invite; every redemption is logged.'}
-        </p>
+        <p className="text-sm text-theme-text-muted mb-4">{inviteCopy}</p>
 
         {qrDataUrl ? (
           <div className="bg-white p-4 rounded-xl flex justify-center mb-4">
