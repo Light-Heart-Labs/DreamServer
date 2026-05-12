@@ -52,11 +52,17 @@ services:
       # a custom Dockerfile.
       - ./extensions/services/hermes/cli-config.yaml.template:/opt/hermes/cli-config.yaml.example:ro
       - ./extensions/services/hermes/SOUL.md.template:/opt/hermes/docker/SOUL.md:ro
-    ports:
-      # BIND_ADDRESS gates LAN exposure. Default 127.0.0.1 = localhost only.
-      # Set BIND_ADDRESS=0.0.0.0 in .env to make Hermes reachable on the LAN
-      # at hermes.<device>.local:9119 (mDNS) or via Tailscale.
-      - "${BIND_ADDRESS:-127.0.0.1}:${HERMES_PORT:-9119}:9119"
+    # Hermes is exposed to the LAN via dream-hermes-proxy on port 9120 — that
+    # Caddy sidecar forward_auths to dashboard-api's verify-session and only
+    # then forwards traffic here. By NOT binding a host port on the Hermes
+    # container itself, we close the door on direct LAN access that would
+    # bypass the magic-link gate. If you disable the proxy, you'll need to
+    # re-add a `ports:` binding here OR `docker exec dream-hermes` to interact.
+    #
+    # Internal port 9119 stays reachable from other containers (the proxy
+    # forwards to dream-hermes:9119 via the Docker network).
+    expose:
+      - "9119"
     # Run the gateway with the dashboard embedded.
     #
     # Why `gateway run` and not just `dashboard`: Hermes's scheduler (the
