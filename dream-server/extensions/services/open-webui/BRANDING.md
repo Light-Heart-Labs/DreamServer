@@ -9,7 +9,7 @@ Set via env vars in `docker-compose.base.yml`. These flow into Open WebUI's runt
 | Variable | Default | What it controls |
 |---|---|---|
 | `WEBUI_NAME` | `Dream` | The display name. Appears as the browser tab title, the header inside the chat UI, and — critically — the label next to the Dream icon when the user adds the chat to their phone's home screen. |
-| `WEBUI_URL` | `http://${DREAM_DEVICE_NAME}.local:${WEBUI_PORT}` | The public URL Open WebUI uses for share links, OAuth callbacks, and any "open in browser" affordances. |
+| `WEBUI_URL` | `http://${DREAM_DEVICE_NAME}.local/chat` | The public URL Open WebUI uses for share links, OAuth callbacks, and PWA install metadata. Points at the dream-proxy on `:80`, which routes `/chat` to Open WebUI — this is the URL end users actually reach, not the direct `:3000` port. |
 | `DREAM_DEVICE_NAME` | `dream` | The mDNS hostname segment. Drives `${...}.local` and is reused by future remote-access integrations. |
 
 A user installing Dream Server today already sees "Dream" everywhere instead of "Open WebUI", and adding the PWA to a phone's home screen produces a tile labeled "Dream".

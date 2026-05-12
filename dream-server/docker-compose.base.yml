@@ -86,10 +86,19 @@ services:
       # When a user adds Dream to their home screen, this is the label they see
       # next to the Dream icon. Defaults to "Dream"; users can override per-install.
       WEBUI_NAME: "${WEBUI_NAME:-Dream}"
-      # Public URL used by Open WebUI for share links and OAuth callbacks.
-      # Defaults to the local-network URL; override when fronted by a reverse
-      # proxy / Tailscale Funnel / Cloudflare Tunnel.
-      WEBUI_URL: "${WEBUI_URL:-http://${DREAM_DEVICE_NAME:-dream}.local:${WEBUI_PORT:-3000}}"
+      # Public URL Open WebUI uses for share links, OAuth callbacks, and PWA
+      # install metadata. This value is persistent inside Open WebUI's config
+      # database (https://docs.openwebui.com/getting-started/env-configuration/#webui_url),
+      # so seeding a URL that doesn't actually resolve will bake bad share
+      # links into the install.
+      #
+      # Default points at the dream-proxy path (`/chat`) on the device's
+      # mDNS hostname. The proxy is the canonical LAN entry point — it
+      # listens on :80, routes `/chat` to Open WebUI, and is what end
+      # users actually hit. Fronting by Tailscale Funnel / Cloudflare
+      # Tunnel? Override WEBUI_URL in `.env` to the public URL of that
+      # tunnel.
+      WEBUI_URL: "${WEBUI_URL:-http://${DREAM_DEVICE_NAME:-dream}.local/chat}"
       WEBUI_AUTH: "${WEBUI_AUTH:-true}"
       WEBUI_SECRET_KEY: "${WEBUI_SECRET:?WEBUI_SECRET must be set — run the installer or add it to .env}"
       ENABLE_WEB_SEARCH: "true"
