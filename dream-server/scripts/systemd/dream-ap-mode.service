@@ -1,10 +1,14 @@
 [Unit]
 Description=Dream Server first-boot AP mode (hostapd + dnsmasq captive portal)
-# Run before user-facing networking services so the AP is up by the time
-# anyone tries to scan it. Conflicts with NetworkManager managing the AP
-# interface — ap-mode.sh handles releasing it explicitly.
-After=network-pre.target
-Before=NetworkManager.service
+# Order AFTER NetworkManager, not before. ap-mode.sh's bring-up calls
+# `nmcli device set <iface> managed no` to release the wireless
+# interface — that only works if NetworkManager is actually running.
+# An earlier draft had `Before=NetworkManager.service`, which let the
+# unit start before NM was up; the nmcli release was a no-op, and NM
+# could then reclaim the interface from hostapd a moment later. By
+# ordering after, we're guaranteed NM is alive to honor the release.
+After=network-pre.target NetworkManager.service
+Wants=NetworkManager.service
 
 # OPT-IN. This unit is installed but NOT enabled by the installer.
 # Enable it manually with `systemctl enable --now dream-ap-mode`

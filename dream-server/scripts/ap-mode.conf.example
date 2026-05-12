@@ -41,7 +41,8 @@ DREAM_AP_PASSWORD="changeme-set-per-device"
 # Network size — CIDR prefix length is the canonical form (what `ip addr
 # add` actually expects). DREAM_AP_NETMASK is still accepted as a
 # dotted-decimal mask for back-compat; ap-mode.sh auto-converts at
-# bring-up time. DREAM_AP_PREFIX wins when both are set.
+# bring-up time. DREAM_AP_PREFIX takes precedence — set ONLY ONE.
+# When neither is set, /24 (255.255.255.0) is the effective default.
 # DREAM_AP_PREFIX="24"
 # DREAM_AP_NETMASK="255.255.255.0"
 

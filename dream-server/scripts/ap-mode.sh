@@ -40,9 +40,13 @@ DREAM_AP_PASSWORD="${DREAM_AP_PASSWORD:-}"
 DREAM_AP_INTERFACE="${DREAM_AP_INTERFACE:-wlan0}"
 DREAM_AP_GATEWAY_IP="${DREAM_AP_GATEWAY_IP:-192.168.7.1}"
 # DREAM_AP_PREFIX is CIDR prefix length used by `ip addr add`.
-# DREAM_AP_NETMASK stays accepted (as dotted-decimal) for back-compat —
-# it's converted to a prefix at bring-up time. Prefix wins if both set.
-DREAM_AP_PREFIX="${DREAM_AP_PREFIX:-24}"
+# DREAM_AP_NETMASK stays accepted (as dotted-decimal) for back-compat;
+# bring_up_interface converts it to a prefix when DREAM_AP_PREFIX is
+# unset. PREFIX is left empty here on purpose so an operator who only
+# sets DREAM_AP_NETMASK in /etc/dream/ap-mode.conf gets the prefix
+# derived from THEIR netmask rather than the script default short-
+# circuiting them to /24.
+DREAM_AP_PREFIX="${DREAM_AP_PREFIX:-}"
 DREAM_AP_NETMASK="${DREAM_AP_NETMASK:-255.255.255.0}"
 DREAM_AP_DHCP_RANGE="${DREAM_AP_DHCP_RANGE:-192.168.7.10,192.168.7.50,1h}"
 DREAM_AP_CHANNEL="${DREAM_AP_CHANNEL:-6}"
