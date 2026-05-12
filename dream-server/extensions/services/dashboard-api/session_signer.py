@@ -66,6 +66,16 @@ logger = logging.getLogger(__name__)
 _SECRET: bytes = (os.environ.get("DREAM_SESSION_SECRET", "")).encode("utf-8")
 
 
+def is_configured() -> bool:
+    """Return True iff DREAM_SESSION_SECRET was provided.
+
+    Callers use this as a pre-flight check before committing irreversible
+    state (e.g., marking a single-use magic-link as redeemed) so the
+    operation fails BEFORE the side effect lands, not after.
+    """
+    return bool(_SECRET)
+
+
 def _set_secret_for_tests(value: str) -> None:
     """Test-only override. Module-level secret is read once at import
     time; tests need to inject a value AFTER module load."""

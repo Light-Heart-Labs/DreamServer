@@ -136,6 +136,10 @@ function New-DreamEnv {
     $livekitApiKey   = Get-EnvOrNew "LIVEKIT_API_KEY"    (New-SecureHex -Bytes 16)
     $dashboardApiKey = Get-EnvOrNew "DASHBOARD_API_KEY"  (New-SecureHex -Bytes 32)
     $dreamAgentKey   = Get-EnvOrNew "DREAM_AGENT_KEY"    (New-SecureHex -Bytes 32)
+    # HMAC key for signing dream-session cookies. Without it the dashboard-api
+    # session_signer raises on issue() and verify-session returns no-secret —
+    # the magic-link gate effectively breaks.
+    $dreamSessionSecret = Get-EnvOrNew "DREAM_SESSION_SECRET" (New-SecureHex -Bytes 32)
     $shieldApiKey    = Get-EnvOrNew "SHIELD_API_KEY"     (New-SecureHex -Bytes 32)
     $openclawToken   = Get-EnvOrNew "OPENCLAW_TOKEN"     (New-SecureHex -Bytes 24)
     $searxngSecret   = Get-EnvOrNew "SEARXNG_SECRET"     (New-SecureHex -Bytes 32)
@@ -294,6 +298,7 @@ SEARXNG_PORT=8888
 WEBUI_SECRET=$webuiSecret
 DASHBOARD_API_KEY=$dashboardApiKey
 DREAM_AGENT_KEY=$dreamAgentKey
+DREAM_SESSION_SECRET=$dreamSessionSecret
 SHIELD_API_KEY=$shieldApiKey
 N8N_USER=admin@dreamserver.local
 N8N_PASS=$n8nPass

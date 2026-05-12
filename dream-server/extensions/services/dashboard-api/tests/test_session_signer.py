@@ -48,6 +48,29 @@ class TestIssue:
         c2 = session_signer.issue(ttl_seconds=60)
         assert c1.split(".")[0] != c2.split(".")[0]
 
+
+# ---------------------------------------------------------------------------
+# is_configured()
+# ---------------------------------------------------------------------------
+
+
+class TestIsConfigured:
+    """Pre-flight probe callers use before committing irreversible state."""
+
+    def test_true_when_secret_set(self):
+        # The autouse fixture has already set a test secret.
+        assert session_signer.is_configured() is True
+
+    def test_false_when_secret_unset(self):
+        session_signer._set_secret_for_tests("")
+        assert session_signer.is_configured() is False
+
+    def test_false_after_setting_empty_string(self):
+        session_signer._set_secret_for_tests("real-secret")
+        assert session_signer.is_configured() is True
+        session_signer._set_secret_for_tests("")
+        assert session_signer.is_configured() is False
+
     def test_raises_without_secret(self):
         session_signer._set_secret_for_tests("")
         with pytest.raises(RuntimeError, match="DREAM_SESSION_SECRET"):

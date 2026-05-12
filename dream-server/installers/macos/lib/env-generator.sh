@@ -149,6 +149,13 @@ generate_dream_env() {
         if [[ -z "$(read_env_value "$env_path" "SHIELD_API_KEY")" ]]; then
             upsert_env_value "$env_path" "SHIELD_API_KEY" "$(new_secure_hex 32)"
         fi
+        # Upsert DREAM_SESSION_SECRET when missing — HMAC key for the
+        # dream-session cookie minted by magic-link redemption. Without
+        # this, dashboard-api refuses to issue cookies (and the magic-link
+        # gate effectively breaks). Rotating invalidates every issued cookie.
+        if [[ -z "$(read_env_value "$env_path" "DREAM_SESSION_SECRET")" ]]; then
+            upsert_env_value "$env_path" "DREAM_SESSION_SECRET" "$(new_secure_hex 32)"
+        fi
 
         # HOST_LAN_IP backfill: the fresh-install heredoc below populates
         # HOST_LAN_IP when BIND_ADDRESS=0.0.0.0 was pre-set, so openclaw can
@@ -186,6 +193,8 @@ generate_dream_env() {
     dashboard_api_key=$(new_secure_hex 32)
     local dream_agent_key
     dream_agent_key=$(new_secure_hex 32)
+    local dream_session_secret
+    dream_session_secret=$(new_secure_hex 32)
     local shield_api_key
     shield_api_key=$(new_secure_hex 32)
     local openclaw_token
@@ -302,6 +311,7 @@ LANGFUSE_PORT=3006
 WEBUI_SECRET=${webui_secret}
 DASHBOARD_API_KEY=${dashboard_api_key}
 DREAM_AGENT_KEY=${dream_agent_key}
+DREAM_SESSION_SECRET=${dream_session_secret}
 SHIELD_API_KEY=${shield_api_key}
 N8N_USER=admin@dreamserver.local
 N8N_PASS=${n8n_pass}
