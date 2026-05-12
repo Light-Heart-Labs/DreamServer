@@ -95,7 +95,13 @@ export default function FirstBoot({ onComplete }) {
   // the network handoff happens after the magic-link is generated (and
   // shown to the user, who needs to save it before connectivity drops).
   const [homeSsid, setHomeSsid] = useState(initial.homeSsid || '')
-  const [homePassword, setHomePassword] = useState(initial.homePassword || '')
+  // Home Wi-Fi password is intentionally NOT initialized from saved progress
+  // and NOT persisted (see writeProgress below). Keeping a plaintext WPA
+  // password in localStorage indefinitely is bad posture — if the user
+  // abandons the wizard or refreshes, the password should not survive in
+  // browser storage. Trade-off: a refresh mid-wizard requires re-typing the
+  // password, but the device name / SSID / username / stack DO survive.
+  const [homePassword, setHomePassword] = useState('')
   const [finishing, setFinishing] = useState(false)
   const [finishError, setFinishError] = useState(null)
   const [invite, setInvite] = useState(null)
@@ -116,9 +122,12 @@ export default function FirstBoot({ onComplete }) {
   const totalSteps = inApMode ? TOTAL_STEPS_AP : TOTAL_STEPS_NORMAL
 
   // Persist progress whenever the user moves forward.
+  // Note: homePassword is deliberately omitted from the persisted shape.
+  // It lives in component state only — a refresh forces a re-entry rather
+  // than leaving a plaintext WPA password in localStorage indefinitely.
   useEffect(() => {
-    writeProgress({ step, deviceName, username, stack, homeSsid, homePassword })
-  }, [step, deviceName, username, stack, homeSsid, homePassword])
+    writeProgress({ step, deviceName, username, stack, homeSsid })
+  }, [step, deviceName, username, stack, homeSsid])
 
   const next = () => setStep(s => Math.min(s + 1, totalSteps))
   const prev = () => setStep(s => Math.max(s - 1, 1))
@@ -146,29 +155,67 @@ export default function FirstBoot({ onComplete }) {
       }
       const inviteData = await genResp.json()
 
-      // Flip the server-side sentinel so this device is "configured".
-      await fetch('/api/setup/complete', { method: 'POST' })
+      // Pre-fetch the QR before triggering handoff. Otherwise DoneScreen
+      // mounts AFTER the host-agent's 3-second sleep starts ticking, and
+      // its useEffect's QR fetch can race against AP teardown. Pre-fetched,
+      // the QR is in invite.qr_data_url and renders synchronously when
+      // DoneScreen mounts — the user sees it BEFORE network handoff begins,
+      // with time to save the image to their phone.
+      let qrDataUrl = null
+      try {
+        const qrResp = await fetch(
+          `/api/auth/magic-link/qr?url=${encodeURIComponent(inviteData.url)}`,
+        )
+        if (qrResp.ok) {
+          const qrJson = await qrResp.json()
+          qrDataUrl = qrJson.data_url
+        }
+        // If QR fetch fails (503 — qrcode lib missing), DoneScreen falls
+        // back to its placeholder + URL/copy. We don't fail the wizard
+        // for that — the URL and Copy button still work.
+      } catch {
+        // Network error during QR fetch — same fallback path.
+      }
 
-      // AP-mode only: trigger the home-WiFi handoff. The host-agent does
-      // this on a background thread and returns 202 immediately; the wizard
-      // shell will lose connectivity a few seconds later when the AP tears
-      // down. The Done screen tells the user what to expect.
+      // AP-mode only: trigger the home-WiFi handoff BEFORE flipping the
+      // setup-complete sentinel. The host-agent does the switch on a
+      // background thread and returns 202 (scheduled) immediately. We
+      // check the response.ok so a 4xx/5xx (validation failure, missing
+      // nmcli, unreachable host-agent) doesn't silently flip first-boot
+      // off and strand the user on the setup AP.
+      //
+      // If handoff fails: error surfaces to the user, sentinel stays
+      // unflipped, the wizard reappears on next visit, and the user can
+      // retry with corrected credentials.
       let handoffStarted = false
       if (inApMode && homeSsid) {
+        let handoffResp
         try {
-          await fetch('/api/setup/wifi-handoff', {
+          handoffResp = await fetch('/api/setup/wifi-handoff', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ssid: homeSsid, password: homePassword }),
           })
-          handoffStarted = true
-        } catch {
-          // Handoff scheduling failure is non-fatal — show the invite anyway.
-          // The user can connect manually from their existing network.
+        } catch (err) {
+          throw new Error(`Could not reach the network handoff endpoint: ${err.message}`)
         }
+        if (!handoffResp.ok) {
+          const body = await handoffResp.json().catch(() => ({}))
+          throw new Error(
+            body.detail
+              ? `Wi-Fi handoff was rejected: ${body.detail}`
+              : `Wi-Fi handoff failed: ${handoffResp.status}`
+          )
+        }
+        handoffStarted = true
       }
 
-      setInvite({ ...inviteData, handoffStarted })
+      // Only flip the sentinel AFTER the handoff was accepted (or skipped
+      // because we're not in AP mode). Otherwise a failed handoff would
+      // leave first-boot=false plus the user still on the setup AP.
+      await fetch('/api/setup/complete', { method: 'POST' })
+
+      setInvite({ ...inviteData, qrDataUrl, handoffStarted })
       clearProgress()
       // Stay on the success screen until the user taps "Open chat" or "Done"
       // — calling onComplete() immediately would route them away before they
@@ -602,10 +649,16 @@ function Row({ label, value, hint }) {
 
 function DoneScreen({ invite, onDone, deviceName }) {
   const [copied, setCopied] = useState(false)
-  const [qrDataUrl, setQrDataUrl] = useState(null)
+  // In AP-mode, finish() pre-fetches the QR before triggering the network
+  // handoff and passes it through as invite.qrDataUrl. That way the user
+  // sees the QR immediately on mount — no race against the 3-second AP
+  // teardown window. In non-AP-mode we fall back to an on-demand fetch.
+  const [qrDataUrl, setQrDataUrl] = useState(invite.qrDataUrl || null)
   const [qrError, setQrError] = useState(null)
 
   useEffect(() => {
+    // Skip the on-demand fetch when finish() already pre-fetched.
+    if (invite.qrDataUrl) return
     let cancelled = false
     const loadQr = async () => {
       try {
@@ -624,7 +677,7 @@ function DoneScreen({ invite, onDone, deviceName }) {
     }
     loadQr()
     return () => { cancelled = true }
-  }, [invite.url])
+  }, [invite.url, invite.qrDataUrl])
 
   const copy = async () => {
     try {
