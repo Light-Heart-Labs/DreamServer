@@ -54,7 +54,7 @@ cd DreamServer
 
 The installer auto-detects your GPU, picks the right model, generates secure passwords, and starts everything. Open **http://localhost:3000** and start chatting.
 
-By default, llama-server is exposed to the host on **http://localhost:11434** (`OLLAMA_PORT`) and runs on `8080` inside Docker. Use `llama-server:8080` only from other containers on the Dream Server network.
+On Linux Docker installs, llama-server is exposed to the host on **http://localhost:11434** (`OLLAMA_PORT`) and runs on `8080` inside Docker. Use `llama-server:8080` only from other containers on the Dream Server network. macOS native Metal and Windows native/Lemonade paths use **http://localhost:8080** unless overridden.
 
 ### Instant Start (Bootstrap Mode)
 
@@ -95,13 +95,14 @@ See [`docs/WINDOWS-QUICKSTART.md`](docs/WINDOWS-QUICKSTART.md) for details.
 
 | Component | Purpose | Port | Backend |
 |-----------|---------|------|---------|
-| **llama-server** | LLM inference engine | 11434 host / 8080 container | Core GPU backend |
+| **llama-server** | LLM inference engine | Linux Docker: 11434 host / 8080 container; native macOS/Windows: 8080 host | Core GPU backend |
 | **Open WebUI** | Beautiful chat interface | 3000 | Core |
 | **Dashboard** | System status, GPU metrics, service health | 3001 | Core |
 | **Dashboard API** | Backend API for dashboard | 3002 | Core |
 | **LiteLLM** | Multi-model API gateway | 4000 | Recommended |
 | **Token Spy** | Token usage monitor | 3005 | Recommended |
 | **SearXNG** | Self-hosted web search | 8888 | Recommended |
+| **Hermes Agent** | Local-first autonomous/browser agent | 9120 via auth proxy; 9119 internal | Optional |
 | **OpenClaw** | Autonomous AI agent framework | 7860 | Optional |
 | **APE** | Agent Policy Engine for policy/audit controls | 7890 | Optional |
 | **OpenCode** | Browser IDE / coding assistant | 3003 | Optional host service |
@@ -179,13 +180,14 @@ See [docs/HARDWARE-GUIDE.md](docs/HARDWARE-GUIDE.md) for buying recommendations.
                       │
 ┌─────────────────────▼───────────────────────────┐
 │               llama-server backend              │
-│     host localhost:11434 / Docker :8080/v1       │
+│     Linux host :11434 / Docker :8080/v1       │
+│     native macOS/Windows host :8080/v1        │
 │        qwen3-coder-next / qwen3-30b-a3b         │
 └─────────────────────────────────────────────────┘
          │                              │
 ┌────────▼────────┐            ┌───────▼────────┐
-│   OpenClaw      │            │    Dashboard    │
-│ (Agent :7860)   │            │ (Status :3001)  │
+│ Hermes/OpenClaw │            │    Dashboard    │
+│ (Agents)        │            │ (Status :3001)  │
 └─────────────────┘            └────────────────┘
 
 ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
@@ -204,7 +206,7 @@ See [docs/HARDWARE-GUIDE.md](docs/HARDWARE-GUIDE.md) for buying recommendations.
                       │
 ┌─────────────────────▼───────────────────────────┐
 │               llama-server (CUDA)               │
-│     host localhost:11434 / Docker :8080/v1       │
+│     Linux host :11434 / Docker :8080/v1          │
 │            qwen3-30b-a3b                        │
 └─────────────────────────────────────────────────┘
          │                              │
@@ -355,7 +357,7 @@ dream mode status                        # Show current mode
 | Hardware auto-detect + model selection | **NVIDIA + AMD Strix Halo + Apple Silicon + Intel Arc + CPU/cloud fallback** | No | No |
 | AMD APU / unified memory support | **Platform-specific accelerated backend selected by installer** | Partial (Vulkan) | No |
 | Inference engine | **llama-server** (all GPUs) | llama.cpp | llama.cpp |
-| Autonomous AI agent | **OpenClaw** | No | No |
+| Autonomous AI agent | **Hermes Agent / OpenClaw** | No | No |
 | Workflow automation | **n8n (400+ integrations)** | No | No |
 | LLM usage monitoring | **Open WebUI built-in** | No | No |
 | Multi-GPU | **Yes** (NVIDIA) | Partial | Partial |
@@ -373,7 +375,8 @@ dream mode status                        # Show current mode
 - Watch progress: `dream logs llm`
 
 **Open WebUI shows "Connection error"**
-- llama-server is still loading. Wait for the host health check to pass: `curl localhost:11434/health`
+- llama-server is still loading. On Linux Docker installs, wait for the host health check to pass: `curl localhost:11434/health`
+- On macOS native Metal and Windows native/Lemonade paths, use `curl localhost:8080/health`
 - From another container on the Dream Server network, use `http://llama-server:8080/health`
 
 **Port already in use**

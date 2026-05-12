@@ -59,7 +59,7 @@ curl -fsSL https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/main/d
 
 Open **http://localhost:3000** and start chatting.
 
-> **API endpoint:** llama-server is exposed on **http://localhost:11434** by default (`OLLAMA_PORT`) and runs on port `8080` inside Docker. Open WebUI stays on **http://localhost:3000**.
+> **API endpoint:** Linux Docker installs expose llama-server on **http://localhost:11434** by default (`OLLAMA_PORT`) while containers use `llama-server:8080`. macOS native Metal and Windows native/Lemonade paths use **http://localhost:8080** unless overridden. Open WebUI stays on **http://localhost:3000**.
 
 > **No GPU?** Dream Server also runs in cloud mode — same full stack, powered by OpenAI/Anthropic/Together APIs instead of local inference:
 > ```bash
@@ -136,7 +136,7 @@ See the [macOS Quickstart](dream-server/docs/MACOS-QUICKSTART.md) for details.
 
 ### Chat & Inference
 - **Open WebUI** — full-featured chat interface with conversation history, web search, document upload, and [30+ languages](https://docs.openwebui.com)
-- **llama-server** — high-performance LLM inference with continuous batching, auto-selected for your GPU; host API defaults to `localhost:11434`, container API runs on `8080`
+- **llama-server** — high-performance LLM inference with continuous batching, auto-selected for your GPU; Linux Docker host API defaults to `localhost:11434`, native macOS/Windows paths use `localhost:8080`, and container API runs on `8080`
 - **LiteLLM** — API gateway supporting local/cloud/hybrid modes
 - **TEI Embeddings** — text embedding service for RAG and search workflows
 
@@ -145,7 +145,8 @@ See the [macOS Quickstart](dream-server/docs/MACOS-QUICKSTART.md) for details.
 - **Kokoro** — text-to-speech
 
 ### Agents & Automation
-- **OpenClaw** — autonomous AI agent framework
+- **Hermes Agent** — optional local-first autonomous/browser agent with memory, skills, and a magic-link-gated proxy
+- **OpenClaw** — optional autonomous AI agent framework
 - **n8n** — workflow automation with 400+ integrations (Slack, email, databases, APIs)
 - **APE** — Agent Policy Engine for auditing and governing autonomous tool calls
 - **OpenCode** — browser-based AI coding assistant wired to the local stack
@@ -328,7 +329,7 @@ Other tools get you part of the way. Dream Server gets you the whole way.
 | One-command install | Everything, auto-configured | LLM + chat only | LLM only |
 | Hardware auto-detect + model selection | NVIDIA + AMD Strix Halo + Apple Silicon + Intel Arc + CPU/cloud fallback | No | No |
 | AMD APU unified memory support | Platform-specific accelerated backend, selected by installer | Partial (Vulkan) | No |
-| Autonomous AI agents | OpenClaw | No | No |
+| Autonomous AI agents | Hermes Agent / OpenClaw | No | No |
 | Workflow automation | n8n (400+ integrations) | No | No |
 | Voice (STT + TTS) | Whisper + Kokoro | No | No |
 | Image generation | ComfyUI | No | No |
