@@ -57,7 +57,7 @@ def _mock_agent_response(body, status=200):
 
 def _mock_agent_http_error(status, body):
     err = urllib.error.HTTPError(
-        url=f"http://agent/v1/...",
+        url="http://agent/v1/...",
         code=status,
         msg="error",
         hdrs=None,

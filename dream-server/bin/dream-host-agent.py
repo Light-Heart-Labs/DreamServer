@@ -641,6 +641,42 @@ def json_response(handler, code: int, body: dict):
     handler.wfile.write(payload)
 
 
+def _split_nmcli_terse(line: str) -> list[str]:
+    """Split a `nmcli -t` (terse) line on UNESCAPED colons, then unescape.
+
+    nmcli's terse mode escapes literal colons in values as ``\\:`` (and
+    backslashes as ``\\\\``) so the colon delimiter stays unambiguous.
+    The naive ``str.split(':')`` corrupts any field containing ':' — and
+    SSIDs, security strings, and connection names legally can.
+
+    Reference: ``man 1 nmcli`` — "-t, --terse" describes the escaping.
+
+    Returns the unescaped field list. Empty input → ``[]``.
+    """
+    if not line:
+        return []
+    parts: list[str] = []
+    buf: list[str] = []
+    i = 0
+    n = len(line)
+    while i < n:
+        ch = line[i]
+        if ch == "\\" and i + 1 < n:
+            # Escaped character — consume the next char literally.
+            buf.append(line[i + 1])
+            i += 2
+            continue
+        if ch == ":":
+            parts.append("".join(buf))
+            buf = []
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    parts.append("".join(buf))
+    return parts
+
+
 def _network_supported(handler) -> bool:
     """Linux + nmcli precondition for Wi-Fi endpoints. Sends a 501 on failure
     so the caller doesn't need to repeat the check; returns True only when
@@ -1086,8 +1122,15 @@ class AgentHandler(BaseHTTPRequestHandler):
             pass
 
         try:
+            # NOTE: we deliberately do NOT pass `-e no`. With escaping enabled
+            # (the nmcli default in -t mode), nmcli backslash-escapes any
+            # colons that appear inside field values (e.g. an SSID called
+            # "Cafe:Lounge" comes back as "Cafe\:Lounge"). We then split on
+            # *unescaped* colons via _split_nmcli_terse() and un-escape each
+            # part. Disabling escaping with `-e no` corrupts the parse for
+            # any SSID, security name, or connection name containing ':'.
             result = subprocess.run(
-                ["nmcli", "-t", "-e", "no", "-f",
+                ["nmcli", "-t", "-f",
                  "SSID,SIGNAL,SECURITY,IN-USE", "device", "wifi", "list"],
                 capture_output=True, text=True, timeout=15,
             )
@@ -1103,31 +1146,33 @@ class AgentHandler(BaseHTTPRequestHandler):
             json_response(self, 503, {"error": stderr or "nmcli wifi list failed"})
             return
 
-        networks = []
-        seen_ssids = set()
+        networks_by_ssid = {}
         for line in result.stdout.splitlines():
             # Format: SSID:SIGNAL:SECURITY:IN-USE (IN-USE is empty or "*")
-            parts = line.split(":")
+            parts = _split_nmcli_terse(line)
             if len(parts) < 4:
                 continue
             ssid, signal_str, security, in_use_str = parts[0], parts[1], parts[2], parts[3]
-            if not ssid or ssid in seen_ssids:
-                # nmcli sometimes returns multiple rows per SSID (each BSSID).
-                # We collapse on SSID and keep the strongest signal seen.
+            if not ssid:
                 continue
-            seen_ssids.add(ssid)
             try:
                 signal_pct = int(signal_str)
             except (ValueError, TypeError):
                 signal_pct = 0
-            networks.append({
+            existing = networks_by_ssid.get(ssid)
+            if existing and existing["signal"] >= signal_pct:
+                continue
+            # nmcli sometimes returns multiple rows per SSID (one per BSSID).
+            # Collapse on SSID and keep the strongest signal observed.
+            networks_by_ssid[ssid] = {
                 "ssid": ssid,
                 "signal": signal_pct,
                 "security": security or "open",
                 "in_use": in_use_str == "*",
-            })
+            }
 
         # Strongest signal first — that's the order the wizard wants to display.
+        networks = list(networks_by_ssid.values())
         networks.sort(key=lambda n: -n["signal"])
         json_response(self, 200, {"networks": networks})
 
@@ -1197,7 +1242,15 @@ class AgentHandler(BaseHTTPRequestHandler):
         json_response(self, 200, {"success": True, "ssid": ssid})
 
     def _handle_network_wifi_forget(self):
-        """Delete a saved NetworkManager connection profile by name."""
+        """Delete a saved NetworkManager connection profile by name.
+
+        Hard-gated to Wi-Fi profiles only. The endpoint name is "wifi-forget"
+        and that's all it should do — we MUST NOT delete wired / VPN / bridge /
+        bond / tun profiles even if the caller passes their names, because
+        that's a great way to cut off the host's connectivity. We resolve
+        the profile's TYPE field first via `nmcli connection show` and only
+        proceed when type starts with "802-11-wireless".
+        """
         if not check_auth(self):
             return
         if not _network_supported(self):
@@ -1214,6 +1267,47 @@ class AgentHandler(BaseHTTPRequestHandler):
             json_response(self, 400, {"error": "connection contains invalid characters"})
             return
 
+        # Step 1: resolve and verify this is a Wi-Fi profile. Use -t for
+        # terse output and -f to limit fields; we still split on the FIRST
+        # colon only so a value containing ':' doesn't fool the parser.
+        try:
+            check = subprocess.run(
+                ["nmcli", "-t", "-f", "connection.type", "connection", "show", connection],
+                capture_output=True, text=True, timeout=10,
+            )
+        except subprocess.TimeoutExpired:
+            json_response(self, 504, {"error": "nmcli show timed out"})
+            return
+        except OSError as exc:
+            json_response(self, 500, {"error": f"nmcli failed: {exc}"})
+            return
+
+        if check.returncode != 0:
+            stderr = (check.stderr or "").strip()[:200]
+            # 404 if the profile doesn't exist; 400 for other errors.
+            if "no such" in stderr.lower() or "unknown" in stderr.lower() or "not found" in stderr.lower():
+                json_response(self, 404, {"error": f"No such connection: {connection}"})
+            else:
+                json_response(self, 400, {"error": stderr or "Failed to inspect connection"})
+            return
+
+        # Parse "connection.type:802-11-wireless" — split on the FIRST ':' only
+        # so a connection name containing ':' (unusual but legal) doesn't
+        # confuse the result.
+        ctype_line = (check.stdout or "").strip()
+        _, _, ctype = ctype_line.partition(":")
+        ctype = ctype.strip().lower()
+        if not ctype.startswith("802-11-wireless"):
+            json_response(self, 400, {
+                "error": (
+                    f"Refusing to delete non-Wi-Fi connection '{connection}' "
+                    f"(type='{ctype or 'unknown'}'). The wifi-forget endpoint "
+                    "only deletes Wi-Fi profiles; use nmcli directly for other types."
+                ),
+            })
+            return
+
+        # Step 2: type-confirmed Wi-Fi → safe to delete.
         try:
             result = subprocess.run(
                 ["nmcli", "connection", "delete", connection],
@@ -1262,10 +1356,21 @@ class AgentHandler(BaseHTTPRequestHandler):
             json_response(self, 500, {"error": f"nmcli failed: {exc}"})
             return
 
+        if result.returncode != 0:
+            stderr = (result.stderr or result.stdout or "").strip()[:200]
+            json_response(self, 200, {
+                "platform_supported": False,
+                "reason": stderr or "nmcli device status failed",
+            })
+            return
+
         devices = []
         wifi_connected = False
         for line in result.stdout.splitlines():
-            parts = line.split(":")
+            # See _split_nmcli_terse — connection names containing ':' come
+            # through as '\:' under default `nmcli -t` escaping; naive
+            # str.split(':') would corrupt them.
+            parts = _split_nmcli_terse(line)
             if len(parts) < 4:
                 continue
             device, typ, state, connection = parts[0], parts[1], parts[2], parts[3]

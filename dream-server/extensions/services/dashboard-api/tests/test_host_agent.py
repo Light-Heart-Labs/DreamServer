@@ -25,6 +25,126 @@ resolve_compose_flags = _mod.resolve_compose_flags
 validate_core_recreate_ids = _mod.validate_core_recreate_ids
 invalidate_compose_cache = _mod.invalidate_compose_cache
 _post_install_core_recreate = _mod._post_install_core_recreate
+_split_nmcli_terse = _mod._split_nmcli_terse
+
+
+# --- _split_nmcli_terse — parser for nmcli -t (terse) output ---
+
+
+class TestSplitNmcliTerse:
+    """Reviewer flagged `line.split(':')` as fragile for SSIDs / connection
+    names containing ':' (#1159 audit, point 3). `_split_nmcli_terse` is
+    the replacement that respects nmcli's documented `\\:` escaping in
+    terse mode.
+    """
+
+    def test_empty_line(self):
+        assert _split_nmcli_terse("") == []
+
+    def test_simple_four_fields(self):
+        # SSID:SIGNAL:SECURITY:IN-USE from `nmcli -t -f ... device wifi list`
+        assert _split_nmcli_terse("HomeWiFi:88:WPA2:*") == ["HomeWiFi", "88", "WPA2", "*"]
+
+    def test_trailing_empty_field(self):
+        # IN-USE is empty when this row isn't the connected network.
+        assert _split_nmcli_terse("Guest:50:WPA2:") == ["Guest", "50", "WPA2", ""]
+
+    def test_ssid_with_escaped_colon(self):
+        # SSID literally named "Cafe:Lounge" comes back as "Cafe\:Lounge"
+        # under default nmcli -t escaping. Naive str.split(':') corrupts it.
+        assert _split_nmcli_terse(r"Cafe\:Lounge:67:WPA2:") == ["Cafe:Lounge", "67", "WPA2", ""]
+
+    def test_connection_name_with_escaped_backslash(self):
+        # Backslashes also escaped (as '\\\\') in terse mode.
+        assert _split_nmcli_terse(r"home\\net:wifi:connected:Home") == ["home\\net", "wifi", "connected", "Home"]
+
+    def test_multiple_escaped_colons_in_one_field(self):
+        # SSID containing multiple colons.
+        assert _split_nmcli_terse(r"a\:b\:c:1:open:") == ["a:b:c", "1", "open", ""]
+
+    def test_no_unescaped_colons_returns_one_part(self):
+        assert _split_nmcli_terse("solo") == ["solo"]
+
+
+class TestNetworkHandlers:
+
+    @pytest.fixture(autouse=True)
+    def _network_env(self, monkeypatch):
+        monkeypatch.setattr(_mod, "AGENT_API_KEY", "test-key")
+        monkeypatch.setattr(_mod.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(_mod.shutil, "which", lambda name: f"/usr/bin/{name}" if name == "nmcli" else None)
+
+    def test_wifi_scan_keeps_strongest_duplicate_ssid(self, monkeypatch):
+        def fake_run(cmd, *args, **kwargs):
+            if cmd[:4] == ["nmcli", "device", "wifi", "rescan"]:
+                return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+            if cmd[:3] == ["nmcli", "-t", "-f"]:
+                stdout = "\n".join([
+                    "Cafe:20:WPA2:",
+                    "Cafe:80:WPA2:*",
+                    "Guest:40::",
+                ])
+                return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=stdout, stderr="")
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+        handler = _FakeHandler(b"")
+
+        _mod.AgentHandler._handle_network_wifi_scan(handler)
+
+        assert handler.response_code == 200
+        body = handler.parse_response()
+        assert body["networks"][0] == {
+            "ssid": "Cafe",
+            "signal": 80,
+            "security": "WPA2",
+            "in_use": True,
+        }
+        assert body["networks"][1]["ssid"] == "Guest"
+
+    def test_wifi_forget_refuses_non_wifi_profile(self, monkeypatch):
+        calls = []
+
+        def fake_run(cmd, *args, **kwargs):
+            calls.append(cmd)
+            if cmd[:3] == ["nmcli", "-t", "-f"]:
+                return subprocess.CompletedProcess(
+                    args=cmd,
+                    returncode=0,
+                    stdout="connection.type:802-3-ethernet\n",
+                    stderr="",
+                )
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+        handler = _FakeHandler(json.dumps({"connection": "Wired"}).encode("utf-8"))
+
+        _mod.AgentHandler._handle_network_wifi_forget(handler)
+
+        assert handler.response_code == 400
+        assert "non-Wi-Fi" in handler.parse_response()["error"]
+        assert all(cmd[:3] != ["nmcli", "connection", "delete"] for cmd in calls)
+
+    def test_network_status_reports_nmcli_status_failure_as_unsupported(self, monkeypatch):
+        def fake_run(cmd, *args, **kwargs):
+            if cmd[:3] == ["nmcli", "-t", "-f"]:
+                return subprocess.CompletedProcess(
+                    args=cmd,
+                    returncode=8,
+                    stdout="",
+                    stderr="NetworkManager is not running",
+                )
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+        handler = _FakeHandler(b"")
+
+        _mod.AgentHandler._handle_network_status(handler)
+
+        assert handler.response_code == 200
+        body = handler.parse_response()
+        assert body["platform_supported"] is False
+        assert "NetworkManager is not running" in body["reason"]
 
 
 # --- _parse_mem_value ---
