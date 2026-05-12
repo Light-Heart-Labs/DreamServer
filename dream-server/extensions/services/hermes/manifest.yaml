@@ -1,0 +1,65 @@
+schema_version: dream.services.v1
+
+compatibility:
+  dream_min: "2.0.0"
+
+service:
+  id: hermes
+  name: Hermes Agent
+  aliases: [agent, hermes-agent]
+  container_name: dream-hermes
+  default_host: hermes
+  # Hermes's own dashboard listens on 9119 inside the container. We expose
+  # the same port externally — keeps URLs intuitive when users follow the
+  # mDNS hostname (hermes.<device>.local:9119).
+  port: 9119
+  external_port_env: HERMES_PORT
+  external_port_default: 9119
+  health: /api/health
+  ui_path: /
+  health_timeout: 60  # Hermes does skill sync + config bootstrap on cold start
+  type: docker
+  gpu_backends: [all]
+  compose_file: compose.yaml
+  category: optional
+  depends_on: [llama-server]
+  description: >
+    Hermes Agent (Nous Research) — a self-improving generalist agent with
+    persistent memory, autonomous skill creation, and 70+ built-in tools.
+    Dream Server runs the upstream image pinned by SHA, points it at the
+    local LLM (llama-server), and disables the messaging gateways (Telegram /
+    Discord / Slack / etc.) since the web dashboard is the surface we ship.
+    Reachable on the LAN at hermes.<device>.local:9119 via mDNS.
+
+  env_vars:
+    - key: HERMES_PORT
+      default: "9119"
+      description: External port for Hermes's own dashboard (FastAPI + React UI)
+    - key: HERMES_MODEL_NAME
+      default: "qwen3.5-9b"
+      description: |
+        Model name passed to Hermes. Defaults to Dream Server's LLM_MODEL.
+        Hermes uses provider=custom so this is mostly a label — what matters
+        is HERMES_LLM_BASE_URL pointing at an OpenAI-compatible endpoint.
+    - key: HERMES_LLM_BASE_URL
+      default: "http://llama-server:8080/v1"
+      description: OpenAI-compatible endpoint Hermes talks to. Defaults to Dream's llama-server.
+    - key: HERMES_LLM_API_KEY
+      default: "sk-dream-hermes-local"
+      description: |
+        Dummy API key — llama-server doesn't validate it but the OpenAI SDK
+        Hermes uses internally requires the field to be non-empty.
+
+features:
+  - id: hermes-agent
+    name: Hermes Agent
+    description: Generalist self-improving agent — chat, tools, persistent memory, scheduled tasks
+    icon: Bot
+    category: productivity
+    requirements:
+      services: [llama-server]
+      vram_gb: 0
+    enabled_services_all: [hermes]
+    setup_time: ~1 minute (image pull)
+    priority: 5
+    gpu_backends: [all]
