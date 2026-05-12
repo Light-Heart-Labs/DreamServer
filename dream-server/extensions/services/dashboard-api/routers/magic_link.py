@@ -81,7 +81,10 @@ MAX_EXPIRY_SECONDS = 86400
 MAX_TOKENS_RETAINED = 200  # cap audit log growth
 
 _WEBUI_URL_DEFAULT = "http://localhost:3000"
-_PUBLIC_URL_DEFAULT = "http://dreamserver.local"
+# Used to build subdomain URLs (auth.<name>.local, chat.<name>.local).
+# Falls back to "dream" so a half-configured install still produces a
+# sane-looking URL.
+_DEVICE_NAME_DEFAULT = "dream"
 # Session cookie TTL — 12 hours of rolling chat access after redemption.
 SESSION_TTL_SECONDS = 12 * 3600
 
@@ -285,31 +288,87 @@ def _qr_data_url(text: str) -> Optional[str]:
 # --- Endpoint URL builders ---
 
 
-def _public_base() -> str:
-    """The proxy origin — all magic-link + redirect URLs build off this.
+def _device_name() -> str:
+    """The DREAM_DEVICE_NAME segment, with a sane fallback.
 
-    The dream-proxy (Caddy on :80) is the canonical entry point on the LAN.
-    Routes:
-      /auth/*  → dashboard-api (this service)  — redemption endpoint lives here
-      /chat    → Open WebUI                     — where redemption redirects to
-    The user scans the QR, hits the proxy, the proxy routes /auth/* to us,
-    we set the cookie, then 302 to /chat (same origin → cookie travels along).
+    The mDNS announcer and the dream-proxy use the same name to build
+    per-service hostnames (chat.<name>.local, auth.<name>.local, etc.).
+    Falls back to 'dream' so a misconfigured install still produces a
+    URL that looks reasonable.
     """
-    return (os.environ.get("DREAM_PUBLIC_URL") or _PUBLIC_URL_DEFAULT).rstrip("/")
+    raw = (os.environ.get("DREAM_DEVICE_NAME") or _DEVICE_NAME_DEFAULT).strip()
+    return raw or _DEVICE_NAME_DEFAULT
+
+
+def _public_base() -> str:
+    """Override base for the magic-link URL (operator escape hatch).
+
+    Set DREAM_PUBLIC_URL to an absolute URL (e.g., a Tailscale tunnel
+    or custom domain) and the magic-link / redirect URLs build off
+    that instead of the per-subdomain default. Empty → use
+    `_auth_url` / `_chat_url` built from DREAM_DEVICE_NAME.
+    """
+    return (os.environ.get("DREAM_PUBLIC_URL") or "").rstrip("/")
+
+
+def _auth_url() -> str:
+    """Origin where magic-link redemption (this service) is reached.
+
+    Default: http://auth.<DREAM_DEVICE_NAME>.local — the dream-proxy
+    on :80 with Host: auth.<name>.local routes to dashboard-api.
+    DREAM_PUBLIC_URL overrides for tunneled / non-mDNS deployments.
+    """
+    override = _public_base()
+    if override:
+        return override
+    return f"http://auth.{_device_name()}.local"
 
 
 def _chat_url() -> str:
-    """Where a successful redemption redirects to (chat surface, proxied)."""
-    return f"{_public_base()}/chat"
+    """Where a successful redemption redirects to (Open WebUI via proxy).
+
+    Default: http://chat.<DREAM_DEVICE_NAME>.local. Cookie set by
+    redemption uses Domain=<DREAM_DEVICE_NAME>.local so it carries
+    across to the chat subdomain — that's how single-redemption SSO
+    works without identity claims in the cookie.
+    """
+    override = _public_base()
+    if override:
+        # When DREAM_PUBLIC_URL is overridden, assume /chat is the chat
+        # path on that origin (mirrors WEBUI_URL=…/chat for tunnel users).
+        return f"{override}/chat"
+    return f"http://chat.{_device_name()}.local"
 
 
 def _magic_link_url(token: str) -> str:
     """Public URL the user scans/clicks to redeem.
 
-    Routed through the dream-proxy on :80 so the redemption cookie is set
-    on the proxy origin — same origin the chat UI is reached from.
+    Default: http://auth.<DREAM_DEVICE_NAME>.local/magic-link/<token>.
+    The cookie set by the redemption handler uses
+    Domain=<DREAM_DEVICE_NAME>.local so it's also sent to
+    chat.<name>.local, hermes.<name>.local, etc. (subdomain SSO).
     """
-    return f"{_public_base()}/auth/magic-link/{token}"
+    base = _auth_url().rstrip("/")
+    # When using the override (DREAM_PUBLIC_URL), preserve the /auth/
+    # prefix that the dream-proxy historically routed to dashboard-api.
+    # When using the default subdomain, no /auth/ prefix is needed
+    # since auth.<name>.local already targets dashboard-api at root.
+    if _public_base():
+        return f"{base}/auth/magic-link/{token}"
+    return f"{base}/magic-link/{token}"
+
+
+def _cookie_domain() -> Optional[str]:
+    """Cookie Domain attribute. Empty/None = host-only cookie.
+
+    DREAM_COOKIE_DOMAIN is set by the installer to <DREAM_DEVICE_NAME>.local
+    when dream-proxy + mDNS are wired so a single redemption authenticates
+    across chat.<name>.local, hermes.<name>.local, and the rest. With it
+    empty, the cookie is host-only — functional for single-host setups
+    but breaks subdomain SSO.
+    """
+    raw = (os.environ.get("DREAM_COOKIE_DOMAIN") or "").strip()
+    return raw or None
 
 
 # --- Endpoints ---
@@ -373,6 +432,14 @@ def magic_link_qr(url: str) -> dict:
     return {"data_url": data_url}
 
 
+# Two routes for the same handler. The default URL builder uses
+# /magic-link/<token> (the proxy mounts dashboard-api at root on
+# auth.<device>.local, so /magic-link/... is the natural path). The
+# /auth/magic-link/<token> path is kept for back-compat with the
+# DREAM_PUBLIC_URL override case where dashboard-api is reached via a
+# proxy that strips a /auth prefix, and for any in-flight QR codes
+# generated before the URL shape change.
+@router.get("/magic-link/{token}")
 @router.get("/auth/magic-link/{token}")
 def redeem_magic_link(token: str, request: Request, response: Response) -> RedirectResponse:
     """Public redemption endpoint.
@@ -383,6 +450,22 @@ def redeem_magic_link(token: str, request: Request, response: Response) -> Redir
     """
     ip = _client_ip(request)
     _check_rate_limit(ip)
+
+    # Pre-flight: if DREAM_SESSION_SECRET isn't configured, refuse the
+    # redemption BEFORE marking the token used. Otherwise a misconfigured
+    # install burns a single-use invite on every attempt — the user can't
+    # retry, can't recover, and the admin has to mint a new link. The
+    # 503 is honest about it being a server misconfig, not a user error.
+    if not session_signer.is_configured():
+        logger.error(
+            "magic-link redemption refused: DREAM_SESSION_SECRET is not "
+            "configured. Set it in .env (32+ random bytes) and restart "
+            "dashboard-api."
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Session signing is not configured on this server. Ask the operator.",
+        )
 
     # Constant-shape failure response. We construct the success path inside
     # the lock and only commit if every check passes.
@@ -415,14 +498,12 @@ def redeem_magic_link(token: str, request: Request, response: Response) -> Redir
         })
         _write_store(store)
 
-    # Build the response. The session cookie is HMAC-signed (see
-    # session_signer.py) so dashboard-api / dream-proxy can verify it
-    # statelessly via /api/auth/verify-session. The cookie is *not* the
-    # magic-link token (the token is single-use; the session lives longer).
-    # If DREAM_SESSION_SECRET isn't configured, issue() raises — surface
-    # the misconfig loudly rather than minting unverifiable cookies.
+    # Build the response. The session cookie is HMAC-signed via
+    # session_signer.issue() — guarded by is_configured() above so we
+    # don't reach this line without a usable secret.
     session_token = session_signer.issue(ttl_seconds=SESSION_TTL_SECONDS)
     secure_cookie = request.url.scheme == "https"
+    cookie_domain = _cookie_domain()
 
     logger.info(
         "magic-link redeemed target=%s scope=%s ip=%s redirecting=%s",
@@ -430,25 +511,40 @@ def redeem_magic_link(token: str, request: Request, response: Response) -> Redir
     )
 
     redirect = RedirectResponse(url=redirect_to, status_code=302)
-    redirect.set_cookie(
-        key=SESSION_COOKIE_NAME,
-        value=session_token,
+    # set_cookie's `domain` parameter is the Cookie's Domain attribute.
+    # Pass `None` (omit) for a host-only cookie; pass the bare hostname
+    # to let the browser send it to all subdomains. FastAPI / Starlette
+    # treat "" as no-domain too, but `None` is the canonical signal.
+    cookie_kwargs: dict = dict(
         max_age=SESSION_TTL_SECONDS,
         httponly=True,
         samesite="lax",
         secure=secure_cookie,
         path="/",
     )
+    if cookie_domain:
+        cookie_kwargs["domain"] = cookie_domain
+
+    redirect.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=session_token,
+        **cookie_kwargs,
+    )
     # Hint to the chat UI which user this redemption was for; Open WebUI
     # ignores unknown cookies but a future integration can read this.
-    redirect.set_cookie(
-        key="dream-target-user",
-        value=record["target_username"],
+    target_user_kwargs: dict = dict(
         max_age=DEFAULT_EXPIRY_SECONDS,
         httponly=False,  # readable by the chat UI's JS for pre-fill
         samesite="lax",
         secure=secure_cookie,
         path="/",
+    )
+    if cookie_domain:
+        target_user_kwargs["domain"] = cookie_domain
+    redirect.set_cookie(
+        key="dream-target-user",
+        value=record["target_username"],
+        **target_user_kwargs,
     )
     return redirect
 

@@ -115,7 +115,9 @@ def test_generate_returns_token_and_url(magic_link_client):
     assert data["scope"] == "chat"
     assert data["reusable"] is False
     assert len(data["token"]) >= 32
-    assert data["url"].endswith(f"/auth/magic-link/{data['token']}")
+    # New URL shape: http://auth.<device>.local/magic-link/<token>.
+    # The /auth/ path prefix is gone — the auth subdomain implies it.
+    assert data["url"].endswith(f"/magic-link/{data['token']}")
 
 
 def test_generate_with_note_and_reusable(magic_link_client):
@@ -136,6 +138,10 @@ def test_generate_with_note_and_reusable(magic_link_client):
 
 
 def test_generate_respects_public_url_env(magic_link_client, monkeypatch, magic_link_module):
+    """DREAM_PUBLIC_URL override (for Tailscale tunnels / custom domains)
+    keeps the /auth/ prefix because the URL builder assumes that override
+    is being fronted by a proxy that routes /auth/* to dashboard-api
+    (matching the old shape)."""
     monkeypatch.setenv("DREAM_PUBLIC_URL", "http://dream.local:3002")
     resp = magic_link_client.post(
         "/api/auth/magic-link/generate",
@@ -146,11 +152,11 @@ def test_generate_respects_public_url_env(magic_link_client, monkeypatch, magic_
     assert resp.json()["url"].startswith("http://dream.local:3002/auth/magic-link/")
 
 
-def test_generate_url_defaults_to_proxy_host_when_public_url_unset(magic_link_client):
-    """With no DREAM_PUBLIC_URL set, the URL builds off the proxy default
-    (http://dreamserver.local) — NOT localhost:3000 (Open WebUI direct).
-    The user is supposed to hit the dream-proxy, not Open WebUI directly,
-    because the redemption endpoint lives in dashboard-api."""
+def test_generate_url_defaults_to_auth_subdomain(magic_link_client):
+    """With no DREAM_PUBLIC_URL set, the URL builds off the auth subdomain
+    (http://auth.<DREAM_DEVICE_NAME>.local) — that's where dream-proxy
+    routes dashboard-api in the host-based layout. The URL must NOT point
+    at localhost:3000 (Open WebUI direct) or :3002 (dashboard-api direct)."""
     resp = magic_link_client.post(
         "/api/auth/magic-link/generate",
         json={"target_username": "alice"},
@@ -158,9 +164,22 @@ def test_generate_url_defaults_to_proxy_host_when_public_url_unset(magic_link_cl
     )
     assert resp.status_code == 200
     url = resp.json()["url"]
-    assert url.startswith("http://dreamserver.local/auth/magic-link/"), url
+    assert url.startswith("http://auth.dream.local/magic-link/"), url
     assert "localhost:3000" not in url
-    assert ":3002" not in url  # not dashboard-api direct either
+    assert ":3002" not in url
+
+
+def test_generate_url_uses_configured_device_name(magic_link_client, monkeypatch, magic_link_module):
+    """DREAM_DEVICE_NAME feeds into the auth subdomain."""
+    monkeypatch.setenv("DREAM_DEVICE_NAME", "kitchen")
+    resp = magic_link_client.post(
+        "/api/auth/magic-link/generate",
+        json={"target_username": "alice"},
+        headers=magic_link_client.auth_headers,
+    )
+    assert resp.status_code == 200
+    url = resp.json()["url"]
+    assert url.startswith("http://auth.kitchen.local/magic-link/"), url
 
 
 def test_generate_strips_trailing_slash_from_public_url(magic_link_client, monkeypatch, magic_link_module):
@@ -278,14 +297,96 @@ def test_redeem_issues_signed_cookie_that_verifies(magic_link_client, magic_link
     assert ok is True, f"signed cookie did not verify: {reason}"
 
 
-def test_redeem_redirects_to_proxy_chat_path(magic_link_client, magic_link_module, monkeypatch):
-    """Successful redemption 302s to the proxy /chat path (so the freshly-
-    set cookie is on the same origin the chat UI is reached from)."""
-    monkeypatch.setenv("DREAM_PUBLIC_URL", "http://dream.local")
-    # Re-import to pick up the new env var for _public_base() lookups.
-    import session_signer
-    session_signer._set_secret_for_tests("test-secret-for-magic-link-tests")
+def test_redeem_redirects_to_chat_subdomain(magic_link_client, magic_link_module, monkeypatch):
+    """Successful redemption 302s to chat.<device>.local — the dream-proxy
+    routes Host: chat.<device>.local to Open WebUI. The cookie set just
+    above uses Domain=<device>.local so it travels to the chat subdomain."""
+    monkeypatch.setenv("DREAM_DEVICE_NAME", "kitchen")
+    monkeypatch.setenv("DREAM_COOKIE_DOMAIN", "kitchen.local")
 
+    gen = magic_link_client.post(
+        "/api/auth/magic-link/generate",
+        json={"target_username": "alice"},
+        headers=magic_link_client.auth_headers,
+    )
+    token = gen.json()["token"]
+
+    resp = magic_link_client.get(f"/magic-link/{token}", follow_redirects=False)
+    assert resp.status_code == 302
+    assert resp.headers["location"] == "http://chat.kitchen.local"
+
+
+def test_redeem_sets_cookie_with_configured_domain(magic_link_client, magic_link_module, monkeypatch):
+    """When DREAM_COOKIE_DOMAIN is set, the cookie carries that Domain
+    attribute so the browser shares it across subdomains (SSO).
+    Without it, the cookie stays host-only."""
+    monkeypatch.setenv("DREAM_DEVICE_NAME", "kitchen")
+    monkeypatch.setenv("DREAM_COOKIE_DOMAIN", "kitchen.local")
+
+    gen = magic_link_client.post(
+        "/api/auth/magic-link/generate",
+        json={"target_username": "alice"},
+        headers=magic_link_client.auth_headers,
+    )
+    token = gen.json()["token"]
+    resp = magic_link_client.get(f"/magic-link/{token}", follow_redirects=False)
+    assert resp.status_code == 302
+    cookie_blob = b" ".join(
+        v for k, v in resp.headers.raw if k.lower() == b"set-cookie"
+    ).lower()
+    assert b"domain=kitchen.local" in cookie_blob
+
+
+def test_redeem_omits_cookie_domain_when_unset(magic_link_client, magic_link_module, monkeypatch):
+    """With DREAM_COOKIE_DOMAIN unset, the cookie is host-only (no Domain
+    attribute) — same shape as today for single-host setups."""
+    monkeypatch.delenv("DREAM_COOKIE_DOMAIN", raising=False)
+    gen = magic_link_client.post(
+        "/api/auth/magic-link/generate",
+        json={"target_username": "alice"},
+        headers=magic_link_client.auth_headers,
+    )
+    token = gen.json()["token"]
+    resp = magic_link_client.get(f"/magic-link/{token}", follow_redirects=False)
+    cookie_blob = b" ".join(
+        v for k, v in resp.headers.raw if k.lower() == b"set-cookie"
+    ).lower()
+    assert b"domain=" not in cookie_blob, cookie_blob
+
+
+def test_redeem_refuses_when_signing_unconfigured(magic_link_client, magic_link_module):
+    """If DREAM_SESSION_SECRET isn't configured, redemption returns 503
+    BEFORE the single-use token is marked used. Otherwise a misconfigured
+    install burns invites on every attempt — the user can't retry and
+    has to ask the admin for a new link. The pre-check protects the
+    invite."""
+    import session_signer
+    # Generate an invite while the secret is set (fixture state).
+    gen = magic_link_client.post(
+        "/api/auth/magic-link/generate",
+        json={"target_username": "alice"},
+        headers=magic_link_client.auth_headers,
+    )
+    token = gen.json()["token"]
+
+    # Now clear the secret to simulate misconfiguration.
+    session_signer._set_secret_for_tests("")
+
+    resp = magic_link_client.get(f"/magic-link/{token}", follow_redirects=False)
+    assert resp.status_code == 503
+    assert "not configured" in resp.json()["detail"].lower()
+
+    # The invite must NOT be marked used — restore the secret and confirm
+    # redemption still works on a retry.
+    session_signer._set_secret_for_tests("test-secret-for-magic-link-tests")
+    retry = magic_link_client.get(f"/magic-link/{token}", follow_redirects=False)
+    assert retry.status_code == 302, retry.text
+
+
+def test_redeem_back_compat_auth_prefix_route_still_works(magic_link_client, magic_link_module):
+    """The /auth/magic-link/<token> path is kept for back-compat with
+    DREAM_PUBLIC_URL overrides and any in-flight QR codes from before
+    the URL shape change. Both routes call the same handler."""
     gen = magic_link_client.post(
         "/api/auth/magic-link/generate",
         json={"target_username": "alice"},
@@ -295,7 +396,6 @@ def test_redeem_redirects_to_proxy_chat_path(magic_link_client, magic_link_modul
 
     resp = magic_link_client.get(f"/auth/magic-link/{token}", follow_redirects=False)
     assert resp.status_code == 302
-    assert resp.headers["location"] == "http://dream.local/chat"
 
 
 def test_redeem_marks_token_used(magic_link_client, magic_link_module):
