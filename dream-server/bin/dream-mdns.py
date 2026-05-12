@@ -35,17 +35,34 @@ import sys
 import time
 from pathlib import Path
 
-try:
-    from zeroconf import IPVersion, ServiceInfo, Zeroconf
-except ImportError:
-    print(
-        "ERROR: `zeroconf` Python package not installed. "
-        "On Debian/Ubuntu: sudo apt install python3-zeroconf. "
-        "On Fedora: sudo dnf install python3-zeroconf. "
-        "On Arch: sudo pacman -S python-zeroconf.",
-        file=sys.stderr,
-    )
-    sys.exit(1)
+# zeroconf import is deferred past the platform gate in main(). macOS has
+# built-in Bonjour and Windows isn't covered yet — neither should hard-fail
+# at start just because the package isn't installed.
+IPVersion = None  # type: ignore
+ServiceInfo = None  # type: ignore
+Zeroconf = None  # type: ignore
+
+
+def _import_zeroconf_or_die() -> None:
+    """Linux-only path. Imports zeroconf lazily so non-Linux platforms can
+    exit cleanly without the package installed."""
+    global IPVersion, ServiceInfo, Zeroconf
+    try:
+        from zeroconf import IPVersion as _IPVersion  # noqa: PLC0415
+        from zeroconf import ServiceInfo as _ServiceInfo  # noqa: PLC0415
+        from zeroconf import Zeroconf as _Zeroconf  # noqa: PLC0415
+    except ImportError:
+        print(
+            "ERROR: `zeroconf` Python package not installed. "
+            "On Debian/Ubuntu: sudo apt install python3-zeroconf. "
+            "On Fedora: sudo dnf install python3-zeroconf. "
+            "On Arch: sudo pacman -S python-zeroconf.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    IPVersion = _IPVersion
+    ServiceInfo = _ServiceInfo
+    Zeroconf = _Zeroconf
 
 logging.basicConfig(
     level=os.environ.get("DREAM_MDNS_LOG_LEVEL", "INFO"),
@@ -93,6 +110,32 @@ def _get_local_ip() -> str:
     return ip
 
 
+def _safe_port(env: dict[str, str], key: str, default: int) -> int:
+    """Parse a port from .env. Tolerant of blank/non-numeric values.
+
+    The .env file is intentionally user-editable, so a typo in WEBUI_PORT
+    must not crash the announcer (which would then restart on a systemd
+    loop, spamming logs). On bad input we log and fall back to the default;
+    the next refresh picks up the fix once the user corrects .env.
+    """
+    raw = env.get(key, "")
+    if raw == "":
+        return default
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Env %s=%r is not a valid integer; using default %d", key, raw, default,
+        )
+        return default
+    if value <= 0:
+        logger.warning(
+            "Env %s=%r is non-positive; using default %d", key, raw, default,
+        )
+        return default
+    return value
+
+
 def _build_services(env: dict[str, str], device_name: str, ip: str) -> list[ServiceInfo]:
     """Build the ServiceInfo records to publish.
 
@@ -104,9 +147,9 @@ def _build_services(env: dict[str, str], device_name: str, ip: str) -> list[Serv
     addresses = [socket.inet_aton(ip)]
     services: list[tuple[str, int, str, dict[str, str]]] = [
         # (service_type_prefix, port, label, extra_txt)
-        ("dashboard",   int(env.get("DASHBOARD_PORT", "3001")), "Dream Dashboard", {"path": "/"}),
-        ("chat",        int(env.get("WEBUI_PORT", "3000")),     "Dream Chat",      {"path": "/"}),
-        ("dashboard-api", int(env.get("DASHBOARD_API_PORT", "3002")), "Dream API", {"path": "/health"}),
+        ("dashboard",     _safe_port(env, "DASHBOARD_PORT", 3001),     "Dream Dashboard", {"path": "/"}),
+        ("chat",          _safe_port(env, "WEBUI_PORT", 3000),         "Dream Chat",      {"path": "/"}),
+        ("dashboard-api", _safe_port(env, "DASHBOARD_API_PORT", 3002), "Dream API",       {"path": "/health"}),
     ]
     infos: list[ServiceInfo] = []
     for suffix, port, label, txt in services:
@@ -142,9 +185,9 @@ class Announcer:
         return (
             device_name,
             ip,
-            int(env.get("DASHBOARD_PORT", "3001")),
-            int(env.get("WEBUI_PORT", "3000")),
-            int(env.get("DASHBOARD_API_PORT", "3002")),
+            _safe_port(env, "DASHBOARD_PORT", 3001),
+            _safe_port(env, "WEBUI_PORT", 3000),
+            _safe_port(env, "DASHBOARD_API_PORT", 3002),
         )
 
     def refresh(self) -> None:
@@ -206,6 +249,10 @@ def main() -> int:
             "See docs for follow-up. Exiting cleanly."
         )
         return 0
+    # Linux path: zeroconf is required from here on. Imported lazily so the
+    # no-op exits above don't trip on a missing package.
+    _import_zeroconf_or_die()
+
     if not ENV_FILE.is_file():
         logger.error("Env file not found at %s — cannot determine device config.", ENV_FILE)
         return 1
@@ -224,7 +271,9 @@ def main() -> int:
     while True:
         try:
             announcer.refresh()
-        except (OSError, RuntimeError) as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
+            # ValueError covers any int-conversion failures we missed above —
+            # the alternative is a crashloop that masks the real config bug.
             logger.exception("Refresh failed: %s", exc)
         time.sleep(POLL_INTERVAL)
 
