@@ -13,9 +13,11 @@
 # Model — points at Dream Server's local LLM by default
 # =============================================================================
 model:
-  # The local model name. Defaults to Dream's LLM_MODEL via the
-  # OPENAI_BASE_URL Hermes inspects. The provider override below makes
-  # the actual model lookup happen against llama-server's /v1/models.
+  # The local model name. Defaults to "qwen3.5-9b" because that's Dream
+  # Server's default; if you've switched llama-server to a different
+  # model, edit this line in /opt/data/config.yaml after first start.
+  # (Hermes does NOT read HERMES_MODEL_NAME from env — the config.yaml
+  # is the source of truth once it's copied out of the example.)
   default: "qwen3.5-9b"
 
   # provider=custom = any OpenAI-compatible local server. Aliases:
@@ -27,6 +29,13 @@ model:
   # value here is the fallback if the env var is unset.
   base_url: "http://llama-server:8080/v1"
 
+  # Match the LLM's context window. Dream Server's default CTX_SIZE is
+  # 16384; bump this in /opt/data/config.yaml if you've raised CTX_SIZE
+  # in .env. Upstream Hermes reads this from model.context_length —
+  # earlier drafts used a top-level context: block which is silently
+  # ignored.
+  context_length: 16384
+
 # =============================================================================
 # Terminal backend — where tool calls execute
 # =============================================================================
@@ -37,30 +46,37 @@ terminal:
   backend: "local"
 
 # =============================================================================
-# Messaging gateways — DISABLED by default in Dream Server
+# Messaging gateways — none enabled by default in Dream Server
 # =============================================================================
 # Hermes ships with Telegram / Discord / Slack / WhatsApp / Signal / email /
-# Teams / Google Chat / Matrix / Mattermost / SMS gateways. Dream Server users
-# reach Hermes via the web dashboard, not platform bots. Leave these off
-# unless you understand the security implications of each.
+# Teams / Google Chat / Matrix / Mattermost / SMS gateway adapters. Dream
+# Server users reach Hermes via the web dashboard, not platform bots — so
+# none of these are configured here.
 #
-# To enable any of them, set the corresponding token in .env (TELEGRAM_TOKEN,
-# DISCORD_TOKEN, etc.) AND remove the disabled: true line from the
-# corresponding adapter config under upstream's gateway docs.
-gateway:
-  # Globally disable the messaging gateway runner. The `dashboard` subcommand
-  # is what compose.yaml starts; this just makes sure that if someone runs
-  # `docker exec dream-hermes hermes gateway run` it stays a no-op until
-  # they explicitly configure a platform.
-  enabled: false
+# IMPORTANT: there is NO top-level `gateway.enabled: false` switch in
+# upstream's config schema. Earlier drafts of this template had one; it
+# was silently ignored. The gateway is "disabled" by simply not
+# configuring any adapter (no TELEGRAM_TOKEN, no DISCORD_TOKEN, etc.),
+# which means `hermes gateway run` starts, ticks cron, hosts the
+# dashboard, and has no platforms to message on.
+#
+# To enable a platform, follow upstream's adapter docs and add the
+# matching block under the platform-specific config keys, then restart
+# the container.
 
 # =============================================================================
 # Compression — keep memory bounded on small devices
 # =============================================================================
-# Hermes auto-compacts long conversations. Lower threshold = more aggressive
-# compaction = lower disk + token costs but more summarization loss.
-context:
-  # Match the LLM's context window. Dream Server's default CTX_SIZE is 16384;
-  # bump this if you've raised CTX_SIZE in .env.
-  context_length: 16384
-  compact_threshold: 10000
+# Hermes auto-compacts long conversations once they cross the threshold.
+# These are the upstream-correct keys (compression.*); an earlier draft
+# used compact_threshold under a context: block which upstream silently
+# ignores.
+compression:
+  # Token count at which Hermes starts compacting the conversation.
+  # Lower = more aggressive = lower disk/token cost but more summary loss.
+  # Keep this comfortably below model.context_length so there's headroom
+  # before hitting the hard window limit.
+  threshold: 10000
+  # Fraction of the conversation to retain after compaction. 0.5 = aim
+  # for half the original token count post-summary.
+  target_ratio: 0.5

@@ -27,10 +27,12 @@ Hermes ships its own complete web UI — Dream Server is just packaging it. Afte
   ┌─────────────────────────────────────┐
   │  dream-hermes container             │
   │                                     │
-  │   Upstream FastAPI dashboard        │
-  │     - serves React SPA              │
-  │     - exposes /api endpoints        │
-  │     - drives AIAgent class          │
+  │   hermes gateway run                │
+  │     - HERMES_DASHBOARD=1 →          │
+  │         React SPA + /api endpoints  │
+  │     - scheduler tick() every 60s →  │
+  │         fires cron jobs             │
+  │     - no messaging adapters         │
   │                                     │
   │   State: /opt/data (HERMES_HOME)    │
   │     mounted from data/hermes/       │
@@ -82,7 +84,7 @@ The first start takes a minute — image is ~3GB, Hermes runs its `skills_sync.p
 ## Defaults Dream Server applies
 
 - **Provider:** `custom` (OpenAI-compatible) pointing at `llama-server:8080/v1`
-- **Model name:** `qwen3.5-9b` (Dream Server's default LLM — change `HERMES_MODEL_NAME` if you've swapped models)
+- **Model name:** `qwen3.5-9b` (Dream Server's default LLM — to switch models, edit `model.default` in `data/hermes/config.yaml` after first start; there is no env-var hook for this)
 - **Persona (`SOUL.md`):** a generalist Dream-Server-aware persona (see `extensions/services/hermes/SOUL.md.template`)
 - **Messaging gateways DISABLED:** Telegram / Discord / Slack / WhatsApp / Signal / Teams / Google Chat / Matrix / Mattermost / SMS — all off by default. Dream Server users reach Hermes via the web dashboard. To enable any platform, see [upstream messaging docs](https://hermes-agent.nousresearch.com/docs/user-guide/messaging/).
 - **Network exposure:** controlled by Dream Server's `BIND_ADDRESS` (default `127.0.0.1` = localhost only). Set `BIND_ADDRESS=0.0.0.0` to make Hermes reachable on the LAN at port 9119.
@@ -92,8 +94,8 @@ The first start takes a minute — image is ~3GB, Hermes runs its `skills_sync.p
 
 Three layers, highest to lowest precedence:
 
-1. **Edit `data/hermes/config.yaml`** directly — Hermes's own config file, copied from our template on first start. Survives container restarts. Reset by deleting and restarting.
-2. **Set env vars in Dream Server's `.env`** — `HERMES_LLM_BASE_URL`, `HERMES_MODEL_NAME`, etc. See `.env.example` for the full list.
+1. **Edit `data/hermes/config.yaml`** directly — Hermes's own config file, copied from our template on first start. Survives container restarts. Reset by deleting and restarting. **The model name lives here**, not in env.
+2. **Set env vars in Dream Server's `.env`** — `HERMES_LLM_BASE_URL`, `HERMES_LLM_API_KEY`, `HERMES_PORT`, `HERMES_LANGUAGE`. These are the only Hermes settings the container actually reads from env. See `.env.example`.
 3. **Fall back to Dream Server's defaults** — defined in `extensions/services/hermes/cli-config.yaml.template`.
 
 To bring up Hermes pointing at a different LLM (e.g. OpenRouter, OpenAI, Anthropic), edit `data/hermes/config.yaml`'s `model.provider` and `model.base_url` and restart. The whole gamut of provider options is listed in the upstream config — Hermes supports OpenRouter / Anthropic / OpenAI / Hugging Face / NVIDIA NIM / z.ai / Kimi / Gemini / Ollama Cloud / LM Studio / etc. out of the box.

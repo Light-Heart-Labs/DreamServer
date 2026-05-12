@@ -28,6 +28,19 @@ services:
       # Locale + timezone match the rest of the stack.
       - TZ=${TIMEZONE:-UTC}
       - HERMES_LANGUAGE=${HERMES_LANGUAGE:-en}
+      # Embed the dashboard inside the gateway process (see `command` below).
+      # Upstream reads these env vars to configure the dashboard listener
+      # without separate CLI flags.
+      - HERMES_DASHBOARD=1
+      - HERMES_DASHBOARD_HOST=0.0.0.0
+      - HERMES_DASHBOARD_PORT=9119
+      # --insecure equivalent: dashboard refuses non-loopback binds without
+      # this since it stores API keys. The trusted-LAN posture is the v1
+      # trade-off (documented in docs/HERMES.md).
+      - HERMES_DASHBOARD_INSECURE=1
+      # --no-open equivalent: stops Hermes from trying to spawn a browser
+      # inside the container.
+      - HERMES_DASHBOARD_NO_OPEN=1
     volumes:
       # Persistent state: Hermes's HERMES_HOME. Sessions, skills, memories,
       # cron jobs, audit logs all live here.
@@ -44,20 +57,23 @@ services:
       # Set BIND_ADDRESS=0.0.0.0 in .env to make Hermes reachable on the LAN
       # at hermes.<device>.local:9119 (mDNS) or via Tailscale.
       - "${BIND_ADDRESS:-127.0.0.1}:${HERMES_PORT:-9119}:9119"
-    # Run only the dashboard subcommand. Upstream's image entrypoint defaults
-    # to `hermes` (no args) which is for interactive use. We want exactly the
-    # FastAPI + React UI. --insecure is required because the dashboard refuses
-    # non-loopback binds without it (it stores API keys); inside Dream Server's
-    # trusted-LAN posture this is the documented v1 trade-off. --no-open keeps
-    # Hermes from trying to open a browser inside the container.
+    # Run the gateway with the dashboard embedded.
+    #
+    # Why `gateway run` and not just `dashboard`: Hermes's scheduler (the
+    # cron tick that fires recurring tasks) runs INSIDE the gateway process,
+    # not the dashboard. Earlier drafts of this extension ran only
+    # `dashboard`, which let users create cron jobs through the UI but
+    # never actually fired them — `tick()` lives in the gateway's main
+    # loop. `gateway run` with HERMES_DASHBOARD=1 (set above) gives us
+    # both: the gateway's scheduler + the React UI, in one process.
+    #
+    # We don't enable any messaging platforms (Telegram / Discord / etc.)
+    # so the gateway has no adapters to drive — its only job here is to
+    # tick cron and host the dashboard. That's the upstream-supported
+    # shape; see https://hermes-agent.nousresearch.com/docs/gateway.
     command:
-      - dashboard
-      - --host
-      - 0.0.0.0
-      - --port
-      - "9119"
-      - --no-open
-      - --insecure
+      - gateway
+      - run
     healthcheck:
       test: ["CMD", "curl", "-fs", "http://127.0.0.1:9119/api/health"]
       interval: 30s
