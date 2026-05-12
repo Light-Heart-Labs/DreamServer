@@ -60,6 +60,49 @@ _check_health() {
     fi
 }
 
+_check_container_health() {
+    local name=$1
+    local container_name=$2
+    local max_attempts=${3:-60}
+    local docker_cmd="${DOCKER_CMD:-docker}"
+    local -a docker_cmd_arr=()
+    read -r -a docker_cmd_arr <<< "$docker_cmd"
+    [[ ${#docker_cmd_arr[@]} -gt 0 ]] || docker_cmd_arr=(docker)
+
+    printf "  ${GRN}...${NC} Waiting for %-20s " "$name"
+    for attempt in $(seq 1 "$max_attempts"); do
+        local state=""
+        state=$("${docker_cmd_arr[@]}" inspect --format '{{.State.Status}}' "$container_name" 2>/dev/null || echo "missing")
+        case "$state" in
+            exited|dead|missing)
+                printf "\r  ${RED}ERR${NC} %-55s\n" "$name container $state"
+                ai_warn "$name container is $state; not retrying health probe."
+                return 1
+                ;;
+        esac
+
+        local health=""
+        health=$("${docker_cmd_arr[@]}" inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_name" 2>/dev/null || echo "missing")
+        case "$health" in
+            healthy)
+                printf "\r  ${BGRN}OK${NC} %-56s\n" "$name healthy"
+                return 0
+                ;;
+            running)
+                # No Docker healthcheck declared. Treat running as good enough.
+                printf "\r  ${BGRN}OK${NC} %-56s\n" "$name running"
+                return 0
+                ;;
+        esac
+
+        sleep 5
+    done
+
+    printf "\r  ${AMB}WARN${NC} %-54s\n" "$name delayed (container health not healthy yet)"
+    ai_warn "$name container health is not healthy yet. I will continue."
+    return 1
+}
+
 # Core service health checks with adaptive timeouts
 # Format: _check_health "name" "url" max_attempts timeout_per_request
 # llama-server: 150 attempts * adaptive backoff (2s->8s) = up to ~20 minutes (model loading can be slow)
@@ -156,10 +199,16 @@ fi
 
 # Extension service health checks with adaptive timeouts
 dream_progress 94 "health" "Checking extension services"
-# Hermes uses /healthz (unauthenticated) — /api/* is auth-gated and 401s.
-# hermes-proxy intentionally returns 401 for / so we probe its own /healthz.
-[[ "$ENABLE_HERMES" == "true" ]] && _check_health "Hermes Agent" "http://127.0.0.1:${SERVICE_PORTS[hermes]:-9119}${SERVICE_HEALTH[hermes]:-/healthz}" 150 10 "$(sr_container hermes)"
-[[ "$ENABLE_HERMES" == "true" ]] && _check_health "Hermes Proxy" "http://127.0.0.1:${SERVICE_PORTS[hermes-proxy]:-9120}${SERVICE_HEALTH[hermes-proxy]:-/healthz}" 60 5 "$(sr_container hermes-proxy)"
+# Hermes is intentionally internal-only: its port is exposed only inside the
+# Docker network, not bound to the host. Wait on the container healthcheck
+# instead of curling localhost:9119, which would fail on a correct install.
+if [[ "$ENABLE_HERMES" == "true" ]]; then
+    if ! _check_container_health "Hermes Agent" "$(sr_container hermes)" 60; then
+        HEALTH_FAILURES=$((HEALTH_FAILURES + 1))
+    fi
+fi
+# hermes-proxy is the LAN-facing entry and has an anonymous /health endpoint.
+[[ "$ENABLE_HERMES" == "true" ]] && _check_health "Hermes Proxy" "http://127.0.0.1:${SERVICE_PORTS[hermes-proxy]:-9120}${SERVICE_HEALTH[hermes-proxy]:-/health}" 60 5 "$(sr_container hermes-proxy)"
 [[ "$ENABLE_OPENCLAW" == "true" ]] && _check_health "OpenClaw" "http://127.0.0.1:${SERVICE_PORTS[openclaw]:-7860}${SERVICE_HEALTH[openclaw]:-/}" 150 10 "$(sr_container openclaw)"
 systemctl --user is-active opencode-web &>/dev/null && _check_health "OpenCode Web" "http://127.0.0.1:3003/" 10 5
 # Whisper: 150 attempts * adaptive backoff = up to ~20 minutes (model download on first start)

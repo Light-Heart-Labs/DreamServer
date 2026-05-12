@@ -104,6 +104,7 @@ ENABLE_RAG=true
 # it working until the removal release. See docs/MIGRATION-OPENCLAW-TO-HERMES.md.
 ENABLE_HERMES=true
 ENABLE_OPENCLAW=false
+OPENCLAW_EXPLICIT=false
 ENABLE_COMFYUI=true
 ENABLE_DREAMFORGE=true
 # Langfuse (LLM observability) defaults OFF on all tiers because its
@@ -191,8 +192,8 @@ while [[ $# -gt 0 ]]; do
         --no-rag) ENABLE_RAG=false; shift ;;
         --hermes) ENABLE_HERMES=true; shift ;;
         --no-hermes) ENABLE_HERMES=false; shift ;;
-        --openclaw) ENABLE_OPENCLAW=true; shift ;;
-        --no-openclaw) ENABLE_OPENCLAW=false; shift ;;
+        --openclaw) ENABLE_OPENCLAW=true; OPENCLAW_EXPLICIT=true; shift ;;
+        --no-openclaw) ENABLE_OPENCLAW=false; OPENCLAW_EXPLICIT=true; shift ;;
         --comfyui) ENABLE_COMFYUI=true; shift ;;
         --no-comfyui) ENABLE_COMFYUI=false; shift ;;
         --dreamforge) ENABLE_DREAMFORGE=true; shift ;;
@@ -204,7 +205,7 @@ while [[ $# -gt 0 ]]; do
         # --all enables Hermes (the new default agent) but NOT OpenClaw —
         # the deprecated agent is opt-in via --openclaw for the deprecation
         # release. Will be dropped entirely in the removal release.
-        --all) ENABLE_VOICE=true; ENABLE_WORKFLOWS=true; ENABLE_RAG=true; ENABLE_HERMES=true; ENABLE_COMFYUI=true; ENABLE_DREAMFORGE=true; ENABLE_LANGFUSE=true; shift ;;
+        --all) ENABLE_VOICE=true; ENABLE_WORKFLOWS=true; ENABLE_RAG=true; ENABLE_HERMES=true; ENABLE_OPENCLAW=false; ENABLE_COMFYUI=true; ENABLE_DREAMFORGE=true; ENABLE_LANGFUSE=true; shift ;;
         --non-interactive) INTERACTIVE=false; shift ;;
         --offline) OFFLINE_MODE=true; shift ;;
         --lan) BIND_ADDRESS="0.0.0.0"; shift ;;
@@ -214,6 +215,11 @@ while [[ $# -gt 0 ]]; do
         *) error "Unknown option: $1" ;;
     esac
 done
+
+if [[ "$OPENCLAW_EXPLICIT" != "true" && -f "$INSTALL_DIR/extensions/services/openclaw/compose.yaml" ]]; then
+    ENABLE_OPENCLAW=true
+    log "Existing OpenClaw install detected; preserving it for this deprecation release"
+fi
 
 # Detect distro + package manager (after arg parsing so --help still shows
 # the correct VERSION before /etc/os-release overwrites it)

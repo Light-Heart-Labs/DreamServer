@@ -307,6 +307,15 @@ LITELLM_PORT=4000
 OPENCLAW_PORT=7860
 LANGFUSE_PORT=3006
 
+#=== Hermes Agent ===
+# macOS runs llama-server natively with Metal; containers reach it via host.docker.internal.
+HERMES_LLM_BASE_URL=http://host.docker.internal:8080/v1
+HERMES_LLM_API_KEY=sk-dream-hermes-local
+HERMES_LANGUAGE=en
+HERMES_PROXY_PORT=9120
+HERMES_PROXY_UPSTREAM=dream-hermes:9119
+DREAM_AUTH_UPSTREAM=dream-dashboard-api:3002
+
 #=== Security (auto-generated, keep secret!) ===
 WEBUI_SECRET=${webui_secret}
 DASHBOARD_API_KEY=${dashboard_api_key}

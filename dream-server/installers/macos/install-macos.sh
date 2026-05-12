@@ -75,6 +75,7 @@ ENABLE_BRAVE_SEARCH=false
 # --all run can still suppress Langfuse.
 ENABLE_LANGFUSE=false
 NO_LANGFUSE_EXPLICIT=false
+OPENCLAW_EXPLICIT=false
 ALL_FEATURES=false
 CLOUD_MODE=false
 
@@ -89,7 +90,8 @@ while [[ $# -gt 0 ]]; do
         --rag)           ENABLE_RAG=true; shift ;;
         --hermes)        ENABLE_HERMES=true; shift ;;
         --no-hermes)     ENABLE_HERMES=false; shift ;;
-        --openclaw)      ENABLE_OPENCLAW=true; shift ;;
+        --openclaw)      ENABLE_OPENCLAW=true; OPENCLAW_EXPLICIT=true; shift ;;
+        --no-openclaw)   ENABLE_OPENCLAW=false; OPENCLAW_EXPLICIT=true; shift ;;
         --langfuse)      ENABLE_LANGFUSE=true; shift ;;
         --no-langfuse)   ENABLE_LANGFUSE=false; NO_LANGFUSE_EXPLICIT=true; shift ;;
         --all)           ALL_FEATURES=true; shift ;;
@@ -106,6 +108,7 @@ if $ALL_FEATURES; then
     # --openclaw during the deprecation release; will be removed entirely
     # in the next release.
     ENABLE_HERMES=true
+    $OPENCLAW_EXPLICIT || ENABLE_OPENCLAW=false
     # --all enables Langfuse unless the user explicitly passed --no-langfuse.
     $NO_LANGFUSE_EXPLICIT || ENABLE_LANGFUSE=true
 fi
@@ -159,6 +162,11 @@ _compute_launchd_path() {
 
 # ── Resolve install directory ──
 INSTALL_DIR="${DS_INSTALL_DIR}"
+
+if ! $OPENCLAW_EXPLICIT && [[ -f "${INSTALL_DIR}/extensions/services/openclaw/compose.yaml" ]]; then
+    ENABLE_OPENCLAW=true
+    ai "Existing OpenClaw install detected; preserving it for this deprecation release"
+fi
 
 # Initialize log file
 mkdir -p "$(dirname "$DS_LOG_FILE")"
@@ -460,6 +468,9 @@ else
     mkdir -p "${INSTALL_DIR}/data/dreamforge"
     mkdir -p "${INSTALL_DIR}/data/ape"
     mkdir -p "${INSTALL_DIR}/data/token-spy"
+    mkdir -p "${INSTALL_DIR}/data/hermes"
+    mkdir -p "${INSTALL_DIR}/data/hermes-proxy/caddy-data"
+    mkdir -p "${INSTALL_DIR}/data/hermes-proxy/caddy-config"
     mkdir -p "${INSTALL_DIR}/data/langfuse/postgres"
     mkdir -p "${INSTALL_DIR}/data/langfuse/clickhouse"
     mkdir -p "${INSTALL_DIR}/data/langfuse/redis"

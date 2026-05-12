@@ -18,7 +18,7 @@ service:
   type: docker
   gpu_backends: [all]
   compose_file: compose.yaml
-  category: optional
+  category: recommended
   depends_on: [hermes, dashboard-api]
   description: >
     Caddy-based reverse proxy that fronts the Hermes Agent extension.

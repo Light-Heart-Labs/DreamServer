@@ -32,7 +32,7 @@ service:
   type: docker
   gpu_backends: [all]
   compose_file: compose.yaml
-  category: optional
+  category: recommended
   depends_on: [llama-server]
   description: >
     Hermes Agent (Nous Research) — a self-improving generalist agent with

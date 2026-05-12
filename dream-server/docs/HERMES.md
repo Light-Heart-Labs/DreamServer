@@ -1,8 +1,8 @@
 # Hermes Agent
 
-Dream Server ships an optional **Hermes Agent** extension — the [Nous Research open-source agent](https://github.com/nousresearch/hermes-agent) packaged as a Dream Server service. Hermes is a self-improving generalist agent with persistent memory, autonomous skill creation, and 70+ tools built in.
+Dream Server ships **Hermes Agent** — the [Nous Research open-source agent](https://github.com/nousresearch/hermes-agent) packaged as a Dream Server service. Hermes is a self-improving generalist agent with persistent memory, autonomous skill creation, and 70+ tools built in.
 
-When enabled, Hermes runs in a container alongside the rest of the stack, exposes its own browser dashboard at port 9119, and talks to the local LLM (llama-server) via its OpenAI-compatible API.
+When enabled, Hermes runs in a container alongside the rest of the stack, serves its own browser dashboard on internal port 9119, and talks to the local LLM via an OpenAI-compatible API. End users should enter through `hermes-proxy` on port 9120; direct host access to 9119 is intentionally not bound in the default stack.
 
 ## What you get
 
@@ -22,8 +22,16 @@ Hermes ships its own complete web UI — Dream Server is just packaging it. Afte
 
 ```
   Browser
-     │  http://<device>:9119
+     │  http://<device>:9120
      ▼
+  ┌─────────────────────────────────────┐
+  │  dream-hermes-proxy                 │
+  │    forward_auth → dashboard-api     │
+  │    reverse_proxy → dream-hermes     │
+  └─────────────────────────────────────┘
+                 │
+                 │  Docker network: dream-hermes:9119
+                 ▼
   ┌─────────────────────────────────────┐
   │  dream-hermes container             │
   │                                     │
@@ -72,11 +80,12 @@ data/hermes/
 # 1. (One-time) Verify Dream Server's llama-server is running:
 dream status llama-server
 
-# 2. Pull + start Hermes:
+# 2. Pull + start Hermes and its auth proxy:
 dream enable hermes
+dream enable hermes-proxy
 
-# 3. (Optional) Open the dashboard:
-xdg-open http://localhost:9119
+# 3. Open the auth-gated dashboard:
+xdg-open http://localhost:9120
 ```
 
 The first start takes a minute — image is ~3GB, Hermes runs its `skills_sync.py` bootstrap, and llama-server may cold-load the model on Hermes's first request. Subsequent starts are fast.
@@ -102,7 +111,7 @@ To bring up Hermes pointing at a different LLM (e.g. OpenRouter, OpenAI, Anthrop
 
 ## Security posture
 
-- **`--insecure` is enabled.** Hermes's dashboard refuses to bind to non-loopback addresses without it (the dashboard stores API keys, so binding 0.0.0.0 has a clear "you sure?" gate). Dream Server's trusted-LAN posture accepts this trade-off for v1. **Don't expose port 9119 to the public internet.** Use Tailscale (PR-12 from the onboarding plan) if you need remote access.
+- **`--insecure` is enabled inside the container.** Hermes's dashboard refuses non-loopback binds without it. Dream Server accepts that trade-off only because port 9119 is not host-bound in the default stack; the LAN-facing entry is the magic-link-gated proxy on port 9120. Do not add a public 9119 host binding.
 - **The container runs as a non-root user** (UID 10000 by default, remappable via `HERMES_UID`). The entrypoint drops privileges via `gosu` before any agent code runs.
 - **The container has full network access** within Dream Server's bridge net — Hermes can make outbound HTTP requests for tools like `web_search`. If you want to restrict this, add an iptables firewall rule on the host or run Hermes behind a forward proxy.
 - **No APE policy enforcement yet.** Hermes's 70+ tools include shell + file write. The base config defaults toward less-risky tools, but Hermes can still execute shell commands inside its sandbox container. APE policy wrapping is a planned follow-up; until then, the trust model is "the user authenticated to Hermes is trusted to use the local container."
@@ -125,10 +134,11 @@ gh api repos/NousResearch/hermes-agent/compare/<old-sha>...<new-sha> --jq '.comm
 
 # 4. Smoke test:
 #    dream restart hermes
-#    curl http://localhost:9119/api/status  # should 200 (public, read-only)
+#    docker inspect --format '{{.State.Health.Status}}' dream-hermes
+#    curl http://localhost:9120/health
 #    # NOTE: most /api/* routes are auth-gated; /api/status is the public
 #    # JSON-backed endpoint used by Dream's health metadata and Docker probe.
-#    open http://localhost:9119, send a chat, verify tool call
+#    open http://localhost:9120, sign in, send a chat, verify tool call
 
 # 5. If it works, commit. If config.yaml format has changed, document the
 #    migration in this file's "Bump history" section below.
@@ -147,7 +157,7 @@ These were in the original integration plan but cut once we discovered Hermes sh
 
 ## Troubleshooting
 
-### `curl localhost:9119/api/status` returns 502 / connection refused
+### `docker inspect dream-hermes` is not healthy, or `localhost:9120` returns 502
 
 Hermes hasn't finished bootstrapping. Watch the logs:
 

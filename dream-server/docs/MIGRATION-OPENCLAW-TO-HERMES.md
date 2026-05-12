@@ -12,7 +12,7 @@ This document covers the migration path for existing Dream Server installs that 
 
 ## Platform support in this release
 
-The default-agent swap is wired through the **Linux and macOS** installers in this release. The Windows installer (`installers/windows/`) continues to ship OpenClaw enabled by default through the deprecation window; Windows users who want Hermes can run `dream enable hermes` post-install. Windows installer parity (default-Hermes, `--hermes` / `--no-hermes` flags, data-dir creation) lands in a follow-up PR before the removal release.
+The default-agent swap is wired through the **Linux and macOS** installers in this release. The Windows installer (`installers/windows/`) continues to ship OpenClaw enabled by default through the deprecation window; Windows users who want Hermes can run `dream enable hermes` and `dream enable hermes-proxy` post-install. Windows installer parity (default-Hermes, `--hermes` / `--no-hermes` flags, data-dir creation) lands in a follow-up PR before the removal release.
 
 ## Why the swap
 
@@ -35,11 +35,12 @@ The deciding factor was the self-improving loop: Hermes writes Markdown skill fi
 In this release both agents are installable:
 
 ```bash
-dream enable hermes        # the new default
+dream enable hermes
+dream enable hermes-proxy  # recommended LAN-facing auth gate
 dream enable openclaw      # still available (deprecated)
 ```
 
-Ports do not conflict — Hermes is on 9119 (proxied at 9120 if hermes-proxy is enabled), OpenClaw is on 7860.
+Ports do not conflict — Hermes is internal on 9119 and is reached through hermes-proxy on 9120; OpenClaw is on 7860.
 
 The default at install time has flipped: `install.sh` no longer enables OpenClaw without `--openclaw`. Existing installs that already had `ENABLE_OPENCLAW=true` keep it enabled through `dream upgrade`; nothing is removed for you.
 
@@ -50,12 +51,14 @@ If you want to move now:
 ```bash
 # 1. Enable Hermes (parallel to OpenClaw — they don't conflict)
 dream enable hermes
+dream enable hermes-proxy
 
 # 2. Verify Hermes is healthy
-curl http://localhost:9119/healthz
+docker inspect --format '{{.State.Health.Status}}' dream-hermes
+curl http://localhost:9120/health
 
 # 3. Re-create any cron jobs / important sessions in Hermes via its
-#    dashboard at http://<device>:9119. There is no import.
+#    dashboard at http://<device>:9120. There is no import.
 
 # 4. When you're satisfied, stop OpenClaw
 dream disable openclaw
@@ -68,7 +71,7 @@ If you want to keep using OpenClaw, you can — until the next release. After th
 
 ## n8n flows that target OpenClaw
 
-`config/n8n/openclaw-agent-trigger.json` still ships in this release and continues to point at OpenClaw's port 7860. A `hermes-agent-trigger.json` ships alongside it pointing at Hermes (port 9120 if proxied, 9119 if direct). Pick whichever matches your enabled agent.
+`config/n8n/openclaw-agent-trigger.json` still ships in this release and continues to point at OpenClaw's port 7860. A `hermes-agent-trigger.json` ships alongside it for Hermes. In the default auth-gated stack, users enter through port 9120 and containers call Hermes on the internal Docker network at `dream-hermes:9119`.
 
 In the removal release, only the Hermes trigger ships.
 
