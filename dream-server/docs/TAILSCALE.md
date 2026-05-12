@@ -1,6 +1,6 @@
 # Tailscale (remote access)
 
-Dream Server includes an optional Tailscale extension that puts the device on your Tailscale net (the mesh VPN at `tailscale.com`). Once joined, the dashboard and chat are reachable from any other tailnet member — your laptop, your phone, a friend's machine — anywhere with internet.
+Dream Server includes an optional Tailscale extension that puts the device on your Tailscale net (the mesh VPN at `tailscale.com`). Once joined, the device gets a private tailnet IP/DNS name; with `dream-proxy` enabled and `BIND_ADDRESS=0.0.0.0`, the dashboard and chat are reachable from any other tailnet member — your laptop, your phone, a friend's machine — anywhere with internet.
 
 This is how you reach `dream.local` from the coffee shop without exposing anything to the public internet.
 
@@ -51,7 +51,7 @@ Joining the tailnet only gets the device a `100.x.y.z` IP and a `dream.tail-xxxx
 1. **`dream-proxy` is enabled.** It listens on port 80 and routes `/chat`, `/api/*`, `/auth/*` to the right backend. With it, tailnet clients browse to `http://dream.tail-xxxxx.ts.net` (no port). Without it, only the per-service ports work (`:3000`, `:3001`, `:3002`) and only if those are LAN-bound.
 2. **`BIND_ADDRESS=0.0.0.0` in `.env`.** The default `127.0.0.1` means the proxy / dashboard / chat only accept loopback connections — even though tailscaled is in the same namespace, an incoming tailnet packet looks like any other LAN packet, not loopback. Set `BIND_ADDRESS=0.0.0.0` so the host's listen sockets accept those connections.
 
-If you ship a fresh install with Tailscale enabled but neither of the above, `tailscale status` will show the device authed but `http://dream.tail-xxxxx.ts.net` will hang or refuse. The dashboard's Tailscale page surfaces both conditions when they're missing.
+If you ship a fresh install with Tailscale enabled but neither of the above, `tailscale status` will show the device authed but `http://dream.tail-xxxxx.ts.net` will hang or refuse. Until the dashboard gets a dedicated Remote Access UI, verify those prerequisites with `.env`, `dream list`, and the status endpoint below.
 
 ## Setup
 
@@ -62,12 +62,14 @@ The extension is **opt-in**. It doesn't auto-install; you enable it when you wan
 # In the Tailscale admin console (https://login.tailscale.com/admin/settings/keys):
 #   - Reusable: usually yes (so you don't have to mint a fresh key every reinstall)
 #   - Ephemeral: NO (the device stays in your tailnet after the daemon restarts)
-#   - Tags: add tag:dream (recommend; lets you write ACLs scoped to Dream devices)
+#   - Tags: optional. If your ACL defines tag:dream and your key is allowed
+#     to use it, set TS_EXTRA_ARGS=--advertise-tags=tag:dream below.
 
 # 2. Drop the key into .env:
 cat >> .env <<'EOF'
 TS_AUTHKEY=tskey-auth-xxxxxxxxxxxxxxxxxxxxxx
 TS_HOSTNAME=                # leave blank — defaults to DREAM_DEVICE_NAME
+TS_EXTRA_ARGS=              # optional, e.g. --advertise-tags=tag:dream
 EOF
 
 # 3. Enable the extension.
@@ -172,7 +174,7 @@ Either:
 
 ### Device joined but unreachable from other tailnet members
 
-- Check your tailnet ACLs (`https://login.tailscale.com/admin/acls`). The default ACL allows all-to-all; if you've restricted it, make sure tag:dream is allowed inbound.
+- Check your tailnet ACLs (`https://login.tailscale.com/admin/acls`). The default ACL allows all-to-all; if you've restricted it and use `--advertise-tags=tag:dream`, make sure `tag:dream` is defined and allowed inbound.
 - Check the receiving side actually has the Tailscale client running: `tailscale status` on the other device should show your dream node.
 
 ### Network is sluggish

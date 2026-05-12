@@ -51,6 +51,9 @@ def _proxy_agent(path: str, timeout: int = 15) -> dict:
             pass
         logger.info("host-agent GET %s -> %s", path, exc.code)
         raise HTTPException(status_code=exc.code, detail=detail) from exc
+    except TimeoutError as exc:
+        logger.warning("host-agent GET %s timed out", path)
+        raise HTTPException(status_code=504, detail="Dream host agent request timed out.") from exc
     except urllib.error.URLError as exc:
         logger.warning("host-agent GET %s unreachable: %s", path, exc)
         raise HTTPException(status_code=503, detail="Dream host agent is not reachable.") from exc

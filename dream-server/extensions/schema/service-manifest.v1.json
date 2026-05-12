@@ -27,7 +27,19 @@
     },
     "service": {
       "type": "object",
-      "required": ["id", "name", "port", "health"],
+      "required": ["id", "name"],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "host_network": { "const": true }
+            },
+            "required": ["host_network"]
+          },
+          "then": {},
+          "else": { "required": ["port", "health"] }
+        }
+      ],
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
         "name": { "type": "string", "minLength": 1 },
@@ -45,6 +57,10 @@
         "port": { "type": "integer", "minimum": 0, "maximum": 65535 },
         "external_port_env": { "type": "string" },
         "external_port_default": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "host_network": {
+          "type": "boolean",
+          "description": "True for Docker network_mode: host services that do not declare Docker-mapped ports or HTTP health paths."
+        },
         "health": { "type": "string", "minLength": 1 },
         "health_timeout": {
           "type": "integer",

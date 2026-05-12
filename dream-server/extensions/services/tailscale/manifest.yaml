@@ -28,13 +28,18 @@ service:
       secret: true
       description: |
         Tailscale auth key. Generate one at https://login.tailscale.com/admin/settings/keys
-        Recommend a reusable, ephemeral=false, tags=tag:dream key per device. The container
-        joins your tailnet on first start, after which you can rotate or delete the key.
+        Recommend a reusable, ephemeral=false key per device. The container joins your
+        tailnet on first start, after which you can rotate or delete the key.
     - key: TS_HOSTNAME
       required: false
       description: |
         The hostname this device registers as on the tailnet. Defaults to
         ${DREAM_DEVICE_NAME}. Reachable as <hostname>.<tailnet>.ts.net once joined.
+    - key: TS_EXTRA_ARGS
+      required: false
+      description: |
+        Optional extra flags passed to `tailscale up`, for example
+        --advertise-tags=tag:dream when your tailnet ACL defines and authorizes that tag.
 
 features:
   - id: remote-access

@@ -37,10 +37,12 @@ services:
       - TS_AUTHKEY=${TS_AUTHKEY:-}
       - TS_HOSTNAME=${TS_HOSTNAME:-${DREAM_DEVICE_NAME:-dream}}
       - TS_STATE_DIR=/var/lib/tailscale
-      # AcceptRoutes lets this device see subnet routes advertised by
-      # other tailnet nodes (off by default — Dream's bidirectional case
-      # is just incoming).
-      - TS_EXTRA_ARGS=--advertise-tags=tag:dream
+      # Optional extra flags for `tailscale up`. Leave empty for a normal
+      # auth key. Operators with a tailnet ACL tag configured can set:
+      #   TS_EXTRA_ARGS=--advertise-tags=tag:dream
+      # A hard-coded tag breaks first join on tailnets that do not define
+      # or authorize that tag, so Dream keeps this opt-in.
+      - TS_EXTRA_ARGS=${TS_EXTRA_ARGS:-}
       # Userspace mode is OFF — we want full kernel networking so the
       # tailscaled daemon ends up sharing the host's network namespace.
       # That places the device's tailnet IP on the host (rather than

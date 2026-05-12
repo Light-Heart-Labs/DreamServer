@@ -122,6 +122,15 @@ def test_status_returns_503_when_agent_unreachable(test_client):
     assert resp.status_code == 503
 
 
+def test_status_returns_504_when_agent_request_times_out(test_client):
+    with patch(
+        "routers.tailscale.urllib.request.urlopen",
+        side_effect=TimeoutError("timed out"),
+    ):
+        resp = test_client.get("/api/tailscale/status", headers=test_client.auth_headers)
+    assert resp.status_code == 504
+
+
 def test_status_passes_through_504_timeout(test_client):
     err = _mock_agent_http_error(504, {"error": "docker exec timed out"})
     with patch("routers.tailscale.urllib.request.urlopen", side_effect=err):
