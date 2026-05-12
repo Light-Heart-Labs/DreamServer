@@ -150,6 +150,13 @@ def _build_services(env: dict[str, str], device_name: str, ip: str) -> list[Serv
         ("dashboard",     _safe_port(env, "DASHBOARD_PORT", 3001),     "Dream Dashboard", {"path": "/"}),
         ("chat",          _safe_port(env, "WEBUI_PORT", 3000),         "Dream Chat",      {"path": "/"}),
         ("dashboard-api", _safe_port(env, "DASHBOARD_API_PORT", 3002), "Dream API",       {"path": "/health"}),
+        # Announce unconditionally: the Hermes extension is opt-in via `dream
+        # enable hermes`, but the published mDNS record stays consistent with
+        # the other entries (dashboard/chat/dashboard-api are also announced
+        # whether or not their containers are up). Browser-side failure mode
+        # when Hermes is disabled is "site can't be reached" — same as any
+        # other service-not-running case.
+        ("hermes",        _safe_port(env, "HERMES_PORT", 9119),        "Hermes Agent",    {"path": "/api/health"}),
     ]
     infos: list[ServiceInfo] = []
     for suffix, port, label, txt in services:

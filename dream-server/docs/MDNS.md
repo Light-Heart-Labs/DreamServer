@@ -19,6 +19,7 @@ Fresh installs without these two are loopback-only. The installer's first-boot w
 | `<device>-chat._http._tcp.local` | port 3000 | Open WebUI direct (bypasses proxy) |
 | `<device>-dashboard._http._tcp.local` | port 3001 | Dashboard / settings (bypasses proxy) |
 | `<device>-dashboard-api._http._tcp.local` | port 3002 | Dashboard API health endpoint (bypasses proxy) |
+| `<device>-hermes._http._tcp.local` | port 9119 | Hermes Agent dashboard (when the `hermes` extension is enabled) |
 
 The first row is what users normally type. The `_http._tcp` rows are SRV records primarily for MCP clients, service-discovery tools, and the eventual Dream Server mobile app — they expose the underlying ports so a client can talk directly to a service without going through the proxy (e.g. to scrape `/health`).
 
