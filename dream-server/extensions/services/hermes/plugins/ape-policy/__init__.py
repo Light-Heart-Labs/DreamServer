@@ -21,9 +21,14 @@ internet should flip this to fail_closed.
 
 Env vars consumed:
   * APE_URL          — APE service URL (default http://ape:7890)
-  * APE_API_KEY      — APE Bearer token (default empty = no auth)
+  * APE_API_KEY      — APE API key sent as X-API-Key header (default
+                       empty; APE auto-generates a per-process key when
+                       unset, so callers MUST set this on both services
+                       for /verify to succeed)
   * APE_TIMEOUT      — per-request timeout in seconds (default 5)
-  * APE_FAIL_OPEN    — true/false (default true)
+  * APE_FAIL_OPEN    — true/false (default true). Applies to network
+                       outages only; 401 (auth misconfigured) always
+                       fails closed.
 
 Discovery: mounted by extensions/services/hermes/compose.yaml at
 /opt/data/plugins/ape-policy/, which is the user-plugins path
@@ -67,7 +72,7 @@ def _ape_verify(
     }).encode("utf-8")
     headers = {"Content-Type": "application/json"}
     if APE_API_KEY:
-        headers["Authorization"] = f"Bearer {APE_API_KEY}"
+        headers["X-API-Key"] = APE_API_KEY
 
     request = urllib.request.Request(
         f"{APE_URL}/verify",
@@ -88,6 +93,19 @@ def _ape_verify(
                 return False, str(err.get("detail", "denied by APE policy"))
             except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
                 return False, "denied by APE policy"
+        if exc.code == 401:
+            # Auth misconfigured: APE requires X-API-Key but the plugin
+            # either sent nothing (APE_API_KEY unset on hermes) or the
+            # value doesn't match APE's. This is a deployment bug, not
+            # a network outage — always fail closed regardless of
+            # APE_FAIL_OPEN so it surfaces loudly instead of silently
+            # whitelisting every tool call.
+            logger.error(
+                "APE returned 401 for tool=%s — set APE_API_KEY on both "
+                "the 'ape' and 'hermes' services to the same value",
+                tool_name,
+            )
+            return False, "ape-auth-misconfigured"
         logger.warning("APE returned HTTP %d for tool=%s", exc.code, tool_name)
         return _fail()
     except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
