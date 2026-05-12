@@ -39,6 +39,10 @@ DREAM_AP_SSID="${DREAM_AP_SSID:-Dream-Setup}"
 DREAM_AP_PASSWORD="${DREAM_AP_PASSWORD:-}"
 DREAM_AP_INTERFACE="${DREAM_AP_INTERFACE:-wlan0}"
 DREAM_AP_GATEWAY_IP="${DREAM_AP_GATEWAY_IP:-192.168.7.1}"
+# DREAM_AP_PREFIX is CIDR prefix length used by `ip addr add`.
+# DREAM_AP_NETMASK stays accepted (as dotted-decimal) for back-compat —
+# it's converted to a prefix at bring-up time. Prefix wins if both set.
+DREAM_AP_PREFIX="${DREAM_AP_PREFIX:-24}"
 DREAM_AP_NETMASK="${DREAM_AP_NETMASK:-255.255.255.0}"
 DREAM_AP_DHCP_RANGE="${DREAM_AP_DHCP_RANGE:-192.168.7.10,192.168.7.50,1h}"
 DREAM_AP_CHANNEL="${DREAM_AP_CHANNEL:-6}"
@@ -52,6 +56,29 @@ fi
 
 log() { printf '[ap-mode] %s\n' "$*" >&2; }
 err() { printf '[ap-mode] ERROR: %s\n' "$*" >&2; }
+
+# Convert a dotted-decimal netmask (255.255.255.0) to a CIDR prefix
+# length (24). `ip addr add` requires the prefix form. If conversion
+# fails we exit with an error rather than guessing.
+_netmask_to_prefix() {
+  local mask="$1"
+  local count=0 octet
+  for octet in $(printf '%s' "$mask" | tr '.' ' '); do
+    case "$octet" in
+      255) count=$((count + 8)) ;;
+      254) count=$((count + 7)) ;;
+      252) count=$((count + 6)) ;;
+      248) count=$((count + 5)) ;;
+      240) count=$((count + 4)) ;;
+      224) count=$((count + 3)) ;;
+      192) count=$((count + 2)) ;;
+      128) count=$((count + 1)) ;;
+      0)   count=$((count + 0)) ;;
+      *)   err "invalid netmask octet '$octet' in '$mask'"; return 1 ;;
+    esac
+  done
+  printf '%s' "$count"
+}
 
 # --- Preflight ----------------------------------------------------------------
 
@@ -163,10 +190,21 @@ install_iptables_rules() {
   # Redirect HTTP / HTTPS originating on the AP interface to the gateway.
   # This + the wildcard DNS = captive portal. We tag rules with a Dream
   # comment so teardown can remove only what we added.
-  iptables -t nat -A PREROUTING -i "${DREAM_AP_INTERFACE}" -p tcp --dport 80 \
-    -j DNAT --to-destination "${DREAM_AP_GATEWAY_IP}:80" -m comment --comment "dream-ap-mode"
-  iptables -t nat -A PREROUTING -i "${DREAM_AP_INTERFACE}" -p tcp --dport 443 \
-    -j DNAT --to-destination "${DREAM_AP_GATEWAY_IP}:443" -m comment --comment "dream-ap-mode"
+  #
+  # Idempotency: `iptables -A` always appends, even if an identical rule
+  # already exists. Re-running `ap-mode.sh up` after a partial teardown
+  # would otherwise stack duplicate PREROUTING rules. Use `-C` to check
+  # first so each `up` adds at most one of each rule.
+  if ! iptables -t nat -C PREROUTING -i "${DREAM_AP_INTERFACE}" -p tcp --dport 80 \
+      -j DNAT --to-destination "${DREAM_AP_GATEWAY_IP}:80" -m comment --comment "dream-ap-mode" 2>/dev/null; then
+    iptables -t nat -A PREROUTING -i "${DREAM_AP_INTERFACE}" -p tcp --dport 80 \
+      -j DNAT --to-destination "${DREAM_AP_GATEWAY_IP}:80" -m comment --comment "dream-ap-mode"
+  fi
+  if ! iptables -t nat -C PREROUTING -i "${DREAM_AP_INTERFACE}" -p tcp --dport 443 \
+      -j DNAT --to-destination "${DREAM_AP_GATEWAY_IP}:443" -m comment --comment "dream-ap-mode" 2>/dev/null; then
+    iptables -t nat -A PREROUTING -i "${DREAM_AP_INTERFACE}" -p tcp --dport 443 \
+      -j DNAT --to-destination "${DREAM_AP_GATEWAY_IP}:443" -m comment --comment "dream-ap-mode"
+  fi
 }
 
 remove_iptables_rules() {
@@ -196,9 +234,19 @@ reclaim_interface_for_nm() {
 }
 
 bring_up_interface() {
+  # `ip addr add` wants a CIDR prefix length (e.g. 192.168.7.1/24), NOT
+  # a dotted-decimal netmask (192.168.7.1/255.255.255.0). The dotted form
+  # silently fails on most modern iproute2 builds. We use DREAM_AP_PREFIX
+  # when set; otherwise we convert DREAM_AP_NETMASK to a prefix at
+  # bring-up time so back-compat with operator configs that set NETMASK
+  # is preserved.
+  local prefix="${DREAM_AP_PREFIX}"
+  if [[ -z "${prefix}" ]]; then
+    prefix="$(_netmask_to_prefix "${DREAM_AP_NETMASK}")" || return 1
+  fi
   ip link set dev "${DREAM_AP_INTERFACE}" up
   ip addr flush dev "${DREAM_AP_INTERFACE}"
-  ip addr add "${DREAM_AP_GATEWAY_IP}/${DREAM_AP_NETMASK}" dev "${DREAM_AP_INTERFACE}"
+  ip addr add "${DREAM_AP_GATEWAY_IP}/${prefix}" dev "${DREAM_AP_INTERFACE}"
 }
 
 write_state() {

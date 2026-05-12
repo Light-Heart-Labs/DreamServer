@@ -28,6 +28,12 @@ DREAM_AP_PASSWORD="changeme-set-per-device"
 # Gateway IP that the AP advertises. Clients reach the wizard at this IP.
 # Pick a private range that doesn't clash with the LAN you might rejoin.
 # DREAM_AP_GATEWAY_IP="192.168.7.1"
+#
+# Network size — CIDR prefix length is the canonical form (what `ip addr
+# add` actually expects). DREAM_AP_NETMASK is still accepted as a
+# dotted-decimal mask for back-compat; ap-mode.sh auto-converts at
+# bring-up time. DREAM_AP_PREFIX wins when both are set.
+# DREAM_AP_PREFIX="24"
 # DREAM_AP_NETMASK="255.255.255.0"
 
 # DHCP lease range. Format: <start>,<end>,<lease-time>.
