@@ -6,13 +6,13 @@
 # Purpose: Interactive feature selection menu
 #
 # Expects: INTERACTIVE, DRY_RUN, TIER, ENABLE_VOICE, ENABLE_WORKFLOWS,
-#           ENABLE_RAG, ENABLE_OPENCLAW, GPU_COUNT, GPU_BACKEND,
+#           ENABLE_RAG, ENABLE_HERMES, ENABLE_OPENCLAW, GPU_COUNT, GPU_BACKEND,
 #           GPU_TOPOLOGY_JSON, LLM_MODEL_SIZE_MB, SCRIPT_DIR, VERBOSE, DEBUG,
 #           GPU_INDICES, GPU_UUIDS (arrays from topology),
 #           show_phase(), show_install_menu(), chapter(), bootline(),
 #           success(), log(), warn(), error(), signal()
-# Provides: ENABLE_VOICE, ENABLE_WORKFLOWS, ENABLE_RAG, ENABLE_OPENCLAW,
-#           OPENCLAW_CONFIG, GPU_ASSIGNMENT_JSON,
+# Provides: ENABLE_VOICE, ENABLE_WORKFLOWS, ENABLE_RAG, ENABLE_HERMES,
+#           ENABLE_OPENCLAW, OPENCLAW_CONFIG, GPU_ASSIGNMENT_JSON,
 #           LLAMA_SERVER_GPU_UUIDS, WHISPER_GPU_UUID, COMFYUI_GPU_UUID,
 #           EMBEDDINGS_GPU_UUID, LLAMA_ARG_SPLIT_MODE, LLAMA_ARG_TENSOR_SPLIT
 #
@@ -44,7 +44,11 @@ if $INTERACTIVE && ! $DRY_RUN; then
         echo
         if [[ $REPLY =~ ^[Nn]$ ]]; then ENABLE_RAG=false; else ENABLE_RAG=true; fi
 
-        read -p "  Enable OpenClaw AI agent framework? [y/N] " -r < /dev/tty
+        read -p "  Enable Hermes Agent (default AI agent framework)? [Y/n] " -r < /dev/tty
+        echo
+        if [[ $REPLY =~ ^[Nn]$ ]]; then ENABLE_HERMES=false; else ENABLE_HERMES=true; fi
+
+        read -p "  Enable OpenClaw AI agent framework (DEPRECATED — Hermes replaces it)? [y/N] " -r < /dev/tty
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then ENABLE_OPENCLAW=true; else ENABLE_OPENCLAW=false; fi
 
@@ -123,6 +127,12 @@ if ! $DRY_RUN; then
     # being pulled and started even though nothing queries it.
     _sync_extension_compose "${ENABLE_RAG:-}"        qdrant     "Qdrant"        "RAG not enabled"
     _sync_extension_compose "${ENABLE_RAG:-}"        embeddings "Embeddings (TEI)" "RAG not enabled"
+    # Hermes is the default agent as of 2026-05-12. hermes-proxy is the
+    # auth gate in front of it (magic-link cookie verification) and is
+    # not separately toggleable — without the proxy, Hermes's dashboard
+    # is exposed on the LAN with no auth. Same flag drives both.
+    _sync_extension_compose "${ENABLE_HERMES:-}"     hermes        "Hermes Agent"  "Hermes agent not enabled"
+    _sync_extension_compose "${ENABLE_HERMES:-}"     hermes-proxy  "Hermes proxy"  "Hermes agent not enabled"
     _sync_extension_compose "${ENABLE_OPENCLAW:-}"   openclaw   "OpenClaw"      "agent framework not enabled"
     _sync_extension_compose "${ENABLE_COMFYUI:-}"    comfyui    "ComfyUI"       "image generation not enabled"
     _sync_extension_compose "${ENABLE_DREAMFORGE:-}" dreamforge "DreamForge"    "agent system not enabled"

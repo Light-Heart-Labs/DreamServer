@@ -7,7 +7,7 @@
 #          pre-download STT model
 #
 # Expects: DRY_RUN, GPU_BACKEND, ENABLE_VOICE, ENABLE_WORKFLOWS, ENABLE_RAG,
-#           ENABLE_OPENCLAW, LLM_MODEL, LOG_FILE, BGRN, AMB, NC,
+#           ENABLE_HERMES, ENABLE_OPENCLAW, LLM_MODEL, LOG_FILE, BGRN, AMB, NC,
 #           WHISPER_PORT, TTS_PORT, OPENCLAW_PORT,
 #           PERPLEXICA_PORT (:-3004), COMFYUI_PORT (:-8188),
 #           show_phase(), check_service(), ai(), ai_ok(), ai_warn(), signal()
@@ -36,6 +36,7 @@ if $DRY_RUN; then
     log "[DRY RUN] Would verify service health:"
     log "[DRY RUN]   - llama-server, Open WebUI, Perplexica, ComfyUI"
     log "[DRY RUN]   - Auto-configure Perplexica for ${LLM_MODEL:-default model}"
+    [[ "$ENABLE_HERMES" == "true" ]] && log "[DRY RUN]   - Hermes Agent + hermes-proxy"
     [[ "$ENABLE_OPENCLAW" == "true" ]] && log "[DRY RUN]   - OpenClaw"
     [[ "$ENABLE_VOICE" == "true" ]] && log "[DRY RUN]   - Whisper (STT), Kokoro (TTS), pre-download STT model"
     [[ "$ENABLE_WORKFLOWS" == "true" ]] && log "[DRY RUN]   - n8n"
@@ -155,6 +156,10 @@ fi
 
 # Extension service health checks with adaptive timeouts
 dream_progress 94 "health" "Checking extension services"
+# Hermes uses /healthz (unauthenticated) — /api/* is auth-gated and 401s.
+# hermes-proxy intentionally returns 401 for / so we probe its own /healthz.
+[[ "$ENABLE_HERMES" == "true" ]] && _check_health "Hermes Agent" "http://127.0.0.1:${SERVICE_PORTS[hermes]:-9119}${SERVICE_HEALTH[hermes]:-/healthz}" 150 10 "$(sr_container hermes)"
+[[ "$ENABLE_HERMES" == "true" ]] && _check_health "Hermes Proxy" "http://127.0.0.1:${SERVICE_PORTS[hermes-proxy]:-9120}${SERVICE_HEALTH[hermes-proxy]:-/healthz}" 60 5 "$(sr_container hermes-proxy)"
 [[ "$ENABLE_OPENCLAW" == "true" ]] && _check_health "OpenClaw" "http://127.0.0.1:${SERVICE_PORTS[openclaw]:-7860}${SERVICE_HEALTH[openclaw]:-/}" 150 10 "$(sr_container openclaw)"
 systemctl --user is-active opencode-web &>/dev/null && _check_health "OpenCode Web" "http://127.0.0.1:3003/" 10 5
 # Whisper: 150 attempts * adaptive backoff = up to ~20 minutes (model download on first start)

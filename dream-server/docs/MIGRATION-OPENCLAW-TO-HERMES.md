@@ -10,6 +10,10 @@ This document covers the migration path for existing Dream Server installs that 
 - **Existing installs:** OpenClaw keeps running as-is until you remove it. Hermes can be enabled in parallel any time. The two agents are independent — neither shares storage with the other.
 - **No automatic data migration.** Sessions, memories, skills, and cron jobs in OpenClaw do not transfer. The migration is a clean break.
 
+## Platform support in this release
+
+The default-agent swap is wired through the **Linux and macOS** installers in this release. The Windows installer (`installers/windows/`) continues to ship OpenClaw enabled by default through the deprecation window; Windows users who want Hermes can run `dream enable hermes` post-install. Windows installer parity (default-Hermes, `--hermes` / `--no-hermes` flags, data-dir creation) lands in a follow-up PR before the removal release.
+
 ## Why the swap
 
 | | OpenClaw | Hermes Agent |
@@ -48,7 +52,7 @@ If you want to move now:
 dream enable hermes
 
 # 2. Verify Hermes is healthy
-curl http://localhost:9119/api/health
+curl http://localhost:9119/healthz
 
 # 3. Re-create any cron jobs / important sessions in Hermes via its
 #    dashboard at http://<device>:9119. There is no import.

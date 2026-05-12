@@ -8,7 +8,7 @@
 #
 # Expects: DRY_RUN, INSTALL_DIR, SCRIPT_DIR, LOG_FILE, INTERACTIVE,
 #           TIER, TIER_NAME, VERSION, GPU_BACKEND, LLM_MODEL, OFFLINE_MODE,
-#           ENABLE_VOICE, ENABLE_WORKFLOWS, ENABLE_RAG, ENABLE_OPENCLAW,
+#           ENABLE_VOICE, ENABLE_WORKFLOWS, ENABLE_RAG, ENABLE_HERMES, ENABLE_OPENCLAW,
 #           COMPOSE_FLAGS, SUMMARY_JSON_FILE, PREFLIGHT_REPORT_FILE,
 #           BGRN, GRN, AMB, WHT, NC, DASHBOARD_PORT (:-3001),
 #           CAP_HARDWARE_CLASS_ID (:-unknown), CAP_HARDWARE_CLASS_LABEL (:-Unknown),
@@ -126,6 +126,7 @@ echo "  • Dashboard:     http://localhost:${SERVICE_PORTS[dashboard]:-3001}"
 echo "  • Perplexica:    http://localhost:${SERVICE_PORTS[perplexica]:-3004}"
 echo "  • ComfyUI:       http://localhost:${SERVICE_PORTS[comfyui]:-8188}"
 echo "  • LLM API:       http://localhost:${SERVICE_PORTS[llama-server]:-11434}/v1  (llama-server)"
+[[ "$ENABLE_HERMES" == "true" ]] && echo "  • Hermes (auth): http://localhost:${SERVICE_PORTS[hermes-proxy]:-9120}  (magic-link gated; not direct :9119)"
 [[ "$ENABLE_OPENCLAW" == "true" ]] && echo "  • OpenClaw:      http://localhost:${SERVICE_PORTS[openclaw]:-7860}"
 systemctl --user is-active opencode-web &>/dev/null && echo "  • OpenCode:      http://localhost:3003"
 [[ "$ENABLE_VOICE" == "true" ]] && echo "  • Whisper STT:   http://localhost:${SERVICE_PORTS[whisper]:-9000}"
@@ -379,6 +380,8 @@ echo -e "${GRN}─────────────────────�
 echo ""
 echo -e "  ${BGRN}Dashboard${NC}    ${WHT}http://localhost:${DASHBOARD_PORT}${NC}"
 echo -e "  ${BGRN}Chat${NC}         ${WHT}http://localhost:${WEBUI_PORT}${NC}"
+[[ "$ENABLE_HERMES" == "true" ]] && \
+echo -e "  ${BGRN}Hermes${NC}       ${WHT}http://localhost:${SERVICE_PORTS[hermes-proxy]:-9120}${NC}  ${AMB}(magic-link gated)${NC}"
 [[ "$ENABLE_OPENCLAW" == "true" ]] && \
 echo -e "  ${BGRN}OpenClaw${NC}     ${WHT}http://localhost:${OPENCLAW_PORT}${NC}"
 systemctl --user is-active opencode-web &>/dev/null && \

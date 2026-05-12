@@ -409,7 +409,8 @@ show_install_menu() {
             ENABLE_VOICE=true
             ENABLE_WORKFLOWS=true
             ENABLE_RAG=true
-            ENABLE_OPENCLAW=true
+            ENABLE_HERMES=true
+            ENABLE_OPENCLAW=false  # deprecated; Hermes is the new default
             ENABLE_COMFYUI=true
             ENABLE_LANGFUSE=true
 
@@ -430,6 +431,7 @@ show_install_menu() {
             ENABLE_VOICE=false
             ENABLE_WORKFLOWS=false
             ENABLE_RAG=false
+            ENABLE_HERMES=false
             ENABLE_OPENCLAW=false
             ENABLE_COMFYUI=false
             ENABLE_DREAMFORGE=false
@@ -444,7 +446,8 @@ show_install_menu() {
             ENABLE_VOICE=true
             ENABLE_WORKFLOWS=true
             ENABLE_RAG=true
-            ENABLE_OPENCLAW=true
+            ENABLE_HERMES=true
+            ENABLE_OPENCLAW=false  # deprecated; Hermes is the new default
             ENABLE_COMFYUI=true
             ENABLE_LANGFUSE=true
 

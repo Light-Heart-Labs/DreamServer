@@ -579,6 +579,7 @@ fix_nvidia_secure_boot() {
     $ENABLE_VOICE && resume_args="$resume_args --voice"
     $ENABLE_WORKFLOWS && resume_args="$resume_args --workflows"
     $ENABLE_RAG && resume_args="$resume_args --rag"
+    $ENABLE_HERMES && resume_args="$resume_args --hermes"
     $ENABLE_OPENCLAW && resume_args="$resume_args --openclaw"
     [[ -n "$TIER" ]] && resume_args="$resume_args --tier $TIER"
     [[ "$OFFLINE_MODE" == "true" ]] && resume_args="$resume_args --offline"
