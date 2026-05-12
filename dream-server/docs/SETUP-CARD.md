@@ -36,7 +36,7 @@ Flags:
 | Flag | Required | Notes |
 |---|---|---|
 | `--ssid` | yes | Wi-Fi SSID of the device's setup AP |
-| `--password` | no | Wi-Fi password. Omit for open networks. |
+| `--password` | no | Wi-Fi password. Omit for open networks; the Wi-Fi QR will use `T:nopass` automatically. |
 | `--security` | no | `WPA` (default), `WEP`, or `nopass` |
 | `--setup-url` | yes | URL the QR opens (e.g. `http://192.168.7.1/setup`) |
 | `--device-name` | no | mDNS hostname printed on the card. Defaults to `dream.local`. |
@@ -55,7 +55,7 @@ while IFS=',' read -r ssid password serial; do
     --ssid "$ssid" \
     --password "$password" \
     --setup-url "http://192.168.7.1/setup" \
-    --device-name "dream-${serial,,}.local" \
+    --device-name "dream-$(printf '%s' "$serial" | tr '[:upper:]' '[:lower:]').local" \
     --serial "$serial" \
     --output "cards/$serial.png"
 done < unit-credentials.csv

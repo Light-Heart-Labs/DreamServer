@@ -27,8 +27,7 @@ Usage:
         --serial 'DRM-2026-A4F2'      \\
         --output card-A4F2.png
 
-Requires: Pillow + qrcode (both pip-installable, both already in the
-dashboard-api requirements). Imports lazily so `--help` works without them.
+Requires: Pillow + qrcode. Imports lazily so `--help` works without them.
 """
 
 from __future__ import annotations
@@ -65,8 +64,9 @@ def build_wifi_qr_payload(ssid: str, password: str, security: str = "WPA") -> st
              .replace('"', '\\"')
         )
 
-    payload = f"WIFI:T:{security};S:{esc(ssid)};"
-    if password:
+    effective_security = "nopass" if not password else security
+    payload = f"WIFI:T:{effective_security};S:{esc(ssid)};"
+    if effective_security != "nopass" and password:
         payload += f"P:{esc(password)};"
     payload += "H:false;;"
     return payload
@@ -84,7 +84,10 @@ def render_qr(text: str, target_px: int):
         version=None,
         error_correction=ERROR_CORRECT_M,
         box_size=10,
-        border=1,
+        # Keep the spec-recommended four-module quiet zone. The QR sits on a
+        # dark card background, so this white margin is the only separator a
+        # scanner sees at the code edge.
+        border=4,
     )
     qr.add_data(text)
     qr.make(fit=True)
@@ -224,7 +227,7 @@ def _fit_font_to_width(draw, text: str, max_width: int, base_size: int = 36,
                        min_size: int = 18, monospace: bool = False):
     """Return the largest font (at or below ``base_size``) whose ``text``
     measures ``<= max_width`` pixels. Floors at ``min_size`` even if the
-    text is still wider, on the principle that an unreadable readable
+    text is still wider, on the principle that a readable
     fallback is more useful than a value clipped to the next-line.
 
     Needed for the password row — WPA2 supports up to 63 characters, and
@@ -312,6 +315,10 @@ def main(argv: list[str] | None = None) -> int:
     except ImportError as exc:
         print(f"error: missing dependency: {exc.name}. "
               "Install with: pip install 'qrcode[pil]'", file=sys.stderr)
+        return 2
+
+    if args.security == "nopass" and args.password:
+        print("error: --security nopass cannot be combined with --password", file=sys.stderr)
         return 2
 
     card = render_card(

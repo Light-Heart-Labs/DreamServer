@@ -41,10 +41,16 @@ def test_wifi_qr_payload_basic():
 
 def test_wifi_qr_payload_open_network():
     mod = _import_module()
-    p = mod.build_wifi_qr_payload("Open", "", "nopass")
+    p = mod.build_wifi_qr_payload("Open", "", "WPA")
     # Password segment omitted entirely when password is empty.
     assert "P:" not in p
     assert p.startswith("WIFI:T:nopass;S:Open;")
+
+
+def test_wifi_qr_payload_nopass_ignores_empty_password_only():
+    mod = _import_module()
+    p = mod.build_wifi_qr_payload("Open", "", "nopass")
+    assert p == "WIFI:T:nopass;S:Open;H:false;;"
 
 
 def test_wifi_qr_payload_escapes_special_chars():
@@ -167,6 +173,37 @@ def test_cli_help_works_without_pillow():
     assert result.returncode == 0
     assert "ssid" in result.stdout.lower()
     assert "setup-url" in result.stdout.lower()
+
+
+@pillow_required
+def test_cli_rejects_nopass_with_password(tmp_path):
+    out = tmp_path / "card.png"
+    result = subprocess.run(
+        [
+            sys.executable, str(SCRIPT),
+            "--ssid", "Open",
+            "--password", "should-not-be-used",
+            "--security", "nopass",
+            "--setup-url", "http://192.168.7.1/setup",
+            "--output", str(out),
+        ],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 2
+    assert "nopass" in result.stderr
+    assert not out.exists()
+
+
+@pillow_required
+def test_qr_has_four_module_quiet_zone():
+    mod = _import_module()
+    img = mod.render_qr("hello", 240)
+    white = (255, 255, 255)
+    # With border=4 on a version-1 QR, the top quiet zone is ~33 px after
+    # scaling to 240 px. A one-module border is only ~10 px and fails here.
+    for x in range(0, 240):
+        for y in range(0, 24):
+            assert img.getpixel((x, y)) == white
 
 
 # ---------------------------------------------------------------------------
