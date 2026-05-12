@@ -1809,3 +1809,307 @@ class TestEnableRetry:
         )
         # Progress must be unchanged
         assert self._progress(data_dir, "fakesvc")["status"] == "started"
+
+
+# --- Enable-retry edge cases (fork issue #493) ---
+#
+# Companion coverage to PR #1039's TestEnableRetry. These tests pin the
+# three dispatch edge cases that #1039's contract introduces but does not
+# directly exercise:
+#   a. retry path with no post_install hook → must reach 'started' without
+#      writing a 'setup_hook' transition;
+#   b. malformed progress JSON when /v1/extension/start arrives → handler
+#      must fall back to the synchronous compose path (not retry);
+#   c. progress.status == "setup_hook" (mid-install) → also falls back to
+#      the sync path; only "error" is the retry trigger.
+#
+# The retry helper from PR #1039 is now on main. These tests keep the
+# dispatch edge cases pinned so future host-agent changes do not regress
+# retry-versus-sync routing.
+
+
+class TestEnableRetryEdgeCases:
+
+    def _setup_env(self, tmp_path, monkeypatch):
+        install_dir = tmp_path / "install"
+        install_dir.mkdir()
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        builtin_root = tmp_path / "builtin"
+        user_root = tmp_path / "user"
+        builtin_root.mkdir()
+        user_root.mkdir()
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+        monkeypatch.setattr(_mod, "DATA_DIR", data_dir)
+        monkeypatch.setattr(_mod, "EXTENSIONS_DIR", builtin_root)
+        monkeypatch.setattr(_mod, "USER_EXTENSIONS_DIR", user_root)
+        monkeypatch.setattr(_mod, "AGENT_API_KEY", "test-key")
+        # Drop the per-service lock so retries across tests don't deadlock.
+        _mod._service_locks.pop("fakesvc", None)
+        return data_dir, builtin_root
+
+    def _write_progress_raw(self, data_dir, sid, raw_text):
+        d = data_dir / "extension-progress"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"{sid}.json").write_text(raw_text, encoding="utf-8")
+
+    def _read_progress(self, data_dir, sid):
+        f = data_dir / "extension-progress" / f"{sid}.json"
+        if not f.exists():
+            return None
+        return json.loads(f.read_text(encoding="utf-8"))
+
+    def _body(self, sid):
+        return json.dumps({"service_id": sid}).encode("utf-8")
+
+    def test_no_hook_retry_completes_with_started_progress(
+        self, tmp_path, monkeypatch,
+    ):
+        """error progress + manifest without post_install hook → retry skips
+        the setup_hook step and lands on 'started'.
+
+        Pins the no-hook branch in _enable_retry_work: when
+        _resolve_hook(ext_dir, "post_install") returns None, no
+        setup_hook progress write occurs and no subprocess is spawned;
+        the worker proceeds straight to docker_compose_action.
+        """
+        # Run the retry worker thread synchronously so we can assert on
+        # final progress state from the test thread.
+        class _SyncThread:
+            def __init__(self, target=None, daemon=None, **kwargs):
+                self._target = target
+
+            def start(self):
+                self._target()
+
+        monkeypatch.setattr(_mod.threading, "Thread", _SyncThread)
+
+        data_dir, builtin_root = self._setup_env(tmp_path, monkeypatch)
+        ext_dir = builtin_root / "fakesvc"
+        ext_dir.mkdir()
+        # Manifest with NO post_install hook.
+        (ext_dir / "manifest.yaml").write_text(
+            "service:\n  port: 1234\n", encoding="utf-8",
+        )
+        self._write_progress_raw(
+            data_dir, "fakesvc",
+            json.dumps({"service_id": "fakesvc", "status": "error",
+                        "error": "prior failure"}),
+        )
+
+        hook_cmds: list = []
+
+        def fake_run(cmd, *a, **k):
+            hook_cmds.append(cmd)
+            import subprocess as _sp
+            # Startup_check (PR #1039) polls `docker inspect --format
+            # '{{.State.Status}}|{{.State.Error}}' dream-<svc>` after the
+            # compose action and reads stdout. Empty output keeps the poll
+            # in 'not running' forever and the retry path eventually writes
+            # progress='error'. Return a clean 'running|' for those calls
+            # so the poll satisfies and the worker reaches 'started';
+            # every other subprocess (which there shouldn't be in the
+            # no-hook branch) still gets an empty response.
+            is_docker_inspect = (
+                isinstance(cmd, list) and len(cmd) >= 2
+                and cmd[0] == "docker" and cmd[1] == "inspect"
+            )
+            stdout = "running|" if is_docker_inspect else ""
+            return _sp.CompletedProcess(args=cmd, returncode=0,
+                                        stdout=stdout, stderr="")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+        monkeypatch.setattr(
+            _mod, "docker_compose_action",
+            lambda sid, action: (True, ""),
+        )
+
+        handler = _FakeHandler(self._body("fakesvc"))
+        _mod.AgentHandler._handle_extension(handler, "start")
+
+        # Retry path engaged → 202 (accept-then-thread).
+        assert handler.response_code == 202
+        # No hook-script invocation: there is no hook to run. (The startup_check
+        # path from PR #1039 still calls subprocess.run for `docker inspect`
+        # to poll container state — filter those out and only assert no hook ran.)
+        hook_invocations = [
+            c for c in hook_cmds
+            if not (isinstance(c, list) and len(c) >= 2 and c[0] == "docker" and c[1] == "inspect")
+        ]
+        assert hook_invocations == []
+        # Worker landed on 'started' (not 'setup_hook' or 'error').
+        progress = self._read_progress(data_dir, "fakesvc")
+        assert progress is not None
+        assert progress["status"] == "started"
+
+    def test_corrupted_progress_json_falls_back_to_sync_path(
+        self, tmp_path, monkeypatch,
+    ):
+        """Malformed JSON in progress file → _read_progress_status returns
+        None → retry trigger is NOT engaged; the synchronous compose
+        path runs and the corrupted file is left untouched.
+        """
+        data_dir, builtin_root = self._setup_env(tmp_path, monkeypatch)
+        ext_dir = builtin_root / "fakesvc"
+        ext_dir.mkdir()
+        (ext_dir / "manifest.yaml").write_text(
+            "service:\n  port: 1234\n", encoding="utf-8",
+        )
+        self._write_progress_raw(data_dir, "fakesvc", "{not-json")
+
+        # Pre-condition: helper added by PR #1039 must report None for
+        # malformed JSON so the dispatch in _handle_extension cannot
+        # treat the corrupt state as "error" and trigger a retry.
+        assert _mod._read_progress_status("fakesvc") is None
+
+        compose_calls: list = []
+
+        def fake_compose(sid, act):
+            compose_calls.append((sid, act))
+            return True, ""
+
+        monkeypatch.setattr(_mod, "docker_compose_action", fake_compose)
+
+        handler = _FakeHandler(self._body("fakesvc"))
+        _mod.AgentHandler._handle_extension(handler, "start")
+
+        # Synchronous success → 200, not 202.
+        assert handler.response_code == 200
+        assert compose_calls == [("fakesvc", "start")]
+        # Corrupted progress file left exactly as it was — the retry
+        # path would have rewritten it.
+        raw = (data_dir / "extension-progress" / "fakesvc.json").read_text(
+            encoding="utf-8",
+        )
+        assert raw == "{not-json"
+
+    def test_mid_install_setup_hook_status_uses_sync_path(
+        self, tmp_path, monkeypatch,
+    ):
+        """status='setup_hook' is a mid-install state, not a terminal
+        error. The retry trigger only fires for status='error', so a
+        'start' against a service mid-install must use the sync path
+        and leave progress untouched.
+        """
+        data_dir, builtin_root = self._setup_env(tmp_path, monkeypatch)
+        ext_dir = builtin_root / "fakesvc"
+        ext_dir.mkdir()
+        (ext_dir / "manifest.yaml").write_text(
+            "service:\n  port: 1234\n", encoding="utf-8",
+        )
+        self._write_progress_raw(
+            data_dir, "fakesvc",
+            json.dumps({"service_id": "fakesvc", "status": "setup_hook"}),
+        )
+
+        # Pre-condition: the PR #1039 helper reports the in-flight status
+        # exactly so the dispatch can compare against the literal "error".
+        assert _mod._read_progress_status("fakesvc") == "setup_hook"
+
+        compose_calls: list = []
+
+        def fake_compose(sid, act):
+            compose_calls.append((sid, act))
+            return True, ""
+
+        monkeypatch.setattr(_mod, "docker_compose_action", fake_compose)
+
+        handler = _FakeHandler(self._body("fakesvc"))
+        _mod.AgentHandler._handle_extension(handler, "start")
+
+        # Sync path used → 200, not 202.
+        assert handler.response_code == 200
+        assert compose_calls == [("fakesvc", "start")]
+        # Sync path must not rewrite the in-flight progress.
+        progress = self._read_progress(data_dir, "fakesvc")
+        assert progress is not None
+        assert progress["status"] == "setup_hook"
+
+
+# --- Model download catalog unavailability (fork issue #512) ---
+#
+# Tests _handle_model_download's response shape when the model-library.json
+# catalog is missing or corrupt. Pre-PR #1057 the handler conflates these
+# real install-corruption cases with the policy denial "Model not in
+# library catalog", returning 403 in all three. PR #1057 distinguishes
+# unreadable/missing (500) from genuinely-not-listed (403).
+#
+# Cases (a) and (b) cover the post-#1057 corruption/error distinction.
+# Case (c) is the existing-behaviour-preserved baseline for a clean catalog
+# that simply does not list the requested model.
+
+
+class TestModelDownloadCatalogUnavailable:
+
+    def _setup_env(self, tmp_path, monkeypatch):
+        install_dir = tmp_path / "install"
+        (install_dir / "config").mkdir(parents=True)
+        (install_dir / "data" / "models").mkdir(parents=True)
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+        monkeypatch.setattr(_mod, "AGENT_API_KEY", "test-key")
+        return install_dir
+
+    def _body(self):
+        return json.dumps({
+            "gguf_file": "test-model.gguf",
+            "gguf_url": "https://example.com/test-model.gguf",
+        }).encode("utf-8")
+
+    def test_missing_catalog_returns_500(self, tmp_path, monkeypatch):
+        """No model-library.json → 500 'Model catalog unavailable'.
+
+        Pre-#1057 returns 403 (the catalog check sees library_path
+        missing, leaves allowed=False, falls through to the 'not in
+        library catalog' branch).
+        """
+        install_dir = self._setup_env(tmp_path, monkeypatch)
+        assert not (install_dir / "config" / "model-library.json").exists()
+
+        handler = _FakeHandler(self._body())
+        _mod.AgentHandler._handle_model_download(handler)
+
+        assert handler.response_code == 500
+        body = handler.parse_response()
+        assert body["error"] == "Model catalog unavailable"
+
+    def test_corrupt_catalog_returns_500(self, tmp_path, monkeypatch):
+        """Catalog file exists but is malformed JSON → 500.
+
+        Pre-#1057 the JSONDecodeError is swallowed by a bare ``pass``,
+        leaving allowed=False and returning 403 — masking the corrupt
+        install as a policy denial.
+        """
+        install_dir = self._setup_env(tmp_path, monkeypatch)
+        (install_dir / "config" / "model-library.json").write_text(
+            "{not-json", encoding="utf-8",
+        )
+
+        handler = _FakeHandler(self._body())
+        _mod.AgentHandler._handle_model_download(handler)
+
+        assert handler.response_code == 500
+        body = handler.parse_response()
+        assert body["error"] == "Model catalog unavailable"
+
+    def test_model_not_in_clean_catalog_still_returns_403(
+        self, tmp_path, monkeypatch,
+    ):
+        """Catalog parses cleanly and lists other models but not the one
+        being requested → 403 'Model not in library catalog' (the
+        existing policy-denial behaviour, preserved across #1057).
+        """
+        install_dir = self._setup_env(tmp_path, monkeypatch)
+        (install_dir / "config" / "model-library.json").write_text(
+            json.dumps({"models": [{
+                "gguf_file": "different-model.gguf",
+                "gguf_url": "https://example.com/different.gguf",
+            }]}),
+            encoding="utf-8",
+        )
+
+        handler = _FakeHandler(self._body())
+        _mod.AgentHandler._handle_model_download(handler)
+
+        assert handler.response_code == 403
+        body = handler.parse_response()
+        assert body["error"] == "Model not in library catalog"
