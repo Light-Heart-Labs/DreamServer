@@ -5,8 +5,9 @@ Publishes the device on the local network as `<DREAM_DEVICE_NAME>.local`
 (default `dream.local`) plus per-service `_http._tcp` records so any device
 on the same LAN can find the dashboard and chat UI without knowing the IP.
 
-This makes the "open `dream.local` from any phone" UX work out of the box —
-the device boots, joins WiFi, and starts announcing itself within seconds.
+When paired with dream-proxy on port 80, this makes the "open `dream.local`
+from any phone" UX work: the device boots, joins WiFi, and starts announcing
+itself within seconds.
 
 Reads `DREAM_DEVICE_NAME` and the service ports from `.env`. Re-publishes
 when the file changes (poll-based, 30s cadence) so renaming the device or
@@ -72,7 +73,24 @@ logger = logging.getLogger(__name__)
 
 INSTALL_DIR = Path(os.environ.get("DREAM_INSTALL_DIR", "/opt/dream-server"))
 ENV_FILE = INSTALL_DIR / ".env"
-POLL_INTERVAL = int(os.environ.get("DREAM_MDNS_POLL_INTERVAL", "30"))
+
+
+def _safe_positive_int_env(key: str, default: int) -> int:
+    raw = os.environ.get(key, "")
+    if raw == "":
+        return default
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        logger.warning("Env %s=%r is not a valid integer; using default %d", key, raw, default)
+        return default
+    if value <= 0:
+        logger.warning("Env %s=%r is non-positive; using default %d", key, raw, default)
+        return default
+    return value
+
+
+POLL_INTERVAL = _safe_positive_int_env("DREAM_MDNS_POLL_INTERVAL", 30)
 
 # Hostname-safe pattern matches DREAM_DEVICE_NAME schema in .env.schema.json.
 _HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]{0,30}[a-zA-Z0-9])?$")
@@ -128,50 +146,109 @@ def _safe_port(env: dict[str, str], key: str, default: int) -> int:
             "Env %s=%r is not a valid integer; using default %d", key, raw, default,
         )
         return default
-    if value <= 0:
+    if value <= 0 or value > 65535:
         logger.warning(
-            "Env %s=%r is non-positive; using default %d", key, raw, default,
+            "Env %s=%r is outside the valid TCP/UDP port range; using default %d", key, raw, default,
         )
         return default
     return value
 
 
+def _normalized_bind_address(env: dict[str, str]) -> str:
+    return (env.get("BIND_ADDRESS") or "127.0.0.1").strip().lower()
+
+
+def _direct_ports_lan_reachable(env: dict[str, str]) -> bool:
+    """Direct host ports are only truthful when the services bind to the LAN.
+
+    The default Dream posture keeps service ports on 127.0.0.1 and exposes only
+    dream-proxy on the LAN. In that default, advertise the proxy hostnames but
+    do not publish direct-port SRV records that would point LAN clients at
+    unreachable endpoints.
+    """
+    bind = _normalized_bind_address(env)
+    return bind not in {"", "127.0.0.1", "localhost", "::1"}
+
+
 def _build_services(env: dict[str, str], device_name: str, ip: str) -> list[ServiceInfo]:
     """Build the ServiceInfo records to publish.
 
-    Each entry advertises a port on the host (the external port the user
-    actually browses to), not the container-internal port. We only publish
-    services whose port is configured — if the dashboard isn't running on
-    this device, we don't announce it.
+    Two flavors of record:
+
+    1. Direct-port SRV records under `_http._tcp.local.` (the historical
+       shape — backward-compatible with MCP clients and service-discovery
+       tools). These point at the underlying service ports (3000, 3001,
+       3002) for clients that want to bypass the proxy.
+
+    2. Per-subdomain A records (`chat.<device>.local`, `auth.<device>.local`,
+       `dashboard.<device>.local`, `hermes.<device>.local`) all pointing at
+       the device's LAN IP on port 80 — the dream-proxy. The proxy
+       routes by Host header. The A record is a side effect of registering
+       a ServiceInfo whose `server` field is the hostname we want
+       resolvable.
+
+    Each service that isn't configured (port <= 0 or missing) is dropped
+    from publication. Subdomain records are always published as long as
+    DREAM_DEVICE_NAME is valid — the proxy itself decides at routing
+    time whether the upstream is healthy.
     """
     addresses = [socket.inet_aton(ip)]
-    services: list[tuple[str, int, str, dict[str, str]]] = [
-        # (service_type_prefix, port, label, extra_txt)
-        ("dashboard",     _safe_port(env, "DASHBOARD_PORT", 3001),     "Dream Dashboard", {"path": "/"}),
-        ("chat",          _safe_port(env, "WEBUI_PORT", 3000),         "Dream Chat",      {"path": "/"}),
-        ("dashboard-api", _safe_port(env, "DASHBOARD_API_PORT", 3002), "Dream API",       {"path": "/health"}),
-        # Announce unconditionally: the Hermes extension is opt-in via `dream
-        # enable hermes`, but the published mDNS record stays consistent with
-        # the other entries (dashboard/chat/dashboard-api are also announced
-        # whether or not their containers are up). Browser-side failure mode
-        # when Hermes is disabled is "site can't be reached" — same as any
-        # other service-not-running case.
-        ("hermes",        _safe_port(env, "HERMES_PORT", 9119),        "Hermes Agent",    {"path": "/api/health"}),
-    ]
+    proxy_port = _safe_port(env, "DREAM_PROXY_PORT", 80)
+
     infos: list[ServiceInfo] = []
-    for suffix, port, label, txt in services:
-        if port <= 0:
-            continue
-        full_name = f"{device_name}-{suffix}._http._tcp.local."
-        info = ServiceInfo(
+
+    # ----- Direct-port SRV records (back-compat for service discovery) ----
+    if _direct_ports_lan_reachable(env):
+        direct: list[tuple[str, int, str, dict[str, str]]] = [
+            # (suffix, port, label, extra_txt)
+            ("dashboard",     _safe_port(env, "DASHBOARD_PORT", 3001),     "Dream Dashboard", {"path": "/"}),
+            ("chat",          _safe_port(env, "WEBUI_PORT", 3000),         "Dream Chat",      {"path": "/"}),
+            ("dashboard-api", _safe_port(env, "DASHBOARD_API_PORT", 3002), "Dream API",       {"path": "/health"}),
+            # Announce unconditionally when direct ports are LAN-reachable:
+            # the Hermes extension is opt-in via `dream enable hermes`, but
+            # the failure mode when disabled is the same as any optional
+            # service that is not running.
+            ("hermes",        _safe_port(env, "HERMES_PORT", 9119),        "Hermes Agent",    {"path": "/api/health"}),
+        ]
+        for suffix, port, label, txt in direct:
+            infos.append(ServiceInfo(
+                type_="_http._tcp.local.",
+                name=f"{device_name}-{suffix}._http._tcp.local.",
+                addresses=addresses,
+                port=port,
+                properties={**txt, "label": label, "device": device_name, "kind": "direct"},
+                server=f"{device_name}.local.",
+            ))
+    else:
+        logger.info("Skipping direct-port SRV records because BIND_ADDRESS is loopback-only")
+
+    # ----- Per-subdomain A records (proxy-routed) -------------------------
+    # Each entry registers a `<sub>.<device>.local.` A record (or bare
+    # `<device>.local.` for "root") by virtue of being the `server` of the
+    # ServiceInfo. Port is the proxy's listen port; the proxy routes by Host
+    # header to the right backend.
+    subdomain_routes = (
+        ("root",     "Dream Root Redirect (via proxy)"),
+        ("chat",      "Dream Chat (via proxy)"),
+        ("dashboard", "Dream Dashboard (via proxy)"),
+        ("auth",      "Dream Auth (magic-link redemption)"),
+        ("api",       "Dream API (admin)"),
+        # hermes is announced unconditionally; the proxy 502s when the
+        # upstream container isn't running, which is the right failure
+        # mode for an optional extension.
+        ("hermes",    "Hermes Agent (via proxy)"),
+    )
+    for suffix, label in subdomain_routes:
+        server = f"{device_name}.local." if suffix == "root" else f"{suffix}.{device_name}.local."
+        infos.append(ServiceInfo(
             type_="_http._tcp.local.",
-            name=full_name,
+            name=f"{device_name}-proxy-{suffix}._http._tcp.local.",
             addresses=addresses,
-            port=port,
-            properties={**txt, "label": label, "device": device_name},
-            server=f"{device_name}.local.",
-        )
-        infos.append(info)
+            port=proxy_port,
+            properties={"path": "/", "label": label, "device": device_name, "kind": "proxy"},
+            server=server,
+        ))
+
     return infos
 
 
@@ -185,16 +262,24 @@ class Announcer:
     def __init__(self) -> None:
         self.zc: Zeroconf | None = None
         self.registered: list[ServiceInfo] = []
-        self.last_signature: tuple[str, str, int, int, int] | None = None
+        self.last_signature: tuple[str, str, str, int, int, int, int, int] | None = None
 
-    def _config_signature(self, device_name: str, ip: str, env: dict[str, str]) -> tuple[str, str, int, int, int]:
-        """Compact summary of what we'd publish — re-announce on change."""
+    def _config_signature(self, device_name: str, ip: str, env: dict[str, str]) -> tuple[str, str, str, int, int, int, int, int]:
+        """Compact summary of what we'd publish — re-announce on change.
+
+        Includes DREAM_PROXY_PORT so that flipping the proxy to a non-
+        standard port (rare, but supported) triggers re-announcement of
+        the per-subdomain SRV records.
+        """
         return (
             device_name,
             ip,
+            _normalized_bind_address(env),
             _safe_port(env, "DASHBOARD_PORT", 3001),
             _safe_port(env, "WEBUI_PORT", 3000),
             _safe_port(env, "DASHBOARD_API_PORT", 3002),
+            _safe_port(env, "HERMES_PORT", 9119),
+            _safe_port(env, "DREAM_PROXY_PORT", 80),
         )
 
     def refresh(self) -> None:

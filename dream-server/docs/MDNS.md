@@ -4,24 +4,42 @@ Dream Server announces itself on your local network so you can browse to it from
 
 ## Prerequisites
 
-The mDNS announcement publishes the device's LAN IP under `<device>.local` (and per-service SRV records on the underlying ports). For `http://dream.local` to actually load chat from a phone, two more things have to be true:
+The mDNS announcement publishes the device's LAN IP under `<device>.local` and the proxy-routed subdomains. For `http://dream.local` to actually load chat from a phone, the `dream-proxy` extension must be enabled and LAN-bound:
 
-1. **`BIND_ADDRESS=0.0.0.0`** in `.env` — without this, all Dream services bind to `127.0.0.1` and only loopback can reach them. The mDNS name still resolves, but the connection is refused.
-2. **The `dream-proxy` extension is enabled** — that's the Caddy service that listens on port 80 and routes `/chat`, `/api/*`, `/auth/*`, etc. to the right backend. Without it, `http://dream.local` hits an empty port 80 and times out; users have to type the per-service port (`dream.local:3000`, `dream.local:3001`, etc.) directly.
+1. **The `dream-proxy` extension is enabled** — that's the Caddy service that listens on port 80 and routes by hostname (`chat.<device>.local`, `dashboard.<device>.local`, `auth.<device>.local`, etc.) to the right backend.
+2. **`DREAM_PROXY_BIND=0.0.0.0`** — this is the proxy default. The other Dream services can remain safely loopback-bound with `BIND_ADDRESS=127.0.0.1`; only the proxy needs to listen on the LAN.
 
-Fresh installs without these two are loopback-only. The installer's first-boot wizard offers to enable both. See [`docs/DREAM-PROXY.md`](DREAM-PROXY.md) for how the proxy routes traffic.
+Fresh installs without the proxy are still loopback-only. The installer's first-boot wizard offers to enable the proxy path. See `docs/DREAM-PROXY.md` for how the proxy routes traffic.
 
 ## What gets announced
 
+Two flavors:
+
+**Per-subdomain A records (the user-facing surface):**
+
 | mDNS name | Points to | What it serves |
 |---|---|---|
-| `<device>.local` | the device's LAN IP | base hostname — `http://<device>.local` hits the dream-proxy on :80 when enabled |
-| `<device>-chat._http._tcp.local` | port 3000 | Open WebUI direct (bypasses proxy) |
-| `<device>-dashboard._http._tcp.local` | port 3001 | Dashboard / settings (bypasses proxy) |
-| `<device>-dashboard-api._http._tcp.local` | port 3002 | Dashboard API health endpoint (bypasses proxy) |
-| `<device>-hermes._http._tcp.local` | port 9119 | Hermes Agent dashboard (when the `hermes` extension is enabled) |
+| `<device>.local` | LAN IP, port 80 | proxy: 302 redirect to `chat.<device>.local` |
+| `chat.<device>.local` | LAN IP, port 80 | proxy → Open WebUI (root-mounted) |
+| `dashboard.<device>.local` | LAN IP, port 80 | proxy → Dream Dashboard (operator UI) |
+| `auth.<device>.local` | LAN IP, port 80 | proxy → dashboard-api (magic-link redemption) |
+| `api.<device>.local` | LAN IP, port 80 | proxy → dashboard-api (admin `/api/*`) |
+| `hermes.<device>.local` | LAN IP, port 80 | proxy → hermes-proxy (when enabled) |
 
-The first row is what users normally type. The `_http._tcp` rows are SRV records primarily for MCP clients, service-discovery tools, and the eventual Dream Server mobile app — they expose the underlying ports so a client can talk directly to a service without going through the proxy (e.g. to scrape `/health`).
+All six names resolve to the same IP — the device's LAN address. Routing happens at the dream-proxy by Host header (see `docs/DREAM-PROXY.md`). The bare `<device>.local` redirects to chat for the friendliest landing.
+
+**Direct-port SRV records (back-compat for service discovery):**
+
+These are published only when `BIND_ADDRESS` is explicitly LAN-facing (for example `0.0.0.0` or a specific LAN IP). In the default safer posture, service ports stay on loopback and mDNS publishes only the proxy-routed names above.
+
+| mDNS name | Underlying port | Use case |
+|---|---|---|
+| `<device>-chat._http._tcp.local` | 3000 | Open WebUI direct (bypasses proxy) |
+| `<device>-dashboard._http._tcp.local` | 3001 | Dashboard direct |
+| `<device>-dashboard-api._http._tcp.local` | 3002 | Dashboard API health endpoint |
+| `<device>-hermes._http._tcp.local` | 9119 | Hermes Agent direct (when the `hermes` extension is enabled) |
+
+These exist for MCP clients, service-discovery tools, and the eventual Dream Server mobile app that want to talk directly to a service. End users should use the subdomain entries above.
 
 ## Platform support
 
@@ -67,7 +85,7 @@ Once `dream.local` resolves on your network **and the dream-proxy is up on port 
 1. User installs Dream Server (today: by running `install.sh`)
 2. Device joins WiFi, starts announcing, and dream-proxy comes up on :80
 3. User opens any browser on any device, types `dream.local`
-4. Caddy on :80 routes `/chat` to Open WebUI, chat UI loads
+4. Caddy on :80 redirects the bare hostname to `chat.<device>.local`, then routes that host to Open WebUI
 5. User adds it to their phone's home screen (PWA) — the icon appears next to ChatGPT
 
 No IP-typing, no router-config-page-diving, no DNS setup. The same UX as Sonos / Apple TV / any other consumer device on a home network.

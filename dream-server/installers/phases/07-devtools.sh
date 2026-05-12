@@ -389,7 +389,13 @@ if [[ -f "$INSTALL_DIR/bin/dream-mdns.py" ]] && [[ "$(uname -s)" == "Linux" ]]; 
             if sudo systemctl enable --now dream-mdns.service 2>&1 | tee -a "$LOG_FILE" >/dev/null; then
                 _device_name="$(grep -E '^DREAM_DEVICE_NAME=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || true)"
                 _device_name="${_device_name:-dream}"
-                ai_ok "Dream mDNS announcer installed — browse to http://${_device_name}.local from any device on your network"
+                # Be honest about what mDNS does on its own: it publishes the
+                # name. Whether that name LOADS anything in a browser depends
+                # on dream-proxy being on :80 and DREAM_PROXY_BIND=0.0.0.0. Those
+                # are operator choices made elsewhere (and surfaced in the
+                # first-boot wizard); don't claim the URL works yet.
+                ai_ok "Dream mDNS announcer installed — '${_device_name}.local' now resolves on the LAN"
+                ai "  Enable dream-proxy (DREAM_PROXY_BIND defaults to 0.0.0.0) to make http://${_device_name}.local serve chat. See docs/DREAM-PROXY.md."
             else
                 ai_warn "Dream mDNS announcer failed to start (non-fatal — device is still reachable by IP)"
             fi
