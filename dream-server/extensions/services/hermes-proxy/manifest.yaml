@@ -1,0 +1,57 @@
+schema_version: dream.services.v1
+
+compatibility:
+  dream_min: "2.0.0"
+
+service:
+  id: hermes-proxy
+  name: Hermes Auth Proxy
+  aliases: [hermes-gate]
+  container_name: dream-hermes-proxy
+  default_host: hermes-proxy
+  port: 9120
+  external_port_env: HERMES_PROXY_PORT
+  external_port_default: 9120
+  health: /health
+  ui_path: /
+  health_timeout: 10
+  type: docker
+  gpu_backends: [all]
+  compose_file: compose.yaml
+  category: optional
+  depends_on: [hermes, dashboard-api]
+  description: >
+    Caddy-based reverse proxy that fronts the Hermes Agent extension.
+    Gates access on the presence of a `dream-session` cookie (set by
+    the magic-link redemption flow in dashboard-api). Without the
+    cookie, requests are answered with a static "you need an invite"
+    page. With it, traffic is forwarded to dream-hermes:9119 and
+    Hermes's own session-token model handles per-request auth.
+    Native streaming + WebSocket support via Caddy's `reverse_proxy`.
+
+  env_vars:
+    - key: HERMES_PROXY_PORT
+      default: "9120"
+      description: External port for the Hermes auth-proxy (LAN-facing entry)
+    - key: HERMES_PROXY_UPSTREAM
+      default: "dream-hermes:9119"
+      description: Internal address of the Hermes container we forward to
+    - key: HERMES_PROXY_AUTH_DOCS_URL
+      default: ""
+      description: |
+        Optional URL shown on the "you need an invite" page if the operator
+        has a help doc / contact info. Empty hides the row.
+
+features:
+  - id: hermes-sso
+    name: Hermes Single Sign-On
+    description: Magic-link SSO gating in front of Hermes Agent
+    icon: Shield
+    category: privacy
+    requirements:
+      services: [hermes, dashboard-api]
+      vram_gb: 0
+    enabled_services_all: [hermes-proxy]
+    setup_time: Ready
+    priority: 5
+    gpu_backends: [all]

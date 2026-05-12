@@ -1,0 +1,86 @@
+# Hermes Auth Proxy — Caddy config
+#
+# Sits in front of the dream-hermes container. Gates LAN access on the
+# presence of a `dream-session` cookie set by the dashboard-api's
+# magic-link redemption flow.
+#
+# Flow:
+#   1. Request arrives on :9120
+#   2. /health and /favicon.ico — always answered (so health checks work)
+#   3. /auth/* — static "you need an invite" assets (always served)
+#   4. Has dream-session cookie? → reverse-proxy to dream-hermes:9119
+#      (Hermes's own X-Hermes-Session-Token check then runs per-request)
+#   5. Otherwise → 302 to /auth/required (the "ask the admin" page)
+#
+# This is auth GATING, not user identification. Once past the gate,
+# all users share the same Hermes instance (same memories, skills,
+# persona). See docs/HERMES-SSO.md for the explicit limitation.
+
+{
+	# Disable Caddy's auto-HTTPS — Dream Server's TLS is handled at the
+	# Tailscale layer (PR-12) or by an explicit operator-side reverse
+	# proxy. Inside the bridge network we serve plain HTTP.
+	auto_https off
+	# Don't expose Caddy's admin API. It's an attack surface we don't need.
+	admin off
+	# Log to stdout for `docker logs dream-hermes-proxy`.
+	log {
+		output stdout
+		format console
+		level INFO
+	}
+}
+
+# Listen on the proxy's internal port. Compose maps this to the external
+# HERMES_PROXY_PORT via the host port mapping.
+:9120 {
+	# Cheap health endpoint for Docker / dashboard probes. NEVER gates on
+	# the cookie — health checks are anonymous by design.
+	@health path /health
+	handle @health {
+		respond "ok" 200
+	}
+
+	@favicon path /favicon.ico
+	handle @favicon {
+		respond 204
+	}
+
+	# Static "you need an invite" page lives at /auth/required. Always
+	# accessible; this is where unauthenticated requests get bounced.
+	@auth_static path /auth/required* /auth/static/*
+	handle @auth_static {
+		root * /srv/auth-required
+		try_files {path} /index.html
+		file_server
+	}
+
+	# Cookie matcher: presence of a non-empty `dream-session=<value>` in
+	# the Cookie header. Caddy's `header_regexp` matches the raw Cookie
+	# header as one string, so we anchor on `(?:^|;\s*)` so we match
+	# even when there are other cookies before ours.
+	@authenticated header_regexp Cookie (?:^|;\s*)dream-session=[^;]+
+	handle @authenticated {
+		# Forward everything to Hermes. reverse_proxy handles streaming
+		# responses (SSE) and WebSocket upgrades natively — Caddy's
+		# upstream-handling is the reason we picked it over rolling our
+		# own FastAPI proxy.
+		reverse_proxy {$HERMES_PROXY_UPSTREAM:dream-hermes:9119} {
+			# Pass-through with sane defaults. Caddy's defaults are
+			# correct for SSE + WS; we don't need to tweak buffering.
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Host {host}
+			# Add a marker the operator can grep for in Hermes's logs
+			# if they're debugging a "did this request come via the
+			# proxy or directly?" question.
+			header_up X-Dream-Auth-Proxy "1"
+		}
+	}
+
+	# No cookie → bounce to the auth-required page. 303 (See Other) is
+	# the correct status for "this method is done, go GET that URL" —
+	# important so a no-cookie POST doesn't replay the body to /auth/required.
+	handle {
+		redir /auth/required 303
+	}
+}
