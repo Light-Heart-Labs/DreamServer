@@ -117,7 +117,10 @@ else
             continue
         fi
 
-        # Validate required fields
+        # Validate required fields. host_network services (Docker
+        # network_mode: host) don't have a Docker-mapped port and may
+        # not serve an HTTP health endpoint — port and health drop to
+        # "optional" for them.
         validation=$("$PYTHON_CMD" -c "
 import yaml, sys
 with open(sys.argv[1]) as f:
@@ -129,7 +132,9 @@ s = m.get('service', {})
 if not isinstance(s, dict):
     errors.append('service must be a dict')
 else:
-    for field in ('id', 'name', 'port', 'health'):
+    host_network = bool(s.get('host_network'))
+    required = ['id', 'name'] if host_network else ['id', 'name', 'port', 'health']
+    for field in required:
         if not s.get(field):
             errors.append(f'missing required field: service.{field}')
     if 'category' in s and s['category'] not in ('core', 'recommended', 'optional'):
@@ -314,14 +319,19 @@ for sid in "${SERVICE_IDS[@]}"; do
 
     # Every service should have a runtime port. SERVICE_PORTS is the
     # user-facing external port; internal-only services may intentionally set
-    # it to 0 when a proxy owns the LAN entry point.
-    port="${SERVICE_PORTS[$sid]:-0}"
-    if [[ "$port" != "0" ]]; then
-        pass "Has external port: $sid → $port"
-    elif [[ "${SERVICE_INTERNAL_PORTS[$sid]:-0}" != "0" ]]; then
-        pass "Internal-only service has container port: $sid → ${SERVICE_INTERNAL_PORTS[$sid]}"
+    # it to 0 when a proxy owns the LAN entry point. Host-network services
+    # share the host namespace and have no Docker-mapped port to validate.
+    if [[ "${SERVICE_HOST_NETWORK[$sid]:-}" == "1" ]]; then
+        pass "host_network service exempt from port check: $sid"
     else
-        fail "Missing/zero port: $sid"
+        port="${SERVICE_PORTS[$sid]:-0}"
+        if [[ "$port" != "0" ]]; then
+            pass "Has external port: $sid → $port"
+        elif [[ "${SERVICE_INTERNAL_PORTS[$sid]:-0}" != "0" ]]; then
+            pass "Internal-only service has container port: $sid → ${SERVICE_INTERNAL_PORTS[$sid]}"
+        else
+            fail "Missing/zero port: $sid"
+        fi
     fi
 done
 
