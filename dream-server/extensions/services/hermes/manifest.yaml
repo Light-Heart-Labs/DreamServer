@@ -9,13 +9,19 @@ service:
   aliases: [agent, hermes-agent]
   container_name: dream-hermes
   default_host: hermes
-  # Hermes's own dashboard listens on 9119 inside the container. We expose
-  # the same port externally so direct LAN access (or curl-from-host
-  # debugging) hits a predictable URL. End users normally go through
-  # hermes-proxy on :9120 (auth-gated entry point); see HERMES-SSO.md.
+  # Hermes's own dashboard listens on 9119 inside the container.
+  # Internal-only — there is intentionally no host-port binding here.
+  # End users reach Hermes via hermes-proxy on :9120 (auth-gated entry
+  # point); see HERMES-SSO.md. The compose file declares this port
+  # under `expose:` so other containers on the bridge network (notably
+  # hermes-proxy) can talk to dream-hermes:9119.
   port: 9119
-  external_port_env: HERMES_PORT
-  external_port_default: 9119
+  # external_port_env / external_port_default are deliberately omitted —
+  # with hermes-proxy enabled Hermes is internal-only (compose declares
+  # the port under `expose:` not `ports:`). Surfacing a "browse to this
+  # port" URL in /api/external-links would mislead users into bypassing
+  # the magic-link gate.
+  #
   # Most /api/* routes are session-token gated, and /api/health does not
   # exist in the pinned upstream image. /api/status is explicitly public,
   # read-only, and JSON-backed, so it is the health path Dream should poll.
@@ -39,14 +45,10 @@ service:
     cron jobs actually runs.
 
   env_vars:
-    - key: HERMES_PORT
-      default: "9119"
-      description: |
-        External port for Hermes's own dashboard. Used only when Hermes is
-        the LAN-facing entry — e.g., direct dev access or smoke tests with
-        the hermes-proxy extension disabled. With hermes-proxy enabled,
-        Hermes is internal-only (compose switches to `expose:`) and this
-        knob is informational; the user-facing port becomes HERMES_PROXY_PORT.
+    # HERMES_PORT is intentionally NOT exposed here. With this PR's
+    # internal-only compose (`expose: 9119`), there's no host binding to
+    # control — the variable would be a no-op knob. The user-facing port
+    # is HERMES_PROXY_PORT (declared by the hermes-proxy manifest).
     - key: HERMES_LLM_BASE_URL
       default: "http://llama-server:8080/v1"
       description: OpenAI-compatible endpoint Hermes talks to. Defaults to Dream's llama-server.
