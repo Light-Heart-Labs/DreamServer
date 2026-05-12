@@ -139,7 +139,15 @@ class GenerateRequest(BaseModel):
     role: str = Field(
         default=DEFAULT_ROLE,
         pattern=_ROLE_PATTERN,
-        description="Permission level inside the granted scopes. admin=full operator, user=standard chat, guest=sandboxed/read-only. Enforced by Open WebUI provisioning at redemption time.",
+        description=(
+            "Intended permission level for the invite. admin=full operator, "
+            "user=standard chat, guest=sandboxed/read-only. **Metadata only "
+            "in this version** — the role is recorded with the invite and "
+            "surfaced in the admin list, but redemption issues the same "
+            "dream-session cookie regardless of role. Actual enforcement at "
+            "the proxy / Open WebUI layer is a follow-up; see "
+            "_provision_openwebui_user() in routers/magic_link.py."
+        ),
     )
     expires_in: int = Field(
         default=DEFAULT_EXPIRY_SECONDS,
