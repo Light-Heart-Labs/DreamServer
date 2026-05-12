@@ -2,14 +2,14 @@
 //
 // Lives at /setup. App.jsx routes here when useFirstRun() says
 // firstRun=true and locks all other routes out. Single-column,
-// large tap targets, big text — the user is most likely on a
+// large tap targets, big text - the user is most likely on a
 // phone scanning the device's setup link.
 //
 // 4 screens:
-//   1. Welcome — name your device (DREAM_DEVICE_NAME)
-//   2. First user — username for the initial magic-link invite
-//   3. Pick your stack — chat-only / chat+agents / everything
-//   4. Done — generate magic-link, show QR
+//   1. Welcome - label this setup
+//   2. First user - username for the initial magic-link invite
+//   3. Pick your stack - chat-only / chat+agents / everything
+//   4. Done - generate magic-link, show QR
 //
 // Progress is mirrored to localStorage so a phone refresh doesn't
 // lose state mid-wizard. The server-side flip happens only on the
@@ -39,13 +39,13 @@ const STACK_OPTIONS = [
   {
     id: 'chat-agents',
     title: 'Chat + Agents',
-    blurb: 'Adds n8n workflows and the agent runtime — enable from Extensions after setup.',
+    blurb: 'Adds n8n workflows and the agent runtime; enable from Extensions after setup.',
     Icon: Workflow,
   },
   {
     id: 'everything',
     title: 'Everything',
-    blurb: 'Voice, image generation, search, the whole catalog — enable from Extensions after setup.',
+    blurb: 'Voice, image generation, search, the whole catalog; enable from Extensions after setup.',
     Icon: Boxes,
   },
 ]
@@ -65,7 +65,7 @@ function writeProgress(progress) {
   try {
     globalThis.localStorage?.setItem(PROGRESS_KEY, JSON.stringify(progress))
   } catch {
-    // localStorage may be blocked in private windows — wizard still works.
+    // localStorage may be blocked in private windows; wizard still works.
   }
 }
 
@@ -107,9 +107,9 @@ export default function FirstBoot({ onComplete }) {
         body: JSON.stringify({
           target_username: username,
           scope: 'chat',
-          expires_in: 86400, // 24h — the wizard target may not redeem immediately
+          expires_in: 86400, // 24h; the wizard target may not redeem immediately
           reusable: false,
-          note: 'First-boot invite',
+          note: `First-boot invite (${deviceName.trim() || 'dream'})`,
         }),
       })
       if (!genResp.ok) {
@@ -119,12 +119,23 @@ export default function FirstBoot({ onComplete }) {
       const inviteData = await genResp.json()
 
       // Flip the server-side sentinel so this device is "configured".
-      await fetch('/api/setup/complete', { method: 'POST' })
+      // Check the response; an earlier draft fired the request and
+      // moved on regardless of status, which left the server in
+      // first-run mode while the UI said "You're set." If complete
+      // fails, throw and let the catch surface the error to the user
+      // (with the invite still safely visible on the previous screen).
+      const completeResp = await fetch('/api/setup/complete', { method: 'POST' })
+      if (!completeResp.ok) {
+        const body = await completeResp.json().catch(() => ({}))
+        throw new Error(
+          body.detail || `Failed to mark setup complete (${completeResp.status}). Your invite was generated; ask the admin to re-run setup.`,
+        )
+      }
 
       setInvite(inviteData)
       clearProgress()
-      // Stay on the success screen until the user taps "Open chat" or "Done"
-      // — calling onComplete() immediately would route them away before they
+      // Stay on the success screen until the user taps "Open dashboard".
+      // Calling onComplete() immediately would route them away before they
       // can copy the QR. onComplete fires on the final tap.
     } catch (err) {
       setFinishError(err.message)
@@ -217,7 +228,7 @@ function StepDots({ step, total }) {
 }
 
 // ---------------------------------------------------------------------------
-// Step 1 — Welcome / device name
+// Step 1 - Welcome / setup label
 // ---------------------------------------------------------------------------
 
 function WelcomeStep({ deviceName, setDeviceName, onNext }) {
@@ -229,11 +240,11 @@ function WelcomeStep({ deviceName, setDeviceName, onNext }) {
       </div>
       <h1 className="text-3xl font-bold text-theme-text mb-3">Welcome to Dream.</h1>
       <p className="text-theme-text-muted mb-8 leading-relaxed">
-        Let&apos;s get you set up in about a minute. First, give this device a name so it&apos;s easy to find on your network.
+        Let&apos;s get you set up in about a minute. First, give this setup a friendly label for the invite audit trail.
       </p>
 
       <label className="block mb-6">
-        <span className="text-sm text-theme-text-muted">Device name</span>
+        <span className="text-sm text-theme-text-muted">Setup label</span>
         <input
           type="text"
           value={deviceName}
@@ -246,8 +257,9 @@ function WelcomeStep({ deviceName, setDeviceName, onNext }) {
           spellCheck={false}
         />
         <span className="text-xs text-theme-text-muted mt-2 block">
-          We&apos;ll save this preference. Once mDNS is configured the device will be
-          reachable at <code className="text-theme-accent">{deviceName.trim() || 'dream'}.local</code>.
+          This label is recorded on the first invite only. It does not rename the host yet;
+          change <code className="text-theme-accent">DREAM_DEVICE_NAME</code> in Settings before expecting
+          <code className="text-theme-accent"> {deviceName.trim() || 'dream'}.local</code> to resolve.
           Letters, numbers, and dashes only.
         </span>
       </label>
@@ -265,7 +277,7 @@ function WelcomeStep({ deviceName, setDeviceName, onNext }) {
 }
 
 // ---------------------------------------------------------------------------
-// Step 2 — First user
+// Step 2 - First user
 // ---------------------------------------------------------------------------
 
 function UserStep({ username, setUsername, onNext, onBack }) {
@@ -278,7 +290,7 @@ function UserStep({ username, setUsername, onNext, onBack }) {
       </div>
       <h1 className="text-3xl font-bold text-theme-text mb-3">Who&apos;s the first user?</h1>
       <p className="text-theme-text-muted mb-8 leading-relaxed">
-        We&apos;ll generate a magic link for them at the end. They scan it once and they&apos;re in.
+        We&apos;ll generate a magic link for them at the end. They scan it once to reach the chat surface.
       </p>
 
       <label className="block mb-6">
@@ -322,7 +334,7 @@ function UserStep({ username, setUsername, onNext, onBack }) {
 }
 
 // ---------------------------------------------------------------------------
-// Step 3 — Stack picker
+// Step 3 - Stack picker
 // ---------------------------------------------------------------------------
 
 function StackStep({ stack, setStack, onNext, onBack }) {
@@ -387,7 +399,7 @@ function StackStep({ stack, setStack, onNext, onBack }) {
 }
 
 // ---------------------------------------------------------------------------
-// Step 4 — Confirm & finish
+// Step 4 - Confirm & finish
 // ---------------------------------------------------------------------------
 
 function ConfirmStep({ deviceName, username, stack, onBack, onFinish, finishing, error }) {
@@ -400,7 +412,7 @@ function ConfirmStep({ deviceName, username, stack, onBack, onFinish, finishing,
       </p>
 
       <dl className="bg-theme-card border border-theme-border rounded-xl divide-y divide-theme-border mb-8">
-        <Row label="Device name" value={deviceName.trim() || 'dream'} hint="saved as preference" />
+        <Row label="Setup label" value={deviceName.trim() || 'dream'} hint="invite audit note" />
         <Row label="First user" value={username.trim()} />
         <Row label="Stack" value={stackTitle} hint="enable extras from Extensions" />
       </dl>
@@ -426,7 +438,7 @@ function ConfirmStep({ deviceName, username, stack, onBack, onFinish, finishing,
           className="flex-1 flex items-center justify-center gap-2 bg-theme-accent text-white py-4 rounded-xl text-base font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
         >
           {finishing && <Loader2 size={18} className="animate-spin" />}
-          {finishing ? 'Finishing…' : 'Finish'}
+          {finishing ? 'Finishing...' : 'Finish'}
         </button>
       </div>
     </div>
@@ -446,7 +458,7 @@ function Row({ label, value, hint }) {
 }
 
 // ---------------------------------------------------------------------------
-// Done — show generated invite
+// Done - show generated invite
 // ---------------------------------------------------------------------------
 
 function DoneScreen({ invite, onDone }) {
@@ -462,7 +474,7 @@ function DoneScreen({ invite, onDone }) {
           `/api/auth/magic-link/qr?url=${encodeURIComponent(invite.url)}`,
         )
         if (!resp.ok) {
-          setQrError('QR generation unavailable on the server.')
+          if (!cancelled) setQrError('QR generation unavailable on the server.')
           return
         }
         const data = await resp.json()
@@ -521,7 +533,7 @@ function DoneScreen({ invite, onDone }) {
         <div className="bg-theme-card border border-theme-border rounded-xl p-8 flex flex-col items-center justify-center mb-6 min-h-56">
           <QrCode size={48} className="text-theme-text-muted mb-2" />
           <p className="text-xs text-theme-text-muted text-center">
-            {qrError || 'Generating QR…'}
+            {qrError || 'Generating QR...'}
           </p>
         </div>
       )}
@@ -535,6 +547,8 @@ function DoneScreen({ invite, onDone }) {
         />
         <button
           onClick={copy}
+          title="Copy link"
+          aria-label="Copy invite link"
           className="flex items-center gap-1 px-3 py-2 bg-theme-card border border-theme-border rounded-lg text-theme-text hover:bg-theme-surface-hover text-sm"
         >
           {copied ? <Check size={16} className="text-green-400" /> : <Copy size={16} />}
