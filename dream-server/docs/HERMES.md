@@ -105,7 +105,7 @@ To bring up Hermes pointing at a different LLM (e.g. OpenRouter, OpenAI, Anthrop
 - **`--insecure` is enabled.** Hermes's dashboard refuses to bind to non-loopback addresses without it (the dashboard stores API keys, so binding 0.0.0.0 has a clear "you sure?" gate). Dream Server's trusted-LAN posture accepts this trade-off for v1. **Don't expose port 9119 to the public internet.** Use Tailscale (PR-12 from the onboarding plan) if you need remote access.
 - **The container runs as a non-root user** (UID 10000 by default, remappable via `HERMES_UID`). The entrypoint drops privileges via `gosu` before any agent code runs.
 - **The container has full network access** within Dream Server's bridge net — Hermes can make outbound HTTP requests for tools like `web_search`. If you want to restrict this, add an iptables firewall rule on the host or run Hermes behind a forward proxy.
-- **No APE policy enforcement yet.** Hermes's 70+ tools include shell + file write. The base config defaults toward less-risky tools, but Hermes can still execute shell commands inside its sandbox container. APE policy wrapping is a planned follow-up; until then, the trust model is "the user authenticated to Hermes is trusted to use the local container."
+- **APE policy enforcement is wired in.** Every Hermes tool call hits APE's `/verify` endpoint before execution (via Hermes's `pre_tool_call` plugin hook — see `extensions/services/hermes/plugins/ape-policy/`). Denied calls return as block messages to the agent, which surfaces them as tool errors in the conversation. Behavior when APE is unreachable is configurable via `APE_FAIL_OPEN` (default `true` for Dream's trusted-LAN posture). For tighter exposure (e.g. Hermes-over-Tailscale-to-public-internet), set `APE_FAIL_OPEN=false` so unreachable APE blocks instead of permitting.
 
 ## How to bump the SHA pin
 
@@ -137,7 +137,7 @@ gh api repos/NousResearch/hermes-agent/compare/<old-sha>...<new-sha> --jq '.comm
 These were in the original integration plan but cut once we discovered Hermes ships a complete browser surface:
 
 - **mDNS announcement** — register `hermes.<device>.local` in the Dream Server mDNS announcer (`bin/dream-mdns.py` lands in [#1152](https://github.com/Light-Heart-Labs/DreamServer/pull/1152)). One-line follow-up after that PR merges.
-- **APE policy integration** — route Hermes's tool calls through APE for allow/deny + audit. APE is already in the stack; needs a small adapter inside or in front of Hermes.
+- **APE policy integration** — ✅ shipped via the `ape-policy` plugin under `extensions/services/hermes/plugins/`. Uses Hermes's native `pre_tool_call` hook to call APE's `/verify` endpoint before each tool execution. Configurable fail-open / fail-closed via `APE_FAIL_OPEN`.
 - **Magic-link SSO** — hand off magic-link redemptions ([#1155](https://github.com/Light-Heart-Labs/DreamServer/pull/1155)) into a Hermes auth session so family members don't need separate Hermes credentials.
 - **Voice in/out from Dream Server's whisper + kokoro** — Hermes has its own audio pipeline (the image bundles ffmpeg + playwright); verify whether it already proxies to local TTS/STT services or whether we need to wire that ourselves.
 - **Dream-side status panel** — surface Hermes's session count + skill inventory in the Dream dashboard. Lower priority since Hermes has its own `AnalyticsPage`.

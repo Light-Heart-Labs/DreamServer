@@ -1,0 +1,6 @@
+name: ape-policy
+version: 1.0.0
+description: "Route Hermes tool calls through Dream Server's APE policy engine for allow/deny + audit. Every tool call hits APE's /verify endpoint before execution; denials surface as block messages back to the agent."
+author: "Light Heart Labs"
+hooks:
+  - pre_tool_call

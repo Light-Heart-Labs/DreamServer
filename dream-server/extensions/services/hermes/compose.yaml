@@ -41,6 +41,13 @@ services:
       # --no-open equivalent: stops Hermes from trying to spawn a browser
       # inside the container.
       - HERMES_DASHBOARD_NO_OPEN=1
+      # APE policy engine wiring — consumed by the ape-policy plugin
+      # (mounted below at /opt/data/plugins/ape-policy/). If the ape
+      # extension isn't enabled, the plugin warns + applies APE_FAIL_OPEN.
+      - APE_URL=${APE_URL:-http://ape:7890}
+      - APE_API_KEY=${APE_API_KEY:-}
+      - APE_FAIL_OPEN=${APE_FAIL_OPEN:-true}
+      - APE_TIMEOUT=${APE_TIMEOUT:-5}
     volumes:
       # Persistent state: Hermes's HERMES_HOME. Sessions, skills, memories,
       # cron jobs, audit logs all live here.
@@ -52,6 +59,14 @@ services:
       # a custom Dockerfile.
       - ./extensions/services/hermes/cli-config.yaml.template:/opt/hermes/cli-config.yaml.example:ro
       - ./extensions/services/hermes/SOUL.md.template:/opt/hermes/docker/SOUL.md:ro
+      # ape-policy plugin — Hermes's `pre_tool_call` hook calls APE's /verify
+      # before each tool execution. Mounted into the user-plugins directory
+      # (Hermes's discovery rules: ~/.hermes/plugins/<name>/ ⇒ /opt/data/plugins/<name>/).
+      # The deeper mount overlays the parent data volume at this path; the
+      # plugin source is :ro because users shouldn't be editing it from
+      # Hermes — to disable APE checks, set APE_FAIL_OPEN=true and stop the
+      # ape extension, or remove this mount.
+      - ./extensions/services/hermes/plugins/ape-policy:/opt/data/plugins/ape-policy:ro
     ports:
       # BIND_ADDRESS gates LAN exposure. Default 127.0.0.1 = localhost only.
       # Set BIND_ADDRESS=0.0.0.0 in .env to make Hermes reachable on the LAN
