@@ -125,9 +125,9 @@ gh api repos/NousResearch/hermes-agent/compare/<old-sha>...<new-sha> --jq '.comm
 
 # 4. Smoke test:
 #    dream restart hermes
-#    curl http://localhost:9119/healthz     # should 200 (unauthenticated)
-#    # NOTE: /api/* is auth-gated (returns 401); use /healthz / /status
-#    # / /ping for unauthenticated probes.
+#    curl http://localhost:9119/api/status  # should 200 (public, read-only)
+#    # NOTE: most /api/* routes are auth-gated; /api/status is the public
+#    # JSON-backed endpoint used by Dream's health metadata and Docker probe.
 #    open http://localhost:9119, send a chat, verify tool call
 
 # 5. If it works, commit. If config.yaml format has changed, document the
@@ -146,7 +146,7 @@ These were in the original integration plan but cut once we discovered Hermes sh
 
 ## Troubleshooting
 
-### `curl localhost:9119/healthz` returns 502 / connection refused
+### `curl localhost:9119/api/status` returns 502 / connection refused
 
 Hermes hasn't finished bootstrapping. Watch the logs:
 

@@ -16,12 +16,11 @@ service:
   port: 9119
   external_port_env: HERMES_PORT
   external_port_default: 9119
-  # /api/* is auth-gated by Hermes's dashboard (returns 401 without
-  # credentials), so /api/health isn't usable as an external probe.
-  # Verified against the SHA-pinned upstream image: /healthz at the
-  # root returns 200 unauthenticated — matches the container's own
-  # healthcheck in compose.yaml. Keep these aligned.
-  health: /healthz
+  # Most /api/* routes are session-token gated, and /api/health does not
+  # exist in the pinned upstream image. /api/status is explicitly public,
+  # read-only, and JSON-backed, so it is the health path Dream should poll.
+  # Keep this aligned with the container healthcheck in compose.yaml.
+  health: /api/status
   ui_path: /
   health_timeout: 60  # Hermes does skill sync + config bootstrap on cold start
   type: docker
