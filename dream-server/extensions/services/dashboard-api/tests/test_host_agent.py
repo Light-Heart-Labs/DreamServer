@@ -1727,8 +1727,21 @@ class TestEnableRetryEdgeCases:
         def fake_run(cmd, *a, **k):
             hook_cmds.append(cmd)
             import subprocess as _sp
+            # Startup_check (PR #1039) polls `docker inspect --format
+            # '{{.State.Status}}|{{.State.Error}}' dream-<svc>` after the
+            # compose action and reads stdout. Empty output keeps the poll
+            # in 'not running' forever and the retry path eventually writes
+            # progress='error'. Return a clean 'running|' for those calls
+            # so the poll satisfies and the worker reaches 'started';
+            # every other subprocess (which there shouldn't be in the
+            # no-hook branch) still gets an empty response.
+            is_docker_inspect = (
+                isinstance(cmd, list) and len(cmd) >= 2
+                and cmd[0] == "docker" and cmd[1] == "inspect"
+            )
+            stdout = "running|" if is_docker_inspect else ""
             return _sp.CompletedProcess(args=cmd, returncode=0,
-                                        stdout="", stderr="")
+                                        stdout=stdout, stderr="")
 
         monkeypatch.setattr(_mod.subprocess, "run", fake_run)
         monkeypatch.setattr(
