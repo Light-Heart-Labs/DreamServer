@@ -1,0 +1,53 @@
+services:
+  tailscale:
+    image: tailscale/tailscale:v1.78.0
+    container_name: dream-tailscale
+    restart: unless-stopped
+    # network_mode: host is required for Tailscale to share the host's
+    # network namespace — that's what makes services on 127.0.0.1:<port>
+    # reachable as <hostname>.<tailnet>.ts.net:<port> from the tailnet.
+    # Linux only. macOS + Docker Desktop need a different topology
+    # (userspace networking + tailscale serve); not supported in v1.
+    network_mode: host
+    cap_add:
+      # NET_ADMIN: manipulate routing tables (Tailscale's mesh)
+      # NET_RAW: send raw packets (NAT traversal probes)
+      - NET_ADMIN
+      - NET_RAW
+    devices:
+      # The TUN device is how Tailscale's userspace daemon hands packets
+      # back to the kernel. Without this, tailscale up exits with
+      # "no TUN device available".
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      # TS_AUTHKEY is consumed once on first join; the daemon caches the
+      # resulting node key in TS_STATE_DIR so the auth key can be rotated
+      # or deleted afterward. Empty value = container starts but doesn't
+      # join (waits for the user to set it).
+      - TS_AUTHKEY=${TS_AUTHKEY:-}
+      - TS_HOSTNAME=${TS_HOSTNAME:-${DREAM_DEVICE_NAME:-dream}}
+      - TS_STATE_DIR=/var/lib/tailscale
+      # AcceptRoutes lets this device see subnet routes advertised by
+      # other tailnet nodes (off by default — Dream's bidirectional case
+      # is just incoming).
+      - TS_EXTRA_ARGS=--advertise-tags=tag:dream
+      # Userspace mode is OFF — we want full kernel networking so the
+      # dashboard/chat ports on the host are exposed to the tailnet via
+      # network_mode: host. TS_USERSPACE=true is for the inverse
+      # (container reaches the tailnet) which isn't what we need.
+      - TS_USERSPACE=false
+    volumes:
+      - ./data/tailscale:/var/lib/tailscale
+    healthcheck:
+      # `tailscale status` returns 0 if the daemon is up and authenticated,
+      # 1 if not. Useful for "is this device on the tailnet right now."
+      test: ["CMD", "tailscale", "status", "--json"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

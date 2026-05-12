@@ -1,0 +1,46 @@
+schema_version: dream.services.v1
+
+compatibility:
+  dream_min: "2.0.0"
+
+service:
+  id: tailscale
+  name: Tailscale (Remote Access)
+  aliases: [remote, vpn]
+  container_name: dream-tailscale
+  # Tailscale runs in host network mode on Linux — no port exposed at the
+  # container layer. Health is checked via `tailscale status` over docker exec.
+  port: 0
+  health_timeout: 30
+  type: docker
+  gpu_backends: [all]
+  compose_file: compose.yaml
+  category: optional
+  depends_on: []
+  env_vars:
+    - key: TS_AUTHKEY
+      required: false
+      secret: true
+      description: |
+        Tailscale auth key. Generate one at https://login.tailscale.com/admin/settings/keys
+        Recommend a reusable, ephemeral=false, tags=tag:dream key per device. The container
+        joins your tailnet on first start, after which you can rotate or delete the key.
+    - key: TS_HOSTNAME
+      required: false
+      description: |
+        The hostname this device registers as on the tailnet. Defaults to
+        ${DREAM_DEVICE_NAME}. Reachable as <hostname>.<tailnet>.ts.net once joined.
+
+features:
+  - id: remote-access
+    name: Remote Access
+    description: Reach Dream Server from any device, anywhere via Tailscale VPN.
+    icon: Globe
+    category: networking
+    requirements:
+      services: [tailscale]
+      vram_gb: 0
+    enabled_services_all: [tailscale]
+    setup_time: ~2 minutes
+    priority: 3
+    gpu_backends: [all]

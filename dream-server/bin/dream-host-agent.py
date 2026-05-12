@@ -962,8 +962,93 @@ class AgentHandler(BaseHTTPRequestHandler):
             self._handle_network_wifi_scan()
         elif self.path == "/v1/network/status":
             self._handle_network_status()
+        elif self.path == "/v1/tailscale/status":
+            self._handle_tailscale_status()
         else:
             json_response(self, 404, {"error": "Not found"})
+
+    def _handle_tailscale_status(self):
+        """Return Tailscale daemon status by docker-exec'ing into the
+        dream-tailscale container.
+
+        Three outcome shapes:
+          1. Container running AND authenticated:
+             {running:true, authenticated:true, self:{...},
+              magic_dns_suffix:"tail-xxxxx.ts.net", ...}
+          2. Container running but not authenticated (auth key absent
+             or rejected):
+             {running:true, authenticated:false, reason:"..."}
+          3. Container not running:
+             {running:false}
+
+        We never return 5xx for "container not running" — that's a normal
+        state. 5xx is reserved for "the docker daemon itself broke."
+        """
+        if not check_auth(self):
+            return
+        try:
+            result = subprocess.run(
+                ["docker", "exec", "dream-tailscale",
+                 "tailscale", "status", "--json"],
+                capture_output=True, text=True, timeout=10,
+            )
+        except subprocess.TimeoutExpired:
+            json_response(self, 504, {"error": "docker exec timed out"})
+            return
+        except OSError as exc:
+            json_response(self, 500, {"error": f"docker exec failed: {exc}"})
+            return
+
+        if result.returncode != 0:
+            stderr = (result.stderr or "").strip()
+            lowered = stderr.lower()
+            # Container not running -> normal "not enabled yet" state.
+            if "no such container" in lowered or "is not running" in lowered:
+                json_response(self, 200, {"running": False})
+                return
+            # Container up but daemon not yet authed.
+            if "logged out" in lowered or "needs login" in lowered:
+                json_response(self, 200, {
+                    "running": True,
+                    "authenticated": False,
+                    "reason": "Tailscale is running but not yet authenticated. Set TS_AUTHKEY and restart.",
+                })
+                return
+            json_response(self, 200, {
+                "running": True,
+                "authenticated": False,
+                "error": stderr[:300] or "tailscale status returned non-zero",
+            })
+            return
+
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            json_response(self, 500, {"error": f"could not parse tailscale status: {exc}"})
+            return
+
+        # Distill the chunky `tailscale status --json` blob to what the
+        # dashboard actually needs.
+        self_node = payload.get("Self", {}) or {}
+        magic_dns = payload.get("MagicDNSSuffix") or ""
+        dns_name = self_node.get("DNSName", "").rstrip(".") or None
+        tailnet = payload.get("CurrentTailnet")
+        tailnet_name = (
+            tailnet.get("Name") if isinstance(tailnet, dict) else None
+        )
+        json_response(self, 200, {
+            "running": True,
+            "authenticated": payload.get("BackendState") == "Running",
+            "backend_state": payload.get("BackendState"),
+            "self": {
+                "hostname": self_node.get("HostName"),
+                "dns_name": dns_name,
+                "ips": self_node.get("TailscaleIPs", []),
+                "online": self_node.get("Online", False),
+            },
+            "magic_dns_suffix": magic_dns,
+            "tailnet_name": tailnet_name,
+        })
 
     def _handle_service_stats(self):
         """Return CPU/memory stats for all Dream-managed containers."""
