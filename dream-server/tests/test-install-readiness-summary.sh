@@ -31,6 +31,16 @@ assert_contains() {
     fi
 }
 
+assert_not_contains() {
+    local file="$1" needle="$2" label="$3"
+    if grep -Fq -- "$needle" "$file"; then
+        fail "$label"
+        echo "    unexpected: $needle"
+    else
+        pass "$label"
+    fi
+}
+
 TMP_DIR="$(mktemp -d)"
 cleanup() { rm -rf "$TMP_DIR"; }
 trap cleanup EXIT
@@ -64,7 +74,16 @@ exit 0
 EOF
 chmod +x "$TMP_DIR/bin/docker"
 
+cat > "$TMP_DIR/bin/sudo" <<'EOF'
+#!/usr/bin/env bash
+[[ -n "${SUDO_MARKER:-}" ]] && printf 'sudo-called\n' >> "$SUDO_MARKER"
+exec "$@"
+EOF
+chmod +x "$TMP_DIR/bin/sudo"
+
 export PATH="$TMP_DIR/bin:$PATH"
+export DOCKER_CMD="sudo docker"
+export SUDO_MARKER="$TMP_DIR/sudo-marker"
 
 source "$SUMMARY_LIB"
 
@@ -82,8 +101,10 @@ echo ""
 assert_contains "$OUTPUT" "INSTALL READINESS" "summary has heading"
 assert_contains "$OUTPUT" "Ready now: 1/3" "summary counts ready services"
 assert_contains "$OUTPUT" "[OK] Dashboard" "summary lists ready service"
+[[ -s "$SUDO_MARKER" ]] && pass "summary honors DOCKER_CMD wrapper for docker inspect" || fail "summary ignored DOCKER_CMD wrapper"
 assert_contains "$OUTPUT" "[!!] Chat UI (Open WebUI)" "summary lists starting service"
 assert_contains "$OUTPUT" "starting - HTTP 000" "summary explains starting service"
+assert_not_contains "$OUTPUT" "000000" "failed curl probe is normalized to a single 000 code"
 assert_contains "$OUTPUT" "[!!] Qdrant" "summary lists missing service"
 assert_contains "$OUTPUT" "not detected - missing" "summary explains missing container"
 assert_contains "$OUTPUT" "HTTP 000" "summary includes failed HTTP code"

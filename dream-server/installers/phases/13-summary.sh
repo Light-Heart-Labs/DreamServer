@@ -361,7 +361,7 @@ if command -v dream_readiness_summary >/dev/null 2>&1; then
             "${SERVICE_PORTS[n8n]:-5678}" "${SERVICE_HEALTH[n8n]:-/healthz}" "$(sr_container n8n)" "http://localhost:${SERVICE_PORTS[n8n]:-5678}"
         [[ "$ENABLE_RAG" == "true" ]] && printf 'Qdrant|http://127.0.0.1:%s%s|%s|%s\n' \
             "${SERVICE_PORTS[qdrant]:-6333}" "${SERVICE_HEALTH[qdrant]:-/}" "$(sr_container qdrant)" "http://localhost:${SERVICE_PORTS[qdrant]:-6333}"
-        [[ "$ENABLE_COMFYUI" == "true" ]] && printf 'ComfyUI|http://127.0.0.1:%s%s|%s|%s\n' \
+        [[ "${ENABLE_COMFYUI:-}" == "true" ]] && printf 'ComfyUI|http://127.0.0.1:%s%s|%s|%s\n' \
             "${SERVICE_PORTS[comfyui]:-8188}" "${SERVICE_HEALTH[comfyui]:-/}" "$(sr_container comfyui)" "http://localhost:${SERVICE_PORTS[comfyui]:-8188}"
     } | dream_readiness_summary "dream status" "$LOG_FILE" "$_dashboard_url"
 fi

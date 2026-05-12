@@ -13,18 +13,35 @@
 
 _dream_readiness_http_code() {
     local url="$1" timeout="${2:-3}"
+    local code
     [[ -n "$url" ]] || { printf '000'; return 0; }
-    curl -s -o /dev/null -w "%{http_code}" --max-time "$timeout" "$url" 2>/dev/null || printf '000'
+    code="$(curl -s -o /dev/null -w "%{http_code}" --max-time "$timeout" "$url" 2>/dev/null || true)"
+    [[ "$code" =~ ^[0-9]{3}$ ]] || code="000"
+    printf '%s' "$code"
+}
+
+_dream_readiness_docker_available() {
+    case "${DOCKER_CMD:-docker}" in
+        "sudo docker") command -v sudo >/dev/null 2>&1 && command -v docker >/dev/null 2>&1 ;;
+        *) command -v "${DOCKER_CMD:-docker}" >/dev/null 2>&1 ;;
+    esac
+}
+
+_dream_readiness_docker() {
+    case "${DOCKER_CMD:-docker}" in
+        "sudo docker") sudo docker "$@" ;;
+        *) "${DOCKER_CMD:-docker}" "$@" ;;
+    esac
 }
 
 _dream_readiness_container_state() {
     local container="$1"
     [[ -n "$container" ]] || { printf 'host'; return 0; }
-    if ! command -v docker >/dev/null 2>&1; then
+    if ! _dream_readiness_docker_available; then
         printf 'docker-unavailable'
         return 0
     fi
-    docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container" 2>/dev/null || printf 'missing'
+    _dream_readiness_docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container" 2>/dev/null || printf 'missing'
 }
 
 _dream_readiness_is_ready_code() {
