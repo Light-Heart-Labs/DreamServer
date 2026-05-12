@@ -37,7 +37,12 @@ service:
   env_vars:
     - key: HERMES_PORT
       default: "9119"
-      description: External port for Hermes's own dashboard (FastAPI + React UI)
+      description: |
+        External port for Hermes's own dashboard. Used only when Hermes is
+        the LAN-facing entry — e.g., direct dev access or smoke tests with
+        the hermes-proxy extension disabled. With hermes-proxy enabled,
+        Hermes is internal-only (compose switches to `expose:`) and this
+        knob is informational; the user-facing port becomes HERMES_PROXY_PORT.
     - key: HERMES_LLM_BASE_URL
       default: "http://llama-server:8080/v1"
       description: OpenAI-compatible endpoint Hermes talks to. Defaults to Dream's llama-server.
