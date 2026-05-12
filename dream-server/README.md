@@ -14,7 +14,7 @@
 
 > | Platform | Status |
 > |----------|--------|
-> | **Linux** (NVIDIA + AMD) | **Supported** — install and run today |
+> | **Linux** (NVIDIA + AMD + Intel Arc) | **Supported** — install and run today |
 > | **macOS** (Apple Silicon) | **Supported** — install and run today |
 > | **Windows** (NVIDIA + AMD) | **Supported** — install and run today |
 >
@@ -40,8 +40,8 @@ Known-good version baselines: [`docs/KNOWN-GOOD-VERSIONS.md`](docs/KNOWN-GOOD-VE
 > **Prerequisites:** `curl` and `jq` must be installed. The installer will auto-install `jq` if missing, but `curl` is required to fetch the installer itself.
 
 ```bash
-# One-line install (Linux — NVIDIA or AMD)
-curl -fsSL https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.4.0/get-dream-server.sh | bash
+# One-line install (Linux — NVIDIA, AMD, Intel Arc, or CPU/cloud fallback)
+curl -fsSL https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/main/dream-server/get-dream-server.sh | bash
 ```
 
 Or manually:
@@ -53,6 +53,8 @@ cd DreamServer
 ```
 
 The installer auto-detects your GPU, picks the right model, generates secure passwords, and starts everything. Open **http://localhost:3000** and start chatting.
+
+On Linux Docker installs, llama-server is exposed to the host on **http://localhost:11434** (`OLLAMA_PORT`) and runs on `8080` inside Docker. Use `llama-server:8080` only from other containers on the Dream Server network. macOS native Metal and Windows native/Lemonade paths use **http://localhost:8080** unless overridden.
 
 ### Instant Start (Bootstrap Mode)
 
@@ -93,56 +95,72 @@ See [`docs/WINDOWS-QUICKSTART.md`](docs/WINDOWS-QUICKSTART.md) for details.
 
 | Component | Purpose | Port | Backend |
 |-----------|---------|------|---------|
-| **llama-server** | LLM inference engine | 8080 | Both |
-| **Open WebUI** | Beautiful chat interface | 3000 | Both |
-| **Dashboard** | System status, GPU metrics, service health | 3001 | Both |
-| **Dashboard API** | Backend API for dashboard | 3002 | Both |
-| **LiteLLM** | Multi-model API gateway | 4000 | Both |
-| **OpenClaw** | Autonomous AI agent framework | 7860 | Both |
-| **SearXNG** | Self-hosted web search | 8888 | Both |
-| **Perplexica** | Deep research engine | 3004 | Both |
-| **n8n** | Workflow automation | 5678 | Both |
-| **Qdrant** | Vector database for RAG | 6333 | Both |
-| **Embeddings** | Text embeddings for RAG | 8090 | Both |
-| **Whisper** | Speech-to-text | 9000 | Both |
-| **Kokoro** | Text-to-speech | 8880 | Both |
-| **Privacy Shield** | PII protection for API calls | 8085 | Both |
-| **Memory Shepherd** | Agent memory lifecycle management | — | AMD |
-| **ComfyUI** | Image generation | 8188 | Both |
+| **llama-server** | LLM inference engine | Linux Docker: 11434 host / 8080 container; native macOS/Windows: 8080 host | Core GPU backend |
+| **Open WebUI** | Beautiful chat interface | 3000 | Core |
+| **Dashboard** | System status, GPU metrics, service health | 3001 | Core |
+| **Dashboard API** | Backend API for dashboard | 3002 | Core |
+| **LiteLLM** | Multi-model API gateway | 4000 | Recommended |
+| **Token Spy** | Token usage monitor | 3005 | Recommended |
+| **SearXNG** | Self-hosted web search | 8888 | Recommended |
+| **Hermes Agent** | Local-first autonomous/browser agent | 9120 via auth proxy; 9119 internal | Optional |
+| **OpenClaw** | Autonomous AI agent framework | 7860 | Optional |
+| **APE** | Agent Policy Engine for policy/audit controls | 7890 | Optional |
+| **OpenCode** | Browser IDE / coding assistant | 3003 | Optional host service |
+| **DreamForge** | Developer/build service extension | 3010 | Optional |
+| **Perplexica** | Deep research engine | 3004 | Optional |
+| **Brave Search** | Paid Brave Search API bridge | 8585 | Optional |
+| **n8n** | Workflow automation | 5678 | Optional |
+| **Qdrant** | Vector database for RAG | 6333 / 6334 gRPC | Optional |
+| **TEI Embeddings** | Text embeddings for RAG | 8090 | Optional |
+| **Whisper** | Speech-to-text | 9000 | Optional |
+| **Kokoro** | Text-to-speech | 8880 | Optional |
+| **Privacy Shield** | PII protection for API calls | 8085 | Optional |
+| **Langfuse** | LLM observability and tracing | 3006 | Optional |
+| **ComfyUI** | Image generation | 8188 | Optional GPU service |
+| **Memory Shepherd** | Agent memory lifecycle management | — | Host/systemd helper |
 
 ## Hardware Tiers
 
-The installer **automatically detects your GPU** and selects the right configuration:
+The installer **automatically detects your GPU** and selects the right configuration. `MODEL_PROFILE=qwen` is the default; `MODEL_PROFILE=gemma4` and `MODEL_PROFILE=auto` are also supported by the tier map where those GGUFs are available.
 
 ### AMD Strix Halo (Unified Memory)
 
-| Tier | Unified VRAM | Model | Context | Example Hardware |
-|------|-------------|-------|---------|-----------------|
-| SH_LARGE | 90GB+ | qwen3-coder-next (80B MoE, 3B active) | 128K | Ryzen AI MAX+ 395 (96GB VRAM config) |
-| SH_COMPACT | 64-89GB | qwen3-30b-a3b (30B MoE, 3B active) | 128K | Ryzen AI MAX+ 395 (64GB VRAM config) |
+| Tier | Unified VRAM | Qwen profile | Gemma 4 profile | Context | Example Hardware |
+|------|-------------|--------------|-----------------|---------|-----------------|
+| SH_LARGE | 90GB+ | qwen3-coder-next (80B MoE, 3B active) | gemma-4-31b-it | 128K | Ryzen AI MAX+ 395 (96GB VRAM config) |
+| SH_COMPACT | 64-89GB | qwen3-30b-a3b (30B MoE, 3B active) | gemma-4-26b-a4b-it | 128K Qwen / 64K Gemma | Ryzen AI MAX+ 395 (64GB VRAM config) |
 
 Both tiers use `qwen2.5:7b` as a bootstrap model for instant startup. The full model downloads in the background via GGUF from HuggingFace.
 
-**Inference backend:** Lemonade Server via ROCm (Docker image: `ghcr.io/lemonade-sdk/lemonade-server:v10.0.0`)
+**Inference backend:** selected by the platform installer and support matrix. Linux AMD paths use ROCm-capable containers; Windows Strix Halo uses the Windows-specific accelerated path.
 
 ### NVIDIA (Discrete GPU)
 
-| Tier | VRAM | Model | Quant | Context | Example GPUs |
-|------|------|-------|-------|---------|--------------|
-| NV_ULTRA | 90GB+ | qwen3-coder-next | GGUF Q4_K_M | 128K | Multi-GPU A100/H100 |
-| 1 (Entry) | <12GB | qwen3.5-9b | GGUF Q4_K_M | 16K | RTX 3080, RTX 4070 |
-| 2 (Prosumer) | 12-20GB | qwen3.5-9b | GGUF Q4_K_M | 32K | RTX 3090, RTX 4080 |
-| 3 (Pro) | 20-40GB | qwen3-30b-a3b | GGUF Q4_K_M | 32K | RTX 4090, A6000 |
-| 4 (Enterprise) | 40GB+ | qwen3-30b-a3b | GGUF Q4_K_M | 128K | A100, H100, multi-GPU |
+| Tier | VRAM | Qwen profile | Gemma 4 profile | Context | Example GPUs |
+|------|------|--------------|-----------------|---------|--------------|
+| NV_ULTRA | 90GB+ | qwen3-coder-next | gemma-4-31b-it | 128K | Multi-GPU A100/H100 |
+| 0 (Lightweight) | <8GB or CPU fallback | qwen3.5-2b | qwen3.5-2b | 8K | Any GPU or CPU-only |
+| 1 (Entry) | 8-11GB | qwen3.5-9b | gemma-4-e2b-it | 16K | RTX 4060, RTX 3060 12GB |
+| 2 (Prosumer) | 12-20GB | qwen3.5-9b | gemma-4-e4b-it | 32K | RTX 3090, RTX 4080 |
+| 3 (Pro) | 20-40GB | qwen3-30b-a3b | gemma-4-26b-a4b-it | 32K Qwen / 16K Gemma | RTX 4090, A6000 |
+| 4 (Enterprise) | 40GB+ | qwen3-30b-a3b | gemma-4-31b-it | 128K Qwen / 64K Gemma | A100, H100, multi-GPU |
 
 ### Apple Silicon (Unified Memory, Metal)
 
-| Tier | Unified RAM | Model | Quant | Context | Example Hardware |
-|------|-------------|-------|-------|---------|-----------------|
-| 1 (Entry) | 8–24GB | qwen3.5-9b | GGUF Q4_K_M | 16K | M1/M2 base, M4 Mac Mini (16GB) |
-| 2 (Prosumer) | 32GB | qwen3.5-9b | GGUF Q4_K_M | 32K | M4 Pro Mac Mini, M3 Max MacBook Pro |
-| 3 (Pro) | 48GB | qwen3-30b-a3b | GGUF Q4_K_M | 32K | M4 Pro (48GB), M2 Max (48GB) |
-| 4 (Enterprise) | 64GB+ | qwen3-30b-a3b (30B MoE) | GGUF Q4_K_M | 128K | M2 Ultra Mac Studio, M4 Max (64GB+) |
+| Tier | Unified RAM | Qwen profile | Gemma 4 profile | Context | Example Hardware |
+|------|-------------|--------------|-----------------|---------|-----------------|
+| 0 (Lightweight) | <16GB | qwen3.5-2b | qwen3.5-2b | 8K | M1/M2 base (8GB) |
+| 1 (Entry) | 16-24GB | qwen3.5-9b | gemma-4-e2b-it | 16K | M4 Mac Mini (16GB) |
+| 2 (Prosumer) | 32GB | qwen3.5-9b | gemma-4-e4b-it | 32K | M4 Pro Mac Mini, M3 Max MacBook Pro |
+| 3 (Pro) | 48GB | qwen3-30b-a3b | gemma-4-26b-a4b-it | 32K Qwen / 16K Gemma | M4 Pro (48GB), M2 Max (48GB) |
+| 4 (Enterprise) | 64GB+ | qwen3-30b-a3b | gemma-4-31b-it | 128K Qwen / 64K Gemma | M2 Ultra Mac Studio, M4 Max (64GB+) |
+
+### Intel Arc (Linux, SYCL)
+
+| Tier | VRAM | Qwen profile | Gemma 4 profile | Context | Example Hardware |
+|------|------|--------------|-----------------|---------|------------------|
+| ARC_LITE | 6-11GB | qwen3.5-4b | gemma-4-e2b-it | 16K | Arc A380, Arc A750 |
+| ARC | 12GB+ | qwen3.5-9b | gemma-4-e4b-it | 32K | Arc A770 16GB, newer Arc GPUs |
 
 Override with: `./install.sh --tier 3`
 
@@ -152,7 +170,7 @@ See [docs/HARDWARE-GUIDE.md](docs/HARDWARE-GUIDE.md) for buying recommendations.
 
 ## Architecture
 
-### AMD Strix Halo (llama-server + ROCm)
+### AMD Strix Halo (platform-selected accelerated backend)
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -161,14 +179,15 @@ See [docs/HARDWARE-GUIDE.md](docs/HARDWARE-GUIDE.md) for buying recommendations.
 └─────────────────────┬───────────────────────────┘
                       │
 ┌─────────────────────▼───────────────────────────┐
-│               llama-server (ROCm 7.2)           │
-│            (localhost:8080/v1/...)               │
+│               llama-server backend              │
+│     Linux host :11434 / Docker :8080/v1       │
+│     native macOS/Windows host :8080/v1        │
 │        qwen3-coder-next / qwen3-30b-a3b         │
 └─────────────────────────────────────────────────┘
          │                              │
 ┌────────▼────────┐            ┌───────▼────────┐
-│   OpenClaw      │            │    Dashboard    │
-│ (Agent :7860)   │            │ (Status :3001)  │
+│ Hermes/OpenClaw │            │    Dashboard    │
+│ (Agents)        │            │ (Status :3001)  │
 └─────────────────┘            └────────────────┘
 
 ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
@@ -187,7 +206,7 @@ See [docs/HARDWARE-GUIDE.md](docs/HARDWARE-GUIDE.md) for buying recommendations.
                       │
 ┌─────────────────────▼───────────────────────────┐
 │               llama-server (CUDA)               │
-│            (localhost:8080/v1/...)               │
+│     Linux host :11434 / Docker :8080/v1          │
 │            qwen3-30b-a3b                        │
 └─────────────────────────────────────────────────┘
          │                              │
@@ -246,11 +265,19 @@ The installer generates `.env` automatically. Key settings:
 # NVIDIA
 LLM_MODEL=qwen3-30b-a3b                   # Model (auto-set by installer)
 CTX_SIZE=32768                             # Context window
+MODEL_PROFILE=qwen                         # qwen, gemma4, or auto
+OLLAMA_PORT=11434                          # Host API port for llama-server
 
 # AMD Strix Halo
 LLM_MODEL=qwen3-coder-next                # or qwen3-30b-a3b for compact tier
 CTX_SIZE=131072                            # Context window
 GPU_BACKEND=amd                            # Set automatically by installer
+
+# Advanced llama-server tuning
+LLAMA_ARG_FLASH_ATTN=auto                  # auto, on, or off
+LLAMA_ARG_CACHE_TYPE_K=f16                 # f16 or q8_0
+LLAMA_ARG_CACHE_TYPE_V=f16                 # f16 or q8_0
+# LLAMA_ARG_N_CPU_MOE=25                   # Optional MoE-only CPU expert offload
 ```
 
 ## dream-cli
@@ -327,10 +354,10 @@ dream mode status                        # Show current mode
 | Feature | Dream Server | Ollama + WebUI | LocalAI |
 |---------|:---:|:---:|:---:|
 | Full-stack one-command install | **LLM + agent + workflows + RAG** | LLM + chat only | LLM only |
-| Hardware auto-detect + model selection | **NVIDIA + AMD Strix Halo** | No | No |
-| AMD APU / unified memory support | **ROCm + llama-server** | Partial (Vulkan) | No |
+| Hardware auto-detect + model selection | **NVIDIA + AMD Strix Halo + Apple Silicon + Intel Arc + CPU/cloud fallback** | No | No |
+| AMD APU / unified memory support | **Platform-specific accelerated backend selected by installer** | Partial (Vulkan) | No |
 | Inference engine | **llama-server** (all GPUs) | llama.cpp | llama.cpp |
-| Autonomous AI agent | **OpenClaw** | No | No |
+| Autonomous AI agent | **Hermes Agent / OpenClaw** | No | No |
 | Workflow automation | **n8n (400+ integrations)** | No | No |
 | LLM usage monitoring | **Open WebUI built-in** | No | No |
 | Multi-GPU | **Yes** (NVIDIA) | Partial | Partial |
@@ -348,7 +375,9 @@ dream mode status                        # Show current mode
 - Watch progress: `dream logs llm`
 
 **Open WebUI shows "Connection error"**
-- llama-server is still loading. Wait for health check to pass: `curl localhost:8080/health`
+- llama-server is still loading. On Linux Docker installs, wait for the host health check to pass: `curl localhost:11434/health`
+- On macOS native Metal and Windows native/Lemonade paths, use `curl localhost:8080/health`
+- From another container on the Dream Server network, use `http://llama-server:8080/health`
 
 **Port already in use**
 - Change ports in `.env` (e.g., `WEBUI_PORT=3001`)
@@ -418,7 +447,7 @@ Thanks to [kyuz0](https://github.com/kyuz0) for [amd-strix-halo-toolboxes](https
 
 ### Community Contributors
 
-For the full contributor list with detailed credits, see the [Wall of Heroes](../../README.md#wall-of-heroes) in the root README.
+For the full contributor list with detailed credits, see the [Wall of Heroes](../README.md#wall-of-heroes) in the root README.
 
 If we missed anyone, [open an issue](https://github.com/Light-Heart-Labs/DreamServer/issues). We want to get this right.
 
