@@ -220,6 +220,122 @@ def test_generate_rejects_invalid_username_chars(magic_link_client):
     assert resp.status_code == 422
 
 
+# ---------------------------------------------------------------------------
+# Role field (PR-13)
+# ---------------------------------------------------------------------------
+
+
+def test_generate_defaults_role_to_user(magic_link_client):
+    """Unset role -> 'user'."""
+    resp = magic_link_client.post(
+        "/api/auth/magic-link/generate",
+        json={"target_username": "alice"},
+        headers=magic_link_client.auth_headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["role"] == "user"
+
+
+def test_generate_accepts_admin_role(magic_link_client):
+    resp = magic_link_client.post(
+        "/api/auth/magic-link/generate",
+        json={"target_username": "alice", "role": "admin"},
+        headers=magic_link_client.auth_headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["role"] == "admin"
+
+
+def test_generate_accepts_guest_role(magic_link_client):
+    resp = magic_link_client.post(
+        "/api/auth/magic-link/generate",
+        json={"target_username": "mom", "role": "guest"},
+        headers=magic_link_client.auth_headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["role"] == "guest"
+
+
+def test_generate_rejects_invalid_role(magic_link_client):
+    resp = magic_link_client.post(
+        "/api/auth/magic-link/generate",
+        json={"target_username": "alice", "role": "superuser"},
+        headers=magic_link_client.auth_headers,
+    )
+    assert resp.status_code == 422
+
+
+def test_list_surfaces_role(magic_link_client):
+    magic_link_client.post(
+        "/api/auth/magic-link/generate",
+        json={"target_username": "alice", "role": "admin"},
+        headers=magic_link_client.auth_headers,
+    )
+    magic_link_client.post(
+        "/api/auth/magic-link/generate",
+        json={"target_username": "mom", "role": "guest"},
+        headers=magic_link_client.auth_headers,
+    )
+    resp = magic_link_client.get(
+        "/api/auth/magic-link/list",
+        headers=magic_link_client.auth_headers,
+    )
+    assert resp.status_code == 200
+    roles = sorted(t["role"] for t in resp.json()["tokens"])
+    assert roles == ["admin", "guest"]
+
+
+def test_list_backfills_role_for_legacy_records(magic_link_client, magic_link_module):
+    """Records written before PR-13 don't have a 'role' field. The list
+    endpoint defaults them to 'user' so the schema stays stable for
+    consumers."""
+    # Generate a token, then manually strip the role key from the record to
+    # simulate a record persisted by a pre-PR-13 build.
+    magic_link_client.post(
+        "/api/auth/magic-link/generate",
+        json={"target_username": "legacy"},
+        headers=magic_link_client.auth_headers,
+    )
+    store = magic_link_module._ensure_store()
+    store["tokens"][0].pop("role", None)
+    magic_link_module._write_store(store)
+
+    resp = magic_link_client.get(
+        "/api/auth/magic-link/list",
+        headers=magic_link_client.auth_headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["tokens"][0]["role"] == "user"
+
+
+def test_redeem_calls_provisioning_stub(magic_link_client, magic_link_module, monkeypatch):
+    """The redeem path calls _provision_openwebui_user with the right args.
+    Today that's a logging stub, but the call site is what future Open WebUI
+    integration will rely on — so we lock the contract here."""
+    calls = []
+
+    def fake_provision(*, target_username, role, scope):
+        calls.append({"target_username": target_username, "role": role, "scope": scope})
+
+    monkeypatch.setattr(magic_link_module, "_provision_openwebui_user", fake_provision)
+
+    gen = magic_link_client.post(
+        "/api/auth/magic-link/generate",
+        json={"target_username": "alice", "role": "admin", "scope": "dashboard"},
+        headers=magic_link_client.auth_headers,
+    )
+    token = gen.json()["token"]
+
+    resp = magic_link_client.get(f"/auth/magic-link/{token}", follow_redirects=False)
+    assert resp.status_code == 302
+    assert len(calls) == 1
+    assert calls[0] == {
+        "target_username": "alice",
+        "role": "admin",
+        "scope": "dashboard",
+    }
+
+
 def test_generate_rejects_invalid_scope(magic_link_client):
     resp = magic_link_client.post(
         "/api/auth/magic-link/generate",

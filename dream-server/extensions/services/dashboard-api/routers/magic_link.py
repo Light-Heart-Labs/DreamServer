@@ -102,6 +102,27 @@ _STORE_LOCK = threading.Lock()
 # --- Pydantic schemas ---
 
 
+# Role determines the permission level granted to the user when the
+# invite is redeemed. Distinct from `scope` (which selects WHICH surfaces
+# they can reach) — role is about the level of access within those
+# surfaces.
+#
+#   admin — full operator. Can install extensions, edit settings, etc.
+#           This is what the first-boot wizard's invite uses.
+#   user  — standard chat user. Can chat, has their own history.
+#   guest — read-only or sandboxed. Chats but doesn't persist history
+#           into the admin's database, can't change settings.
+#
+# Open WebUI provisioning that actually ENFORCES these roles is a
+# follow-up — see _provision_openwebui_user() below for the integration
+# slot. Today the role is captured in the magic-link record and
+# surfaced in the admin list so operators can identify which invites
+# were intended for whom. The runtime enforcement gap is documented in
+# the PR description.
+_ROLE_PATTERN = r"^(admin|user|guest)$"
+DEFAULT_ROLE = "user"
+
+
 class GenerateRequest(BaseModel):
     target_username: str = Field(
         ...,
@@ -114,6 +135,11 @@ class GenerateRequest(BaseModel):
         default="chat",
         pattern=r"^(chat|dashboard|all)$",
         description="What the redeemed session can reach. chat=Open WebUI only, dashboard=admin too, all=both.",
+    )
+    role: str = Field(
+        default=DEFAULT_ROLE,
+        pattern=_ROLE_PATTERN,
+        description="Permission level inside the granted scopes. admin=full operator, user=standard chat, guest=sandboxed/read-only. Enforced by Open WebUI provisioning at redemption time.",
     )
     expires_in: int = Field(
         default=DEFAULT_EXPIRY_SECONDS,
@@ -143,6 +169,7 @@ class GenerateResponse(BaseModel):
     expires_at: str
     target_username: str
     scope: str
+    role: str
     reusable: bool
 
 
@@ -150,6 +177,7 @@ class TokenSummary(BaseModel):
     token_hash_prefix: str  # first 8 chars of hash — enough to identify, not enough to forge
     target_username: str
     scope: str
+    role: str
     reusable: bool
     created_at: str
     expires_at: str
@@ -371,6 +399,48 @@ def _cookie_domain() -> Optional[str]:
     return raw or None
 
 
+# --- Open WebUI user provisioning ---
+
+
+def _provision_openwebui_user(*, target_username: str, role: str, scope: str) -> None:
+    """Provision (create if missing, set role on) the named user in Open WebUI.
+
+    INTEGRATION STUB. Today this logs the intent and returns. The actual
+    Open WebUI integration is a deliberate follow-up:
+
+      1. Read OPEN_WEBUI_ADMIN_TOKEN from env (or equivalent admin creds).
+      2. GET ${WEBUI_URL}/api/v1/users — find user by name.
+      3. If missing: POST .../api/v1/auths/signup with a generated random
+         password (admins can reset later, or we surface it back through
+         the wizard for the admin to share).
+      4. PATCH .../api/v1/users/{id}/role/update to set role=admin|user|pending
+         (Open WebUI's role vocabulary doesn't quite match ours — we'll need
+         a small mapping).
+      5. The redirect to chat then lands on Open WebUI's signin; the user
+         either uses the provisioned password or we can pre-mint a session
+         JWT via Open WebUI's admin API and inject it as a cookie.
+
+    Why this is a stub for now:
+      * Open WebUI's admin API exposes user creation but exact semantics
+        depend on the WEBUI_AUTH config and JWT signing surface — needs
+        a real Open WebUI to test against.
+      * Auto-login on first redemption (so the user doesn't see a signin
+        screen at all) requires either a proxy in front of WebUI or
+        cooperation from WebUI's session cookie format. Both are real
+        work beyond this PR's scope.
+
+    The slot is here so the eventual integration PR has exactly one
+    function to fill in. Until then, the role is captured in the magic-link
+    record and surfaced in the admin list, which is enough for the
+    "I labeled this invite for mom as user-role" use case.
+    """
+    logger.info(
+        "openwebui-provisioning STUB: target=%s role=%s scope=%s — "
+        "integration pending (see _provision_openwebui_user docstring)",
+        target_username, role, scope,
+    )
+
+
 # --- Endpoints ---
 
 
@@ -385,6 +455,7 @@ def generate_magic_link(payload: GenerateRequest, request: Request) -> GenerateR
         "token_hash": token_hash,
         "target_username": payload.target_username,
         "scope": payload.scope,
+        "role": payload.role,
         "reusable": payload.reusable,
         "created_at": created_at.isoformat(),
         "expires_at": expires_at.isoformat(),
@@ -400,8 +471,8 @@ def generate_magic_link(payload: GenerateRequest, request: Request) -> GenerateR
 
     url = _magic_link_url(token)
     logger.info(
-        "magic-link generated for target=%s scope=%s reusable=%s expires_in=%ds",
-        payload.target_username, payload.scope, payload.reusable, payload.expires_in,
+        "magic-link generated for target=%s scope=%s role=%s reusable=%s expires_in=%ds",
+        payload.target_username, payload.scope, payload.role, payload.reusable, payload.expires_in,
     )
 
     return GenerateResponse(
@@ -410,6 +481,7 @@ def generate_magic_link(payload: GenerateRequest, request: Request) -> GenerateR
         expires_at=expires_at.isoformat(),
         target_username=payload.target_username,
         scope=payload.scope,
+        role=payload.role,
         reusable=payload.reusable,
     )
 
@@ -498,6 +570,17 @@ def redeem_magic_link(token: str, request: Request, response: Response) -> Redir
         })
         _write_store(store)
 
+    # Provision the target user in Open WebUI with the right role.
+    # Today this is a logging stub — see _provision_openwebui_user for
+    # the actual integration plan. We call it AFTER the redemption is
+    # committed so a provisioning failure doesn't roll back the redemption
+    # (the audit trail is the source of truth; provisioning is async).
+    _provision_openwebui_user(
+        target_username=record["target_username"],
+        role=record.get("role", DEFAULT_ROLE),
+        scope=record["scope"],
+    )
+
     # Build the response. The session cookie is HMAC-signed via
     # session_signer.issue() — guarded by is_configured() above so we
     # don't reach this line without a usable secret.
@@ -506,8 +589,9 @@ def redeem_magic_link(token: str, request: Request, response: Response) -> Redir
     cookie_domain = _cookie_domain()
 
     logger.info(
-        "magic-link redeemed target=%s scope=%s ip=%s redirecting=%s",
-        record["target_username"], record["scope"], ip, redirect_to,
+        "magic-link redeemed target=%s scope=%s role=%s ip=%s redirecting=%s",
+        record["target_username"], record["scope"],
+        record.get("role", DEFAULT_ROLE), ip, redirect_to,
     )
 
     redirect = RedirectResponse(url=redirect_to, status_code=302)
@@ -561,6 +645,9 @@ def list_magic_links() -> dict:
                 token_hash_prefix=r["token_hash"][:8],
                 target_username=r["target_username"],
                 scope=r["scope"],
+                # Records written before PR-13 don't have a role field.
+                # Default to "user" for backward compatibility.
+                role=r.get("role", DEFAULT_ROLE),
                 reusable=r.get("reusable", False),
                 created_at=r["created_at"],
                 expires_at=r["expires_at"],
