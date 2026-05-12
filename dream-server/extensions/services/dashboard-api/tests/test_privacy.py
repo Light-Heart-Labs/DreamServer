@@ -277,7 +277,7 @@ def test_privacy_shield_stats_connection_error(test_client):
     assert data["enabled"] is False
 
 
-def test_privacy_shield_stats_missing_shield_key(test_client, monkeypatch):
+def test_privacy_shield_stats_missing_shield_key_short_circuits_before_http(test_client, monkeypatch):
     """GET /api/privacy-shield/stats when SHIELD_API_KEY is unset short-circuits before any HTTP call."""
     monkeypatch.delenv("SHIELD_API_KEY", raising=False)
     session_factory = MagicMock()
