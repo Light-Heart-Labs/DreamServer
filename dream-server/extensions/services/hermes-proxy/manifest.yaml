@@ -22,11 +22,12 @@ service:
   depends_on: [hermes, dashboard-api]
   description: >
     Caddy-based reverse proxy that fronts the Hermes Agent extension.
-    Gates access on the presence of a `dream-session` cookie (set by
-    the magic-link redemption flow in dashboard-api). Without the
-    cookie, requests are answered with a static "you need an invite"
-    page. With it, traffic is forwarded to dream-hermes:9119 and
-    Hermes's own session-token model handles per-request auth.
+    Verifies the `dream-session` cookie against dashboard-api's
+    /api/auth/verify-session endpoint (Caddy forward_auth) — which
+    HMAC-validates the cookie's signature against DREAM_SESSION_SECRET.
+    Without a valid cookie, requests are bounced to a static "you need
+    an invite" page. With one, traffic is forwarded to dream-hermes:9119
+    and Hermes's own session-token model handles per-request auth.
     Native streaming + WebSocket support via Caddy's `reverse_proxy`.
 
   env_vars:
@@ -36,6 +37,12 @@ service:
     - key: HERMES_PROXY_UPSTREAM
       default: "dream-hermes:9119"
       description: Internal address of the Hermes container we forward to
+    - key: DREAM_AUTH_UPSTREAM
+      default: "dream-dashboard-api:3002"
+      description: |
+        Where forward_auth sends its session-verify sub-request. Defaults
+        to the in-network dashboard-api container; override if dashboard-api
+        lives on a different host or non-standard port.
     - key: HERMES_PROXY_AUTH_DOCS_URL
       default: ""
       description: |
