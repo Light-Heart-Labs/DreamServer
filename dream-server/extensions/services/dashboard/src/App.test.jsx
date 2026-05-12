@@ -1,6 +1,7 @@
 import { screen } from '@testing-library/react'
 import { render } from './test/test-utils'
 import App from './App' // eslint-disable-line no-unused-vars
+import { useFirstRun } from './hooks/useFirstRun'
 
 vi.mock('./hooks/useSystemStatus', () => ({
   useSystemStatus: vi.fn(() => ({
@@ -17,6 +18,12 @@ vi.mock('./hooks/useVersion', () => ({
     error: null,
     dismissUpdate: vi.fn()
   }))
+}))
+
+// Server-side first-run gating — the hook drives whether SetupWizard mounts.
+// Tests below override the mock per case.
+vi.mock('./hooks/useFirstRun', () => ({
+  useFirstRun: vi.fn(() => ({ firstRun: false, loading: false, error: null, refresh: vi.fn() })),
 }))
 
 vi.mock('./plugins/registry', () => ({
@@ -46,9 +53,9 @@ describe('App', () => {
     vi.stubGlobal('fetch', vi.fn(() =>
       Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
     ))
-    globalThis.localStorage.removeItem('dream-dashboard-visited')
     globalThis.localStorage.removeItem('dream-sidebar-collapsed')
     globalThis.sessionStorage.removeItem('dream-splash-shown')
+    useFirstRun.mockReturnValue({ firstRun: false, loading: false, error: null, refresh: vi.fn() })
   })
 
   afterEach(() => {
@@ -60,20 +67,19 @@ describe('App', () => {
     expect(document.querySelector('aside')).toBeInTheDocument()
   })
 
-  test('shows SetupWizard on first visit', () => {
-    // localStorage is clear, so firstRun should become true
+  test('shows SetupWizard when server reports first_run=true', () => {
+    useFirstRun.mockReturnValue({ firstRun: true, loading: false, error: null, refresh: vi.fn() })
     render(<App />)
     expect(screen.getByTestId('setup-wizard')).toBeInTheDocument()
   })
 
-  test('hides SetupWizard when already visited', () => {
-    localStorage.setItem('dream-dashboard-visited', 'true')
+  test('hides SetupWizard when server reports first_run=false', () => {
+    useFirstRun.mockReturnValue({ firstRun: false, loading: false, error: null, refresh: vi.fn() })
     render(<App />)
     expect(screen.queryByTestId('setup-wizard')).not.toBeInTheDocument()
   })
 
   test('renders sidebar', () => {
-    localStorage.setItem('dream-dashboard-visited', 'true')
     render(<App />)
     expect(document.querySelector('aside')).toBeInTheDocument()
     expect(document.querySelector('main')).toBeInTheDocument()
