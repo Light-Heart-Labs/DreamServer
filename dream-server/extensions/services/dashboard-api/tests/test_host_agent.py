@@ -1648,9 +1648,9 @@ class TestEnableRetry:
 #   c. progress.status == "setup_hook" (mid-install) → also falls back to
 #      the sync path; only "error" is the retry trigger.
 #
-# These tests reference _read_progress_status (added by PR #1039), so they
-# raise AttributeError on upstream/main until #1039 lands. Marking the PR
-# as DRAFT must-merge-after #1039.
+# The retry helper from PR #1039 is now on main. These tests keep the
+# dispatch edge cases pinned so future host-agent changes do not regress
+# retry-versus-sync routing.
 
 
 class TestEnableRetryEdgeCases:
@@ -1859,9 +1859,9 @@ class TestEnableRetryEdgeCases:
 # library catalog", returning 403 in all three. PR #1057 distinguishes
 # unreadable/missing (500) from genuinely-not-listed (403).
 #
-# Cases (a) and (b) FAIL on upstream/main (current 403, expected 500) and
-# pass post-#1057. Case (c) is the existing-behaviour-preserved baseline
-# and passes on both. Marking the PR DRAFT must-merge-after #1057.
+# Cases (a) and (b) cover the post-#1057 corruption/error distinction.
+# Case (c) is the existing-behaviour-preserved baseline for a clean catalog
+# that simply does not list the requested model.
 
 
 class TestModelDownloadCatalogUnavailable:
