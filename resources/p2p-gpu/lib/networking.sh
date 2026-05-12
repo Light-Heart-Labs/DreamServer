@@ -304,7 +304,7 @@ _get_vastai_ssh_info() {
   # Try to read from environment (set by Vast.ai)
   local host_ip="${PUBLIC_IPADDR:-}"
   local ssh_port="${VAST_TCP_PORT_22:-}"
-  
+
   # If not in current environment, try to read from sourced parent env
   # This handles cases where setup.sh was called with fresh subshell
   if [[ -z "$host_ip" || -z "$ssh_port" ]]; then
@@ -314,7 +314,7 @@ _get_vastai_ssh_info() {
       ssh_port="${ssh_port:-$(tr '\0' '\n' < /proc/self/environ | grep '^VAST_TCP_PORT_22=' | cut -d= -f2)}"
     fi
   fi
-  
+
   # Fallback to network detection only if neither is available
   if [[ -z "$host_ip" ]]; then
     host_ip="$(curl -sf --max-time 3 ifconfig.me 2>/dev/null || echo '<your-vast-ip>')"
@@ -322,7 +322,7 @@ _get_vastai_ssh_info() {
   if [[ -z "$ssh_port" ]]; then
     ssh_port="22"
   fi
-  
+
   echo "${host_ip}|${ssh_port}"
 }
 

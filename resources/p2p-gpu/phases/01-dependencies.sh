@@ -38,11 +38,16 @@ for stale_ppa in graphics-drivers; do
 done
 
 # unattended-upgrades can hold the dpkg lock for minutes on fresh Vast.ai
-# instances. Kill it rather than waiting 300s — these are ephemeral boxes.
+# instances. We rely on DPk::Lock::Timeout below, but if the lock is clearly
+# stuck, kill only unattended-upgrades (the typical culprit).
 if fuser /var/lib/dpkg/lock-frontend &>/dev/null; then
-  log "dpkg lock held by another process — killing unattended-upgrades"
-  killall -9 unattended-upgrades apt-get dpkg 2>>"$LOGFILE" || warn "killall did not find target processes (expected)"
-  sleep 2
+  log "dpkg lock held by another process"
+  # Try to identify and kill only unattended-upgrades if it's the lock holder
+  if ps aux | grep -q "[u]nattended-upgrade"; then
+    log "Terminating unattended-upgrades to release dpkg lock"
+    systemctl stop unattended-upgrades 2>>"$LOGFILE" || warn "systemctl stop unattended-upgrades failed (non-fatal)"
+    sleep 2
+  fi
   dpkg --configure -a 2>>"$LOGFILE" || warn "dpkg --configure -a failed (non-fatal)"
 fi
 

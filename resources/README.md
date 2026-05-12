@@ -1,173 +1,88 @@
-# P2P GPU Deploy — DreamServer on Peer-to-Peer GPU Marketplaces
+# DreamServer Resources
 
-Deploy the full DreamServer AI stack on rented GPU instances from peer-to-peer
-compute marketplaces (Vast.ai).
+DreamServer is a local-first AI platform — voice agents, tool-calling LLMs, and a full inference stack running on hardware you own. This is everything we built and learned along the way.
 
-One command. All 17+ services. Any NVIDIA/AMD GPU or CPU-only instance.
+**~490 files** · 100% tool-calling success (150 tests) · 20-30 concurrent voice sessions per GPU · 33 service extensions · 32-document agent architecture blueprint
 
-## Quick Start
+---
 
-```bash
-# On your GPU instance (as root):
-bash setup.sh              # Full install (~10 min)
-bash setup.sh --status     # Health check
-bash setup.sh --teardown   # Stop all services (save $$$)
-```
+## Deployment & Operations
 
-## Quick Recovery (If Phase 9 Fails)
+### [`p2p-gpu/`](p2p-gpu/) — Deploy on Peer-to-Peer GPU Marketplaces
 
-If setup reached "Starting services" but URLs are unreachable:
+Deploy the full DreamServer stack on rented GPU instances from Vast.ai and other peer-to-peer compute marketplaces. One command, all 17+ services, any NVIDIA/AMD GPU or CPU-only instance. Handles 28 known provider quirks (root rejection, Docker socket permissions, toolkit setup, multi-GPU support, SSH tunneling).
 
-```bash
-bash setup.sh --fix
-bash setup.sh --status
-bash setup.sh --info
-```
+---
 
-This re-applies CPU caps, permissions, network fixes, restarts compose, and
-prints fresh access commands.
+## What's Inside
 
-On Windows, use the all-port tunnel from `--info` (it uses a safe local alias
-`58080 -> dashboard` plus direct localhost forwards for service ports).
+### [`multi-agent/`](multi-agent/) — How We Ran a Self-Organizing AI Team
 
-`--fix` regenerates reconnect scripts:
-- `connect-tunnel.sh` (Linux/macOS/WSL)
-- `connect-tunnel.ps1` (Windows PowerShell)
+**Start here if you're interested in multi-agent systems.** Complete documentation of the OpenClaw Collective — 4 AI agents that self-organized on consumer GPUs, producing 3,464 commits in 8 days with 10 human commits. Covers architecture, six transferable patterns (deterministic supervision, workspace-as-brain, mission governance, session lifecycle, memory stratification, self-healing infrastructure), the governance files loaded into every agent session, operational lessons from 24/7 production, swarm playbooks with reliability math, and design decisions with full rationale. Framework-agnostic — the patterns apply to any multi-agent setup.
 
-## What It Does
+---
 
-The setup script handles 28 known issues with P2P GPU environments:
+### Agent Systems Blueprint — 32 Documents, 14,384 Lines
 
-| # | Issue | Fix |
-|---|-------|-----|
-| 01 | Root user rejection | Creates non-root `dream` user |
-| 02 | Docker socket denied | Adds dream to docker group |
-| 03 | /tmp broken | Fixes permissions to 1777 |
-| 04 | CPU limit overflow | Auto-caps to actual core count |
-| 05 | n8n uid mismatch | Dynamic UID from compose.yaml |
-| 06 | dashboard-api write | ACL-based permission system |
-| 07 | comfyui models write | AMD/NVIDIA layout detection |
-| 08 | WEBUI_SECRET missing | Auto-generated secrets |
-| 09 | Dual directory confusion | Smart directory discovery |
-| 10 | Dashboard stuck Created | Auto-nudge on startup |
-| 11 | HuggingFace throttle | aria2c multi-threaded download |
-| 12 | NVIDIA toolkit missing | Auto-installs + configures |
-| 13 | Disk space insufficient | Pre-flight validation |
-| 14 | Compose v1 syntax | Auto-detects v1 vs v2 |
-| 15 | .env duplicates | Idempotent env_set() |
-| 16 | Port conflicts | Dynamic port discovery |
-| 17 | DNS resolution failure | Google DNS fallback |
-| 18 | Shared memory too small | Remount /dev/shm to 4GB |
-| 19 | Bootstrap model missing | Auto-downloads Qwen3-0.6B |
-| 20 | llama-server infinite hang | 45s diagnosis + OOM recovery |
-| 21 | No systemd | Host-agent background start |
-| 22 | OpenCode crash-loop | Auto-disable non-essential |
-| 23 | CUDA OOM on large models | Swap to smallest model |
-| 24 | /dev/shm too small | Remount attempt |
-| 25 | ComfyUI infinite hang | Background download, don't block |
-| 26 | Installer timeout | 10min cap per phase |
-| 27 | AMD GPU support | ROCm detection + compose overlay |
-| 28 | CPU-only fallback | Works without any GPU |
+**A complete, vendor-neutral blueprint for building a production agentic coding tool from scratch.** Extracted as open-source best practices from exhaustive analysis of production agentic systems. Zero proprietary code. Zero vendor-specific terms. Every pattern described in original writing.
 
-## Architecture
+> **Start here:** [`AGENT-ARCHITECTURE-OVERVIEW.md`](research/agent-systems/AGENT-ARCHITECTURE-OVERVIEW.md) — the master map with dependency graphs, error boundaries, and end-to-end walkthroughs.
+>
+> **For local AI:** [`AGENT-LOCAL-LLM-ADAPTATION.md`](research/agent-systems/AGENT-LOCAL-LLM-ADAPTATION.md) — bridges all cloud patterns to DreamServer's local stack (llama-server, LiteLLM, GPU VRAM budgeting, tool calling tiers).
 
-```
-p2p-gpu/
-├── setup.sh                    # Orchestrator — sources libs, runs phases
-├── config/                     # P2P-specific configuration
-│   └── service-hints.yaml      # Proxy routing + startup behavior overrides
-├── lib/                        # Pure function libraries (no side effects)
-│   ├── constants.sh            # Paths, versions, colors, thresholds
-│   ├── logging.sh              # log/warn/err/step, cleanup trap, flock
-│   ├── environment.sh          # .env management, GPU detection, HTTP polling
-│   ├── gpu-topology.sh         # Multi-GPU enumeration, NVLink, assignment
-│   ├── permissions.sh          # POSIX ACLs, setgid, UID-specific fixes
-│   ├── services.sh             # Manifest discovery, compose, startup
-│   ├── networking.sh           # Caddy proxy, SSH tunnel, Cloudflare
-│   ├── models.sh               # Model download, URL resolution, swap watcher
-│   └── compatibility.sh        # Whisper/TTS/ComfyUI/OpenClaw fixes
-├── phases/                     # Sequential install steps
-│   ├── 00-preflight.sh         # GPU/disk/Docker/DNS validation
-│   ├── 01-dependencies.sh      # System package installation
-│   ├── 02-user-setup.sh        # Create dream user + groups
-│   ├── 03-repository.sh        # Clone DreamServer repo
-│   ├── 04-installer.sh         # Run DreamServer installer (with timeout)
-│   ├── 05-post-install.sh      # Apply fixes, locate working directory
-│   ├── 06-bootstrap-model.sh   # Ensure usable GGUF model exists
-│   ├── 07-model-optimize.sh    # Resume/restart downloads with aria2c
-│   ├── 08-vastai-quirks.sh     # Provider-specific environment fixes
-│   ├── 09-services.sh          # Start containers + health monitoring
-│   ├── 10-voice-stack.sh       # TTS/STT model readiness gates
-│   ├── 11-access-layer.sh      # Caddy proxy + Cloudflare tunnel + SSH
-│   └── 12-summary.sh           # Print access info
-└── subcommands/                # Alternative entry points
-    ├── teardown.sh             # Stop all services (save billing)
-    ├── status.sh               # Health check dashboard
-    ├── resume.sh               # Quick restart after SSH drop
-    ├── fix.sh                  # Apply fixes without reinstall
-    └── info.sh                 # Show connection URLs
-```
+#### Reading Order by Layer
 
-## Design Principles
+Build from the bottom up. Each layer depends on layers below it.
 
-Aligned with DreamServer's [CLAUDE.md](../../CLAUDE.md):
+| Layer | # | Document | What It Covers |
+|-------|---|----------|---------------|
+| **1. Security** | 1 | [`AGENT-SECURITY-COMMAND-EXECUTION.md`](research/agent-systems/AGENT-SECURITY-COMMAND-EXECUTION.md) | Multi-layer shell injection prevention, AST parsing, path validation |
+| | 2 | [`AGENT-SECURITY-NETWORK-AND-INJECTION.md`](research/agent-systems/AGENT-SECURITY-NETWORK-AND-INJECTION.md) | SSRF protection, DNS rebinding, Unicode injection defense |
+| **2. Architecture** | 3 | [`AGENT-PERMISSION-SYSTEM-DESIGN.md`](research/agent-systems/AGENT-PERMISSION-SYSTEM-DESIGN.md) | Declarative rule-based permissions, modes, denial tracking |
+| | 4 | [`AGENT-TOOL-ARCHITECTURE.md`](research/agent-systems/AGENT-TOOL-ARCHITECTURE.md) | Unified tool interface, MCP protocol, plugins, skills system |
+| | 5 | [`AGENT-COORDINATION-PATTERNS.md`](research/agent-systems/AGENT-COORDINATION-PATTERNS.md) | Coordinator/worker orchestration, teammates, parallelism |
+| | 6 | [`AGENT-ERROR-HANDLING-AND-HOOKS.md`](research/agent-systems/AGENT-ERROR-HANDLING-AND-HOOKS.md) | Error classification, event-driven hooks, HTTP hook security |
+| **3. Core** | 7 | [`AGENT-SYSTEM-PROMPT-ENGINEERING.md`](research/agent-systems/AGENT-SYSTEM-PROMPT-ENGINEERING.md) | Section-based prompts, caching, injection defense, versioning |
+| | 8 | [`AGENT-CONTEXT-AND-CONVERSATION.md`](research/agent-systems/AGENT-CONTEXT-AND-CONVERSATION.md) | Token budgeting, history management, compaction triggers |
+| | 9 | [`AGENT-LLM-API-INTEGRATION.md`](research/agent-systems/AGENT-LLM-API-INTEGRATION.md) | Streaming, retry, model selection, rate limits, cost tracking |
+| | 10 | [`AGENT-BOOTSTRAP-AND-CONFIGURATION.md`](research/agent-systems/AGENT-BOOTSTRAP-AND-CONFIGURATION.md) | Startup sequence, multi-source config, enterprise polling, migrations |
+| | 11 | [`AGENT-AUTH-AND-SESSION-MANAGEMENT.md`](research/agent-systems/AGENT-AUTH-AND-SESSION-MANAGEMENT.md) | OAuth/PKCE, token refresh, keychain, session persistence, crash recovery |
+| | 12 | [`AGENT-SPECULATION-AND-CACHING.md`](research/agent-systems/AGENT-SPECULATION-AND-CACHING.md) | Optimistic execution, file state overlays, stale-while-refresh |
+| **4. Rendering** | 13 | [`AGENT-TERMINAL-UI-ARCHITECTURE.md`](research/agent-systems/AGENT-TERMINAL-UI-ARCHITECTURE.md) | React reconciler for terminals, double buffering, keyboard, mouse |
+| | 14 | [`AGENT-DIFF-AND-FILE-EDITING.md`](research/agent-systems/AGENT-DIFF-AND-FILE-EDITING.md) | Patch generation, encoding, notebooks, change attribution |
+| | 15 | [`AGENT-IDE-AND-LSP-INTEGRATION.md`](research/agent-systems/AGENT-IDE-AND-LSP-INTEGRATION.md) | Language Server Protocol, passive diagnostics, crash recovery |
+| **5. Operations** | 16 | [`AGENT-WORKTREE-AND-ISOLATION.md`](research/agent-systems/AGENT-WORKTREE-AND-ISOLATION.md) | Git worktrees for parallel agents, symlinks, sparse checkout |
+| | 17 | [`AGENT-FEATURE-DELIVERY.md`](research/agent-systems/AGENT-FEATURE-DELIVERY.md) | Auto-update, kill switch, subscription tiers, contributor safety |
+| **6. Product** | 18 | [`AGENT-MEMORY-AND-CONSOLIDATION.md`](research/agent-systems/AGENT-MEMORY-AND-CONSOLIDATION.md) | Persistent memory, 4 types, auto-dream consolidation, team sync |
+| | 19 | [`AGENT-CONTEXT-COMPACTION-ADVANCED.md`](research/agent-systems/AGENT-CONTEXT-COMPACTION-ADVANCED.md) | Microcompact, session compact, full compact, reactive recovery |
+| | 20 | [`AGENT-TASK-AND-BACKGROUND-EXECUTION.md`](research/agent-systems/AGENT-TASK-AND-BACKGROUND-EXECUTION.md) | Forked agent pattern, 7 task types, cache-safe params |
+| | 21 | [`AGENT-REMOTE-AND-TEAM-COLLABORATION.md`](research/agent-systems/AGENT-REMOTE-AND-TEAM-COLLABORATION.md) | WebSocket sessions, permission routing, teammates, teleportation |
+| | 22 | [`AGENT-ENTERPRISE-AND-POLICY.md`](research/agent-systems/AGENT-ENTERPRISE-AND-POLICY.md) | Managed settings, policy limits, fail-open/closed, settings sync |
+| | 23 | [`AGENT-MESSAGE-PIPELINE.md`](research/agent-systems/AGENT-MESSAGE-PIPELINE.md) | Message types, command queue, priority scheduling, collapsing |
+| | 24 | [`AGENT-MEDIA-AND-ATTACHMENTS.md`](research/agent-systems/AGENT-MEDIA-AND-ATTACHMENTS.md) | Images, PDFs, clipboard, notebooks, ANSI rendering |
+| | 25 | [`AGENT-LIFECYCLE-AND-PROCESS.md`](research/agent-systems/AGENT-LIFECYCLE-AND-PROCESS.md) | Graceful shutdown, cleanup, crash recovery, concurrent sessions |
+| **7. Engine** | 26 | [`AGENT-QUERY-LOOP-AND-STATE-MACHINE.md`](research/agent-systems/AGENT-QUERY-LOOP-AND-STATE-MACHINE.md) | The main loop — 11 recovery transitions, 9 terminal conditions |
+| | 27 | [`AGENT-STREAMING-TOOL-EXECUTION.md`](research/agent-systems/AGENT-STREAMING-TOOL-EXECUTION.md) | Concurrent tool execution, batching, size management |
+| | 28 | [`AGENT-SDK-BRIDGE.md`](research/agent-systems/AGENT-SDK-BRIDGE.md) | Message translation, NDJSON protocol, permission routing |
+| | 29 | [`AGENT-INITIALIZATION-AND-WIRING.md`](research/agent-systems/AGENT-INITIALIZATION-AND-WIRING.md) | 6-stage bootstrap, preflight, fast mode, prefetch ordering |
+| **Meta** | 30 | [`AGENT-ARCHITECTURE-OVERVIEW.md`](research/agent-systems/AGENT-ARCHITECTURE-OVERVIEW.md) | **Master map** — dependency graph, error boundaries, walkthroughs |
 
-- **Let It Crash** — `set -euo pipefail` everywhere; errors kill the process
-- **KISS** — readable over clever; one function, one job
-- **Pure Functions** — libs have no side effects; phases are the imperative shell
-- **Manifest-Driven** — services auto-discovered from extension manifests; p2p-specific overrides live in `config/service-hints.yaml` (no upstream manifest modifications)
-- **PID-file tracking** — background processes tracked safely (no `pkill -f`)
-- **ACL-primary permissions** — setgid + POSIX ACLs; `chmod a+rwX` only as documented fallback
+---
 
-## Commands
+## More Resources
 
-| Command | Purpose |
-|---------|---------|
-| `bash setup.sh` | Full install (first time or re-install) |
-| `bash setup.sh --resume` | Quick restart — re-apply fixes + start services |
-| `bash setup.sh --status` | Health check — GPU, containers, ports |
-| `bash setup.sh --info` | Show connection URLs and SSH tunnel commands |
-| `bash setup.sh --fix` | Apply latest fixes without full reinstall |
-| `bash setup.sh --teardown` | Stop all services (saves billing) |
-| `bash setup.sh --dry-run` | Preview what would happen without making changes |
+### [`cookbooks/`](cookbooks/) — Implementation Guides
 
-## Model Download and Auto-Swap
+Practical guides for integrating DreamServer services, including voice pipeline setup, tool integration, and RAG workflows.
 
-- Setup starts quickly on a small model, downloads the GPU-tier model in background, then auto-swaps when ready.
-- Swap updates both `GGUF_FILE` and `LLM_MODEL`, then restarts dependent services.
-- Dashboard model downloads (`/models` page) require the Dream host agent; setup now auto-starts it during service startup.
+### [`products/`](products/) — Curated Deployments
 
-```bash
-MODEL="Qwen3-30B-A3B-Q4_K_M.gguf"; DS_DIR="${DS_DIR:-/home/dream/dream-server}"; LLM_MODEL="$(echo "$MODEL" | sed -E 's/\.(gguf|GGUF)$//' | sed -E 's/-Q[0-9]+([._][A-Za-z0-9]+)*$//' | tr '[:upper:]' '[:lower:]')"; cd "$DS_DIR" && sed -i "s|^GGUF_FILE=.*|GGUF_FILE=${MODEL}|" .env && { grep -q '^LLM_MODEL=' .env && sed -i "s|^LLM_MODEL=.*|LLM_MODEL=${LLM_MODEL}|" .env || echo "LLM_MODEL=${LLM_MODEL}" >> .env; } && docker compose $(cat .compose-flags 2>/dev/null) up -d llama-server && for c in dream-dreamforge dream-openclaw dream-dashboard-api dream-webui; do docker ps --format '{{.Names}}' | grep -qx "$c" && docker restart "$c" >/dev/null || true; done
-```
+Pre-configured setups for specific use cases (research, production deployments, edge cases).
 
-```bash
-tail -f /home/dream/dream-server/logs/aria2c-download.log
-```
+### [`research/`](research/) — Deep Dives
 
-```bash
-# If Dashboard shows "Failed to start download"
-su - dream -c 'cd /home/dream/dream-server && DREAM_HOME=/home/dream/dream-server ./dream-cli agent start'
-```
+Analysis of production patterns, cost optimization, infrastructure decisions, and emerging capabilities.
 
-## Provider Support
+### [`dev/`](dev/) — Development Tools
 
-Currently tested on **Vast.ai**. The architecture is provider-agnostic:
-- GPU detection works for any NVIDIA/AMD/CPU-only instance
-- Docker + compose requirements are standard
-- Provider-specific quirks isolated in `phases/08-vastai-quirks.sh`
-
-To add a new provider, create `phases/08-<provider>-quirks.sh` with
-provider-specific fixes.
-
-## Security
-
-- `.env` files created with `0600` mode (secrets protected)
-- Port rebinding guarded — only activates on detected P2P GPU environments
-- Background process PIDs tracked in `/var/run/dreamserver-p2p-gpu/`
-- Cloudflare tokens passed via environment variables (not CLI args)
-- Binary downloads (cloudflared) verified via SHA256 checksums
-- POSIX ACLs preferred over world-writable permissions
-- Multi-UID directories documented with reasons for broader access
-
-## Related
+Scripts and utilities for building, testing, and operating DreamServer.

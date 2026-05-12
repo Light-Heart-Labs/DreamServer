@@ -43,16 +43,22 @@ apply_data_acl() {
   find "$dir" -type d -exec chmod 2775 {} + || warn "chmod dirs failed on ${dir} (non-fatal)"
   find "$dir" -type f -exec chmod 0664 {} + || warn "chmod files failed on ${dir} (non-fatal)"
 
-  if command -v setfacl &>/dev/null; then
-    # dashboard-api runs as uid 1000 (dreamer) and needs write access to /data
-    # for .extensions-lock and token_counter.json.
-    setfacl -R -d -m "u::rwx,u:1000:rwx,g::rwx,o::rx" "$dir" || warn "setfacl default failed on ${dir} (non-fatal)"
-    setfacl -R -m "u:1000:rwx,g::rwx" "$dir" || warn "setfacl current failed on ${dir} (non-fatal)"
-    log "Applied POSIX ACLs on ${dir}"
-  else
+  if ! command -v setfacl &>/dev/null; then
     err "setfacl unavailable — install with: apt-get install acl"
     exit 1
   fi
+
+  # dashboard-api runs as uid 1000 (dreamer) and needs write access to /data
+  # for .extensions-lock and token_counter.json.
+  if ! setfacl -R -d -m "u::rwx,u:1000:rwx,g::rwx,o::rx" "$dir"; then
+    err "Failed to apply default ACLs on ${dir} — mount may be ACL-incompatible"
+    exit 1
+  fi
+  if ! setfacl -R -m "u:1000:rwx,g::rwx" "$dir"; then
+    err "Failed to apply current ACLs on ${dir} — mount may be ACL-incompatible"
+    exit 1
+  fi
+  log "Applied POSIX ACLs on ${dir}"
 }
 
 # [FIX: shared-acl] Apply explicit ACLs to directories with multiple writers.
@@ -76,8 +82,14 @@ apply_multi_uid_perms() {
     acl_suffix=",$*"
   fi
 
-  setfacl -R -d -m "u::rwx,g::rwx,o::rx${acl_suffix}" "$dir" || warn "shared-dir default ACL failed on ${dir} (non-fatal)"
-  setfacl -R -m "u::rwx,g::rwx${acl_suffix}" "$dir" || warn "shared-dir ACL failed on ${dir} (non-fatal)"
+  if ! setfacl -R -d -m "u::rwx,g::rwx,o::rx${acl_suffix}" "$dir"; then
+    err "Failed to apply shared default ACLs on ${dir} — mount may be ACL-incompatible"
+    exit 1
+  fi
+  if ! setfacl -R -m "u::rwx,g::rwx${acl_suffix}" "$dir"; then
+    err "Failed to apply shared current ACLs on ${dir} — mount may be ACL-incompatible"
+    exit 1
+  fi
   log "Applied shared ACLs on ${dir} (reason: ${reason})"
 }
 
