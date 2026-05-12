@@ -16,11 +16,11 @@ service:
   # under `expose:` so other containers on the bridge network (notably
   # hermes-proxy) can talk to dream-hermes:9119.
   port: 9119
-  # external_port_env / external_port_default are deliberately omitted —
-  # with hermes-proxy enabled Hermes is internal-only (compose declares
-  # the port under `expose:` not `ports:`). Surfacing a "browse to this
-  # port" URL in /api/external-links would mislead users into bypassing
-  # the magic-link gate.
+  # This explicit zero prevents dashboard-api from falling back
+  # external_port to service.port and advertising a non-existent direct
+  # :9119 host URL. Hermes is internal-only (compose declares the port
+  # under `expose:` not `ports:`); hermes-proxy is the LAN entry.
+  external_port_default: 0
   #
   # Most /api/* routes are session-token gated, and /api/health does not
   # exist in the pinned upstream image. /api/status is explicitly public,

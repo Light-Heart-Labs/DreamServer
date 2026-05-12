@@ -95,7 +95,7 @@ The first start takes a minute — image is ~3GB, Hermes runs its `skills_sync.p
 Three layers, highest to lowest precedence:
 
 1. **Edit `data/hermes/config.yaml`** directly — Hermes's own config file, copied from our template on first start. Survives container restarts. Reset by deleting and restarting. **The model name lives here**, not in env.
-2. **Set env vars in Dream Server's `.env`** — `HERMES_LLM_BASE_URL`, `HERMES_LLM_API_KEY`, `HERMES_PORT`, `HERMES_LANGUAGE`. These are the only Hermes settings the container actually reads from env. See `.env.example`.
+2. **Set env vars in Dream Server's `.env`** — `HERMES_LLM_BASE_URL`, `HERMES_LLM_API_KEY`, `HERMES_LANGUAGE`, and the `HERMES_PROXY_*` proxy settings. Hermes itself has no host-port env knob in the auth-gated stack; the LAN-facing port is `HERMES_PROXY_PORT`.
 3. **Fall back to Dream Server's defaults** — defined in `extensions/services/hermes/cli-config.yaml.template`.
 
 To bring up Hermes pointing at a different LLM (e.g. OpenRouter, OpenAI, Anthropic), edit `data/hermes/config.yaml`'s `model.provider` and `model.base_url` and restart. The whole gamut of provider options is listed in the upstream config — Hermes supports OpenRouter / Anthropic / OpenAI / Hugging Face / NVIDIA NIM / z.ai / Kimi / Gemini / Ollama Cloud / LM Studio / etc. out of the box.

@@ -277,6 +277,18 @@ def parse_positive_int(value: Any) -> int | None:
     return integer if integer > 0 else None
 
 
+def parse_non_negative_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return None
+    try:
+        integer = int(value)
+    except (TypeError, ValueError):
+        return None
+    return integer if integer >= 0 else None
+
+
 def collect_service_references(feature: dict[str, Any]) -> list[str]:
     refs: list[str] = []
     for path in FEATURE_SERVICE_KEYS:
@@ -490,11 +502,11 @@ def validate_records(
             )
 
         ext_port_default = service.get("external_port_default")
-        if ext_port_default not in (None, "") and parse_positive_int(ext_port_default) is None:
+        if ext_port_default not in (None, "") and parse_non_negative_int(ext_port_default) is None:
             record.add_issue(
                 "error",
                 "service-external-port-invalid",
-                "service.external_port_default must be a positive integer when set",
+                "service.external_port_default must be a non-negative integer when set",
                 path=record.manifest_path,
             )
 

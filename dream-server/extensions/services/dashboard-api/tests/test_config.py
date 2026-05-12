@@ -66,6 +66,24 @@ class TestLoadExtensionManifests:
         assert len(features) == 1
         assert features[0]["id"] == "test-feature"
 
+    def test_external_port_default_zero_disables_external_port_fallback(self, tmp_path):
+        svc_dir = tmp_path / "internal-service"
+        svc_dir.mkdir()
+        (svc_dir / "manifest.yaml").write_text(
+            "schema_version: dream.services.v1\n"
+            "service:\n"
+            "  id: internal-service\n"
+            "  name: Internal Service\n"
+            "  port: 9119\n"
+            "  external_port_default: 0\n"
+            "  health: /api/status\n"
+        )
+
+        services, _, _ = load_extension_manifests(tmp_path, "nvidia")
+
+        assert services["internal-service"]["port"] == 9119
+        assert services["internal-service"]["external_port"] == 0
+
     def test_skips_wrong_schema_version(self, tmp_path):
         svc_dir = tmp_path / "old-service"
         svc_dir.mkdir()
