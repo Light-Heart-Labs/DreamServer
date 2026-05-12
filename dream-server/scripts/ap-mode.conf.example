@@ -5,6 +5,15 @@
 #
 # Mode 0600 — contains the AP password.
 #
+# Prerequisites for AP-mode traffic to actually land somewhere:
+#   1. `dream-proxy` is enabled and listening on port 80
+#      (`dream enable dream-proxy` if not).
+#   2. `.env` has `BIND_ADDRESS=0.0.0.0` so the proxy fields traffic
+#      from the AP-side interface (192.168.7.1 by default).
+# Without those, the DNAT rules in ap-mode.sh redirect AP clients to
+# an empty port 80 and the captive portal looks broken.
+# See docs/AP-MODE.md for the full architecture diagram.
+#
 # ----------------------------------------------------------------------------
 # REQUIRED
 # ----------------------------------------------------------------------------

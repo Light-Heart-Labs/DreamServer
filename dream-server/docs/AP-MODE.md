@@ -29,11 +29,21 @@ For a hardware product (Dream Mini, Strix Halo Node), the image-build pipeline c
         ┌─────────────────────────────────────────────┐
         │  iptables (on the device)                   │
         │    PREROUTING: DNAT :80/:443 → 192.168.7.1  │
+        │    (the gateway address — the proxy listens │
+        │     there once BIND_ADDRESS=0.0.0.0)        │
         └─────────────────────────────────────────────┘
                              │
                              ▼
         ┌─────────────────────────────────────────────┐
-        │  dashboard on the device (port 80/443)      │
+        │  dream-proxy (Caddy) on 0.0.0.0:80          │
+        │    routes /setup → dashboard:3001           │
+        │    (the dashboard is loopback-bound; the    │
+        │     proxy is what fields LAN traffic)       │
+        └─────────────────────────────────────────────┘
+                             │
+                             ▼
+        ┌─────────────────────────────────────────────┐
+        │  dashboard:3001 (loopback)                  │
         │    serves /setup → first-boot wizard        │
         └─────────────────────────────────────────────┘
 
@@ -42,6 +52,15 @@ For a hardware product (Dream Mini, Strix Halo Node), the image-build pipeline c
           * operator (or PR-11) runs `systemctl disable --now dream-ap-mode`
           * NetworkManager regains wlan0, device joins the home network
 ```
+
+### Prerequisites for the DNAT to actually deliver traffic
+
+The iptables PREROUTING rule sends AP-client traffic to `192.168.7.1:80` / `:443`. For something to answer there, two things have to be true on the host:
+
+1. **`dream-proxy` is enabled and running.** That's the Caddy service that listens on port 80 and routes `/setup`, `/chat`, `/api/*`, `/auth/*` to the right backend. Without it, AP clients hit an empty port 80 and the connection fails. The first-boot install flow enables it by default.
+2. **`BIND_ADDRESS=0.0.0.0` in `.env`.** Without this, the proxy binds to `127.0.0.1:80` and the AP-side interface (`192.168.7.1`) can't reach it. The DNAT target IP would refuse the connection.
+
+If either is missing, the captive portal redirect lands the phone on a dead port. The AP-mode systemd unit doesn't enforce these — it's the operator's responsibility to ensure the host is configured to receive what AP mode redirects.
 
 ## Components
 
