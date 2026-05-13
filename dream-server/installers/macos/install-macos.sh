@@ -293,7 +293,12 @@ _conflict_ports=(8080 11434)  # llama-server (native) + Ollama default (host con
 for _manifest in "${SOURCE_ROOT}/extensions/services/"*/manifest.yaml; do
     [[ -f "$_manifest" ]] || continue
     _port=$(grep 'external_port_default:' "$_manifest" 2>/dev/null | awk '{print $2}' | tr -d '"') || true
-    if [[ -n "$_port" && "$_port" =~ ^[0-9]+$ && "$_port" -ne 8080 ]]; then
+    # Skip port 0 — used by internal-only services (e.g. hermes is gated
+    # behind hermes-proxy and exposes nothing) as a "no external port"
+    # sentinel. Passing 0 to check_port_conflict trips lsof rows where the
+    # local-port column reads 0 (identityservicesd does this on macOS) and
+    # produces a confusing "Port 0 is in use" warning.
+    if [[ -n "$_port" && "$_port" =~ ^[0-9]+$ && "$_port" -gt 0 && "$_port" -ne 8080 ]]; then
         _conflict_ports+=("$_port")
     fi
 done
