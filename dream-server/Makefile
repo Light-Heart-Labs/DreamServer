@@ -40,6 +40,9 @@ test: ## Run unit and contract tests
 	@echo ""
 	@echo "=== dream-cli pipefail tolerance ==="
 	@bash tests/test-dream-cli-pipefail-tolerance.sh
+	@echo ""
+	@echo "=== dream config show secret-mask matrix ==="
+	@bash tests/test-dream-config-secret-mask.sh
 
 bats: ## Run BATS unit tests for shell libraries
 	@echo "=== BATS unit tests ==="
