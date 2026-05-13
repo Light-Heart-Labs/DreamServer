@@ -379,21 +379,53 @@ LLAMA_ARG_CACHE_TYPE_V=${LLAMA_ARG_CACHE_TYPE_V:-f16}
 LLAMA_CPU_LIMIT=${LLAMA_CPU_LIMIT}
 LLAMA_CPU_RESERVATION=${LLAMA_CPU_RESERVATION}
 
-$(if [[ "$GPU_BACKEND" == "amd" ]]; then cat << AMD_ENV
+$(if [[ "$GPU_BACKEND" == "amd" ]]; then
+    # Read gfx target from topology detection. Falls back to gfx1151 (Strix Halo)
+    # if the topology probe failed — preserves prior behavior for the OG target.
+    _amd_gfx_detected=$(echo "${GPU_TOPOLOGY_JSON:-{\}}" | jq -r '[.gpus[]?.gfx_version] | unique | .[0] // "gfx1151"' 2>/dev/null || echo "gfx1151")
+    [[ -z "$_amd_gfx_detected" || "$_amd_gfx_detected" == "null" || "$_amd_gfx_detected" == "unknown" ]] && _amd_gfx_detected="gfx1151"
+
+    # HSA_OVERRIDE_GFX_VERSION is a Strix Halo (gfx1151) workaround — that target
+    # is not in ROCm 7.x's official support list, so we coerce HSA to load
+    # gfx1151 kernels by reporting "11.5.1". For natively-supported parts
+    # (gfx942 / MI300X, gfx90a / MI250, gfx1100 / RX 7900, etc.) we MUST NOT set
+    # this — doing so reports the wrong ISA and triggers
+    # HSA_STATUS_ERROR_INVALID_ISA at model-load.
+    case "$_amd_gfx_detected" in
+        gfx1151) _amd_hsa_override="HSA_OVERRIDE_GFX_VERSION=11.5.1" ;;
+        *)       _amd_hsa_override="# HSA_OVERRIDE_GFX_VERSION unset — $_amd_gfx_detected is natively supported" ;;
+    esac
+
+    # The custom llama-server binary at /opt/llama-custom is built with Strix
+    # Halo-specific patches (MMQ tile size reduced from 64 to 48 for gfx1151's
+    # register file). Pointing Lemonade at it from any other architecture either
+    # ISA-faults (kernels compiled for gfx1151) or runs a perf-regressed binary.
+    # Only opt-in when the host is actually Strix Halo; otherwise leave unset so
+    # docker-compose.amd.yml's empty default lets Lemonade use its bundled
+    # ROCm-aware binary.
+    if [[ "$_amd_gfx_detected" == "gfx1151" ]]; then
+        _amd_custom_bin="LEMONADE_LLAMACPP_ROCM_BIN=/opt/llama-custom/llama-server"
+    else
+        _amd_custom_bin="# LEMONADE_LLAMACPP_ROCM_BIN unset — custom binary is gfx1151-only; Lemonade uses bundled binary on $_amd_gfx_detected"
+    fi
+
+    cat << AMD_ENV
 #=== GPU Group IDs (for container device access) ===
 VIDEO_GID=$(getent group video 2>/dev/null | cut -d: -f3 || echo 44)
 RENDER_GID=$(getent group render 2>/dev/null | cut -d: -f3 || echo 992)
 
-#=== AMD ROCm Settings ===
-HSA_OVERRIDE_GFX_VERSION=11.5.1
+#=== AMD ROCm Settings (gfx target detected from topology) ===
+${_amd_hsa_override}
 HSA_XNACK=1
 ROCBLAS_USE_HIPBLASLT=1
-AMDGPU_TARGET=gfx1151
+AMDGPU_TARGET=${_amd_gfx_detected}
 LLAMA_CPP_REF=b8763
+${_amd_custom_bin}
 
 #=== LiteLLM → Lemonade outbound key (AMD only) ===
 LITELLM_LEMONADE_API_KEY=${LITELLM_LEMONADE_API_KEY}
 AMD_ENV
+    unset _amd_gfx_detected _amd_hsa_override _amd_custom_bin
 fi)
 $(if [[ "$GPU_BACKEND" == "sycl" ]]; then cat << INTEL_ENV
 #=== GPU Group IDs (for container device access) ===
