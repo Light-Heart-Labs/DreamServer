@@ -146,6 +146,36 @@ if ! $DRY_RUN; then
     _sync_extension_compose "${ENABLE_DREAMFORGE:-}" dreamforge "DreamForge"    "agent system not enabled"
     _sync_extension_compose "${ENABLE_LANGFUSE:-}"   langfuse   "Langfuse"      "LLM observability not enabled"
     _sync_extension_compose "${ENABLE_BRAVE_SEARCH:-false}" brave-search "Brave Search" "Brave Search API not enabled"
+
+    # ── arm64 / aarch64 platform guard ──
+    # Two extensions in the current --all bundle ship amd64-only binaries
+    # inside their images and crash-loop on aarch64 (DGX Spark, ARM SBCs,
+    # etc.) with `exec /usr/local/bin/...: exec format error`:
+    #
+    #   - dreamforge — upstream image has no arm64 variant. installers/lib
+    #     does set DREAMFORGE_PULL_POLICY=build to force a local Rust build,
+    #     but docker compose can still resolve to the registry image when
+    #     compose+buildkit version skew lets `pull_policy` be ignored.
+    #   - embeddings (HF text-embeddings-inference) — upstream tag
+    #     `cpu-1.9.1` is amd64-only. The compose file pins
+    #     `platform: linux/amd64`, which works under Rosetta 2 on Apple
+    #     Silicon but produces ENOEXEC on aarch64 Linux without QEMU.
+    #
+    # Until both upstreams ship multi-arch images, exclude these from the
+    # compose stack on aarch64 hosts. The other 25 services run cleanly on
+    # arm64 and the operator gets a clear "not available on aarch64" line
+    # rather than hours of crash-loop forensics.
+    if [[ "$(uname -m)" == "aarch64" ]]; then
+        if [[ "${ENABLE_DREAMFORGE:-true}" == "true" ]]; then
+            ai_warn "DreamForge: upstream image is amd64-only — disabled on aarch64. Re-enable with: dream enable dreamforge (after upstream ships arm64 multi-arch)."
+            _sync_extension_compose "false" dreamforge "DreamForge"        "amd64-only image, no arm64 multi-arch yet"
+            ENABLE_DREAMFORGE=false
+        fi
+        if [[ "${ENABLE_RAG:-true}" == "true" ]]; then
+            ai_warn "Embeddings (TEI): upstream image is amd64-only — disabled on aarch64. RAG search still works via Qdrant; only the embeddings router is skipped."
+            _sync_extension_compose "false" embeddings "Embeddings (TEI)"  "amd64-only image, no arm64 multi-arch yet"
+        fi
+    fi
 fi
 
 # Re-resolve compose flags now that feature selection may have disabled services.
