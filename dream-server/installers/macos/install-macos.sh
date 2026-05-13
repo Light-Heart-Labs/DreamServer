@@ -225,6 +225,38 @@ if ! $DOCKER_RUNNING; then
 fi
 ai_ok "Docker daemon ready (v${DOCKER_VERSION}, backend=${DOCKER_BACKEND:-unknown})"
 
+# Pre-flight the docker daemon's CPU allocation. Some compose-stack
+# services pin `cpus: 4.0`, so a 4-CPU Colima VM compose-up bombs with
+# `range of CPUs is from 0.01 to 4.00, as there are only 4 CPUs
+# available`. Trip early with a clear message rather than letting
+# compose explode in Phase 5.
+_docker_ncpu=$(get_docker_available_cpus)
+DREAM_MIN_DOCKER_CPUS="${DREAM_MIN_DOCKER_CPUS:-6}"
+if [[ "$_docker_ncpu" =~ ^[0-9]+$ ]] && [[ "$_docker_ncpu" -lt "$DREAM_MIN_DOCKER_CPUS" ]]; then
+    ai_err "Docker daemon only has ${_docker_ncpu} CPU(s); Dream Server's compose stack pins limits up to 4 CPUs per service and needs at least ${DREAM_MIN_DOCKER_CPUS} to avoid 'range of CPUs is from 0.01 to N' compose failures."
+    case "${DOCKER_BACKEND:-unknown}" in
+        colima)
+            ai "Stop and re-create the Colima VM with more CPUs:"
+            ai "    colima stop && colima start --cpu 6 --memory 12 --disk 60"
+            ai "Then re-run this installer."
+            ;;
+        desktop)
+            ai "Open Docker Desktop → Settings → Resources → Advanced and raise CPUs to ${DREAM_MIN_DOCKER_CPUS}+, apply, then re-run."
+            ;;
+        rancher)
+            ai "Open Rancher Desktop → Preferences → Virtual Machine → Hardware and raise CPUs to ${DREAM_MIN_DOCKER_CPUS}+, apply, then re-run."
+            ;;
+        orbstack)
+            ai "Open OrbStack → Settings → System and raise CPU allocation to ${DREAM_MIN_DOCKER_CPUS}+, then re-run."
+            ;;
+        *)
+            ai "Raise your docker daemon's CPU allocation to ${DREAM_MIN_DOCKER_CPUS}+ and re-run."
+            ;;
+    esac
+    exit 1
+fi
+ai_ok "Docker CPU budget: ${_docker_ncpu} (>=${DREAM_MIN_DOCKER_CPUS} required)"
+
 # Catch a common Colima-after-DockerDesktop config bomb: when a prior
 # Docker Desktop install left `"credsStore": "desktop"` in ~/.docker/config.json
 # and the user has since moved to Colima/Rancher/OrbStack, every `docker
