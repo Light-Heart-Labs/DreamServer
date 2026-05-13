@@ -461,6 +461,23 @@ class TestPreflightPorts:
         finally:
             sock.close()
 
+    @pytest.mark.parametrize("port", [0, -1, 65536, "not-a-port"])
+    def test_rejects_invalid_port_values(self, test_client, port):
+        resp = test_client.post(
+            "/api/preflight/ports",
+            json={"ports": [port]},
+            headers=test_client.auth_headers,
+        )
+        assert resp.status_code == 422
+
+    def test_accepts_valid_port_range_edges(self, test_client):
+        resp = test_client.post(
+            "/api/preflight/ports",
+            json={"ports": [1, 65535]},
+            headers=test_client.auth_headers,
+        )
+        assert resp.status_code == 200
+
 
 # --- /gpu endpoint (cached paths) ---
 

@@ -1,6 +1,6 @@
 """Pydantic response models for Dream Server Dashboard API."""
 
-from typing import Optional
+from typing import Annotated, Optional
 
 from pydantic import BaseModel, Field
 
@@ -62,8 +62,11 @@ class FullStatus(BaseModel):
     uptime_seconds: int
 
 
+PortNumber = Annotated[int, Field(ge=1, le=65535)]
+
+
 class PortCheckRequest(BaseModel):
-    ports: list[int]
+    ports: list[PortNumber]
 
 
 class PortConflict(BaseModel):
