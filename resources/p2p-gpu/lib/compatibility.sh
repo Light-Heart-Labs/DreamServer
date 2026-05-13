@@ -202,7 +202,7 @@ fix_comfyui_permissions() {
 
   for d in "${dirs[@]}"; do
     mkdir -p "$d" || { warn "comfyui mkdir failed on ${d} (non-fatal)"; continue; }
-    chmod 2775 "$d" && setfacl -R -d -m "u::rwx,u:$(id -u comfyui 2>/dev/null || echo 1000):rwx,g::rwx,o::rx" "$d" \
+    chmod 2775 "$d" && setfacl -R -d -m "u::rwx,u:$(id -u comfyui 2>>"$LOGFILE" || echo 1000):rwx,g::rwx,o::rx" "$d" \
       || warn "comfyui ACL failed on ${d} (non-fatal)"
   done
 }

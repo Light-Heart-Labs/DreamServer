@@ -183,9 +183,7 @@ discover_service_ports() {
   [[ ! -f "$source_file" ]] && return 0
 
   # Emit ports explicitly set in .env
-  {
-    grep -E '^[A-Z_]+_PORT=' "$source_file" 2>/dev/null || true
-  } | while IFS='=' read -r key value; do
+  awk -F= '/^[A-Z_]+_PORT=/{print}' "$source_file" | while IFS='=' read -r key value; do
     value=$(echo "$value" | sed 's/[[:space:]]#.*$//' | tr -d '"' | tr -d "'" | xargs)
     [[ -z "$value" ]] && continue
     local label="${PORT_LABELS[$key]:-$key}"
@@ -193,9 +191,9 @@ discover_service_ports() {
   done
 
   # Track which keys were already emitted
-  while IFS='=' read -r key _; do
+  while IFS= read -r key; do
     SEEN_KEYS["$key"]=1
-  done < <(grep -E '^[A-Z_]+_PORT=' "$source_file" 2>/dev/null || true)
+  done < <(awk -F= '/^[A-Z_]+_PORT=/{print $1}' "$source_file")
 
   # Fill in manifest defaults for services not in .env
   for key in "${!PORT_DEFAULTS[@]}"; do
@@ -426,14 +424,14 @@ start_services() {
   # Last-resort .env permission guard (fatal if fails — compose cannot start without readable .env)
   if [[ -f "$env_file" ]]; then
     # Check and fix ownership independently
-    if [[ "$(stat -c '%U' "$env_file" 2>/dev/null || echo root)" != "${DREAM_USER}" ]]; then
+    if [[ "$(stat -c '%U' "$env_file" 2>>"$LOGFILE" || echo root)" != "${DREAM_USER}" ]]; then
       chown "${DREAM_USER}:${DREAM_USER}" "$env_file" || {
         err ".env ownership fix failed in start_services — Docker Compose cannot start"
         exit 1
       }
     fi
     # Check and fix mode independently
-    if [[ "$(stat -c '%a' "$env_file" 2>/dev/null)" != "660" ]]; then
+    if [[ "$(stat -c '%a' "$env_file" 2>>"$LOGFILE")" != "660" ]]; then
       chmod 0660 "$env_file" || {
         err ".env chmod to 0660 failed in start_services — Docker Compose cannot start"
         exit 1

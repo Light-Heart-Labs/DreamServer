@@ -17,3 +17,18 @@ step "Phase 10/12: Verifying TTS/STT model availability"
 
 ensure_whisper_asr_model "$DS_DIR"
 ensure_tts_model_ready "$DS_DIR"
+
+_check_open_webui_health() {
+	local env_file="${DS_DIR}/.env"
+	local webui_port
+	webui_port="$(env_get "$env_file" "WEBUI_PORT")"
+	webui_port="${webui_port:-3000}"
+
+	if docker ps --format '{{.Names}}' | grep -qx 'dream-webui'; then
+		if ! wait_for_http "http://127.0.0.1:${webui_port}/health" 60 4; then
+			warn "Open WebUI not healthy yet — STT requests may return server connection errors"
+		fi
+	fi
+}
+
+_check_open_webui_health

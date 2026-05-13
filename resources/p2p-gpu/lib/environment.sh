@@ -206,7 +206,9 @@ fix_ownership() {
   [[ ! -d "$dir" ]] && return 0
   # Always apply chown recursively to fix root-owned files inside target-owned directories
   # chown may fail on NFS mounts or in containers without CAP_CHOWN
-  chown -R "${user}:${group}" "$dir" || warn "chown failed on ${dir} (non-fatal)"
+  if ! chown -R "${user}:${group}" "$dir" 2>>"$LOGFILE"; then
+    warn "chown failed on ${dir} (non-fatal; host may block ownership changes)"
+  fi
 }
 
 # Wait for a URL to return HTTP 200
@@ -518,14 +520,14 @@ _apply_env_defaults() {
   # Fix .env ownership and permissions if file exists (fatal if fails — compose cannot start without readable .env)
   if [[ -f "$env_file" ]]; then
     # Check and fix ownership independently
-    if [[ "$(stat -c '%U' "$env_file" 2>/dev/null || echo root)" != "${DREAM_USER}" ]]; then
+    if [[ "$(stat -c '%U' "$env_file" 2>>"$LOGFILE" || echo root)" != "${DREAM_USER}" ]]; then
       chown "${DREAM_USER}:${DREAM_USER}" "$env_file" || {
         err ".env ownership fix failed — Docker Compose cannot start"
         exit 1
       }
     fi
     # Check and fix mode independently
-    if [[ "$(stat -c '%a' "$env_file" 2>/dev/null)" != "660" ]]; then
+    if [[ "$(stat -c '%a' "$env_file" 2>>"$LOGFILE")" != "660" ]]; then
       chmod 0660 "$env_file" || {
         err ".env chmod to 0660 failed — Docker Compose cannot start"
         exit 1

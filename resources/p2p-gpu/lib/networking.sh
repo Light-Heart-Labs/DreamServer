@@ -317,7 +317,7 @@ _get_vastai_ssh_info() {
 
   # Fallback to network detection only if neither is available
   if [[ -z "$host_ip" ]]; then
-    host_ip="$(curl -sf --max-time 3 ifconfig.me 2>/dev/null || echo '<your-vast-ip>')"
+    host_ip="$(curl -sf --max-time 3 ifconfig.me 2>>"$LOGFILE" || echo '<your-vast-ip>')"
   fi
   if [[ -z "$ssh_port" ]]; then
     ssh_port="22"

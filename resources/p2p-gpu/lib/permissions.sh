@@ -164,6 +164,8 @@ fix_known_uid_requirements() {
 _fix_dynamic_uids() {
   local ds_dir="$1" data_dir="$2"
   local ext_dirs=("${ds_dir}/extensions/services" "${ds_dir}/user-extensions")
+  local dream_uid
+  dream_uid=$(id -u "$DREAM_USER" 2>>"$LOGFILE" || echo "")
   for ext_root in "${ext_dirs[@]}"; do
     [[ ! -d "$ext_root" ]] && continue
     for ext_path in "${ext_root}"/*/; do
@@ -181,7 +183,18 @@ _fix_dynamic_uids() {
       if [[ -n "$uid" && "$uid" != "0" ]]; then
         mkdir -p "$ext_data"
         # best-effort: one extension failing ownership should not block others
-        chown -R "${uid}:${uid}" "$ext_data" || warn "chown ${ext_name} to uid ${uid} failed (non-fatal)"
+        if [[ -n "$dream_uid" && "$uid" == "$dream_uid" ]]; then
+          continue
+        fi
+        if ! chown -R "${uid}:${uid}" "$ext_data" 2>>"$LOGFILE"; then
+          warn "chown ${ext_name} to uid ${uid} failed (non-fatal) — attempting ACL fallback"
+          if command -v setfacl &>/dev/null; then
+            setfacl -R -m "u:${uid}:rwx" "$ext_data" 2>>"$LOGFILE" \
+              || warn "setfacl ${ext_name} uid ${uid} failed (non-fatal)"
+            setfacl -R -d -m "u:${uid}:rwx" "$ext_data" 2>>"$LOGFILE" \
+              || warn "setfacl default ${ext_name} uid ${uid} failed (non-fatal)"
+          fi
+        fi
       fi
     done
   done

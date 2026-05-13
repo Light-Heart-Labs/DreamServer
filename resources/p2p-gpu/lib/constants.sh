@@ -35,7 +35,7 @@ readonly REPO_URL="https://github.com/Light-Heart-Labs/DreamServer.git"
 readonly REPO_BRANCH="main"
 readonly MIN_DISK_GB=40
 readonly MIN_VRAM_MB=8000
-readonly INSTALLER_TIMEOUT=600
+readonly INSTALLER_TIMEOUT="${INSTALLER_TIMEOUT:-600}"
 readonly MULTIGPU_MIN_GPUS=2
 
 # ── Colors ──────────────────────────────────────────────────────────────────

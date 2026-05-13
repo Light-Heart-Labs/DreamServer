@@ -35,9 +35,11 @@ waited=0
 while kill -0 "$installer_pid" 2>&1; do
   if [[ $waited -ge $INSTALLER_TIMEOUT ]]; then
     warn "Installer reached ${INSTALLER_TIMEOUT}s limit — proceeding with setup"
-    kill -TERM "$installer_pid" || warn "could not TERM installer (non-fatal)"
+    kill -TERM "$installer_pid" 2>>"$LOGFILE" || warn "could not TERM installer (non-fatal)"
     sleep 2
-    kill -9 "$installer_pid" || warn "could not KILL installer (non-fatal)"
+    if kill -0 "$installer_pid" 2>>"$LOGFILE"; then
+      kill -9 "$installer_pid" 2>>"$LOGFILE" || warn "could not KILL installer (non-fatal)"
+    fi
     # Child processes of the installer should die with their parent.
     # No pkill -f needed — TERM/KILL on the parent suffices.
     install_exit=124

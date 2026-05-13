@@ -129,8 +129,9 @@ _verify_nvidia_passthrough() {
   if [[ "$probe_rc" -ne 0 ]]; then
     if ! dpkg -l nvidia-container-toolkit &>/dev/null; then
       warn "nvidia-container-toolkit not installed — attempting install"
+      local keyring="/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg"
       curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
-        | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg 2>>"$LOGFILE" \
+        | gpg --dearmor --batch --yes --output "$keyring" 2>>"$LOGFILE" \
         || warn "gpg key import failed (non-fatal)"
       curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
         | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
