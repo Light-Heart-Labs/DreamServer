@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression coverage for dream-cli paths made stricter by set -eo pipefail.
+# Regression coverage for dream-cli paths made stricter by shell strict mode.
 
 set -euo pipefail
 
@@ -62,10 +62,16 @@ SH
 chmod +x "$BIN_DIR/docker" "$BIN_DIR/docker-compose" "$BIN_DIR/curl"
 export PATH="$BIN_DIR:$PATH"
 
-if grep -q '^set -eo pipefail' "$DREAM_CLI"; then
+if grep -Eq '^set -euo pipefail|^set -eo pipefail' "$DREAM_CLI"; then
     pass "dream-cli enables pipefail"
 else
     fail "dream-cli does not enable pipefail"
+fi
+
+if grep -q '^set -euo pipefail' "$DREAM_CLI"; then
+    pass "dream-cli enables nounset"
+else
+    fail "dream-cli does not enable nounset"
 fi
 
 reset_install
@@ -95,6 +101,37 @@ if [[ "$rc" == "0" ]]; then
     pass "model current tolerates missing model/tier keys"
 else
     fail "model current exited $rc with missing model/tier keys"
+fi
+
+mkdir -p "$INSTALL_DIR/presets/left" "$INSTALL_DIR/presets/right"
+cat > "$INSTALL_DIR/presets/left/env" <<'EOF'
+SHARED=value
+ONLY_LEFT=one
+EOF
+cat > "$INSTALL_DIR/presets/right/env" <<'EOF'
+SHARED=value
+ONLY_RIGHT=two
+EOF
+cat > "$INSTALL_DIR/presets/left/extensions.list" <<'EOF'
+enabled:left-only
+EOF
+cat > "$INSTALL_DIR/presets/right/extensions.list" <<'EOF'
+enabled:right-only
+EOF
+result="$(run_dream preset diff left right)"
+rc="$(printf '%s\n' "$result" | sed -n '1p')"
+if [[ "$rc" == "0" ]] && grep -q 'ONLY_LEFT' <<<"$result" && grep -q 'ONLY_RIGHT' <<<"$result" && grep -q 'right-only' <<<"$result"; then
+    pass "preset diff tolerates one-sided env and service keys"
+else
+    fail "preset diff failed for one-sided env/service keys"
+fi
+
+result="$(run_dream preset diff)"
+rc="$(printf '%s\n' "$result" | sed -n '1p')"
+if [[ "$rc" != "0" ]] && grep -q 'Usage:' <<<"$result"; then
+    pass "preset diff validates missing positional arguments"
+else
+    fail "preset diff did not validate missing positional arguments"
 fi
 
 if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
