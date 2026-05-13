@@ -21,6 +21,16 @@
 #     - Shared dirs get explicit per-UID ACLs for the writers we know about
 #     - setfacl is required; fail fast when unavailable
 #
+#   Error handling — two tiers:
+#     HARD-FAIL (exit 1): setfacl application, acl package install,
+#       primary chown/chmod on data dirs — if these fail the stack
+#       cannot start safely.
+#     WARN-AND-CONTINUE (|| warn): service-specific chown for individual
+#       extensions (qdrant, whisper, dashboard-api) — one service failing
+#       ownership should not prevent the other 16 from starting. Also used
+#       for UID extraction (parse helper) and generated repair scripts
+#       (which should fix as much as possible per run).
+#
 # SPDX-License-Identifier: Apache-2.0
 # ============================================================================
 
@@ -42,9 +52,18 @@ apply_data_acl() {
   local dir="$1"
   [[ ! -d "$dir" ]] && return 0
 
-  chown -R "${DREAM_USER}:${DREAM_USER}" "$dir" || warn "chown failed on ${dir} (non-fatal)"
-  find "$dir" -type d -exec chmod 2775 {} + || warn "chmod dirs failed on ${dir} (non-fatal)"
-  find "$dir" -type f -exec chmod 0664 {} + || warn "chmod files failed on ${dir} (non-fatal)"
+  if ! chown -R "${DREAM_USER}:${DREAM_USER}" "$dir"; then
+    err "chown failed on ${dir} — cannot set base ownership for data directory"
+    exit 1
+  fi
+  if ! find "$dir" -type d -exec chmod 2775 {} +; then
+    err "chmod dirs failed on ${dir} — cannot set setgid on data directories"
+    exit 1
+  fi
+  if ! find "$dir" -type f -exec chmod 0664 {} +; then
+    err "chmod files failed on ${dir} — cannot set group-writable on data files"
+    exit 1
+  fi
 
   if ! command -v setfacl &>/dev/null; then
     err "setfacl unavailable — install with: apt-get install acl"
@@ -71,9 +90,18 @@ apply_multi_uid_perms() {
   shift 2
   [[ ! -d "$dir" ]] && return 0
 
-  chown -R "${DREAM_USER}:${DREAM_USER}" "$dir" || warn "chown failed on ${dir} (non-fatal)"
-  find "$dir" -type d -exec chmod 2775 {} + || warn "chmod dirs failed on ${dir} (non-fatal)"
-  find "$dir" -type f -exec chmod 0664 {} + || warn "chmod files failed on ${dir} (non-fatal)"
+  if ! chown -R "${DREAM_USER}:${DREAM_USER}" "$dir"; then
+    err "chown failed on ${dir} — cannot set base ownership for shared directory"
+    exit 1
+  fi
+  if ! find "$dir" -type d -exec chmod 2775 {} +; then
+    err "chmod dirs failed on ${dir} — cannot set setgid on shared directories"
+    exit 1
+  fi
+  if ! find "$dir" -type f -exec chmod 0664 {} +; then
+    err "chmod files failed on ${dir} — cannot set group-writable on shared files"
+    exit 1
+  fi
 
   if ! command -v setfacl &>/dev/null; then
     err "setfacl unavailable — install with: apt-get install acl"
@@ -152,6 +180,7 @@ _fix_dynamic_uids() {
       uid=$(_extract_compose_uid "$compose_file")
       if [[ -n "$uid" && "$uid" != "0" ]]; then
         mkdir -p "$ext_data"
+        # best-effort: one extension failing ownership should not block others
         chown -R "${uid}:${uid}" "$ext_data" || warn "chown ${ext_name} to uid ${uid} failed (non-fatal)"
       fi
     done
@@ -163,6 +192,7 @@ _fix_uid_exceptions() {
 
   # qdrant: uid 1000, no user: in compose.yaml — explicit chown required
   if [[ -d "${data_dir}/qdrant" ]]; then
+    # best-effort: qdrant-specific ownership — does not block other services
     chown -R 1000:1000 "${data_dir}/qdrant" || warn "qdrant ownership fix failed (non-fatal)"
   fi
 
@@ -188,6 +218,7 @@ _fix_uid_exceptions() {
 
   # whisper: grant known writers uid 1000 + root for cache/bootstrap flows
   if [[ -d "${data_dir}/whisper" ]]; then
+    # best-effort: whisper ownership — ACLs above enforce access regardless
     chown -R 1000:1000 "${data_dir}/whisper" || warn "whisper chown failed (non-fatal)"
     if ! setfacl -R -d -m "u::rwx,u:0:rwx,u:1000:rwx,g::rwx,o::rx" "${data_dir}/whisper"; then
       err "Failed to apply default ACLs on ${data_dir}/whisper — mount may be ACL-incompatible"
@@ -203,6 +234,7 @@ _fix_uid_exceptions() {
   local ds_dir
   ds_dir=$(dirname "$data_dir")
   if [[ -d "${data_dir}/dashboard-api" ]]; then
+    # best-effort: dashboard-api ownership — service starts as uid 1000 regardless
     chown -R 1000:1000 "${data_dir}/dashboard-api" || warn "dashboard-api chown failed (non-fatal)"
   fi
   if command -v setfacl &>/dev/null && [[ -f "${ds_dir}/.env" ]]; then
