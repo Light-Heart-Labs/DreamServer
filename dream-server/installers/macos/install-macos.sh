@@ -226,6 +226,26 @@ mkdir -p "$(dirname "$DS_LOG_FILE")"
 show_dream_banner
 show_phase 1 6 "PREFLIGHT CHECKS" "30 seconds"
 
+# Reap orphan native llama-server processes from prior install runs.
+#
+# The Metal-backed `bin/llama-server` is spawned via launchctl in Phase 5.
+# Re-running the installer (debugging, version bump, switching models)
+# leaves the prior PID alive and listening on the same port — `lsof` then
+# shows multiple instances, only the first wins the bind, and the
+# debugging operator wastes time wondering why their config change didn't
+# take effect. Kill any process whose argv references THIS install dir's
+# `bin/llama-server`. Other native llama-server installs (e.g. a personal
+# one outside INSTALL_DIR) are left alone.
+_reaped=0
+if command -v pgrep >/dev/null 2>&1 && [[ -n "${INSTALL_DIR:-}" ]]; then
+    while read -r _pid; do
+        [[ -z "$_pid" ]] && continue
+        kill "$_pid" 2>/dev/null && _reaped=$((_reaped + 1))
+    done < <(pgrep -f "${INSTALL_DIR}/bin/llama-server" 2>/dev/null)
+    [[ "$_reaped" -gt 0 ]] && ai "Reaped $_reaped orphan llama-server process(es) from prior install run(s)."
+fi
+unset _reaped
+
 # macOS version
 get_macos_version
 info_box "macOS:" "${MACOS_NAME} ${MACOS_VERSION} (${MACOS_BUILD})"
@@ -540,6 +560,12 @@ info_box "  RAG:" "$(if $ENABLE_RAG; then echo enabled; else echo disabled; fi)"
 info_box "  Hermes:" "$(if $ENABLE_HERMES; then echo enabled; else echo disabled; fi)"
 info_box "  OpenClaw:" "$(if $ENABLE_OPENCLAW; then echo "enabled (DEPRECATED)"; else echo disabled; fi)"
 info_box "  Langfuse:" "$(if $ENABLE_LANGFUSE; then echo enabled; else echo disabled; fi)"
+# The macOS installer doesn't currently ship a ComfyUI container — none of
+# the published ComfyUI images target Apple Silicon Metal, and the upstream
+# Python build under MPS is non-trivial to package as a Docker service.
+# Surface this to operators who passed --all so they aren't left wondering
+# why the dashboard shows no image-gen tile after install.
+info_box "  ComfyUI:" "not available on macOS (no MPS Docker image upstream)"
 
 if $ENABLE_VOICE && [[ -z "$_docker_cpu_override" ]] && [[ "${_docker_cpu_preflight_min:-0}" -lt 10 ]]; then
     _require_docker_cpu_budget 10 8 "voice-enabled compose stack"
