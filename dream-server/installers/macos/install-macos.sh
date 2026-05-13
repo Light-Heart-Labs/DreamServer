@@ -198,20 +198,53 @@ info_box "Chip:" "${APPLE_CHIP}"
 info_box "Variant:" "${APPLE_CHIP_VARIANT}"
 ai_ok "Apple Silicon detected"
 
-# Docker Desktop
+# Docker engine (Docker Desktop, Colima, Rancher Desktop, OrbStack, or a
+# forwarded socket are all acceptable — see lib/detection.sh).
 test_docker_desktop
 if ! $DOCKER_INSTALLED; then
-    ai_err "Docker Desktop not found. Install from https://docs.docker.com/desktop/install/mac-install/"
+    ai_err "Docker engine not found (no \`docker\` CLI on PATH)."
+    ai_err "Pick one and install:"
+    ai_err "  - Docker Desktop:  https://docs.docker.com/desktop/install/mac-install/"
+    ai_err "  - Colima (CLI):    brew install colima docker docker-compose && colima start"
+    ai_err "  - Rancher Desktop: https://rancherdesktop.io"
+    ai_err "  - OrbStack:        https://orbstack.dev"
     exit 1
 fi
 ai_ok "Docker CLI found"
 
 if ! $DOCKER_RUNNING; then
-    ai_err "Docker Desktop is not running."
-    ai "Start it from the Applications folder or menu bar, then re-run this installer."
+    ai_err "Docker daemon is not responding."
+    case "${DOCKER_BACKEND:-unknown}" in
+        desktop)  ai "Start Docker Desktop from /Applications or the menu bar, then re-run this installer." ;;
+        colima)   ai "Run \`colima start\` (e.g. \`colima start --cpu 6 --memory 12 --disk 60\`) then re-run this installer." ;;
+        rancher)  ai "Open Rancher Desktop and wait for the daemon to come up, then re-run this installer." ;;
+        orbstack) ai "Open OrbStack and wait for the daemon to come up, then re-run this installer." ;;
+        *)        ai "Start your docker daemon (Docker Desktop, Colima, Rancher Desktop, OrbStack, ...) and re-run this installer." ;;
+    esac
     exit 1
 fi
-ai_ok "Docker Desktop running (v${DOCKER_VERSION})"
+ai_ok "Docker daemon ready (v${DOCKER_VERSION}, backend=${DOCKER_BACKEND:-unknown})"
+
+# Catch a common Colima-after-DockerDesktop config bomb: when a prior
+# Docker Desktop install left `"credsStore": "desktop"` in ~/.docker/config.json
+# and the user has since moved to Colima/Rancher/OrbStack, every `docker
+# compose pull` and `docker compose up` will crash with `error getting
+# credentials - err: exec: "docker-credential-desktop": executable file not
+# found in $PATH`. We strip the stale entry rather than failing the
+# install, because the helper is only meaningful with Docker Desktop.
+if [[ "${DOCKER_BACKEND:-unknown}" != "desktop" ]] && test_stale_docker_creds_store; then
+    ai_warn "Found stale \`credsStore: desktop\` in ~/.docker/config.json — incompatible with backend=${DOCKER_BACKEND:-unknown}."
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c 'import json,sys,os
+p=os.path.expanduser("~/.docker/config.json")
+d=json.load(open(p))
+d.pop("credsStore",None)
+json.dump(d, open(p,"w"), indent=2)' && ai_ok "Stripped credsStore=desktop from ~/.docker/config.json"
+    else
+        ai_err "python3 not available — please remove the \`credsStore\` line from ~/.docker/config.json manually."
+        exit 1
+    fi
+fi
 
 # Filesystem POSIX-permission check
 # The .env file (chmod 600) lives at INSTALL_DIR; a non-POSIX FS makes that
