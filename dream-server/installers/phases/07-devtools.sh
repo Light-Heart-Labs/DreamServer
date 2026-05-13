@@ -369,8 +369,10 @@ if [[ -f "$INSTALL_DIR/bin/dream-mdns.py" ]] && [[ "$(uname -s)" == "Linux" ]]; 
     }
     if ! python3 -c "import zeroconf" 2>/dev/null; then
         ai "Installing python3-zeroconf (for mDNS announcer)..."
-        if ! _install_zeroconf_via_pkg && python3 -c "import zeroconf" 2>/dev/null; then
-            : # pkg manager succeeded
+        if _install_zeroconf_via_pkg && python3 -c "import zeroconf" 2>/dev/null; then
+            ai_ok "Installed python3-zeroconf via $PKG_MANAGER"
+        elif python3 -c "import zeroconf" 2>/dev/null; then
+            : # Package manager returned non-zero, but the module is importable.
         elif _install_zeroconf_via_pip && python3 -c "import zeroconf" 2>/dev/null; then
             ai_ok "Installed zeroconf via pip --user (system package manager unavailable / failed)"
         else
