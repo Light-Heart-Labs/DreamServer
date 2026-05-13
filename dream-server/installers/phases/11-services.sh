@@ -187,9 +187,20 @@ else
 
                 if spin_task $dl_pid "Downloading $GGUF_FILE"; then
                     mv "$GGUF_DIR/$GGUF_FILE.part" "$GGUF_DIR/$GGUF_FILE"
-                    printf "\r  ${BGRN}✓${NC} %-60s\n" "Model downloaded: $GGUF_FILE"
-                    _dl_success=true
-                    break
+                    # Verify the file actually landed before claiming success.
+                    # Today's chain (spin_task → mv → printf) trusts each step's
+                    # exit code separately and can race: mv can silently fail if
+                    # the target dir is read-only or .part was truncated, or
+                    # another process can remove the file before the printf
+                    # fires. A spurious "Model downloaded" line then misleads
+                    # later phases that depend on the file existing.
+                    if [[ -s "$GGUF_DIR/$GGUF_FILE" ]]; then
+                        printf "\r  ${BGRN}✓${NC} %-60s\n" "Model downloaded: $GGUF_FILE"
+                        _dl_success=true
+                        break
+                    else
+                        printf "\r  ${AMB}⚠${NC} %-60s\n" "Download claimed to succeed but $GGUF_FILE is missing/empty"
+                    fi
                 fi
                 printf "\r  ${AMB}⚠${NC} %-60s\n" "Download attempt $_attempt failed"
                 sleep 3
@@ -320,7 +331,18 @@ MODELS_INI_EOF
                         "$_env_file" > "${_env_file}.tmp" 2>>"$LOG_FILE" \
                         && cat "${_env_file}.tmp" > "$_env_file" 2>>"$LOG_FILE" \
                         && rm -f "${_env_file}.tmp"; then
-                        : # success
+                        # Verify the patch took effect — the awk-then-cat
+                        # chain can succeed bytewise while landing a line
+                        # that isn't what we asked for (e.g. when $_val
+                        # contains awk-meta characters or the original
+                        # line had trailing whitespace the regex didn't
+                        # match). Re-read the file and assert.
+                        if grep -q "^${_key}=${_val}$" "$_env_file"; then
+                            : # confirmed
+                        else
+                            _env_patch_ok=false
+                            warn "Patched $_key in .env, but verification re-read shows a different value (expected '$_val')"
+                        fi
                     else
                         _env_patch_ok=false
                         warn "Failed to patch $_key in .env"
@@ -328,6 +350,19 @@ MODELS_INI_EOF
                 done
                 if [[ "$_env_patch_ok" == "true" ]]; then
                     ai_ok "Patched .env for bootstrap model ($GGUF_FILE)"
+                fi
+            fi
+
+            # End-of-bootstrap-block sanity: refuse to leave Phase 11 with
+            # $LLM_MODEL pointing at a file that isn't on disk. Without this
+            # guard, compose-up brings up llama-server, which immediately
+            # crash-loops trying to open a missing GGUF, and the operator
+            # spends the next ~20 minutes watching the linker retry. Better
+            # to surface the missing file here, while there's still a clean
+            # recovery path (re-run the download, fix .env, then resume).
+            if [[ -n "${GGUF_DIR:-}" && -n "${GGUF_FILE:-}" ]]; then
+                if [[ ! -s "$GGUF_DIR/$GGUF_FILE" ]]; then
+                    warn "Bootstrap sanity: $GGUF_DIR/$GGUF_FILE missing or empty after Phase 11 — llama-server will crash-loop on compose-up. Investigate before proceeding."
                 fi
             fi
         fi
