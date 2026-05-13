@@ -232,6 +232,44 @@ assert_eq "GGUF_FILE"               "Qwen3.5-9B-Q4_K_M.gguf"   "$GGUF_FILE"
 unset MODEL_PROFILE
 echo ""
 
+echo "Catalog selector (amd64 NV_ULTRA keeps coder-next):"
+_selector_env="$(python3 "$SCRIPT_DIR/scripts/select-model.py" \
+    --catalog "$SCRIPT_DIR/config/model-library.json" \
+    --backend nvidia \
+    --memory-type discrete \
+    --vram-mb 98304 \
+    --ram-gb 128 \
+    --profile qwen \
+    --tier NV_ULTRA \
+    --host-arch amd64 \
+    --installable-only \
+    --env)"
+LLM_MODEL="" GGUF_FILE="" MODEL_RECOMMENDATION_POLICY=""
+eval "$_selector_env"
+assert_eq "SELECTOR_LLM_MODEL" "qwen3-coder-next" "$LLM_MODEL"
+assert_eq "SELECTOR_GGUF_FILE" "qwen3-coder-next-Q4_K_M.gguf" "$GGUF_FILE"
+assert_eq "SELECTOR_POLICY" "context-aware-largest-capable-general-v1" "$MODEL_RECOMMENDATION_POLICY"
+echo ""
+
+echo "Catalog selector (arm64 NV_ULTRA preserves A3B substitution):"
+_selector_env="$(python3 "$SCRIPT_DIR/scripts/select-model.py" \
+    --catalog "$SCRIPT_DIR/config/model-library.json" \
+    --backend nvidia \
+    --memory-type unified \
+    --vram-mb 0 \
+    --ram-gb 128 \
+    --profile qwen \
+    --tier NV_ULTRA \
+    --host-arch arm64 \
+    --installable-only \
+    --env)"
+LLM_MODEL="" GGUF_FILE="" MODEL_RECOMMENDATION_POLICY=""
+eval "$_selector_env"
+assert_eq "SELECTOR_LLM_MODEL" "qwen3.6-35b-a3b" "$LLM_MODEL"
+assert_eq "SELECTOR_GGUF_FILE" "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf" "$GGUF_FILE"
+assert_eq "SELECTOR_POLICY" "context-aware-largest-capable-general-v1+spark-aarch64-nv-ultra-a3b-v1" "$MODEL_RECOMMENDATION_POLICY"
+echo ""
+
 # --- Summary ---
 echo "==============================="
 echo "Results: $PASS passed, $FAIL failed"

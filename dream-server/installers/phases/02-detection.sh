@@ -498,6 +498,7 @@ if [[ "${DREAM_DISABLE_CATALOG_MODEL_SELECTOR:-false}" != "true" && "${TIER:-}" 
                 --ram-gb "${RAM_GB:-0}" \
                 --profile "${MODEL_PROFILE_EFFECTIVE:-${MODEL_PROFILE:-qwen}}" \
                 --tier "${TIER:-1}" \
+                --host-arch "${HOST_ARCH:-unknown}" \
                 --installable-only \
                 --env 2>>"$LOG_FILE" || true)"
             if [[ -n "$_selector_env" ]]; then

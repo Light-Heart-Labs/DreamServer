@@ -20,6 +20,8 @@ from typing import Any
 
 VRAM_FIT_TOLERANCE_GB = 0.25
 POLICY = "context-aware-largest-capable-general-v1"
+SPARK_AARCH64_POLICY = "spark-aarch64-nv-ultra-a3b-v1"
+SPARK_AARCH64_MODEL_ID = "qwen3.6-35b-a3b-ud-q4"
 
 
 def normalize_key(value: Any) -> str:
@@ -33,6 +35,15 @@ def normalize_profile(value: str | None) -> str:
     if key == "auto":
         return "auto"
     return "qwen"
+
+
+def normalize_host_arch(value: str | None) -> str:
+    key = normalize_key(value or "unknown")
+    if key in {"aarch64", "arm64"}:
+        return "arm64"
+    if key in {"x86-64", "x86_64", "amd64", "x64"}:
+        return "amd64"
+    return key or "unknown"
 
 
 def effective_profile(profile: str, backend: str, tier: str) -> str:
@@ -202,6 +213,23 @@ def rank_models(catalog: list[dict[str, Any]], capacity_gb: float, profile: str,
     return [model for _, model in candidates]
 
 
+def arch_policy_model(catalog: list[dict[str, Any]], tier: str, profile: str,
+                      host_arch: str, installable_only: bool) -> dict[str, Any] | None:
+    """Return an architecture-specific model override when the tier map requires one."""
+    if normalize_key(tier) != "nv-ultra" or profile != "qwen" or normalize_host_arch(host_arch) != "arm64":
+        return None
+    for model in catalog:
+        if installable_only and not model.get("gguf_url"):
+            continue
+        if normalize_key(model.get("id")) == normalize_key(SPARK_AARCH64_MODEL_ID):
+            return model
+    return None
+
+
+def is_spark_aarch64_excluded_model(model: dict[str, Any]) -> bool:
+    return normalize_key(model.get("llm_model_name")) == "qwen3-coder-next"
+
+
 def shell_value(value: Any) -> str:
     return shlex.quote(str(value or ""))
 
@@ -218,6 +246,19 @@ def recommendation_reason(model: dict[str, Any], capacity_gb: float, memory_labe
     )
 
 
+def arch_policy_reason(model: dict[str, Any], capacity_gb: float, memory_label: str) -> str:
+    context_k = int((model.get("context_length") or 0) / 1024)
+    required = selector_required_memory_gb(model)
+    return (
+        f"Arch-aware catalog policy ({SPARK_AARCH64_POLICY}): {model['name']} "
+        f"is selected for arm64 NV_ULTRA Spark-class NVIDIA hosts because "
+        f"qwen3-coder-next is excluded on this architecture by the tier map. "
+        f"It needs about {required:g}GB including context/KV, fits {capacity_gb:.1f}GB "
+        f"{memory_label}, and gives {context_k}K context. "
+        f"Throughput requires a local benchmark after first launch."
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--catalog", required=True, type=Path)
@@ -227,6 +268,7 @@ def main() -> int:
     parser.add_argument("--ram-gb", type=int, default=0)
     parser.add_argument("--profile", default="qwen")
     parser.add_argument("--tier", default="1")
+    parser.add_argument("--host-arch", default="unknown")
     parser.add_argument("--installable-only", action="store_true")
     parser.add_argument("--env", action="store_true", help="print shell assignments")
     args = parser.parse_args()
@@ -234,20 +276,35 @@ def main() -> int:
     catalog = load_catalog(args.catalog)
     profile = effective_profile(normalize_profile(args.profile), args.backend, args.tier)
     capacity_gb, memory_label = usable_memory_gb(args.backend, args.memory_type, args.vram_mb, args.ram_gb)
-    ranked = rank_models(catalog, capacity_gb, profile, args.installable_only)
-    selected = ranked[0]
-    alternatives = ranked[:3]
     confidence = "high" if args.backend not in {"unknown", "none"} and capacity_gb > 0 else "medium"
+    arch_selected = arch_policy_model(catalog, args.tier, profile, args.host_arch, args.installable_only)
+    ranked = rank_models(catalog, capacity_gb, profile, args.installable_only)
+    if arch_selected:
+        selected = arch_selected
+        alternatives = [selected] + [
+            model for model in ranked
+            if model["id"] != selected["id"] and not is_spark_aarch64_excluded_model(model)
+        ][:2]
+        policy = f"{POLICY}+{SPARK_AARCH64_POLICY}"
+        source = "catalog_arch_policy_pre_download"
+        reason = arch_policy_reason(selected, capacity_gb, memory_label)
+    else:
+        selected = ranked[0]
+        alternatives = ranked[:3]
+        policy = POLICY
+        source = "catalog_fit_pre_download"
+        reason = recommendation_reason(selected, capacity_gb, memory_label, args.backend, confidence)
 
     payload = {
-        "policy": POLICY,
-        "source": "catalog_fit_pre_download",
+        "policy": policy,
+        "source": source,
         "confidence": confidence,
         "profile": profile,
+        "host_arch": normalize_host_arch(args.host_arch),
         "memory_capacity_gb": round(capacity_gb, 1),
         "memory_label": memory_label,
         "selected": selected,
-        "reason": recommendation_reason(selected, capacity_gb, memory_label, args.backend, confidence),
+        "reason": reason,
         "alternatives": [
             {
                 "id": model["id"],

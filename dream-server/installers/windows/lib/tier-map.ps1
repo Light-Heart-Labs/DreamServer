@@ -11,6 +11,10 @@
 #   Each tier maps to a specific GGUF quantization and context window.
 # ============================================================================
 
+$script:CATALOG_SELECTOR_POLICY = "context-aware-largest-capable-general-v1"
+$script:SPARK_AARCH64_POLICY = "spark-aarch64-nv-ultra-a3b-v1"
+$script:SPARK_AARCH64_MODEL_ID = "qwen3.6-35b-a3b-ud-q4"
+
 function Normalize-ModelProfile {
     param([string]$ModelProfile = $env:MODEL_PROFILE)
 
@@ -23,6 +27,42 @@ function Normalize-ModelProfile {
         "gemma-4" { return "gemma4" }
         default { return "qwen" }
     }
+}
+
+function Normalize-HostArchitecture {
+    param([string]$HostArchitecture)
+
+    if (-not $HostArchitecture) { return "unknown" }
+    switch ($HostArchitecture.ToLowerInvariant()) {
+        "aarch64" { return "arm64" }
+        "arm64" { return "arm64" }
+        "x86_64" { return "amd64" }
+        "x64" { return "amd64" }
+        "amd64" { return "amd64" }
+        default { return $HostArchitecture.ToLowerInvariant() }
+    }
+}
+
+function Get-HostArchitecture {
+    try {
+        return Normalize-HostArchitecture -HostArchitecture ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString())
+    } catch {
+        return Normalize-HostArchitecture -HostArchitecture $env:PROCESSOR_ARCHITECTURE
+    }
+}
+
+function Get-CatalogModelById {
+    param(
+        [object]$Catalog,
+        [string]$ModelId
+    )
+
+    foreach ($model in $Catalog.models) {
+        if ("$($model.id)".ToLowerInvariant() -eq $ModelId) {
+            return $model
+        }
+    }
+    return $null
 }
 
 function Resolve-EffectiveModelProfile {
@@ -487,6 +527,36 @@ function Resolve-CatalogModelRecommendation {
     }
     $memory = Get-CatalogModelSelectorMemory -GpuInfo $GpuInfo -SystemRamGB $SystemRamGB
     $capacityGb = [double]$memory.CapacityGB
+    $hostArchName = Normalize-HostArchitecture -HostArchitecture $env:HOST_ARCH
+    if ($hostArchName -eq "unknown") {
+        $hostArchName = Get-HostArchitecture
+    }
+
+    if ($Tier -eq "NV_ULTRA" -and $modelProfileName -eq "qwen" -and $hostArchName -eq "arm64") {
+        $selectedArchModel = Get-CatalogModelById -Catalog $catalog -ModelId $script:SPARK_AARCH64_MODEL_ID
+        if ($selectedArchModel -and $selectedArchModel.gguf_url) {
+            $selectedRequiredGb = Get-CatalogModelSelectorRequiredGB -Model $selectedArchModel
+            $contextK = [int]([int]$selectedArchModel.context_length / 1024)
+            $reason = "Arch-aware catalog policy ($script:SPARK_AARCH64_POLICY): $($selectedArchModel.name) is selected for arm64 NV_ULTRA Spark-class NVIDIA hosts because qwen3-coder-next is excluded on this architecture by the tier map. It needs about ${selectedRequiredGb}GB including context/KV, fits $([Math]::Round($capacityGb, 1))GB $($memory.Label), and gives ${contextK}K context. Throughput requires a local benchmark after first launch."
+
+            $TierConfig["LlmModel"] = $selectedArchModel.llm_model_name
+            $TierConfig["GgufFile"] = $selectedArchModel.gguf_file
+            $TierConfig["GgufUrl"] = $selectedArchModel.gguf_url
+            $TierConfig["GgufSha256"] = $selectedArchModel.gguf_sha256
+            $TierConfig["MaxContext"] = [int]$selectedArchModel.context_length
+            $TierConfig["ModelSizeMB"] = [int][Math]::Round([double]$selectedArchModel.size_mb)
+            if ($selectedArchModel.llama_server_image) {
+                $TierConfig["LlamaServerImage"] = $selectedArchModel.llama_server_image
+            }
+            $TierConfig["RecommendationSource"] = "catalog_arch_policy_pre_download"
+            $TierConfig["RecommendationPolicy"] = "$script:CATALOG_SELECTOR_POLICY+$script:SPARK_AARCH64_POLICY"
+            $TierConfig["RecommendationConfidence"] = "high"
+            $TierConfig["RecommendationReason"] = $reason
+            $TierConfig["RecommendationAlternatives"] = "$($selectedArchModel.id):$([int]$selectedArchModel.context_length):$([double]$selectedRequiredGb)"
+            return $TierConfig
+        }
+    }
+
     $candidates = @()
     foreach ($model in $catalog.models) {
         if (-not $model.gguf_url) { continue }
