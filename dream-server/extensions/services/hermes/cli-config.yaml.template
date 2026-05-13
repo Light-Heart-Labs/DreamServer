@@ -34,7 +34,7 @@ model:
   # in .env. Upstream Hermes reads this from model.context_length —
   # earlier drafts used a top-level context: block which is silently
   # ignored.
-  context_length: 16384
+  context_length: 65536
 
 # =============================================================================
 # Terminal backend — where tool calls execute
