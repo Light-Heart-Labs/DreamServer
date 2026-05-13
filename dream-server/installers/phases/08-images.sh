@@ -6,7 +6,8 @@
 # Purpose: Build image pull list and download all Docker images
 #
 # Expects: DRY_RUN, GPU_BACKEND, ENABLE_VOICE, ENABLE_WORKFLOWS,
-#           ENABLE_RAG, ENABLE_HERMES, ENABLE_OPENCLAW, DOCKER_CMD, LOG_FILE, BGRN, AMB, NC,
+#           ENABLE_RAG, ENABLE_EMBEDDINGS, ENABLE_HERMES, ENABLE_OPENCLAW,
+#           DOCKER_CMD, LOG_FILE, BGRN, AMB, NC,
 #           show_phase(), bootline(), signal(), ai(), ai_ok(), ai_warn(),
 #           pull_with_progress()
 # Provides: (Docker images pulled locally)
@@ -53,7 +54,7 @@ if [[ "$ENABLE_HERMES" == "true" ]]; then
     PULL_LIST+=("caddy:2.8.4-alpine|HERMES PROXY — magic-link auth gate (Caddy)")
 fi
 [[ "$ENABLE_OPENCLAW" == "true" ]] && PULL_LIST+=("ghcr.io/openclaw/openclaw:2026.3.8|OPENCLAW — agent framework")
-[[ "$ENABLE_RAG" == "true" ]] && PULL_LIST+=("ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.1|TEI — embedding engine")
+[[ "${ENABLE_EMBEDDINGS:-${ENABLE_RAG:-false}}" == "true" ]] && PULL_LIST+=("ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.1|TEI — embedding engine")
 [[ "${ENABLE_DREAMFORGE:-}" == "true" ]] && PULL_LIST+=("ghcr.io/light-heart-labs/dreamforge:v0.1.0|DREAMFORGE — agent system")
 
 if $DRY_RUN; then

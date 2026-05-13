@@ -7,7 +7,8 @@
 #          pre-download STT model
 #
 # Expects: DRY_RUN, GPU_BACKEND, ENABLE_VOICE, ENABLE_WORKFLOWS, ENABLE_RAG,
-#           ENABLE_HERMES, ENABLE_OPENCLAW, LLM_MODEL, LOG_FILE, BGRN, AMB, NC,
+#           ENABLE_EMBEDDINGS, ENABLE_HERMES, ENABLE_OPENCLAW, LLM_MODEL,
+#           LOG_FILE, BGRN, AMB, NC,
 #           WHISPER_PORT, TTS_PORT, OPENCLAW_PORT,
 #           PERPLEXICA_PORT (:-3004), COMFYUI_PORT (:-8188),
 #           show_phase(), check_service(), ai(), ai_ok(), ai_warn(), signal()
@@ -41,6 +42,7 @@ if $DRY_RUN; then
     [[ "$ENABLE_VOICE" == "true" ]] && log "[DRY RUN]   - Whisper (STT), Kokoro (TTS), pre-download STT model"
     [[ "$ENABLE_WORKFLOWS" == "true" ]] && log "[DRY RUN]   - n8n"
     [[ "$ENABLE_RAG" == "true" ]] && log "[DRY RUN]   - Qdrant"
+    [[ "${ENABLE_EMBEDDINGS:-${ENABLE_RAG:-false}}" == "true" ]] && log "[DRY RUN]   - Embeddings (TEI)"
     echo ""
     signal "All systems nominal. (dry run)"
     ai_ok "Sovereign intelligence is online. (dry run)"
@@ -120,7 +122,7 @@ if [[ "$ENABLE_COMFYUI" == "true" ]]; then
     _check_health "ComfyUI" "http://127.0.0.1:${SERVICE_PORTS[comfyui]:-8188}${SERVICE_HEALTH[comfyui]:-/}" 150 15 "$(sr_container comfyui)"
 fi
 # Embeddings (TEI): model load on first run can take 1-2 minutes after start_period
-if [[ "$ENABLE_RAG" == "true" ]]; then
+if [[ "${ENABLE_EMBEDDINGS:-${ENABLE_RAG:-false}}" == "true" ]]; then
     dream_progress 94 "health" "Waiting for Embeddings"
     _check_health "embeddings" "http://127.0.0.1:${SERVICE_PORTS[embeddings]:-7860}${SERVICE_HEALTH[embeddings]:-/health}" 30 10 "$(sr_container embeddings)"
 fi
