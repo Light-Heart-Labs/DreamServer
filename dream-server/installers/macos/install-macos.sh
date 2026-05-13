@@ -501,8 +501,16 @@ info_box "Model:" "${LLM_MODEL}"
 info_box "GGUF:" "${GGUF_FILE}"
 info_box "Context:" "${MAX_CONTEXT}"
 
-# Re-check disk space for model + Docker images
-if [[ "$GGUF_FILE" =~ 31B ]]; then
+# Re-check disk space for model + Docker images. Prefer the catalog selector's
+# exact model size when available; it can choose entries that do not fit the
+# older tier-map filename heuristics.
+_model_size_mb="${LLM_MODEL_SIZE_MB:-0}"
+if [[ "$_model_size_mb" =~ ^[0-9]+$ && "$_model_size_mb" -gt 0 ]]; then
+    _model_gb=$(( (_model_size_mb + 1023) / 1024 ))
+    NEEDED_GB=$(( _model_gb + 15 ))
+elif [[ "$GGUF_FILE" =~ 80B|Coder-Next ]]; then
+    NEEDED_GB=65
+elif [[ "$GGUF_FILE" =~ 31B ]]; then
     NEEDED_GB=38
 elif [[ "$GGUF_FILE" =~ 30B|26B ]]; then
     NEEDED_GB=35
