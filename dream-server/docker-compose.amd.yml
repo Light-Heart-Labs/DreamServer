@@ -23,7 +23,7 @@ services:
       - "0.0.0.0"
       - --no-tray
       - --llamacpp
-      - rocm
+      - auto
       - --llamacpp-args
       - "--metrics --host 0.0.0.0 -fa on -b 2048 -ub 256"
       - --extra-models-dir
@@ -45,7 +45,11 @@ services:
       - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-11.5.1}
       - HSA_XNACK=${HSA_XNACK:-1}
       - ROCBLAS_USE_HIPBLASLT=${ROCBLAS_USE_HIPBLASLT:-1}
-      - LEMONADE_LLAMACPP_BACKEND=rocm
+      # Lemonade's backend selector accepts auto|vulkan|cpu only; "rocm" is no
+      # longer a valid value. Setting auto + LEMONADE_LLAMACPP_ROCM_BIN points
+      # Lemonade at the custom ROCm-built llama-server binary while keeping the
+      # field schema-valid.
+      - LEMONADE_LLAMACPP_BACKEND=auto
       - LEMONADE_LLAMACPP_ROCM_BIN=/opt/llama-custom/llama-server
       - LEMONADE_CTX_SIZE=${CTX_SIZE:-131072}
     healthcheck:

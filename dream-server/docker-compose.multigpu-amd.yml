@@ -11,9 +11,10 @@
 # Lemonade's blocked flag list (-m, --port, --ctx-size, -ngl, --jinja, --mmproj,
 # --embeddings, --reranking), so they pass through safely.
 #
-# Backend selection: --llamacpp rocm is valid in v10+ C++ binary, but the Docker
-# guide recommends env vars (LEMONADE_LLAMACPP=rocm). We omit --llamacpp from
-# the command and use the env var for compatibility with both Python and C++ builds.
+# Backend selection: Lemonade's llamacpp.backend field accepts only auto|vulkan|cpu
+# (the "rocm" literal was tightened out of the schema upstream). We set "auto" and
+# rely on LEMONADE_LLAMACPP_ROCM_BIN (inherited from docker-compose.amd.yml) to
+# point Lemonade at the custom ROCm llama-server binary.
 # Note: command fully replaces the base docker-compose.amd.yml command.
 
 services:
@@ -31,7 +32,7 @@ services:
       - --extra-models-dir
       - /models
     environment:
-      LEMONADE_LLAMACPP: "${LEMONADE_LLAMACPP:-rocm}"
+      LEMONADE_LLAMACPP: "${LEMONADE_LLAMACPP:-auto}"
       ROCR_VISIBLE_DEVICES: "${LLAMA_SERVER_GPU_INDICES:-}"
       # Tensor split ratio (e.g. "0.5,0.5") — passed via env var because it may
       # be empty (auto-split). Inherited by inner llama-server via fork()+execv().
