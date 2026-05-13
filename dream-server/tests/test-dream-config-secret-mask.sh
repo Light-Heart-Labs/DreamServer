@@ -100,7 +100,6 @@ build_pathdir_excluding() {
     # build_pathdir_excluding "<exclude1> <exclude2> ..."
     local _excludes="$1"
     local _pdir="$TEMP_DIR/pathdir-$RANDOM"
-    local _extra_paths=""
     mkdir -p "$_pdir"
     local _bin
     # Tools dream-cli (the section we exercise) actually uses.
@@ -113,27 +112,21 @@ build_pathdir_excluding() {
             if [[ "$_real" == *WindowsApps* ]] && type -P python >/dev/null 2>&1; then
                 _real="$(type -P python)"
             fi
-            if [[ -n "$_real" ]]; then
-                _extra_paths="${_extra_paths:+$_extra_paths:}$(dirname "$_real")"
-            fi
         else
             _real="$(type -P "$_bin" 2>/dev/null || true)"
         fi
         [[ -z "$_real" ]] && continue
         # Skip excluded names.
         case " $_excludes " in *" $_bin "*) continue ;; esac
-        if ! ln -s "$_real" "$_pdir/$_bin" 2>/dev/null; then
-            local _escaped="${_real//\\/\\\\}"
-            _escaped="${_escaped//\"/\\\"}"
-            printf '#!/bin/sh\nexec "%s" "$@"\n' "$_escaped" > "$_pdir/$_bin"
-            chmod +x "$_pdir/$_bin"
-        fi
+        # Use wrappers instead of `ln -s`: on Git Bash, symlinking MSYS
+        # binaries into a temp PATH can create executable copies that cannot
+        # find their runtime DLLs once /usr/bin is intentionally absent.
+        local _escaped="${_real//\\/\\\\}"
+        _escaped="${_escaped//\"/\\\"}"
+        printf '#!/bin/sh\nexec "%s" "$@"\n' "$_escaped" > "$_pdir/$_bin"
+        chmod +x "$_pdir/$_bin"
     done
-    if [[ -n "$_extra_paths" ]]; then
-        echo "$_pdir:$_extra_paths"
-    else
-        echo "$_pdir"
-    fi
+    echo "$_pdir"
 }
 
 # --- Case 1: jq + python3 both present (schema-driven path) ---
