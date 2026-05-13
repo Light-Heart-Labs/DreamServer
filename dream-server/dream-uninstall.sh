@@ -152,6 +152,7 @@ fi
 
 # 5. Remove install directory (with optional data/model preservation)
 log_info "Removing installation directory..."
+INSTALL_DIR_CLEANED=true
 if $KEEP_MODELS && [[ -d "$INSTALL_DIR/data/models" ]]; then
     MODELS_BACKUP="$HOME/.dream-server-models-backup"
     mkdir -p "$MODELS_BACKUP"
@@ -179,13 +180,21 @@ else
     if command -v sudo >/dev/null 2>&1; then
         sudo chown -R "$(id -u):$(id -g)" "$INSTALL_DIR" 2>/dev/null || \
             log_warn "Could not chown $INSTALL_DIR (container-UID files may remain)"
+    else
+        log_warn "sudo not available; attempting non-privileged removal of $INSTALL_DIR"
     fi
-    rm -rf "$INSTALL_DIR"
+    rm -rf "$INSTALL_DIR" || \
+        log_warn "Could not fully remove $INSTALL_DIR"
     if [[ -d "$INSTALL_DIR" ]]; then
-        log_warn "Install dir still present at $INSTALL_DIR — likely container-UID files that need: sudo rm -rf $INSTALL_DIR"
+        INSTALL_DIR_CLEANED=false
+        log_warn "Install dir still present at $INSTALL_DIR - likely container-UID files that need: sudo rm -rf \"$INSTALL_DIR\""
     fi
 fi
-log_ok "Installation directory cleaned"
+if $INSTALL_DIR_CLEANED; then
+    log_ok "Installation directory cleaned"
+else
+    log_warn "Installation directory cleanup incomplete"
+fi
 
 # 6. Remove backup directory
 if [[ -d "$HOME/.dream-server" ]]; then
