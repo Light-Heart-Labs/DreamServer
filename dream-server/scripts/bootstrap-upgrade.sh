@@ -495,18 +495,26 @@ LITELLM_UPGRADE_EOF
         # Restart DreamForge so it auto-detects the new model from llama-server
         if $DOCKER_CMD ps --filter name=dream-dreamforge --format '{{.Names}}' 2>/dev/null | grep -q dream-dreamforge; then
             log "Restarting DreamForge to pick up model change..."
-            docker restart dream-dreamforge 2>&1 || log "WARNING: DreamForge restart failed (non-fatal)"
+            $DOCKER_CMD restart dream-dreamforge 2>&1 || log "WARNING: DreamForge restart failed (non-fatal)"
         fi
         # Recreate OpenClaw so inject-token.js picks up the new GGUF_FILE/LLM_MODEL
         # from .env. A restart alone won't work — env vars are baked in at container
         # creation time, and inject-token.js builds the Lemonade model name from them.
-        if docker ps --filter name=dream-openclaw --format '{{.Names}}' 2>/dev/null | grep -q dream-openclaw; then
+        if $DOCKER_CMD ps --filter name=dream-openclaw --format '{{.Names}}' 2>/dev/null | grep -q dream-openclaw; then
             log "Recreating OpenClaw to pick up model change..."
-            if [[ ${#COMPOSE_ARGS[@]} -gt 0 ]]; then
-                docker compose "${COMPOSE_ARGS[@]}" up -d --force-recreate openclaw 2>&1 || \
+            # Guard on BOTH compose args AND a non-empty $DOCKER_COMPOSE_CMD —
+            # mirrors the llama-server hot-swap contract above (the
+            # `${#COMPOSE_ARGS[@]} -gt 0 && -n "$DOCKER_COMPOSE_CMD"` checks).
+            # If $DOCKER_COMPOSE_CMD is empty (no compose v2 plugin AND no
+            # docker-compose v1 binary), expanding it as the command word
+            # would turn the line into `"${COMPOSE_ARGS[@]}" up -d ...`,
+            # which executes the first compose-arg (e.g. `-f`) as a binary.
+            # Skip the recreate and surface a clear warning instead.
+            if [[ ${#COMPOSE_ARGS[@]} -gt 0 && -n "$DOCKER_COMPOSE_CMD" ]]; then
+                $DOCKER_COMPOSE_CMD "${COMPOSE_ARGS[@]}" up -d --force-recreate openclaw 2>&1 || \
                     log "WARNING: OpenClaw recreate failed (non-fatal)"
             else
-                log "WARNING: No compose args — cannot recreate OpenClaw. Restart manually."
+                log "WARNING: No compose binary available (DOCKER_COMPOSE_CMD empty or compose args missing) — OpenClaw was NOT recreated. The new model will not take effect until OpenClaw is recreated manually with: docker compose up -d --force-recreate openclaw"
             fi
         fi
         sync_windows_opencode_config
