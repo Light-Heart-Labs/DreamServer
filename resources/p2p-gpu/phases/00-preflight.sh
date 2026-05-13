@@ -21,6 +21,8 @@ set -euo pipefail
 
 step "Phase 0/12: Preflight checks"
 
+TLS_OK="true"
+
 # Must be root
 if [[ $EUID -ne 0 ]]; then
   err "This script must be run as root. Run: sudo bash ${SCRIPT_NAME}"
@@ -179,6 +181,44 @@ if ! host github.com &>/dev/null && ! nslookup github.com &>/dev/null; then
     fi
   fi
 fi
+
+# ── HTTPS trust (proxy CA) ─────────────────────────────────────────────────
+_verify_https_trust() {
+  local urls=(
+    "https://huggingface.co"
+    "https://registry-1.docker.io/v2/"
+  )
+  local failed=false
+
+  if ! command -v curl &>/dev/null; then
+    warn "curl not found — skipping HTTPS trust check"
+    return 0
+  fi
+
+  for url in "${urls[@]}"; do
+    if curl -fsI --max-time 10 "$url" > /dev/null 2>>"$LOGFILE"; then
+      continue
+    fi
+    local rc=$?
+    if [[ "$rc" -eq 60 ]]; then
+      warn "HTTPS trust failure when contacting ${url} (curl exit 60)"
+      failed=true
+    else
+      warn "HTTPS check failed for ${url} (curl exit ${rc})"
+    fi
+  done
+
+  if [[ "$failed" == "true" ]]; then
+    TLS_OK="false"
+    warn "System TLS trust is broken — model downloads and Docker pulls will fail"
+    warn "If behind a proxy, install the proxy root CA, then run:"
+    warn "  cp /path/to/proxy-root.crt /usr/local/share/ca-certificates/proxy-root.crt"
+    warn "  update-ca-certificates --fresh"
+    warn "  systemctl restart docker"
+  fi
+}
+
+_verify_https_trust
 
 # ── /tmp permissions fix ────────────────────────────────────────────────────
 if [[ "$(stat -c '%a' /tmp)" != "1777" ]]; then

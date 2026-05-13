@@ -93,33 +93,50 @@ if [[ "$model_ready" != "true" ]]; then
     err "Cannot download bootstrap model — insufficient disk space"
     warn "Continuing without a model — llama-server will not start"
   else
-    warn "No usable model found — downloading bootstrap model..."
-    bootstrap_url="https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf"
-    bootstrap_name="Qwen3-0.6B-Q4_K_M.gguf"
-
-    if command -v aria2c &>/dev/null; then
-      aria2c -x 8 -s 8 -k 5M --file-allocation=none --console-log-level=notice \
-        --check-integrity=true \
-        -d "$models_dir" -o "$bootstrap_name" "$bootstrap_url" 2>&1 | tail -5
+    if [[ "${TLS_OK:-true}" != "true" ]]; then
+      warn "Skipping bootstrap download because TLS trust is broken (TLS_OK=false)"
+      warn "Fix TLS trust (proxy root CA) and re-run setup to download models"
     else
-      curl -L --fail --progress-bar -o "${models_dir}/${bootstrap_name}" "$bootstrap_url"
-    fi
+      warn "No usable model found — downloading bootstrap model..."
+      bootstrap_url="https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf"
+      bootstrap_name="Qwen3-0.6B-Q4_K_M.gguf"
 
-    # [FIX: bootstrap-size] Validate downloaded file size (>50MB for smallest GGUF)
-    if [[ -f "${models_dir}/${bootstrap_name}" ]]; then
-      dl_size=$(stat -c%s "${models_dir}/${bootstrap_name}" || echo 0)
-      if [[ "$dl_size" -gt 50000000 ]]; then
-        env_set "$env_file" "GGUF_FILE" "$bootstrap_name"
-        model_ready=true
-        log "Bootstrap model downloaded: ${bootstrap_name} ($(( dl_size / 1048576 )) MB)"
+      if command -v aria2c &>/dev/null; then
+        set +e
+        aria2c -x 8 -s 8 -k 5M --file-allocation=none --console-log-level=notice \
+          --check-integrity=true \
+          -d "$models_dir" -o "$bootstrap_name" "$bootstrap_url" 2>&1 | tail -5
+        dl_rc=${PIPESTATUS[0]}
+        set -e
+        if [[ "$dl_rc" -ne 0 ]]; then
+          warn "Bootstrap download failed (aria2c exit ${dl_rc}) — check TLS/proxy CA"
+        fi
       else
-        err "Downloaded model too small (${dl_size} bytes) — likely incomplete or corrupt"
-        rm -f "${models_dir}/${bootstrap_name}"
-        warn "Continuing without a model — llama-server will not start"
+        set +e
+        curl -L --fail --progress-bar -o "${models_dir}/${bootstrap_name}" "$bootstrap_url"
+        dl_rc=$?
+        set -e
+        if [[ "$dl_rc" -ne 0 ]]; then
+          warn "Bootstrap download failed (curl exit ${dl_rc}) — check TLS/proxy CA"
+        fi
       fi
-    else
-      err "Failed to download bootstrap model — llama-server will not start"
-      warn "Continuing anyway — other services may still work"
+
+      # [FIX: bootstrap-size] Validate downloaded file size (>50MB for smallest GGUF)
+      if [[ -f "${models_dir}/${bootstrap_name}" ]]; then
+        dl_size=$(stat -c%s "${models_dir}/${bootstrap_name}" || echo 0)
+        if [[ "$dl_size" -gt 50000000 ]]; then
+          env_set "$env_file" "GGUF_FILE" "$bootstrap_name"
+          model_ready=true
+          log "Bootstrap model downloaded: ${bootstrap_name} ($(( dl_size / 1048576 )) MB)"
+        else
+          err "Downloaded model too small (${dl_size} bytes) — likely incomplete or corrupt"
+          rm -f "${models_dir}/${bootstrap_name}"
+          warn "Continuing without a model — llama-server will not start"
+        fi
+      else
+        err "Failed to download bootstrap model — llama-server will not start"
+        warn "Continuing anyway — other services may still work"
+      fi
     fi
   fi
 fi
@@ -129,7 +146,9 @@ fi
 # tier model in the background. The swap watcher will hot-swap GGUF_FILE and
 # recreate llama-server via `docker compose up -d` once the download completes.
 current_gguf=$(env_get "$env_file" "GGUF_FILE")
-if [[ -n "$tier_gguf" && "$tier_gguf" != "${current_gguf:-}" ]]; then
+if [[ "${TLS_OK:-true}" != "true" ]]; then
+  warn "Skipping tier model download because TLS trust is broken (TLS_OK=false)"
+elif [[ -n "$tier_gguf" && "$tier_gguf" != "${current_gguf:-}" ]]; then
   # Determine disk space needed (model size in MB → GB, rounded up + 2GB buffer)
   needed_gb=$(( (tier_size_mb / 1024) + 2 ))
   [[ $needed_gb -lt 5 ]] && needed_gb=5
