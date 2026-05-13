@@ -29,7 +29,10 @@ set -euo pipefail
 # Install ACL tools if missing
 ensure_acl_tools() {
   if ! command -v setfacl &>/dev/null; then
-    apt-get install -y -qq acl 2>>"$LOGFILE" || warn "could not install acl package (non-fatal)"
+    if ! apt-get install -y -qq acl 2>>"$LOGFILE"; then
+      err "Failed to install acl package — setfacl is required. Install manually: apt-get install acl"
+      exit 1
+    fi
   fi
 }
 
@@ -173,15 +176,27 @@ _fix_uid_exceptions() {
 
   # open-webui: grant both root (container) and uid 1000 (dream/dashboard-api)
   if [[ -d "${data_dir}/open-webui" ]]; then
-    setfacl -R -d -m "u::rwx,u:0:rwx,u:1000:rwx,g::rwx,o::rx" "${data_dir}/open-webui" || warn "open-webui default ACL fix failed (non-fatal)"
-    setfacl -R -m "u:0:rwx,u:1000:rwx,g::rwx" "${data_dir}/open-webui" || warn "open-webui ACL fix failed (non-fatal)"
+    if ! setfacl -R -d -m "u::rwx,u:0:rwx,u:1000:rwx,g::rwx,o::rx" "${data_dir}/open-webui"; then
+      err "Failed to apply default ACLs on ${data_dir}/open-webui — mount may be ACL-incompatible"
+      exit 1
+    fi
+    if ! setfacl -R -m "u:0:rwx,u:1000:rwx,g::rwx" "${data_dir}/open-webui"; then
+      err "Failed to apply ACLs on ${data_dir}/open-webui — mount may be ACL-incompatible"
+      exit 1
+    fi
   fi
 
   # whisper: grant known writers uid 1000 + root for cache/bootstrap flows
   if [[ -d "${data_dir}/whisper" ]]; then
     chown -R 1000:1000 "${data_dir}/whisper" || warn "whisper chown failed (non-fatal)"
-    setfacl -R -d -m "u::rwx,u:0:rwx,u:1000:rwx,g::rwx,o::rx" "${data_dir}/whisper" || warn "whisper default ACL fix failed (non-fatal)"
-    setfacl -R -m "u:0:rwx,u:1000:rwx,g::rwx" "${data_dir}/whisper" || warn "whisper ACL fix failed (non-fatal)"
+    if ! setfacl -R -d -m "u::rwx,u:0:rwx,u:1000:rwx,g::rwx,o::rx" "${data_dir}/whisper"; then
+      err "Failed to apply default ACLs on ${data_dir}/whisper — mount may be ACL-incompatible"
+      exit 1
+    fi
+    if ! setfacl -R -m "u:0:rwx,u:1000:rwx,g::rwx" "${data_dir}/whisper"; then
+      err "Failed to apply ACLs on ${data_dir}/whisper — mount may be ACL-incompatible"
+      exit 1
+    fi
   fi
 
   # dashboard-api: uid 1000 (dreamer) — needs rw on data/ and .env
@@ -191,7 +206,10 @@ _fix_uid_exceptions() {
     chown -R 1000:1000 "${data_dir}/dashboard-api" || warn "dashboard-api chown failed (non-fatal)"
   fi
   if command -v setfacl &>/dev/null && [[ -f "${ds_dir}/.env" ]]; then
-    setfacl -m u:1000:rw "${ds_dir}/.env" || warn ".env ACL for dashboard-api failed (non-fatal)"
+    if ! setfacl -m u:1000:rw "${ds_dir}/.env"; then
+      err "Failed to apply ACL on ${ds_dir}/.env for dashboard-api"
+      exit 1
+    fi
   fi
 
   # models (shared): grant the non-root writer used by the p2p-gpu toolkit
@@ -276,28 +294,66 @@ warn() { echo -e "\033[1;33m[!]\033[0m \$*" >&2; }
 
 echo "[*] Fixing permissions on \${DATA_DIR}..."
 
-if command -v setfacl &>/dev/null; then
-  find "\$DATA_DIR" -type d -exec chmod 2775 {} + || warn "chmod dirs failed (non-fatal)"
-  find "\$DATA_DIR" -type f -exec chmod 0664 {} + || warn "chmod files failed (non-fatal)"
-  setfacl -R -d -m "u::rwx,u:1000:rwx,g::rwx,o::rx" "\$DATA_DIR" || warn "setfacl default failed (non-fatal)"
-  setfacl -R -m "u:1000:rwx,g::rwx" "\$DATA_DIR" || warn "setfacl current failed (non-fatal)"
-else
+if ! command -v setfacl &>/dev/null; then
   echo "[x] setfacl unavailable — install with: apt-get install acl" >&2
+  exit 1
+fi
+
+find "\$DATA_DIR" -type d -exec chmod 2775 {} + || warn "chmod dirs failed (non-fatal)"
+find "\$DATA_DIR" -type f -exec chmod 0664 {} + || warn "chmod files failed (non-fatal)"
+if ! setfacl -R -d -m "u::rwx,u:1000:rwx,g::rwx,o::rx" "\$DATA_DIR"; then
+  echo "[x] Failed to apply default ACLs on \$DATA_DIR — mount may be ACL-incompatible" >&2
+  exit 1
+fi
+if ! setfacl -R -m "u:1000:rwx,g::rwx" "\$DATA_DIR"; then
+  echo "[x] Failed to apply current ACLs on \$DATA_DIR — mount may be ACL-incompatible" >&2
   exit 1
 fi
 
 ${uid_fix_lines}
 [[ -d "\${DATA_DIR}/qdrant" ]] && chown -R 1000:1000 "\${DATA_DIR}/qdrant" || warn "qdrant fix failed (non-fatal)"
-[[ -d "\${DATA_DIR}/open-webui" ]] && setfacl -R -d -m "u::rwx,u:0:rwx,u:1000:rwx,g::rwx,o::rx" "\${DATA_DIR}/open-webui" || warn "open-webui default ACL fix failed (non-fatal)"
-[[ -d "\${DATA_DIR}/open-webui" ]] && setfacl -R -m "u:0:rwx,u:1000:rwx,g::rwx" "\${DATA_DIR}/open-webui" || warn "open-webui ACL fix failed (non-fatal)"
+if [[ -d "\${DATA_DIR}/open-webui" ]]; then
+  if ! setfacl -R -d -m "u::rwx,u:0:rwx,u:1000:rwx,g::rwx,o::rx" "\${DATA_DIR}/open-webui"; then
+    echo "[x] Failed to apply ACLs — mount may be ACL-incompatible" >&2
+    exit 1
+  fi
+  if ! setfacl -R -m "u:0:rwx,u:1000:rwx,g::rwx" "\${DATA_DIR}/open-webui"; then
+    echo "[x] Failed to apply ACLs — mount may be ACL-incompatible" >&2
+    exit 1
+  fi
+fi
 [[ -d "\${DATA_DIR}/whisper" ]] && chown -R 1000:1000 "\${DATA_DIR}/whisper" || warn "whisper chown failed (non-fatal)"
-[[ -d "\${DATA_DIR}/whisper" ]] && setfacl -R -d -m "u::rwx,u:0:rwx,u:1000:rwx,g::rwx,o::rx" "\${DATA_DIR}/whisper" || warn "whisper default ACL fix failed (non-fatal)"
-[[ -d "\${DATA_DIR}/whisper" ]] && setfacl -R -m "u:0:rwx,u:1000:rwx,g::rwx" "\${DATA_DIR}/whisper" || warn "whisper ACL fix failed (non-fatal)"
+if [[ -d "\${DATA_DIR}/whisper" ]]; then
+  if ! setfacl -R -d -m "u::rwx,u:0:rwx,u:1000:rwx,g::rwx,o::rx" "\${DATA_DIR}/whisper"; then
+    echo "[x] Failed to apply ACLs — mount may be ACL-incompatible" >&2
+    exit 1
+  fi
+  if ! setfacl -R -m "u:0:rwx,u:1000:rwx,g::rwx" "\${DATA_DIR}/whisper"; then
+    echo "[x] Failed to apply ACLs — mount may be ACL-incompatible" >&2
+    exit 1
+  fi
+fi
 # Multi-UID directories: searxng (uid varies), models (non-root writer)
-[[ -d "\${DATA_DIR}/searxng" ]] && setfacl -R -d -m "u::rwx,u:977:rwx,u:1000:rwx,g::rwx,o::rx" "\${DATA_DIR}/searxng" || warn "searxng default ACL fix failed (non-fatal)"
-[[ -d "\${DATA_DIR}/searxng" ]] && setfacl -R -m "u:977:rwx,u:1000:rwx,g::rwx" "\${DATA_DIR}/searxng" || warn "searxng ACL fix failed (non-fatal)"
-[[ -d "\${DATA_DIR}/models" ]] && setfacl -R -d -m "u::rwx,u:1000:rwx,g::rwx,o::rx" "\${DATA_DIR}/models" || warn "models default ACL fix failed (non-fatal)"
-[[ -d "\${DATA_DIR}/models" ]] && setfacl -R -m "u:1000:rwx,g::rwx" "\${DATA_DIR}/models" || warn "models ACL fix failed (non-fatal)"
+if [[ -d "\${DATA_DIR}/searxng" ]]; then
+  if ! setfacl -R -d -m "u::rwx,u:977:rwx,u:1000:rwx,g::rwx,o::rx" "\${DATA_DIR}/searxng"; then
+    echo "[x] Failed to apply ACLs — mount may be ACL-incompatible" >&2
+    exit 1
+  fi
+  if ! setfacl -R -m "u:977:rwx,u:1000:rwx,g::rwx" "\${DATA_DIR}/searxng"; then
+    echo "[x] Failed to apply ACLs — mount may be ACL-incompatible" >&2
+    exit 1
+  fi
+fi
+if [[ -d "\${DATA_DIR}/models" ]]; then
+  if ! setfacl -R -d -m "u::rwx,u:1000:rwx,g::rwx,o::rx" "\${DATA_DIR}/models"; then
+    echo "[x] Failed to apply ACLs — mount may be ACL-incompatible" >&2
+    exit 1
+  fi
+  if ! setfacl -R -m "u:1000:rwx,g::rwx" "\${DATA_DIR}/models"; then
+    echo "[x] Failed to apply ACLs — mount may be ACL-incompatible" >&2
+    exit 1
+  fi
+fi
 
 for d in \
   "\${DATA_DIR}/comfyui/models" \

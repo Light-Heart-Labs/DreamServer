@@ -48,7 +48,10 @@ if fuser /var/lib/dpkg/lock-frontend &>/dev/null; then
     systemctl stop unattended-upgrades 2>>"$LOGFILE" || warn "systemctl stop unattended-upgrades failed (non-fatal)"
     sleep 2
   fi
-  dpkg --configure -a 2>>"$LOGFILE" || warn "dpkg --configure -a failed (non-fatal)"
+  if ! dpkg --configure -a 2>>"$LOGFILE"; then
+    err "dpkg --configure -a failed — package database may be inconsistent. Recovery: run 'dpkg --configure -a' manually, then retry setup."
+    exit 1
+  fi
 fi
 
 if [[ ${#pkgs_needed[@]} -gt 0 ]]; then
