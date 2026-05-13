@@ -76,6 +76,7 @@ export DREAM_VERSION="2.1.0"
 export ENABLE_VOICE=true
 export ENABLE_WORKFLOWS=true
 export ENABLE_RAG=true
+export ENABLE_HERMES=true
 export ENABLE_OPENCLAW=true
 
 # Source required libraries (same order as install-core.sh)
@@ -119,7 +120,8 @@ if bash -c "
     export ENABLE_VOICE=true
     export ENABLE_WORKFLOWS=true
     export ENABLE_RAG=true
-    export ENABLE_OPENCLAW=true
+    export ENABLE_HERMES=true
+export ENABLE_OPENCLAW=true
 
     # Source libs
     source installers/lib/constants.sh

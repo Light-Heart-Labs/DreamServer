@@ -7,7 +7,8 @@
 #          pre-download STT model
 #
 # Expects: DRY_RUN, GPU_BACKEND, ENABLE_VOICE, ENABLE_WORKFLOWS, ENABLE_RAG,
-#           ENABLE_OPENCLAW, LLM_MODEL, LOG_FILE, BGRN, AMB, NC,
+#           ENABLE_EMBEDDINGS, ENABLE_HERMES, ENABLE_OPENCLAW, LLM_MODEL,
+#           LOG_FILE, BGRN, AMB, NC,
 #           WHISPER_PORT, TTS_PORT, OPENCLAW_PORT,
 #           PERPLEXICA_PORT (:-3004), COMFYUI_PORT (:-8188),
 #           show_phase(), check_service(), ai(), ai_ok(), ai_warn(), signal()
@@ -36,10 +37,12 @@ if $DRY_RUN; then
     log "[DRY RUN] Would verify service health:"
     log "[DRY RUN]   - llama-server, Open WebUI, Perplexica, ComfyUI"
     log "[DRY RUN]   - Auto-configure Perplexica for ${LLM_MODEL:-default model}"
+    [[ "$ENABLE_HERMES" == "true" ]] && log "[DRY RUN]   - Hermes Agent + hermes-proxy"
     [[ "$ENABLE_OPENCLAW" == "true" ]] && log "[DRY RUN]   - OpenClaw"
     [[ "$ENABLE_VOICE" == "true" ]] && log "[DRY RUN]   - Whisper (STT), Kokoro (TTS), pre-download STT model"
     [[ "$ENABLE_WORKFLOWS" == "true" ]] && log "[DRY RUN]   - n8n"
     [[ "$ENABLE_RAG" == "true" ]] && log "[DRY RUN]   - Qdrant"
+    [[ "${ENABLE_EMBEDDINGS:-${ENABLE_RAG:-false}}" == "true" ]] && log "[DRY RUN]   - Embeddings (TEI)"
     echo ""
     signal "All systems nominal. (dry run)"
     ai_ok "Sovereign intelligence is online. (dry run)"
@@ -59,26 +62,104 @@ _check_health() {
     fi
 }
 
+_check_container_health() {
+    local name=$1
+    local container_name=$2
+    local max_attempts=${3:-60}
+    local docker_cmd="${DOCKER_CMD:-docker}"
+    local -a docker_cmd_arr=()
+    read -r -a docker_cmd_arr <<< "$docker_cmd"
+    [[ ${#docker_cmd_arr[@]} -gt 0 ]] || docker_cmd_arr=(docker)
+
+    printf "  ${GRN}...${NC} Waiting for %-20s " "$name"
+    for attempt in $(seq 1 "$max_attempts"); do
+        local state=""
+        state=$("${docker_cmd_arr[@]}" inspect --format '{{.State.Status}}' "$container_name" 2>/dev/null || echo "missing")
+        case "$state" in
+            exited|dead|missing)
+                printf "\r  ${RED}ERR${NC} %-55s\n" "$name container $state"
+                ai_warn "$name container is $state; not retrying health probe."
+                return 1
+                ;;
+        esac
+
+        local health=""
+        health=$("${docker_cmd_arr[@]}" inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_name" 2>/dev/null || echo "missing")
+        case "$health" in
+            healthy)
+                printf "\r  ${BGRN}OK${NC} %-56s\n" "$name healthy"
+                return 0
+                ;;
+            running)
+                # No Docker healthcheck declared. Treat running as good enough.
+                printf "\r  ${BGRN}OK${NC} %-56s\n" "$name running"
+                return 0
+                ;;
+        esac
+
+        sleep 5
+    done
+
+    printf "\r  ${AMB}WARN${NC} %-54s\n" "$name delayed (container health not healthy yet)"
+    ai_warn "$name container health is not healthy yet. I will continue."
+    return 1
+}
+
 # Core service health checks with adaptive timeouts
 # Format: _check_health "name" "url" max_attempts timeout_per_request
 # llama-server: 150 attempts * adaptive backoff (2s->8s) = up to ~20 minutes (model loading can be slow)
 dream_progress 86 "health" "Waiting for LLM engine"
-_check_health "llama-server" "http://localhost:${SERVICE_PORTS[llama-server]:-8080}${SERVICE_HEALTH[llama-server]:-/health}" 150 15
+_check_health "llama-server" "http://127.0.0.1:${SERVICE_PORTS[llama-server]:-8080}${SERVICE_HEALTH[llama-server]:-/health}" 150 15 "$(sr_container llama-server)"
+
+# ── Pre-warm the LLM slot so the first real chat doesn't 503 ──
+#
+# /health goes green once the model is mmap'd, but the FIRST chat
+# completion still materializes the KV cache, JIT-compiles fused kernels,
+# and processes any system prompt the caller injects. While that's in
+# flight, llama-server returns `HTTP 503: Loading model` to concurrent
+# requests — including from Hermes Agent, which sends a ~14k-token system
+# prompt and only retries 3 times within 120s. On big-model + single-GPU
+# boxes (DGX Spark with the 45 GB qwen3-coder-next, tested 2026-05-12),
+# that 14k prefill alone takes ~54s — fitting inside Hermes's first-call
+# window only by luck. Roll the dice the wrong way and Hermes 503s every
+# prompt for the rest of the install run.
+#
+# Pre-warming with a tiny dummy completion forces the slot through its
+# cold path inside the installer (where time isn't surprising) so Hermes
+# lands on an already-hot slot. Bounded by curl --max-time so a stalled
+# llama-server doesn't hang phase 12.
+dream_progress 87 "health" "Pre-warming LLM slot"
+_prewarm_api_path="/v1"
+_prewarm_model="${GGUF_FILE:-${LLM_MODEL:-default}}"
+if [[ "${GPU_BACKEND:-}" == "amd" ]]; then
+    _prewarm_api_path="/api/v1"
+    [[ -n "${GGUF_FILE:-}" ]] && _prewarm_model="extra.${GGUF_FILE}"
+fi
+_prewarm_url="http://127.0.0.1:${SERVICE_PORTS[llama-server]:-8080}${_prewarm_api_path}/chat/completions"
+_prewarm_body="{\"model\":\"${_prewarm_model}\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1,\"temperature\":0,\"stream\":false}"
+if curl -sf --max-time 120 -X POST "$_prewarm_url" \
+    -H "Content-Type: application/json" \
+    -d "$_prewarm_body" >/dev/null 2>&1; then
+    ai_ok "LLM slot pre-warmed (first real chat will be fast)"
+else
+    ai_warn "LLM pre-warm timed out — first Hermes prompt may need a retry or two while the slot finishes warming."
+fi
+
 # Open WebUI: 150 attempts * adaptive backoff = up to ~20 minutes
 dream_progress 89 "health" "Waiting for Chat UI"
-_check_health "Open WebUI" "http://localhost:${SERVICE_PORTS[open-webui]:-3000}${SERVICE_HEALTH[open-webui]:-/}" 150 10
+_check_health "Open WebUI" "http://127.0.0.1:${SERVICE_PORTS[open-webui]:-3000}${SERVICE_HEALTH[open-webui]:-/}" 150 10 "$(sr_container open-webui)"
 # Perplexica: 150 attempts * adaptive backoff = up to ~20 minutes
 dream_progress 91 "health" "Waiting for Research engine"
-_check_health "Perplexica" "http://localhost:${SERVICE_PORTS[perplexica]:-3004}${SERVICE_HEALTH[perplexica]:-/}" 150 10
+_check_health "Perplexica" "http://127.0.0.1:${SERVICE_PORTS[perplexica]:-3004}${SERVICE_HEALTH[perplexica]:-/}" 150 10 "$(sr_container perplexica)"
 # ComfyUI: 150 attempts * adaptive backoff = up to ~20 minutes (FLUX model loading is slow)
 if [[ "$ENABLE_COMFYUI" == "true" ]]; then
     dream_progress 93 "health" "Waiting for Image generation"
-    _check_health "ComfyUI" "http://localhost:${SERVICE_PORTS[comfyui]:-8188}${SERVICE_HEALTH[comfyui]:-/}" 150 15
+    _check_health "ComfyUI" "http://127.0.0.1:${SERVICE_PORTS[comfyui]:-8188}${SERVICE_HEALTH[comfyui]:-/}" 150 15 "$(sr_container comfyui)"
 fi
 # Embeddings (TEI): model load on first run can take 1-2 minutes after start_period
-if [[ "$ENABLE_RAG" == "true" ]]; then
+if [[ "${ENABLE_EMBEDDINGS:-${ENABLE_RAG:-false}}" == "true" ]]; then
     dream_progress 94 "health" "Waiting for Embeddings"
-    _check_health "embeddings" "http://localhost:${SERVICE_PORTS[embeddings]:-7860}${SERVICE_HEALTH[embeddings]:-/health}" 30 10
+    _check_health "embeddings" "http://127.0.0.1:${SERVICE_PORTS[embeddings]:-7860}${SERVICE_HEALTH[embeddings]:-/health}" 30 10 "$(sr_container embeddings)"
 fi
 
 # Perplexica auto-config: seed chat model + embedding model on first boot.
@@ -87,7 +168,7 @@ fi
 # Retry up to 5 times with 10s delay — Perplexica may still be starting
 # (especially if it was stuck in "Created" state and started late).
 if $DOCKER_CMD inspect dream-perplexica &>/dev/null; then
-    PERPLEXICA_URL="http://localhost:${SERVICE_PORTS[perplexica]:-3004}"
+    PERPLEXICA_URL="http://127.0.0.1:${SERVICE_PORTS[perplexica]:-3004}"
     PYTHON_CMD="python3"
     if [[ -f "$SCRIPT_DIR/lib/python-cmd.sh" ]]; then
         . "$SCRIPT_DIR/lib/python-cmd.sh"
@@ -155,12 +236,22 @@ fi
 
 # Extension service health checks with adaptive timeouts
 dream_progress 94 "health" "Checking extension services"
-[[ "$ENABLE_OPENCLAW" == "true" ]] && _check_health "OpenClaw" "http://localhost:${SERVICE_PORTS[openclaw]:-7860}${SERVICE_HEALTH[openclaw]:-/}" 150 10
-systemctl --user is-active opencode-web &>/dev/null && _check_health "OpenCode Web" "http://localhost:3003/" 10 5
+# Hermes is intentionally internal-only: its port is exposed only inside the
+# Docker network, not bound to the host. Wait on the container healthcheck
+# instead of curling localhost:9119, which would fail on a correct install.
+if [[ "$ENABLE_HERMES" == "true" ]]; then
+    if ! _check_container_health "Hermes Agent" "$(sr_container hermes)" 60; then
+        HEALTH_FAILURES=$((HEALTH_FAILURES + 1))
+    fi
+fi
+# hermes-proxy is the LAN-facing entry and has an anonymous /health endpoint.
+[[ "$ENABLE_HERMES" == "true" ]] && _check_health "Hermes Proxy" "http://127.0.0.1:${SERVICE_PORTS[hermes-proxy]:-9120}${SERVICE_HEALTH[hermes-proxy]:-/health}" 60 5 "$(sr_container hermes-proxy)"
+[[ "$ENABLE_OPENCLAW" == "true" ]] && _check_health "OpenClaw" "http://127.0.0.1:${SERVICE_PORTS[openclaw]:-7860}${SERVICE_HEALTH[openclaw]:-/}" 150 10 "$(sr_container openclaw)"
+systemctl --user is-active opencode-web &>/dev/null && _check_health "OpenCode Web" "http://127.0.0.1:3003/" 10 5
 # Whisper: 150 attempts * adaptive backoff = up to ~20 minutes (model download on first start)
 dream_progress 95 "health" "Checking voice services"
-[[ "$ENABLE_VOICE" == "true" ]] && _check_health "Whisper (STT)" "http://localhost:${SERVICE_PORTS[whisper]:-9000}${SERVICE_HEALTH[whisper]:-/health}" 150 10
-[[ "$ENABLE_VOICE" == "true" ]] && _check_health "Kokoro (TTS)" "http://localhost:${SERVICE_PORTS[tts]:-8880}${SERVICE_HEALTH[tts]:-/health}" 150 10
+[[ "$ENABLE_VOICE" == "true" ]] && _check_health "Whisper (STT)" "http://127.0.0.1:${SERVICE_PORTS[whisper]:-9000}${SERVICE_HEALTH[whisper]:-/health}" 150 10 "$(sr_container whisper)"
+[[ "$ENABLE_VOICE" == "true" ]] && _check_health "Kokoro (TTS)" "http://127.0.0.1:${SERVICE_PORTS[tts]:-8880}${SERVICE_HEALTH[tts]:-/health}" 150 10 "$(sr_container tts)"
 
 # Pre-download the Whisper STT model so first transcription is instant.
 # Speaches does NOT auto-download on transcription requests — it returns 404.
@@ -178,7 +269,7 @@ if [[ "$ENABLE_VOICE" == "true" ]]; then
     fi
     STT_MODEL_ENCODED="${STT_MODEL//\//%2F}"
     WHISPER_PORT_RESOLVED="${SERVICE_PORTS[whisper]:-9000}"
-    WHISPER_URL="http://localhost:${WHISPER_PORT_RESOLVED}"
+    WHISPER_URL="http://127.0.0.1:${WHISPER_PORT_RESOLVED}"
     STT_RECOVERY_CMD="curl --max-time 3600 -X POST ${WHISPER_URL}/v1/models/${STT_MODEL_ENCODED}"
 
     # Step 1: wait briefly for the models API to be ready. Whisper's /health
@@ -218,9 +309,9 @@ if [[ "$ENABLE_VOICE" == "true" ]]; then
 fi
 
 dream_progress 96 "health" "Checking workflow and RAG services"
-[[ "$ENABLE_WORKFLOWS" == "true" ]] && _check_health "n8n" "http://localhost:${SERVICE_PORTS[n8n]:-5678}${SERVICE_HEALTH[n8n]:-/healthz}" 150 10
-[[ "$ENABLE_RAG" == "true" ]] && _check_health "Qdrant" "http://localhost:${SERVICE_PORTS[qdrant]:-6333}${SERVICE_HEALTH[qdrant]:-/}" 150 10
-[[ "${ENABLE_DREAMFORGE:-}" == "true" ]] && _check_health "DreamForge" "http://localhost:${SERVICE_PORTS[dreamforge]:-3010}${SERVICE_HEALTH[dreamforge]:-/health}" 150 10
+[[ "$ENABLE_WORKFLOWS" == "true" ]] && _check_health "n8n" "http://127.0.0.1:${SERVICE_PORTS[n8n]:-5678}${SERVICE_HEALTH[n8n]:-/healthz}" 150 10 "$(sr_container n8n)"
+[[ "$ENABLE_RAG" == "true" ]] && _check_health "Qdrant" "http://127.0.0.1:${SERVICE_PORTS[qdrant]:-6333}${SERVICE_HEALTH[qdrant]:-/}" 150 10 "$(sr_container qdrant)"
+[[ "${ENABLE_DREAMFORGE:-}" == "true" ]] && _check_health "DreamForge" "http://127.0.0.1:${SERVICE_PORTS[dreamforge]:-3010}${SERVICE_HEALTH[dreamforge]:-/health}" 150 10 "$(sr_container dreamforge)"
 
 dream_progress 97 "health" "Health checks complete"
 echo ""

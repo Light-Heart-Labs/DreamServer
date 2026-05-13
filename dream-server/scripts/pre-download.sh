@@ -17,6 +17,14 @@
 # Cache location: ~/.cache/huggingface/hub/
 #=============================================================================
 
+# Require Bash 4+ (associative arrays used for tier → model mapping)
+if (( BASH_VERSINFO[0] < 4 )); then
+    echo "ERROR: $(basename "$0") requires Bash 4.0+ (you have $BASH_VERSION)" >&2
+    echo "  macOS ships Bash 3.2 due to licensing. Install a modern version:" >&2
+    echo "    brew install bash" >&2
+    exit 1
+fi
+
 set -euo pipefail
 
 # Colors
@@ -228,23 +236,23 @@ verify_cache() {
     for tier in nano edge pro cluster; do
         local tier_model="${TIER_MODELS[$tier]}"
         if verify_model "$tier_model" 2>/dev/null; then
-            ((found++))
+            ((found++)) || true
         else
             echo -e "  ${RED}✗${NC} $tier: Not cached"
-            ((missing++))
+            ((missing++)) || true
         fi
     done
-    
+
     # Check optional
     echo ""
     if verify_model "$STT_MODEL" 2>/dev/null; then
-        ((found++))
+        ((found++)) || true
     else
         echo -e "  ${YELLOW}○${NC} STT (Whisper): Not cached (optional)"
     fi
-    
+
     if verify_model "$TTS_MODEL" 2>/dev/null; then
-        ((found++))
+        ((found++)) || true
     else
         echo -e "  ${YELLOW}○${NC} TTS (Kokoro): Not cached (optional)"
     fi

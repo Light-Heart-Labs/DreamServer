@@ -34,9 +34,20 @@ if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
   done
   if ! command -v brew >/dev/null 2>&1; then
     echo "DreamServer requires Bash 4+ (you have ${BASH_VERSION})." >&2
-    echo "Install Homebrew first:" >&2
-    echo "  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"" >&2
-    echo "Then re-run this installer." >&2
+    echo "macOS ships only Bash 3.2 — the last GPLv2 release Apple was willing to bundle." >&2
+    echo >&2
+    echo "Two-step bootstrap (one-time):" >&2
+    echo >&2
+    echo "  1. Install Homebrew. Requires an admin password and ~3 min:" >&2
+    echo "       /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"" >&2
+    echo >&2
+    echo "  2. Re-run this installer. It will detect Homebrew, run \`brew install bash\` for you, and proceed." >&2
+    echo >&2
+    echo "If \`brew install\` later complains \"Need sudo access on macOS\" under --non-interactive," >&2
+    echo "Homebrew is asking for passwordless sudo. Workaround:" >&2
+    echo "  echo \"\$USER ALL=(ALL) NOPASSWD: ALL\" | sudo tee /etc/sudoers.d/99-dream-install >/dev/null" >&2
+    echo "  sudo chmod 440 /etc/sudoers.d/99-dream-install" >&2
+    echo "(remove the file after install if you'd rather not keep passwordless sudo.)" >&2
     exit 1
   fi
   echo "Installing Bash 4+ via Homebrew (one-time setup)..."
@@ -64,13 +75,18 @@ TIER_OVERRIDE=""
 ENABLE_VOICE=false
 ENABLE_WORKFLOWS=false
 ENABLE_RAG=false
+# Hermes Agent is the new default agent as of 2026-05-12. OpenClaw is
+# deprecated and gates behind --openclaw for the deprecation release.
+ENABLE_HERMES=true
 ENABLE_OPENCLAW=false
+ENABLE_BRAVE_SEARCH=false
 # Langfuse defaults OFF because its clickhouse + postgres + minio stack adds
 # ~500MB baseline memory. Enable via --langfuse, --all, or post-install
 # `dream enable langfuse`. --no-langfuse honored as explicit override so a
 # --all run can still suppress Langfuse.
 ENABLE_LANGFUSE=false
 NO_LANGFUSE_EXPLICIT=false
+OPENCLAW_EXPLICIT=false
 ALL_FEATURES=false
 CLOUD_MODE=false
 
@@ -83,7 +99,10 @@ while [[ $# -gt 0 ]]; do
         --voice)         ENABLE_VOICE=true; shift ;;
         --workflows)     ENABLE_WORKFLOWS=true; shift ;;
         --rag)           ENABLE_RAG=true; shift ;;
-        --openclaw)      ENABLE_OPENCLAW=true; shift ;;
+        --hermes)        ENABLE_HERMES=true; shift ;;
+        --no-hermes)     ENABLE_HERMES=false; shift ;;
+        --openclaw)      ENABLE_OPENCLAW=true; OPENCLAW_EXPLICIT=true; shift ;;
+        --no-openclaw)   ENABLE_OPENCLAW=false; OPENCLAW_EXPLICIT=true; shift ;;
         --langfuse)      ENABLE_LANGFUSE=true; shift ;;
         --no-langfuse)   ENABLE_LANGFUSE=false; NO_LANGFUSE_EXPLICIT=true; shift ;;
         --all)           ALL_FEATURES=true; shift ;;
@@ -96,7 +115,11 @@ if $ALL_FEATURES; then
     ENABLE_VOICE=true
     ENABLE_WORKFLOWS=true
     ENABLE_RAG=true
-    ENABLE_OPENCLAW=true
+    # --all enables the new default Hermes Agent. OpenClaw stays opt-in via
+    # --openclaw during the deprecation release; will be removed entirely
+    # in the next release.
+    ENABLE_HERMES=true
+    $OPENCLAW_EXPLICIT || ENABLE_OPENCLAW=false
     # --all enables Langfuse unless the user explicitly passed --no-langfuse.
     $NO_LANGFUSE_EXPLICIT || ENABLE_LANGFUSE=true
 fi
@@ -113,6 +136,10 @@ source "${LIB_DIR}/tier-map.sh"
 source "${LIB_DIR}/detection.sh"
 source "${LIB_DIR}/preflight-fs.sh"
 source "${LIB_DIR}/env-generator.sh"
+if [[ -f "${SOURCE_ROOT}/installers/lib/compose-failure-report.sh" ]]; then
+    source "${SOURCE_ROOT}/installers/lib/compose-failure-report.sh"
+fi
+source "${SOURCE_ROOT}/installers/lib/readiness-summary.sh"
 
 # ── File-local helpers ──
 # Build a launchd-friendly PATH that includes Docker and Homebrew prefixes.
@@ -144,8 +171,50 @@ _compute_launchd_path() {
     printf '%s' "$path_out"
 }
 
+_require_docker_cpu_budget() {
+    local min_cpus="${1:-6}"
+    local max_pin="${2:-4}"
+    local workload="${3:-compose stack}"
+    local docker_ncpu
+
+    if ! [[ "$min_cpus" =~ ^[0-9]+$ ]] || [[ "$min_cpus" -lt 1 ]]; then
+        min_cpus=6
+    fi
+
+    docker_ncpu=$(get_docker_available_cpus)
+    if [[ "$docker_ncpu" =~ ^[0-9]+$ ]] && [[ "$docker_ncpu" -lt "$min_cpus" ]]; then
+        ai_err "Docker daemon only has ${docker_ncpu} CPU(s); Dream Server's ${workload} pins limits up to ${max_pin} CPUs per service and needs at least ${min_cpus} to avoid 'range of CPUs is from 0.01 to N' compose failures."
+        case "${DOCKER_BACKEND:-unknown}" in
+            colima)
+                ai "Stop and re-create the Colima VM with more CPUs:"
+                ai "    colima stop && colima start --cpu ${min_cpus} --memory 12 --disk 60"
+                ai "Then re-run this installer."
+                ;;
+            desktop)
+                ai "Open Docker Desktop -> Settings -> Resources -> Advanced and raise CPUs to ${min_cpus}+, apply, then re-run."
+                ;;
+            rancher)
+                ai "Open Rancher Desktop -> Preferences -> Virtual Machine -> Hardware and raise CPUs to ${min_cpus}+, apply, then re-run."
+                ;;
+            orbstack)
+                ai "Open OrbStack -> Settings -> System and raise CPU allocation to ${min_cpus}+, then re-run."
+                ;;
+            *)
+                ai "Raise your docker daemon's CPU allocation to ${min_cpus}+ and re-run."
+                ;;
+        esac
+        exit 1
+    fi
+    ai_ok "Docker CPU budget: ${docker_ncpu} (>=${min_cpus} required for ${workload})"
+}
+
 # ── Resolve install directory ──
 INSTALL_DIR="${DS_INSTALL_DIR}"
+
+if ! $OPENCLAW_EXPLICIT && [[ -f "${INSTALL_DIR}/extensions/services/openclaw/compose.yaml" ]]; then
+    ENABLE_OPENCLAW=true
+    ai "Existing OpenClaw install detected; preserving it for this deprecation release"
+fi
 
 # Initialize log file
 mkdir -p "$(dirname "$DS_LOG_FILE")"
@@ -177,20 +246,70 @@ info_box "Chip:" "${APPLE_CHIP}"
 info_box "Variant:" "${APPLE_CHIP_VARIANT}"
 ai_ok "Apple Silicon detected"
 
-# Docker Desktop
+# Docker engine (Docker Desktop, Colima, Rancher Desktop, OrbStack, or a
+# forwarded socket are all acceptable — see lib/detection.sh).
 test_docker_desktop
 if ! $DOCKER_INSTALLED; then
-    ai_err "Docker Desktop not found. Install from https://docs.docker.com/desktop/install/mac-install/"
+    ai_err "Docker engine not found (no \`docker\` CLI on PATH)."
+    ai_err "Pick one and install:"
+    ai_err "  - Docker Desktop:  https://docs.docker.com/desktop/install/mac-install/"
+    ai_err "  - Colima (CLI):    brew install colima docker docker-compose && colima start"
+    ai_err "  - Rancher Desktop: https://rancherdesktop.io"
+    ai_err "  - OrbStack:        https://orbstack.dev"
     exit 1
 fi
 ai_ok "Docker CLI found"
 
 if ! $DOCKER_RUNNING; then
-    ai_err "Docker Desktop is not running."
-    ai "Start it from the Applications folder or menu bar, then re-run this installer."
+    ai_err "Docker daemon is not responding."
+    case "${DOCKER_BACKEND:-unknown}" in
+        desktop)  ai "Start Docker Desktop from /Applications or the menu bar, then re-run this installer." ;;
+        colima)   ai "Run \`colima start\` (e.g. \`colima start --cpu 6 --memory 12 --disk 60\`) then re-run this installer." ;;
+        rancher)  ai "Open Rancher Desktop and wait for the daemon to come up, then re-run this installer." ;;
+        orbstack) ai "Open OrbStack and wait for the daemon to come up, then re-run this installer." ;;
+        *)        ai "Start your docker daemon (Docker Desktop, Colima, Rancher Desktop, OrbStack, ...) and re-run this installer." ;;
+    esac
     exit 1
 fi
-ai_ok "Docker Desktop running (v${DOCKER_VERSION})"
+ai_ok "Docker daemon ready (v${DOCKER_VERSION}, backend=${DOCKER_BACKEND:-unknown})"
+
+# Pre-flight the docker daemon's CPU allocation. Trip early with a clear
+# message rather than letting compose fail after pulls/builds. If the user
+# already requested voice from CLI flags (for example --all), account for
+# Kokoro's 8-CPU pin now; interactive feature selection is checked again
+# after the user picks features.
+_docker_cpu_override="${DREAM_MIN_DOCKER_CPUS:-}"
+_docker_cpu_min="${_docker_cpu_override:-6}"
+_docker_cpu_max_pin=4
+_docker_cpu_workload="base compose stack"
+if $ENABLE_VOICE && [[ -z "$_docker_cpu_override" ]]; then
+    _docker_cpu_min=10
+    _docker_cpu_max_pin=8
+    _docker_cpu_workload="voice-enabled compose stack"
+fi
+_docker_cpu_preflight_min="$_docker_cpu_min"
+_require_docker_cpu_budget "$_docker_cpu_min" "$_docker_cpu_max_pin" "$_docker_cpu_workload"
+
+# Catch a common Colima-after-DockerDesktop config bomb: when a prior
+# Docker Desktop install left `"credsStore": "desktop"` in ~/.docker/config.json
+# and the user has since moved to Colima/Rancher/OrbStack, every `docker
+# compose pull` and `docker compose up` will crash with `error getting
+# credentials - err: exec: "docker-credential-desktop": executable file not
+# found in $PATH`. We strip the stale entry rather than failing the
+# install, because the helper is only meaningful with Docker Desktop.
+if [[ "${DOCKER_BACKEND:-unknown}" != "desktop" ]] && test_stale_docker_creds_store; then
+    ai_warn "Found stale \`credsStore: desktop\` in ~/.docker/config.json — incompatible with backend=${DOCKER_BACKEND:-unknown}."
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c 'import json,sys,os
+p=os.path.expanduser("~/.docker/config.json")
+d=json.load(open(p))
+d.pop("credsStore",None)
+json.dump(d, open(p,"w"), indent=2)' && ai_ok "Stripped credsStore=desktop from ~/.docker/config.json"
+    else
+        ai_err "python3 not available — please remove the \`credsStore\` line from ~/.docker/config.json manually."
+        exit 1
+    fi
+fi
 
 # Filesystem POSIX-permission check
 # The .env file (chmod 600) lives at INSTALL_DIR; a non-POSIX FS makes that
@@ -207,6 +326,16 @@ if $INSTALL_FS_FATAL; then
     exit 1
 fi
 ai_ok "Filesystem supports POSIX permissions"
+
+# Networked-filesystem advisory (warn-only).
+# chmod 600 still applies on NFS/SMB/AFP, but the actual access control is
+# enforced server-side by the share's ACL — other clients with access to the
+# share may read .env regardless of local permissions.
+if [[ "${INSTALL_FS_NETWORKED:-false}" == "true" ]]; then
+    ai_warn "INSTALL_DIR ($INSTALL_DIR) is on a networked filesystem ($INSTALL_FS_TYPE)."
+    ai_warn ".env permissions (chmod 600) are advisory — actual access control is governed by the share's ACL on the server."
+    ai_warn "If this share is exposed to other clients, sensitive credentials may be readable from those hosts."
+fi
 
 # Docker Desktop file-sharing allowlist check
 # Bind-mounts of paths outside the allowlist fail with cryptic OCI errors at
@@ -262,7 +391,12 @@ _conflict_ports=(8080 11434)  # llama-server (native) + Ollama default (host con
 for _manifest in "${SOURCE_ROOT}/extensions/services/"*/manifest.yaml; do
     [[ -f "$_manifest" ]] || continue
     _port=$(grep 'external_port_default:' "$_manifest" 2>/dev/null | awk '{print $2}' | tr -d '"') || true
-    if [[ -n "$_port" && "$_port" =~ ^[0-9]+$ && "$_port" -ne 8080 ]]; then
+    # Skip port 0 — used by internal-only services (e.g. hermes is gated
+    # behind hermes-proxy and exposes nothing) as a "no external port"
+    # sentinel. Passing 0 to check_port_conflict trips lsof rows where the
+    # local-port column reads 0 (identityservicesd does this on macOS) and
+    # produces a confusing "Port 0 is in use" warning.
+    if [[ -n "$_port" && "$_port" =~ ^[0-9]+$ && "$_port" -gt 0 && "$_port" -ne 8080 ]]; then
         _conflict_ports+=("$_port")
     fi
 done
@@ -366,12 +500,14 @@ if ! $NON_INTERACTIVE && ! $ALL_FEATURES && ! $DRY_RUN; then
     case "${feature_choice:-1}" in
         1)
             ENABLE_VOICE=true; ENABLE_WORKFLOWS=true
-            ENABLE_RAG=true; ENABLE_OPENCLAW=true
+            ENABLE_RAG=true; ENABLE_HERMES=true
+            ENABLE_OPENCLAW=false  # deprecated; Hermes is the default
             ENABLE_LANGFUSE=true
             ;;
         2)
             ENABLE_VOICE=false; ENABLE_WORKFLOWS=false
-            ENABLE_RAG=false; ENABLE_OPENCLAW=false
+            ENABLE_RAG=false; ENABLE_HERMES=false
+            ENABLE_OPENCLAW=false
             ENABLE_LANGFUSE=false
             ;;
         3)
@@ -381,14 +517,17 @@ if ! $NON_INTERACTIVE && ! $ALL_FEATURES && ! $DRY_RUN; then
             [[ "$yn" =~ ^[yY] ]] && ENABLE_WORKFLOWS=true
             read -r -p "  Enable RAG (Qdrant + embeddings)? [y/N] " yn < /dev/tty
             [[ "$yn" =~ ^[yY] ]] && ENABLE_RAG=true
-            read -r -p "  Enable OpenClaw (AI agents)?      [y/N] " yn < /dev/tty
+            read -r -p "  Enable Hermes Agent (default AI agent)? [Y/n] " yn < /dev/tty
+            [[ "$yn" =~ ^[nN] ]] && ENABLE_HERMES=false || ENABLE_HERMES=true
+            read -r -p "  Enable OpenClaw (DEPRECATED — Hermes replaces it)? [y/N] " yn < /dev/tty
             [[ "$yn" =~ ^[yY] ]] && ENABLE_OPENCLAW=true
             read -r -p "  Enable Langfuse (LLM observability, ~500MB)? [y/N] " yn < /dev/tty
             [[ "$yn" =~ ^[yY] ]] && ENABLE_LANGFUSE=true
             ;;
         *)
             ENABLE_VOICE=true; ENABLE_WORKFLOWS=true
-            ENABLE_RAG=true; ENABLE_OPENCLAW=true
+            ENABLE_RAG=true; ENABLE_HERMES=true
+            ENABLE_OPENCLAW=false  # deprecated; Hermes is the default
             ENABLE_LANGFUSE=true
             ;;
     esac
@@ -398,8 +537,19 @@ ai "Features:"
 info_box "  Voice:" "$(if $ENABLE_VOICE; then echo enabled; else echo disabled; fi)"
 info_box "  Workflows:" "$(if $ENABLE_WORKFLOWS; then echo enabled; else echo disabled; fi)"
 info_box "  RAG:" "$(if $ENABLE_RAG; then echo enabled; else echo disabled; fi)"
-info_box "  OpenClaw:" "$(if $ENABLE_OPENCLAW; then echo enabled; else echo disabled; fi)"
+info_box "  Hermes:" "$(if $ENABLE_HERMES; then echo enabled; else echo disabled; fi)"
+info_box "  OpenClaw:" "$(if $ENABLE_OPENCLAW; then echo "enabled (DEPRECATED)"; else echo disabled; fi)"
 info_box "  Langfuse:" "$(if $ENABLE_LANGFUSE; then echo enabled; else echo disabled; fi)"
+# The macOS installer doesn't currently ship a ComfyUI container — none of
+# the published ComfyUI images target Apple Silicon Metal, and the upstream
+# Python build under MPS is non-trivial to package as a Docker service.
+# Surface this to operators who passed --all so they aren't left wondering
+# why the dashboard shows no image-gen tile after install.
+info_box "  ComfyUI:" "not available on macOS (no MPS Docker image upstream)"
+
+if $ENABLE_VOICE && [[ -z "$_docker_cpu_override" ]] && [[ "${_docker_cpu_preflight_min:-0}" -lt 10 ]]; then
+    _require_docker_cpu_budget 10 8 "voice-enabled compose stack"
+fi
 
 # ============================================================================
 # PHASE 4 -- SETUP (directories, copy source, generate .env)
@@ -411,6 +561,7 @@ if $DRY_RUN; then
     ai "[DRY RUN] Would copy source files"
     ai "[DRY RUN] Would generate .env with secrets"
     ai "[DRY RUN] Would generate SearXNG config"
+    $ENABLE_HERMES && ai "[DRY RUN] Would configure Hermes Agent (data: ${INSTALL_DIR}/data/hermes)"
     $ENABLE_OPENCLAW && ai "[DRY RUN] Would configure OpenClaw"
     $ENABLE_LANGFUSE && ai "[DRY RUN] Would enable Langfuse (LLM observability)"
 else
@@ -427,6 +578,12 @@ else
     mkdir -p "${INSTALL_DIR}/data/qdrant"
     mkdir -p "${INSTALL_DIR}/data/models"
     mkdir -p "${INSTALL_DIR}/data/privacy-shield"
+    mkdir -p "${INSTALL_DIR}/data/dreamforge"
+    mkdir -p "${INSTALL_DIR}/data/ape"
+    mkdir -p "${INSTALL_DIR}/data/token-spy"
+    mkdir -p "${INSTALL_DIR}/data/hermes"
+    mkdir -p "${INSTALL_DIR}/data/hermes-proxy/caddy-data"
+    mkdir -p "${INSTALL_DIR}/data/hermes-proxy/caddy-config"
     mkdir -p "${INSTALL_DIR}/data/langfuse/postgres"
     mkdir -p "${INSTALL_DIR}/data/langfuse/clickhouse"
     mkdir -p "${INSTALL_DIR}/data/langfuse/redis"
@@ -592,6 +749,41 @@ else
             sed -i '' "s|^CTX_SIZE=.*|CTX_SIZE=${MAX_CONTEXT}|" "$_env_file"
             ai_ok "Patched .env for bootstrap model ($GGUF_FILE)"
         fi
+
+    fi
+
+    # ── Hermes config substitution (macOS-specific) ──
+    #
+    # Same pattern as the Linux phase 11 substitution but with the
+    # macOS-specific base_url. The template ships with
+    # `base_url: "http://llama-server:8080/v1"`, which only resolves
+    # inside the dream-server compose bridge. On macOS llama-server
+    # runs native on the host (Metal binary, port 8080), so the
+    # Hermes container reaches it via host.docker.internal — and
+    # crucially `model.base_url` in cli-config.yaml WINS over the
+    # OPENAI_BASE_URL env compose.yaml sets, so the env override the
+    # Linux path relies on doesn't help here.
+    #
+    # Also patch model.default to the actual served file name. Native
+    # Mac llama.cpp serves under the file basename (Qwen3.5-9B-Q4_K_M.gguf
+    # rather than the friendly "qwen3.5-9b" the template ships with).
+    # This must run for all local macOS installs, not only bootstrap mode:
+    # Tier 0, offline/no-bootstrap, and already-downloaded full models need
+    # the same host.docker.internal base_url.
+    if ! $CLOUD_MODE; then
+        _hermes_tpl="${INSTALL_DIR}/extensions/services/hermes/cli-config.yaml.template"
+        if [[ -f "$_hermes_tpl" ]]; then
+            sed -i '' \
+                -e "s|^  default: \"qwen3.5-9b\"|  default: \"${GGUF_FILE}\"|" \
+                -e "s|^  base_url: \"http://llama-server:8080/v1\"|  base_url: \"http://host.docker.internal:${OLLAMA_PORT:-8080}/v1\"|" \
+                "$_hermes_tpl"
+            if grep -q "host.docker.internal" "$_hermes_tpl" && \
+               grep -q "^  default: \"${GGUF_FILE}\"$" "$_hermes_tpl"; then
+                ai_ok "Patched Hermes template for macOS (model=${GGUF_FILE}, base_url=host.docker.internal)"
+            else
+                ai_warn "Hermes template patch incomplete — Hermes may fail to reach llama-server. Hand-edit ${_hermes_tpl} if prompts hang."
+            fi
+        fi
     fi
 
     # ── Download and start native llama-server (Metal) ──
@@ -684,6 +876,22 @@ else
                 sleep 2
             fi
         fi
+        # Reap orphan native llama-server processes from prior install runs.
+        # The PID file only tracks the most recent process, so model switches
+        # or interrupted installs can leave older copies shadowing the new
+        # config. Scope to this install dir so personal llama-server installs
+        # elsewhere are left alone, and do this only when we are about to start
+        # the replacement server so failed preflights do not take a working
+        # server down.
+        _reaped=0
+        if command -v pgrep >/dev/null 2>&1 && [[ -x "${LLAMA_SERVER_BIN:-}" ]]; then
+            while read -r _pid; do
+                [[ -z "$_pid" ]] && continue
+                kill "$_pid" 2>/dev/null && _reaped=$((_reaped + 1))
+            done < <(pgrep -f "$LLAMA_SERVER_BIN" 2>/dev/null)
+            [[ "$_reaped" -gt 0 ]] && ai "Reaped $_reaped orphan llama-server process(es) from prior install run(s)."
+        fi
+        unset _reaped
 
         # Read reasoning mode from .env (default off to prevent thinking models
         # from consuming the entire token budget on internal reasoning)
@@ -702,14 +910,24 @@ else
         _bind=$(grep '^BIND_ADDRESS=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
         [[ -z "$_bind" ]] && _bind="127.0.0.1"
 
-        "$LLAMA_SERVER_BIN" \
-            --host "$_bind" --port 8080 \
-            --model "$MODEL_FULL_PATH" \
-            --ctx-size "$MAX_CONTEXT" \
-            --n-gpu-layers 999 \
-            --reasoning-format "$_reasoning_fmt" \
-            --metrics \
-            > "$LLAMA_SERVER_LOG" 2>&1 &
+        _flash_attn=$(grep '^LLAMA_ARG_FLASH_ATTN=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+        _cache_type_k=$(grep '^LLAMA_ARG_CACHE_TYPE_K=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+        _cache_type_v=$(grep '^LLAMA_ARG_CACHE_TYPE_V=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+        _n_cpu_moe=$(grep '^LLAMA_ARG_N_CPU_MOE=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+        _llama_args=(
+            --host "$_bind" --port 8080
+            --model "$MODEL_FULL_PATH"
+            --ctx-size "$MAX_CONTEXT"
+            --n-gpu-layers 999
+            --reasoning-format "$_reasoning_fmt"
+            --metrics
+        )
+        [[ -n "$_flash_attn" ]] && _llama_args+=(--flash-attn "$_flash_attn")
+        [[ -n "$_cache_type_k" ]] && _llama_args+=(--cache-type-k "$_cache_type_k")
+        [[ -n "$_cache_type_v" ]] && _llama_args+=(--cache-type-v "$_cache_type_v")
+        [[ -n "$_n_cpu_moe" ]] && _llama_args+=(--n-cpu-moe "$_n_cpu_moe")
+
+        "$LLAMA_SERVER_BIN" "${_llama_args[@]}" > "$LLAMA_SERVER_LOG" 2>&1 &
         LLAMA_PID=$!
         echo "$LLAMA_PID" > "$LLAMA_SERVER_PID_FILE"
 
@@ -721,7 +939,7 @@ else
         while [[ "$WAITED" -lt "$MAX_WAIT" ]]; do
             sleep 2
             WAITED=$((WAITED + 2))
-            if curl -sf --max-time 10 http://localhost:8080/health >/dev/null 2>&1; then
+            if curl -sf --max-time 10 http://127.0.0.1:8080/health >/dev/null 2>&1; then
                 HEALTHY=true
                 break
             fi
@@ -738,6 +956,26 @@ else
 
         if $HEALTHY; then
             ai_ok "Native llama-server healthy (PID ${LLAMA_PID})"
+
+            # ── Pre-warm the LLM slot ──
+            # /health returning 200 only means the model is mmap'd. The
+            # FIRST chat completion still has to materialize KV cache and
+            # JIT compile fused kernels — during that, llama-server 503s
+            # concurrent requests. Hermes Agent's default 3-retry / 120s
+            # budget burns out on this on slower hardware, so we force
+            # the slot through cold path here while we're already in the
+            # "this may take a minute" install context. Bounded by curl
+            # --max-time so a stalled llama-server can't hang the install.
+            _prewarm_url="http://127.0.0.1:${OLLAMA_PORT:-8080}/v1/chat/completions"
+            _prewarm_model="${GGUF_FILE:-default}"
+            _prewarm_body="{\"model\":\"${_prewarm_model}\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1,\"temperature\":0,\"stream\":false}"
+            if curl -sf --max-time 120 -X POST "$_prewarm_url" \
+                -H "Content-Type: application/json" \
+                -d "$_prewarm_body" >/dev/null 2>&1; then
+                ai_ok "LLM slot pre-warmed (first real chat will be fast)"
+            else
+                ai_warn "LLM pre-warm timed out — first Hermes prompt may need a retry while the slot warms."
+            fi
         else
             ai_warn "llama-server did not become healthy within ${MAX_WAIT}s. It may still be loading."
         fi
@@ -781,6 +1019,27 @@ else
     fi
     unset _langfuse_svc_dir
 
+    # Brave Search is a paid-API, post-install opt-in service. Keep its compose
+    # fragment disabled during installer-driven stack assembly so it does not
+    # start without a user-provided BRAVE_SEARCH_API_KEY.
+    _brave_svc_dir="${EXT_DIR}/brave-search"
+    if [[ -d "$_brave_svc_dir" ]]; then
+        _brave_compose="${_brave_svc_dir}/compose.yaml"
+        if [[ "${ENABLE_BRAVE_SEARCH:-false}" == "true" ]]; then
+            if [[ ! -f "$_brave_compose" && -f "${_brave_compose}.disabled" ]]; then
+                mv "${_brave_compose}.disabled" "$_brave_compose"
+                ai_ok "Brave Search compose re-enabled"
+            fi
+        else
+            if [[ -f "$_brave_compose" ]]; then
+                mv "$_brave_compose" "${_brave_compose}.disabled"
+                log "Brave Search compose disabled (API key not configured)"
+            fi
+        fi
+        unset _brave_compose
+    fi
+    unset _brave_svc_dir
+
     if [[ -d "$EXT_DIR" ]]; then
         for SVC_DIR in "$EXT_DIR"/*/; do
             [[ ! -d "$SVC_DIR" ]] && continue
@@ -823,13 +1082,26 @@ else
                 whisper|tts)   $ENABLE_VOICE || SKIP=true ;;
                 n8n)           $ENABLE_WORKFLOWS || SKIP=true ;;
                 qdrant|embeddings) $ENABLE_RAG || SKIP=true ;;
+                hermes|hermes-proxy) $ENABLE_HERMES || SKIP=true ;;
                 openclaw)      $ENABLE_OPENCLAW || SKIP=true ;;
                 langfuse)      $ENABLE_LANGFUSE || SKIP=true ;;
+                brave-search)  [[ "${ENABLE_BRAVE_SEARCH:-false}" == "true" ]] || SKIP=true ;;
             esac
             $SKIP && continue
 
             REL_PATH="${COMPOSE_PATH#"${INSTALL_DIR}/"}"
             COMPOSE_FLAGS+=("-f" "$REL_PATH")
+
+            # GPU-backend overlay (mirrors resolve-compose-stack.sh discovery).
+            # E.g. extensions/services/litellm/compose.apple.yaml on macOS.
+            # Skipped in cloud mode (CURRENT_BACKEND=none) since no native
+            # GPU/host-gateway patches apply when llama-server runs remotely.
+            if [[ "$CURRENT_BACKEND" != "none" ]]; then
+                GPU_OVERLAY_PATH="${SVC_DIR}compose.${CURRENT_BACKEND}.yaml"
+                if [[ -f "$GPU_OVERLAY_PATH" ]]; then
+                    COMPOSE_FLAGS+=("-f" "${GPU_OVERLAY_PATH#"${INSTALL_DIR}/"}")
+                fi
+            fi
         done
     fi
 
@@ -866,15 +1138,52 @@ else
 
     # ── Start Docker services ──
     chapter "STARTING SERVICES"
-    ai "Running: docker compose ${COMPOSE_FLAGS[*]} up -d"
+
+    # ── Rebuild local-built images ─────────────────────────────────────
+    # Mirrors phases/11-services.sh on Linux: local Dockerfiles (dashboard,
+    # dashboard-api, ape, token-spy, privacy-shield, and Apple-Silicon
+    # DreamForge builds) can drift from the baked images, so we always
+    # rebuild without cache before `up -d`.
+    # ComfyUI has no Apple-Silicon variant (only amd/nvidia/multigpu); the
+    # llama-server runs natively on macOS via Metal — neither is built here.
+    ai "Rebuilding local-built images (no-cache)..."
+    _macos_build_services=(dashboard dashboard-api ape token-spy privacy-shield)
+    _dreamforge_pull_policy="$(grep -m1 '^DREAMFORGE_PULL_POLICY=' "${INSTALL_DIR}/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'\''[:space:]' || true)"
+    [[ "$_dreamforge_pull_policy" == "build" ]] && _macos_build_services+=(dreamforge)
+    declare -a _macos_build_pids _macos_build_names
+    for _svc in "${_macos_build_services[@]}"; do
+        docker compose "${COMPOSE_FLAGS[@]}" build --no-cache "$_svc" >> "$DS_LOG_FILE" 2>&1 &
+        _macos_build_pids+=($!)
+        _macos_build_names+=("$_svc")
+    done
+    for _i in "${!_macos_build_pids[@]}"; do
+        wait "${_macos_build_pids[$_i]}" || ai_warn "Build failed for ${_macos_build_names[$_i]} (see $DS_LOG_FILE)"
+    done
+    ai_ok "Local images rebuilt"
+
+    ai "Running: docker compose ${COMPOSE_FLAGS[*]} up -d --remove-orphans --no-build"
+    _compose_up_log="${INSTALL_DIR}/logs/compose-up.log"
+    mkdir -p "${INSTALL_DIR}/logs"
+    : > "$_compose_up_log"
     set +o pipefail  # pipefail would abort on compose exit before PIPESTATUS is read; capture it first
-    docker compose "${COMPOSE_FLAGS[@]}" up -d 2>&1 | while IFS= read -r line; do
+    docker compose "${COMPOSE_FLAGS[@]}" up -d --remove-orphans --no-build 2>&1 | tee -a "$_compose_up_log" | while IFS= read -r line; do
         echo "  $line"
     done
     compose_exit="${PIPESTATUS[0]}"
     set -o pipefail
 
     if [[ "$compose_exit" -ne 0 ]]; then
+        if command -v write_compose_failure_report >/dev/null 2>&1; then
+            _compose_report_path="$(COMPOSE_FLAGS_REPORT="${COMPOSE_FLAGS[*]}" write_compose_failure_report \
+                "$INSTALL_DIR" \
+                "install-macos docker compose up" \
+                "docker compose ${COMPOSE_FLAGS[*]} up -d --remove-orphans --no-build" \
+                "$_compose_up_log" \
+                "apple" \
+                "Open the saved report, fix the failed image/port/compose error it identifies, then re-run ./installers/macos.sh." |
+                tail -n 1)" || true
+            [[ -n "${_compose_report_path:-}" ]] && ai_warn "Compose failure report saved: $_compose_report_path"
+        fi
         ai_err "docker compose up failed"
         exit 1
     fi
@@ -1163,7 +1472,7 @@ if [[ "$ENABLE_VOICE" == "true" ]]; then
     STT_MODEL_ENCODED="${STT_MODEL//\//%2F}"
     # macOS reassigns Whisper to 9100 if port 9000 is in use (AirPlay Receiver).
     WHISPER_PORT_RESOLVED="${WHISPER_PORT:-9000}"
-    WHISPER_URL="http://localhost:${WHISPER_PORT_RESOLVED}"
+    WHISPER_URL="http://127.0.0.1:${WHISPER_PORT_RESOLVED}"
     STT_RECOVERY_CMD="curl --max-time 3600 -X POST ${WHISPER_URL}/v1/models/${STT_MODEL_ENCODED}"
 
     # Step 1: wait briefly for the models API to be ready (max 15s).
@@ -1230,5 +1539,17 @@ if ! $ALL_HEALTHY; then
     echo -e "  ${GRN}./dream-macos.sh status${NC}"
     echo ""
 fi
+
+{
+    printf 'Dashboard|http://127.0.0.1:3001|dream-dashboard|http://localhost:3001\n'
+    printf 'Chat UI (Open WebUI)|http://127.0.0.1:3000|dream-webui|http://localhost:3000\n'
+    printf 'llama-server|http://127.0.0.1:8080/health||http://localhost:8080/v1\n'
+    printf 'Dashboard API|http://127.0.0.1:3002/health|dream-dashboard-api|http://localhost:3002\n'
+    printf 'LiteLLM|http://127.0.0.1:4000/health/readiness|dream-litellm|http://localhost:4000\n'
+    printf 'Perplexica|http://127.0.0.1:3004|dream-perplexica|http://localhost:3004\n'
+    $ENABLE_VOICE && printf 'Whisper (STT)|http://127.0.0.1:%s/health|dream-whisper|http://localhost:%s\n' "${WHISPER_PORT:-9000}" "${WHISPER_PORT:-9000}"
+    $ENABLE_WORKFLOWS && printf 'n8n|http://127.0.0.1:5678/healthz|dream-n8n|http://localhost:5678\n'
+    [[ -x "$OPENCODE_BIN" ]] && printf 'OpenCode (IDE)|http://127.0.0.1:%s||http://localhost:%s\n' "$OPENCODE_PORT" "$OPENCODE_PORT"
+} | dream_readiness_summary "./dream-macos.sh status" "$DS_LOG_FILE" "http://localhost:3001"
 
 show_success_card

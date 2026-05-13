@@ -85,12 +85,20 @@ get_macos_version() {
     esac
 }
 
-# ── Docker Desktop ──
+# ── Docker engine detection ──
+#
+# Despite the legacy function name, this only requires a working docker
+# CLI talking to a working daemon — Docker Desktop is one option, but
+# Colima, Rancher Desktop, OrbStack, and a docker socket forwarded from
+# a Linux VM all satisfy the install's actual needs (the install
+# interacts with `docker info`, `docker compose`, image pulls, bind
+# mounts — all of which are daemon-agnostic).
 
 test_docker_desktop() {
     DOCKER_INSTALLED=false
     DOCKER_RUNNING=false
     DOCKER_VERSION=""
+    DOCKER_BACKEND="unknown"  # "desktop" | "colima" | "rancher" | "orbstack" | "other"
 
     # Check if docker CLI is available
     if ! command -v docker >/dev/null 2>&1; then
@@ -98,11 +106,43 @@ test_docker_desktop() {
     fi
     DOCKER_INSTALLED=true
 
+    # Identify the backend before probing the daemon so a stopped engine can
+    # still get backend-specific startup guidance.
+    local _ctx _ep _backend_hint
+    _ctx=$(docker context show 2>/dev/null || true)
+    if [[ -n "$_ctx" ]]; then
+        _ep=$(docker context inspect "$_ctx" --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)
+    else
+        _ep=$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)
+    fi
+    _backend_hint="${_ctx} ${_ep}"
+    case "$_backend_hint" in
+        *com.docker.docker*|*docker-desktop*|*desktop-linux*) DOCKER_BACKEND="desktop" ;;
+        *colima*)                                             DOCKER_BACKEND="colima" ;;
+        *rancher-desktop*|*rd-sock*)                          DOCKER_BACKEND="rancher" ;;
+        *orbstack*)                                           DOCKER_BACKEND="orbstack" ;;
+        *)                                                    DOCKER_BACKEND="other" ;;
+    esac
+
     # Check if Docker daemon is responsive
     if docker version >/dev/null 2>&1; then
         DOCKER_RUNNING=true
         DOCKER_VERSION=$(docker version --format '{{.Server.Version}}' 2>/dev/null || echo "unknown")
     fi
+}
+
+# Detect a stale `credsStore: desktop` config (left by `brew install docker`
+# or by a prior Docker Desktop install). Under any non-Desktop backend, this
+# entry causes `docker compose up` to crash with
+#   error getting credentials - err: exec: "docker-credential-desktop":
+#   executable file not found in $PATH
+# Returns 0 if the config has the bad entry AND the helper binary is missing.
+test_stale_docker_creds_store() {
+    local cfg="$HOME/.docker/config.json"
+    [[ -f "$cfg" ]] || return 1
+    grep -q '"credsStore"[[:space:]]*:[[:space:]]*"desktop"' "$cfg" || return 1
+    command -v docker-credential-desktop >/dev/null 2>&1 && return 1
+    return 0
 }
 
 get_host_logical_cpus() {

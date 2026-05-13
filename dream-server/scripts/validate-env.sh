@@ -7,6 +7,19 @@
 #  - Validate required keys, unknown keys, types, enums, and numeric ranges
 #  - Fail deterministically with a single exit code for CI
 
+# Require Bash 4+ (associative arrays used below).
+# macOS ships Bash 3.2 due to licensing; the system /bin/bash will crash on
+# `declare -A`. When launched via dream-cli this is invoked through "$BASH",
+# but this guard protects direct invocations (e.g. /bin/bash validate-env.sh).
+if (( BASH_VERSINFO[0] < 4 )); then
+    echo "✗ validate-env.sh requires Bash 4+ (you have ${BASH_VERSION})" >&2
+    echo "  macOS ships Bash 3.2 — install a modern Bash:" >&2
+    echo "    brew install bash" >&2
+    echo "  Then re-run with the Homebrew bash, e.g.:" >&2
+    echo "    /opt/homebrew/bin/bash $0 $*" >&2
+    exit 1
+fi
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

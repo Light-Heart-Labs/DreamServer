@@ -46,12 +46,12 @@ EOF
 
 error() {
     echo -e "${RED}✗ ERROR:${NC} $*" >&2
-    ((ERRORS++))
+    ((ERRORS++)) || true
 }
 
 warn() {
     echo -e "${YELLOW}⚠ WARNING:${NC} $*" >&2
-    ((WARNINGS++))
+    ((WARNINGS++)) || true
 }
 
 info() {
@@ -147,8 +147,8 @@ PYEOF
 
     case $? in
         0) success "$service_name: Valid"; return 0 ;;
-        1) ((ERRORS++)); return 1 ;;
-        2) ((WARNINGS++)); return 0 ;;
+        1) ((ERRORS++)) || true; return 1 ;;
+        2) ((WARNINGS++)) || true; return 0 ;;
     esac
 }
 
@@ -176,8 +176,8 @@ for dir in "$EXTENSIONS_DIR"/*/; do
         [[ -f "$dir/$name" ]] && manifest="$dir/$name" && break
     done
     [[ -z "$manifest" ]] && { warn "$(basename "$dir"): No manifest"; continue; }
-    ((TOTAL++))
-    validate_manifest "$manifest" && ((VALID++))
+    ((TOTAL++)) || true
+    validate_manifest "$manifest" && { ((VALID++)) || true; }
 done
 
 # Summary

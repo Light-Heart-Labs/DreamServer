@@ -9,7 +9,6 @@ export default function SetupWizard({ onComplete }) {
   const [config, setConfig] = useState({
     userName: '',
     voice: 'af_heart',
-    tested: false,
     preflightPassed: false
   })
   const [testStatus, setTestStatus] = useState({ running: false, output: [], done: false, success: false })
@@ -133,9 +132,6 @@ export default function SetupWizard({ onComplete }) {
         : collected.some(l => l.includes('All tests passed!'))
 
       setTestStatus(prev => ({ ...prev, running: false, done: true, success }))
-      if (success) {
-        setConfig(c => ({ ...c, tested: true }))
-      }
     } catch (err) {
       // Aborted fetches throw AbortError. That's the user cancelling or the
       // component unmounting — don't surface it as a user-visible error.
@@ -150,9 +146,20 @@ export default function SetupWizard({ onComplete }) {
     }
   }
 
-  const saveConfig = () => {
+  const saveConfig = async () => {
+    // localStorage retains the wizard's *answers* (voice / userName etc.)
+    // for the dashboard to consult later, but is no longer the source of
+    // truth for "have we onboarded?" — that lives on the server now.
     localStorage.setItem('dream-config', JSON.stringify(config))
-    localStorage.setItem('dream-dashboard-visited', 'true')
+    try {
+      // The server endpoint writes setup-complete.json which the
+      // useFirstRun hook reads. Best-effort: if it fails (e.g. dashboard-api
+      // restarting mid-wizard) we still dismiss the wizard so the user
+      // isn't trapped, and rely on the next refresh to converge.
+      await fetch('/api/setup/complete', { method: 'POST' })
+    } catch (err) {
+      console.error('Failed to mark setup complete on server:', err)
+    }
     onComplete()
   }
 
@@ -330,9 +337,21 @@ export default function SetupWizard({ onComplete }) {
               )}
 
               {testStatus.done && (
-                <div className={`mt-4 p-4 rounded-lg ${testStatus.success ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-                  {testStatus.success ? '✓ All systems operational' : '✗ Some tests failed — check logs'}
+                <div className={`mt-4 p-4 rounded-lg ${testStatus.success ? 'bg-green-500/20 text-green-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                  {testStatus.success
+                    ? '✓ All systems operational'
+                    : '⚠ Some tests failed — review the log above. You can re-run, or continue anyway and revisit from the Diagnostics tab later.'}
                 </div>
+              )}
+
+              {testStatus.done && !testStatus.success && (
+                <button
+                  onClick={runDiagnostics}
+                  disabled={testStatus.running}
+                  className="mt-4 px-4 py-2 text-sm bg-theme-card hover:bg-theme-surface-hover text-theme-text rounded-lg transition-colors disabled:opacity-50"
+                >
+                  Re-run Diagnostics
+                </button>
               )}
             </div>
           )}
@@ -365,11 +384,15 @@ export default function SetupWizard({ onComplete }) {
             ) : (
               <button
                 onClick={saveConfig}
-                disabled={!config.tested}
-                className="flex items-center gap-2 px-6 py-2 bg-green-600 hover:bg-green-700 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+                disabled={!testStatus.done}
+                className={`flex items-center gap-2 px-6 py-2 ${
+                  testStatus.success
+                    ? 'bg-green-600 hover:bg-green-700'
+                    : 'bg-amber-600 hover:bg-amber-700'
+                } disabled:bg-zinc-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors`}
               >
                 <CheckCircle className="w-5 h-5" />
-                Complete Setup
+                {testStatus.success ? 'Complete Setup' : 'Continue Anyway'}
               </button>
             )}
           </div>

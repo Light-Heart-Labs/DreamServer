@@ -2,6 +2,14 @@
 # Dream Server — Progress Bar Utilities
 # Sourced by install-core.sh for download/install progress display
 
+# Require Bash 4+ (associative array PHASE_ESTIMATES used for phase timing)
+if (( BASH_VERSINFO[0] < 4 )); then
+    echo "ERROR: $(basename "${BASH_SOURCE[0]}") requires Bash 4.0+ (current: $BASH_VERSION)" >&2
+    echo "  macOS ships Bash 3.2 due to licensing. Install a modern version:" >&2
+    echo "    brew install bash" >&2
+    return 1 2>/dev/null || exit 1
+fi
+
 # ═══════════════════════════════════════════════════════════════
 # PROGRESS BAR
 # ═══════════════════════════════════════════════════════════════

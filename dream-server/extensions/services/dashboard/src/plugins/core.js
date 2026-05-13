@@ -6,6 +6,8 @@ import {
   Activity,
   Box,
   ListChecks,
+  Network,
+  UserPlus,
 } from 'lucide-react'
 
 const Dashboard = lazy(() => import('../pages/Dashboard'))
@@ -14,6 +16,8 @@ const Extensions = lazy(() => import('../pages/Extensions'))
 const GPUMonitor = lazy(() => import('../pages/GPUMonitor'))
 const Models = lazy(() => import('../pages/Models'))
 const Projects = lazy(() => import('../pages/Projects'))
+const ServiceMap = lazy(() => import('../pages/ServiceMap'))
+const Invites = lazy(() => import('../pages/Invites'))
 
 export const coreRoutes = [
   {
@@ -45,6 +49,17 @@ export const coreRoutes = [
     component: Extensions,
     getProps: () => ({}),
     sidebar: true,
+    order: 2,
+  },
+  {
+    id: 'integrations',
+    path: '/extensions/integrations',
+    label: 'Integrations',
+    icon: Network,
+    component: ServiceMap,
+    getProps: () => ({}),
+    sidebar: true,
+    order: 2.1,
   },
   {
     id: 'models',
@@ -69,6 +84,15 @@ export const coreRoutes = [
       (status?.services || []).some((s) =>
         (s.name || '').toLowerCase().includes('vikunja')
       ),
+  },
+  {
+    id: 'invites',
+    path: '/invites',
+    label: 'Invites',
+    icon: UserPlus,
+    component: Invites,
+    getProps: () => ({}),
+    sidebar: true,
     order: 4,
   },
   {

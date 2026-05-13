@@ -6,19 +6,28 @@
 # Purpose: Interactive feature selection menu
 #
 # Expects: INTERACTIVE, DRY_RUN, TIER, ENABLE_VOICE, ENABLE_WORKFLOWS,
-#           ENABLE_RAG, ENABLE_OPENCLAW, GPU_COUNT, GPU_BACKEND,
+#           ENABLE_RAG, ENABLE_HERMES, ENABLE_OPENCLAW, GPU_COUNT, GPU_BACKEND,
+#           HOST_ARCH,
 #           GPU_TOPOLOGY_JSON, LLM_MODEL_SIZE_MB, SCRIPT_DIR, VERBOSE, DEBUG,
 #           GPU_INDICES, GPU_UUIDS (arrays from topology),
 #           show_phase(), show_install_menu(), chapter(), bootline(),
 #           success(), log(), warn(), error(), signal()
-# Provides: ENABLE_VOICE, ENABLE_WORKFLOWS, ENABLE_RAG, ENABLE_OPENCLAW,
-#           OPENCLAW_CONFIG, GPU_ASSIGNMENT_JSON,
+# Provides: ENABLE_VOICE, ENABLE_WORKFLOWS, ENABLE_RAG, ENABLE_EMBEDDINGS,
+#           ENABLE_HERMES, ENABLE_OPENCLAW, OPENCLAW_CONFIG, GPU_ASSIGNMENT_JSON,
 #           LLAMA_SERVER_GPU_UUIDS, WHISPER_GPU_UUID, COMFYUI_GPU_UUID,
 #           EMBEDDINGS_GPU_UUID, LLAMA_ARG_SPLIT_MODE, LLAMA_ARG_TENSOR_SPLIT
 #
 # Modder notes:
 #   Add new optional features to the Custom menu here.
 # ============================================================================
+
+# Require Bash 4+ (associative arrays used for GPU topology/link maps)
+if (( BASH_VERSINFO[0] < 4 )); then
+    echo "ERROR: $(basename "${BASH_SOURCE[0]}") requires Bash 4.0+ (current: $BASH_VERSION)" >&2
+    echo "  macOS ships Bash 3.2 due to licensing. Install a modern version:" >&2
+    echo "    brew install bash" >&2
+    return 1 2>/dev/null || exit 1
+fi
 
 dream_progress 18 "features" "Selecting features"
 if $INTERACTIVE && ! $DRY_RUN; then
@@ -27,33 +36,42 @@ if $INTERACTIVE && ! $DRY_RUN; then
 
     # Only show individual feature prompts for Custom installs
     if [[ "${INSTALL_CHOICE:-1}" == "3" ]]; then
+        # Explicitly set each flag from the user's answer — do NOT rely on
+        # the pre-existing default. Previously these read 'reply || flag=true',
+        # which only *set* the flag to true when the answer wasn't N and
+        # never set it to false; combined with all defaults being true from
+        # install-core.sh, pressing 'n' was a no-op.
         read -p "  Enable voice (Whisper STT + Kokoro TTS)? [Y/n] " -r < /dev/tty
         echo
-        [[ $REPLY =~ ^[Nn]$ ]] || ENABLE_VOICE=true
+        if [[ $REPLY =~ ^[Nn]$ ]]; then ENABLE_VOICE=false; else ENABLE_VOICE=true; fi
 
         read -p "  Enable n8n workflow automation? [Y/n] " -r < /dev/tty
         echo
-        [[ $REPLY =~ ^[Nn]$ ]] || ENABLE_WORKFLOWS=true
+        if [[ $REPLY =~ ^[Nn]$ ]]; then ENABLE_WORKFLOWS=false; else ENABLE_WORKFLOWS=true; fi
 
         read -p "  Enable Qdrant vector database (for RAG)? [Y/n] " -r < /dev/tty
         echo
-        [[ $REPLY =~ ^[Nn]$ ]] || ENABLE_RAG=true
+        if [[ $REPLY =~ ^[Nn]$ ]]; then ENABLE_RAG=false; else ENABLE_RAG=true; fi
 
-        read -p "  Enable OpenClaw AI agent framework? [y/N] " -r < /dev/tty
+        read -p "  Enable Hermes Agent (default AI agent framework)? [Y/n] " -r < /dev/tty
         echo
-        [[ $REPLY =~ ^[Yy]$ ]] && ENABLE_OPENCLAW=true
+        if [[ $REPLY =~ ^[Nn]$ ]]; then ENABLE_HERMES=false; else ENABLE_HERMES=true; fi
+
+        read -p "  Enable OpenClaw AI agent framework (DEPRECATED — Hermes replaces it)? [y/N] " -r < /dev/tty
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then ENABLE_OPENCLAW=true; else ENABLE_OPENCLAW=false; fi
 
         read -p "  Enable image generation (ComfyUI + SDXL Lightning, ~6.5GB)? [Y/n] " -r < /dev/tty
         echo
-        [[ $REPLY =~ ^[Nn]$ ]] || ENABLE_COMFYUI=true
+        if [[ $REPLY =~ ^[Nn]$ ]]; then ENABLE_COMFYUI=false; else ENABLE_COMFYUI=true; fi
 
         read -p "  Enable DreamForge agent system? [Y/n] " -r < /dev/tty
         echo
-        [[ $REPLY =~ ^[Nn]$ ]] || ENABLE_DREAMFORGE=true
+        if [[ $REPLY =~ ^[Nn]$ ]]; then ENABLE_DREAMFORGE=false; else ENABLE_DREAMFORGE=true; fi
 
         read -p "  Enable Langfuse (LLM observability + telemetry, ~500MB)? [y/N] " -r < /dev/tty
         echo
-        [[ $REPLY =~ ^[Yy]$ ]] && ENABLE_LANGFUSE=true
+        if [[ $REPLY =~ ^[Yy]$ ]]; then ENABLE_LANGFUSE=true; else ENABLE_LANGFUSE=false; fi
 
         # Warn if ComfyUI enabled on low-tier hardware
         if [[ "$ENABLE_COMFYUI" == "true" ]]; then
@@ -84,53 +102,86 @@ fi
 # resolver uses the .disabled convention to exclude services from the compose
 # stack. These mv calls are skipped during --dry-run so the source tree is
 # never mutated by a preview invocation.
-if ! $DRY_RUN; then
-    _comfyui_compose="$SCRIPT_DIR/extensions/services/comfyui/compose.yaml"
-    if [[ "${ENABLE_COMFYUI:-}" == "true" ]]; then
+#
+# Without this sync, an extension's compose.yaml is ALWAYS picked up by
+# resolve-compose-stack.sh regardless of the ENABLE_* flag — the flag then
+# only gates cosmetic things (image pre-pull, health checks, summary URLs)
+# and the service still starts. Every optional service must be listed here
+# or the user can't opt out of it.
+_sync_extension_compose() {
+    local flag="$1" svc_dir="$2" label="$3" reason="$4"
+    local compose="$SCRIPT_DIR/extensions/services/$svc_dir/compose.yaml"
+    if [[ "$flag" == "true" ]]; then
         # Re-enable if previously disabled (re-install with different options)
-        if [[ ! -f "$_comfyui_compose" && -f "${_comfyui_compose}.disabled" ]]; then
-            mv "${_comfyui_compose}.disabled" "$_comfyui_compose"
-            log "ComfyUI compose re-enabled"
+        if [[ ! -f "$compose" && -f "${compose}.disabled" ]]; then
+            mv "${compose}.disabled" "$compose"
+            log "$label compose re-enabled"
         fi
     else
         # Disable — prevents resolve-compose-stack.sh from including a compose
         # file whose image was never built/pulled, blocking ALL containers.
-        if [[ -f "$_comfyui_compose" ]]; then
-            mv "$_comfyui_compose" "${_comfyui_compose}.disabled"
-            log "ComfyUI compose disabled (image generation not enabled)"
+        if [[ -f "$compose" ]]; then
+            mv "$compose" "${compose}.disabled"
+            log "$label compose disabled ($reason)"
         fi
     fi
-    unset _comfyui_compose
+}
 
-    # Sync DreamForge compose state with ENABLE_DREAMFORGE — same .disabled convention.
-    _dreamforge_compose="$SCRIPT_DIR/extensions/services/dreamforge/compose.yaml"
-    if [[ "${ENABLE_DREAMFORGE:-}" == "true" ]]; then
-        if [[ ! -f "$_dreamforge_compose" && -f "${_dreamforge_compose}.disabled" ]]; then
-            mv "${_dreamforge_compose}.disabled" "$_dreamforge_compose"
-            log "DreamForge compose re-enabled"
-        fi
-    else
-        if [[ -f "$_dreamforge_compose" ]]; then
-            mv "$_dreamforge_compose" "${_dreamforge_compose}.disabled"
-            log "DreamForge compose disabled (agent system not enabled)"
-        fi
-    fi
-    unset _dreamforge_compose
+if ! $DRY_RUN; then
+    ENABLE_EMBEDDINGS="${ENABLE_EMBEDDINGS:-${ENABLE_RAG:-false}}"
+    _sync_extension_compose "${ENABLE_VOICE:-}"      whisper    "Whisper (STT)" "voice not enabled"
+    _sync_extension_compose "${ENABLE_VOICE:-}"      tts        "Kokoro (TTS)"  "voice not enabled"
+    _sync_extension_compose "${ENABLE_WORKFLOWS:-}"  n8n        "n8n"           "workflows not enabled"
+    # RAG = qdrant (vector store) + embeddings (TEI). Both must follow
+    # ENABLE_RAG, otherwise opting out leaves the embeddings container
+    # being pulled and started even though nothing queries it. aarch64 Linux
+    # has a temporary TEI-only exception below while Qdrant remains enabled.
+    _sync_extension_compose "${ENABLE_RAG:-}"        qdrant     "Qdrant"        "RAG not enabled"
+    _sync_extension_compose "${ENABLE_RAG:-}"        embeddings "Embeddings (TEI)" "RAG not enabled"
+    # Hermes is the default agent as of 2026-05-12. hermes-proxy is the
+    # auth gate in front of it (magic-link cookie verification) and is
+    # not separately toggleable — without the proxy, Hermes's dashboard
+    # is exposed on the LAN with no auth. Same flag drives both.
+    _sync_extension_compose "${ENABLE_HERMES:-}"     hermes        "Hermes Agent"  "Hermes agent not enabled"
+    _sync_extension_compose "${ENABLE_HERMES:-}"     hermes-proxy  "Hermes proxy"  "Hermes agent not enabled"
+    _sync_extension_compose "${ENABLE_OPENCLAW:-}"   openclaw   "OpenClaw"      "agent framework not enabled"
+    _sync_extension_compose "${ENABLE_COMFYUI:-}"    comfyui    "ComfyUI"       "image generation not enabled"
+    _sync_extension_compose "${ENABLE_DREAMFORGE:-}" dreamforge "DreamForge"    "agent system not enabled"
+    _sync_extension_compose "${ENABLE_LANGFUSE:-}"   langfuse   "Langfuse"      "LLM observability not enabled"
+    _sync_extension_compose "${ENABLE_BRAVE_SEARCH:-false}" brave-search "Brave Search" "Brave Search API not enabled"
 
-    # Sync Langfuse compose state with ENABLE_LANGFUSE — same .disabled convention.
-    _langfuse_compose="$SCRIPT_DIR/extensions/services/langfuse/compose.yaml"
-    if [[ "${ENABLE_LANGFUSE:-}" == "true" ]]; then
-        if [[ ! -f "$_langfuse_compose" && -f "${_langfuse_compose}.disabled" ]]; then
-            mv "${_langfuse_compose}.disabled" "$_langfuse_compose"
-            log "Langfuse compose re-enabled"
+    # ── arm64 / aarch64 platform guard ──
+    # Two extensions in the current --all bundle ship amd64-only binaries
+    # inside their images and crash-loop on aarch64 (DGX Spark, ARM SBCs,
+    # etc.) with `exec /usr/local/bin/...: exec format error`:
+    #
+    #   - dreamforge — upstream image has no arm64 variant. installers/lib
+    #     does set DREAMFORGE_PULL_POLICY=build to force a local Rust build,
+    #     but docker compose can still resolve to the registry image when
+    #     compose+buildkit version skew lets `pull_policy` be ignored.
+    #   - embeddings (HF text-embeddings-inference) — upstream tag
+    #     `cpu-1.9.1` is amd64-only. The compose file pins
+    #     `platform: linux/amd64`, which works under Rosetta 2 on Apple
+    #     Silicon but produces ENOEXEC on aarch64 Linux without QEMU.
+    #
+    # Until both upstreams ship multi-arch images, exclude these from the
+    # compose stack on aarch64 hosts. The other 25 services run cleanly on
+    # arm64 and the operator gets a clear "not available on aarch64" line
+    # rather than hours of crash-loop forensics.
+    _host_arch="${HOST_ARCH:-$(uname -m 2>/dev/null || echo unknown)}"
+    if [[ "$_host_arch" == "arm64" || "$_host_arch" == "aarch64" ]]; then
+        if [[ "${ENABLE_DREAMFORGE:-true}" == "true" ]]; then
+            ai_warn "DreamForge: upstream image is amd64-only — disabled on aarch64. Re-enable with: dream enable dreamforge (after upstream ships arm64 multi-arch)."
+            _sync_extension_compose "false" dreamforge "DreamForge"        "amd64-only image, no arm64 multi-arch yet"
+            ENABLE_DREAMFORGE=false
         fi
-    else
-        if [[ -f "$_langfuse_compose" ]]; then
-            mv "$_langfuse_compose" "${_langfuse_compose}.disabled"
-            log "Langfuse compose disabled (LLM observability not enabled)"
+        if [[ "${ENABLE_EMBEDDINGS:-${ENABLE_RAG:-false}}" == "true" ]]; then
+            ai_warn "Embeddings (TEI): upstream image is amd64-only — disabled on aarch64. Qdrant remains enabled; only the embeddings router is skipped."
+            _sync_extension_compose "false" embeddings "Embeddings (TEI)"  "amd64-only image, no arm64 multi-arch yet"
+            ENABLE_EMBEDDINGS=false
         fi
     fi
-    unset _langfuse_compose
+    unset _host_arch
 fi
 
 # Re-resolve compose flags now that feature selection may have disabled services.
@@ -138,7 +189,7 @@ fi
 # which were just renamed to .disabled.
 if [[ -x "$SCRIPT_DIR/scripts/resolve-compose-stack.sh" ]]; then
     _refreshed_flags=$("$SCRIPT_DIR/scripts/resolve-compose-stack.sh" \
-        --script-dir "$SCRIPT_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}" 2>/dev/null) || true
+        --script-dir "$SCRIPT_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}") || true
     if [[ -n "$_refreshed_flags" ]]; then
         COMPOSE_FLAGS="$_refreshed_flags"
         log "Compose flags refreshed after feature selection"
@@ -152,11 +203,11 @@ if [[ "$ENABLE_OPENCLAW" == "true" ]]; then
     case $TIER in
         NV_ULTRA) OPENCLAW_CONFIG="pro.json" ;;
         SH_LARGE|SH_COMPACT) OPENCLAW_CONFIG="openclaw-strix-halo.json" ;;
-        1) OPENCLAW_CONFIG="minimal.json" ;;
-        2) OPENCLAW_CONFIG="entry.json" ;;
-        3) OPENCLAW_CONFIG="prosumer.json" ;;
+        1) OPENCLAW_CONFIG="openclaw.json" ;;
+        2) OPENCLAW_CONFIG="openclaw.json" ;;
+        3) OPENCLAW_CONFIG="openclaw.json" ;;
         4) OPENCLAW_CONFIG="pro.json" ;;
-        *) OPENCLAW_CONFIG="prosumer.json" ;;
+        *) OPENCLAW_CONFIG="openclaw.json" ;;
     esac
     log "OpenClaw config: $OPENCLAW_CONFIG (matched to Tier $TIER)"
 fi

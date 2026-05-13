@@ -5,8 +5,14 @@ compatibility:
 
 service:
   id: openclaw
-  name: OpenClaw (Agents)
+  name: OpenClaw (Agents — DEPRECATED)
   aliases: []
+  # Deprecated 2026-05-12. Hermes Agent is the new default agent on Dream
+  # Server; OpenClaw remains installable via `--openclaw` / `dream enable
+  # openclaw` until the next release, when this extension directory is
+  # removed entirely. See docs/MIGRATION-OPENCLAW-TO-HERMES.md.
+  deprecated: true
+  deprecated_replacement: hermes
   container_name: dream-openclaw
   host_env: OPENCLAW_HOST
   default_host: openclaw

@@ -6,7 +6,8 @@
 # Purpose: Build image pull list and download all Docker images
 #
 # Expects: DRY_RUN, GPU_BACKEND, ENABLE_VOICE, ENABLE_WORKFLOWS,
-#           ENABLE_RAG, ENABLE_OPENCLAW, DOCKER_CMD, LOG_FILE, BGRN, AMB, NC,
+#           ENABLE_RAG, ENABLE_EMBEDDINGS, ENABLE_HERMES, ENABLE_OPENCLAW,
+#           DOCKER_CMD, LOG_FILE, BGRN, AMB, NC,
 #           show_phase(), bootline(), signal(), ai(), ai_ok(), ai_warn(),
 #           pull_with_progress()
 # Provides: (Docker images pulled locally)
@@ -31,7 +32,7 @@ if [[ "$GPU_BACKEND" == "amd" ]]; then
 elif [[ "$GPU_BACKEND" == "cpu" ]]; then
     PULL_LIST+=("${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-b8248}|LLAMA-SERVER — downloading the brain (CPU)")
 else
-    PULL_LIST+=("${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda-b8248}|LLAMA-SERVER — downloading the brain (NVIDIA CUDA)")
+    PULL_LIST+=("${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda-b9014}|LLAMA-SERVER — downloading the brain (NVIDIA CUDA)")
 fi
 PULL_LIST+=("ghcr.io/open-webui/open-webui:v0.7.2|OPEN WEBUI — interface module")
 PULL_LIST+=("itzcrazykns1337/perplexica:slim-latest@sha256:6e399abf4ff587822b0ef0df11f36088fb928e17ac61556fe89beb68d48c378e|PERPLEXICA — deep research engine")
@@ -45,13 +46,64 @@ if [[ "$ENABLE_VOICE" == "true" ]]; then
 fi
 [[ "$ENABLE_WORKFLOWS" == "true" ]] && PULL_LIST+=("n8nio/n8n:2.6.4|N8N — automation engine")
 [[ "$ENABLE_RAG" == "true" ]] && PULL_LIST+=("qdrant/qdrant:v1.16.3|QDRANT — memory vault")
+if [[ "$ENABLE_HERMES" == "true" ]]; then
+    # SHA-pinned: see extensions/services/hermes/compose.yaml for the pin
+    # rationale + "How to bump the pin" in docs/HERMES.md. Hermes-proxy
+    # is the auth gate (Caddy) and is pulled alongside Hermes.
+    PULL_LIST+=("nousresearch/hermes-agent:sha-dd0923bb89ed2dd56f82cb63656a1323f6f42e6f|HERMES — default agent (Nous Research)")
+    PULL_LIST+=("caddy:2.8.4-alpine|HERMES PROXY — magic-link auth gate (Caddy)")
+fi
 [[ "$ENABLE_OPENCLAW" == "true" ]] && PULL_LIST+=("ghcr.io/openclaw/openclaw:2026.3.8|OPENCLAW — agent framework")
-[[ "$ENABLE_RAG" == "true" ]] && PULL_LIST+=("ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.1|TEI — embedding engine")
+[[ "${ENABLE_EMBEDDINGS:-${ENABLE_RAG:-false}}" == "true" ]] && PULL_LIST+=("ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.1|TEI — embedding engine")
 [[ "${ENABLE_DREAMFORGE:-}" == "true" ]] && PULL_LIST+=("ghcr.io/light-heart-labs/dreamforge:v0.1.0|DREAMFORGE — agent system")
 
 if $DRY_RUN; then
     ai "[DRY RUN] I would download ${#PULL_LIST[@]} modules."
 else
+    if [[ "${DREAM_MODE:-local}" != "cloud" && ( "$GPU_BACKEND" == "nvidia" || "$GPU_BACKEND" == "cpu" || "$GPU_BACKEND" == "intel" || "$GPU_BACKEND" == "sycl" ) ]]; then
+        _llama_image=""
+        _llama_label=""
+        _llama_index=-1
+        for _idx in "${!PULL_LIST[@]}"; do
+            entry="${PULL_LIST[$_idx]}"
+            _entry_img="${entry%%|*}"
+            _entry_label="${entry##*|}"
+            if [[ "$_entry_label" == LLAMA-SERVER* ]]; then
+                _llama_image="$_entry_img"
+                _llama_label="$_entry_label"
+                _llama_index="$_idx"
+                break
+            fi
+        done
+
+        if [[ -n "$_llama_image" ]]; then
+            ai "Validating llama-server image tag before download..."
+            if [[ -z "${LLAMA_SERVER_IMAGE_FALLBACK:-}" && -f "$INSTALL_DIR/.env" ]]; then
+                _llama_fallback_from_env="$(sed -n 's/^LLAMA_SERVER_IMAGE_FALLBACK=//p' "$INSTALL_DIR/.env" 2>/dev/null | head -n 1 || true)"
+                _llama_fallback_from_env="${_llama_fallback_from_env#\"}"
+                _llama_fallback_from_env="${_llama_fallback_from_env%\"}"
+                _llama_fallback_from_env="${_llama_fallback_from_env#\'}"
+                _llama_fallback_from_env="${_llama_fallback_from_env%\'}"
+                [[ -n "$_llama_fallback_from_env" ]] && LLAMA_SERVER_IMAGE_FALLBACK="$_llama_fallback_from_env"
+            fi
+            _validated_llama_image=""
+            if ! validate_docker_image_or_fallback _validated_llama_image "$_llama_image" "llama-server" "LLAMA_SERVER_IMAGE_FALLBACK"; then
+                exit 1
+            fi
+            if [[ "$_validated_llama_image" != "$_llama_image" ]]; then
+                LLAMA_SERVER_IMAGE="$_validated_llama_image"
+                PULL_LIST[$_llama_index]="${_validated_llama_image}|${_llama_label}"
+                if [[ -f "$INSTALL_DIR/.env" ]]; then
+                    if grep -q '^LLAMA_SERVER_IMAGE=' "$INSTALL_DIR/.env"; then
+                        sed -i.bak "s|^LLAMA_SERVER_IMAGE=.*|LLAMA_SERVER_IMAGE=${_validated_llama_image}|" "$INSTALL_DIR/.env" && rm -f "$INSTALL_DIR/.env.bak"
+                    else
+                        printf '\nLLAMA_SERVER_IMAGE=%s\n' "$_validated_llama_image" >> "$INSTALL_DIR/.env"
+                    fi
+                fi
+            fi
+        fi
+    fi
+
     echo ""
     bootline
     echo -e "${BGRN}DOWNLOAD SEQUENCE${NC}"

@@ -29,10 +29,26 @@ test: ## Run unit and contract tests
 	@echo ""
 	@echo "=== AMD/Lemonade contracts ==="
 	@bash tests/contracts/test-amd-lemonade-contracts.sh
+	@bash tests/test-litellm-amd-auth-enforced.sh
 	@echo ""
 	@echo "=== Overlay/plist contracts ==="
 	@bash tests/contracts/test-overlay-map-coherence.sh
 	@bash tests/contracts/test-plist-log-paths.sh
+	@echo ""
+	@echo "=== Bind address sweep ==="
+	@bash tests/test-bind-address-sweep.sh
+	@echo ""
+	@echo "=== dream-cli pipefail tolerance ==="
+	@bash tests/test-dream-cli-pipefail-tolerance.sh
+	@echo ""
+	@echo "=== Bash 3.2 guard contracts ==="
+	@bash tests/test-bash32-guards.sh
+	@echo ""
+	@echo "=== dream config show secret-mask matrix ==="
+	@bash tests/test-dream-config-secret-mask.sh
+	@echo ""
+	@echo "=== bootstrap OpenClaw compose-guard regression ==="
+	@bash tests/test-bootstrap-openclaw-compose-guard.sh
 
 bats: ## Run BATS unit tests for shell libraries
 	@echo "=== BATS unit tests ==="

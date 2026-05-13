@@ -206,6 +206,23 @@ else
         "Install jq for smoother tooling (see INSTALL-TROUBLESHOOTING.md)."
 fi
 
+# --- Host firewall (UFW / firewalld) ---
+# The dashboard host agent binds to the Docker bridge gateway (default
+# 172.17.0.1:7710) and compose containers reach it via the host INPUT chain.
+# Default-DROP firewalls block that traffic. Warn only — never fail.
+if command -v ufw >/dev/null 2>&1 && systemctl is-active --quiet ufw 2>/dev/null; then
+    append_check "FIREWALL_CHECK" "warn" \
+        "UFW active — may block container→host:7710 traffic" \
+        "sudo ufw allow from 172.16.0.0/12 to any port 7710 proto tcp comment 'dream-host-agent'"
+elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld 2>/dev/null; then
+    append_check "FIREWALL_CHECK" "warn" \
+        "firewalld active — may block container→host:7710 traffic" \
+        "sudo firewall-cmd --permanent --add-rich-rule='rule family=\"ipv4\" source address=\"172.16.0.0/12\" port protocol=\"tcp\" port=\"7710\" accept' && sudo firewall-cmd --reload"
+else
+    append_check "FIREWALL_CHECK" "pass" \
+        "No restrictive host firewall detected" ""
+fi
+
 # --- Compose files present (expected when run from repo tree) ---
 if [[ -f "$ROOT_DIR/docker-compose.base.yml" ]] || [[ -f "$ROOT_DIR/docker-compose.yml" ]]; then
     append_check "COMPOSE_FILES" "pass" "Compose files present under dream-server root" ""

@@ -67,7 +67,7 @@
       "description": "Google's efficient small model. Good for quick tasks on budget hardware.",
       "tokens_per_sec_estimate": 110,
       "llm_model_name": "gemma-4-e2b-it",
-      "llama_server_image": "ghcr.io/ggml-org/llama.cpp:server-cuda-b8648"
+      "llama_server_image": "ghcr.io/ggml-org/llama.cpp:server-cuda-b9014"
     },
     {
       "id": "deepseek-r1-7b-q4",
@@ -101,7 +101,7 @@
       "description": "Google's mid-range model with strong multilingual and reasoning capabilities.",
       "tokens_per_sec_estimate": 85,
       "llm_model_name": "gemma-4-e4b-it",
-      "llama_server_image": "ghcr.io/ggml-org/llama.cpp:server-cuda-b8648"
+      "llama_server_image": "ghcr.io/ggml-org/llama.cpp:server-cuda-b9014"
     },
     {
       "id": "qwen3.5-9b-q4",
@@ -186,7 +186,7 @@
       "description": "Google's large MoE model. Strong at reasoning and analysis tasks.",
       "tokens_per_sec_estimate": 50,
       "llm_model_name": "gemma-4-26b-a4b-it",
-      "llama_server_image": "ghcr.io/ggml-org/llama.cpp:server-cuda-b8648"
+      "llama_server_image": "ghcr.io/ggml-org/llama.cpp:server-cuda-b9014"
     },
     {
       "id": "qwen3-30b-a3b-q4",
@@ -220,7 +220,7 @@
       "description": "Google's flagship dense model with 131K context. Top-tier quality for enterprise GPUs.",
       "tokens_per_sec_estimate": 40,
       "llm_model_name": "gemma-4-31b-it",
-      "llama_server_image": "ghcr.io/ggml-org/llama.cpp:server-cuda-b8648"
+      "llama_server_image": "ghcr.io/ggml-org/llama.cpp:server-cuda-b9014"
     },
     {
       "id": "deepseek-r1-32b-q4",
@@ -254,6 +254,23 @@
       "description": "Successor to Qwen3 30B-A3B. MoE with 131K context — top scores on coding, math, and reasoning benchmarks.",
       "tokens_per_sec_estimate": 50,
       "llm_model_name": "qwen3.5-35b-a3b",
+      "llama_server_image": null
+    },
+    {
+      "id": "qwen3.6-35b-a3b-ud-q4",
+      "name": "Qwen 3.6 35B-A3B",
+      "family": "qwen",
+      "gguf_file": "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+      "gguf_url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+      "gguf_sha256": "ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61",
+      "size_mb": 21110,
+      "vram_required_gb": 24,
+      "context_length": 131072,
+      "quantization": "UD-Q4_K_M",
+      "specialty": "Quality",
+      "description": "Current A3B MoE successor for Spark-class unified-memory hosts. Verified on DGX Spark with llama.cpp b9014.",
+      "tokens_per_sec_estimate": 59,
+      "llm_model_name": "qwen3.6-35b-a3b",
       "llama_server_image": null
     },
     {

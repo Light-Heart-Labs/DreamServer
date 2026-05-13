@@ -18,7 +18,13 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application
-COPY main.py config.py models.py security.py gpu.py helpers.py agent_monitor.py user_extensions.py ./
+# Use glob to pick up every top-level .py file. The old explicit list
+# went stale every time a new module landed in main.py's imports —
+# `session_signer.py` was missed once (see #1181), then `settings.py`
+# again right after. The glob is bounded to the build context's top
+# level (won't recurse into routers/, tests/, etc.) and matches the
+# filesystem shape (one flat module dir per service).
+COPY *.py ./
 COPY routers/ routers/
 
 # Non-root user

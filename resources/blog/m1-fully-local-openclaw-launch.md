@@ -1,5 +1,7 @@
 # Fully Local OpenClaw: Run Your AI Assistant With Zero Cloud Dependencies
 
+> 📌 **Note (2026-05-12):** This post documents Dream Server's OpenClaw-based agent stack. As of 2026-05-12, OpenClaw has been deprecated in favor of [Hermes Agent](https://github.com/NousResearch/hermes-agent), which now ships as Dream Server's default agent. The story below — fully-local, no cloud — is unchanged; only the agent implementation has been swapped. See [docs/HERMES.md](../../dream-server/docs/HERMES.md) and [docs/MIGRATION-OPENCLAW-TO-HERMES.md](../../dream-server/docs/MIGRATION-OPENCLAW-TO-HERMES.md). This post is kept for historical context and will move to `resources/legacy/blog/` in the removal release.
+
 *Finally: A personal AI assistant that never phones home.*
 
 ## The Problem

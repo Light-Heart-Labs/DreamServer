@@ -40,6 +40,32 @@ echo "[contract] canonical port contract parity"
 test -x tests/contracts/test-port-contracts.sh || { echo "[FAIL] script not executable: tests/contracts/test-port-contracts.sh"; exit 1; }
 bash tests/contracts/test-port-contracts.sh
 
+echo "[contract] Windows AMD local compose readiness"
+bash tests/contracts/test-windows-amd-local-compose.sh
+
+echo "[contract] dashboard diagnostics route through docker network URLs"
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+  tmp_env="$(mktemp)"
+  trap 'rm -f "$tmp_env"' EXIT
+  cat > "$tmp_env" <<'ENV_EOF'
+WEBUI_SECRET=ci-placeholder
+LLM_API_URL=http://litellm:4000
+ENV_EOF
+  rendered="$(docker compose --env-file "$tmp_env" -f docker-compose.base.yml config dashboard-api)"
+  grep -q 'LLM_URL: http://litellm:4000' <<<"$rendered" \
+    || { echo "[FAIL] dashboard-api diagnostics LLM_URL must follow LLM_API_URL when LLM_URL is unset"; exit 1; }
+  grep -q 'OLLAMA_URL: http://litellm:4000' <<<"$rendered" \
+    || { echo "[FAIL] dashboard-api OLLAMA_URL lost LLM_API_URL routing"; exit 1; }
+  grep -q 'TTS_URL: http://tts:8880' <<<"$rendered" \
+    || { echo "[FAIL] dashboard-api diagnostics TTS_URL must use docker network hostname"; exit 1; }
+  grep -q 'EMBEDDING_URL: http://embeddings:80' <<<"$rendered" \
+    || { echo "[FAIL] dashboard-api diagnostics EMBEDDING_URL must use docker network hostname"; exit 1; }
+  grep -q 'WHISPER_URL: http://whisper:8000' <<<"$rendered" \
+    || { echo "[FAIL] dashboard-api diagnostics WHISPER_URL must use docker network hostname"; exit 1; }
+else
+  echo "[SKIP] docker compose unavailable"
+fi
+
 echo "[contract] resolver scripts executable"
 for s in scripts/build-capability-profile.sh scripts/classify-hardware.sh scripts/load-backend-contract.sh scripts/resolve-compose-stack.sh scripts/preflight-engine.sh scripts/dream-doctor.sh scripts/simulate-installers.sh; do
   test -x "$s" || { echo "[FAIL] script not executable: $s"; exit 1; }
@@ -57,6 +83,19 @@ grep -q 'NEXT_TELEMETRY_DISABLED.*1' extensions/services/langfuse/compose.yaml.d
 grep -q 'MINIO_TELEMETRY_DISABLED.*1' extensions/services/langfuse/compose.yaml.disabled 2>/dev/null || \
   grep -q 'MINIO_TELEMETRY_DISABLED.*1' extensions/services/langfuse/compose.yaml 2>/dev/null || \
   { echo "[FAIL] MinIO telemetry not disabled"; exit 1; }
+
+echo "[contract] ENABLE_RAG opt-out disables both qdrant and embeddings"
+# RAG = qdrant (vector store) + embeddings (TEI). Both compose files must
+# be gated on ENABLE_RAG in installers/phases/03-features.sh; otherwise
+# answering 'n' to the Custom-menu RAG prompt still leaves embeddings
+# being pulled and started.
+features_phase="dream-server/installers/phases/03-features.sh"
+test -f "$features_phase" || features_phase="installers/phases/03-features.sh"
+test -f "$features_phase" || { echo "[FAIL] cannot locate 03-features.sh"; exit 1; }
+for svc in qdrant embeddings; do
+  grep -qE "_sync_extension_compose +\"\\\$\\{ENABLE_RAG:-\\}\" +$svc\\b" "$features_phase" \
+    || { echo "[FAIL] ENABLE_RAG opt-out missing sync for '$svc' in $features_phase"; exit 1; }
+done
 
 echo "[contract] Token Spy dashboard ships offline chart assets"
 test -f extensions/services/token-spy/dashboard_charts.js || { echo "[FAIL] missing extensions/services/token-spy/dashboard_charts.js"; exit 1; }

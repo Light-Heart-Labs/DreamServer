@@ -20,6 +20,7 @@ setup() {
 
 teardown() {
     unset MODEL_PROFILE
+    unset HOST_ARCH
 }
 
 # ── resolve_tier_config ─────────────────────────────────────────────────────
@@ -70,6 +71,17 @@ teardown() {
     assert_equal "$MODEL_PROFILE_EFFECTIVE" "qwen"
     assert_equal "$LLM_MODEL" "qwen3-coder-next"
     assert_equal "$GGUF_FILE" "qwen3-coder-next-Q4_K_M.gguf"
+    assert_equal "$MAX_CONTEXT" "131072"
+}
+
+@test "resolve_tier_config: arm64 NV_ULTRA substitutes A3B MoE for coder-next" {
+    TIER=NV_ULTRA
+    HOST_ARCH=arm64
+    resolve_tier_config
+    assert_equal "$TIER_NAME" "NVIDIA Ultra (90GB+, aarch64 — A3B substitution)"
+    assert_equal "$MODEL_PROFILE_EFFECTIVE" "qwen"
+    assert_equal "$LLM_MODEL" "qwen3.6-35b-a3b"
+    assert_equal "$GGUF_FILE" "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
     assert_equal "$MAX_CONTEXT" "131072"
 }
 
@@ -155,6 +167,12 @@ teardown() {
     assert_output "qwen3-30b-a3b"
 }
 
+@test "tier_to_model: arm64 NV_ULTRA maps to A3B MoE substitution" {
+    HOST_ARCH=arm64
+    run tier_to_model NV_ULTRA
+    assert_output "qwen3.6-35b-a3b"
+}
+
 @test "tier_to_model: invalid tier returns empty string" {
     run tier_to_model INVALID
     assert_output ""
@@ -173,7 +191,8 @@ teardown() {
     assert_equal "$LLM_MODEL" "gemma-4-e4b-it"
     assert_equal "$GGUF_FILE" "gemma-4-E4B-it-Q4_K_M.gguf"
     assert_equal "$MAX_CONTEXT" "32768"
-    assert_equal "$LLAMA_CPP_RELEASE_TAG_OVERRIDE" "b8648"
+    assert_equal "$LLAMA_SERVER_IMAGE" "ghcr.io/ggml-org/llama.cpp:server-cuda-b9014"
+    assert_equal "$LLAMA_CPP_RELEASE_TAG_OVERRIDE" "b9014"
 }
 
 @test "resolve_tier_config: qwen profile preserves current tier 2 mapping" {
@@ -249,4 +268,8 @@ teardown() {
 
     run tier_to_model NV_ULTRA qwen
     assert_output "qwen3-coder-next"
+
+    HOST_ARCH=arm64
+    run tier_to_model NV_ULTRA qwen
+    assert_output "qwen3.6-35b-a3b"
 }

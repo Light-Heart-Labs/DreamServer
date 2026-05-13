@@ -24,6 +24,7 @@ import shutil
 import time
 import urllib.error
 import urllib.request
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -53,6 +54,16 @@ from routers import (
     workflows, features, setup, updates, agents, privacy, extensions,
     gpu as gpu_router, resources, voice, models as models_router, templates,
     projects,
+    auth as auth_router,
+    magic_link,
+    tailscale,
+)
+from settings import (
+    _ENV_ASSIGNMENT_RE, _ENV_COMMENTED_ASSIGNMENT_RE, _SETTINGS_APPLY_ALLOWED_SERVICES, _parse_env_text, _read_env_map_from_path,
+    _slugify,
+    _build_env_fields, _validate_env_values, _serialize_form_values,
+    _compute_env_apply_plan,
+    _check_host_agent_available,
 )
 
 
@@ -229,21 +240,26 @@ def _infer_tier(gpu_info) -> str:
     return "Minimal"
 
 
+def _infer_gpu_count(gpu_info) -> int:
+    """Infer GPU count from the GPU_COUNT env var or the display name."""
+    gpu_count_env = os.environ.get("GPU_COUNT", "")
+    if gpu_count_env.isdigit():
+        return int(gpu_count_env)
+    if " × " in gpu_info.name:
+        try:
+            return int(gpu_info.name.rsplit(" × ", 1)[-1])
+        except ValueError:
+            pass
+    if " + " in gpu_info.name:
+        return gpu_info.name.count(" + ") + 1
+    return 1
+
+
 def _serialize_gpu(gpu_info) -> Optional[dict]:
     if not gpu_info:
         return None
 
-    gpu_count = 1
-    gpu_count_env = os.environ.get("GPU_COUNT", "")
-    if gpu_count_env.isdigit():
-        gpu_count = int(gpu_count_env)
-    elif " × " in gpu_info.name:
-        try:
-            gpu_count = int(gpu_info.name.rsplit(" × ", 1)[-1])
-        except ValueError:
-            pass
-    elif " + " in gpu_info.name:
-        gpu_count = gpu_info.name.count(" + ") + 1
+    gpu_count = _infer_gpu_count(gpu_info)
 
     gpu_data = {
         "name": gpu_info.name,
@@ -273,6 +289,7 @@ def _serialize_model(model_info) -> Optional[dict]:
 def _serialize_services(service_statuses: list[ServiceStatus], uptime: int) -> list[dict]:
     return [
         {
+            "id": service.id,
             "name": service.name,
             "status": service.status,
             "port": service.external_port,
@@ -289,6 +306,7 @@ def _fallback_services() -> list[dict]:
         if not external_port:
             continue
         links.append({
+            "id": service_id,
             "name": config.get("name", service_id),
             "status": "unknown",
             "port": external_port,
@@ -319,73 +337,6 @@ def _resolve_template_path(name: str) -> Path:
         if candidate.exists():
             return candidate
     return _resolve_bundled_path(name)
-
-
-def _strip_env_quotes(value: str) -> str:
-    value = value.strip()
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-        return value[1:-1]
-    return value
-
-
-def _read_env_map_from_path(path: Path) -> tuple[dict[str, str], list[dict[str, Any]]]:
-    try:
-        return _parse_env_text(path.read_text(encoding="utf-8"))
-    except OSError:
-        return {}, []
-
-
-def _parse_env_text(raw_text: str) -> tuple[dict[str, str], list[dict[str, Any]]]:
-    values: dict[str, str] = {}
-    issues: list[dict[str, Any]] = []
-
-    for index, line in enumerate(raw_text.splitlines(), start=1):
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-
-        match = _ENV_ASSIGNMENT_RE.match(line)
-        if not match:
-            issues.append({
-                "key": None,
-                "line": index,
-                "message": "Line is not a valid KEY=value entry.",
-            })
-            continue
-
-        key, value = match.groups()
-        values[key] = _strip_env_quotes(value)
-
-    return values, issues
-
-
-def _normalize_bool(value: Any) -> Optional[str]:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    text = str(value).strip().lower()
-    if text in {"true", "1", "yes", "on"}:
-        return "true"
-    if text in {"false", "0", "no", "off"}:
-        return "false"
-    return None
-
-
-def _humanize_env_key(key: str) -> str:
-    return key.replace("_", " ").title().replace("Llm", "LLM").replace("Api", "API").replace("Gpu", "GPU")
-
-
-def _is_secret_field(key: str, definition: Optional[dict[str, Any]] = None) -> bool:
-    if definition is not None and "secret" in definition:
-        return bool(definition.get("secret"))
-
-    upper_key = key.upper()
-    if "PUBLIC_KEY" in upper_key:
-        return False
-    return bool(_SENSITIVE_ENV_KEY_RE.search(upper_key))
-
-
-def _slugify(text: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 
 def _load_env_schema() -> tuple[dict[str, Any], set[str]]:
@@ -468,213 +419,6 @@ def _build_env_sections(schema_keys: list[str]) -> list[dict[str, Any]]:
     return [section for section in sections if section["keys"]]
 
 
-def _build_env_fields(
-    schema_properties: dict[str, Any],
-    required_keys: set[str],
-    values: dict[str, str],
-) -> dict[str, dict[str, Any]]:
-    fields: dict[str, dict[str, Any]] = {}
-
-    for key, definition in schema_properties.items():
-        field_type = definition.get("type", "string")
-        value = values.get(key, "")
-        fields[key] = {
-            "key": key,
-            "label": _humanize_env_key(key),
-            "type": field_type,
-            "description": definition.get("description", ""),
-            "required": key in required_keys,
-            "secret": _is_secret_field(key, definition),
-            "enum": definition.get("enum", []),
-            "default": definition.get("default"),
-            "value": value,
-            "hasValue": value != "",
-        }
-
-    for key, value in values.items():
-        if key in fields:
-            fields[key]["value"] = value
-            fields[key]["hasValue"] = value != ""
-            continue
-        fields[key] = {
-            "key": key,
-            "label": _humanize_env_key(key),
-            "type": "string",
-            "description": "Local override not described by the built-in schema.",
-            "required": False,
-            "secret": _is_secret_field(key),
-            "enum": [],
-            "default": None,
-            "value": value,
-            "hasValue": value != "",
-        }
-
-    return fields
-
-
-def _validate_env_values(
-    values: dict[str, str],
-    fields: dict[str, dict[str, Any]],
-    parse_issues: Optional[list[dict[str, Any]]] = None,
-) -> list[dict[str, Any]]:
-    issues = list(parse_issues or [])
-
-    for key, field in fields.items():
-        value = values.get(key, "")
-        field_type = field.get("type", "string")
-        required = field.get("required", False)
-        enum_values = field.get("enum") or []
-
-        if value == "":
-            if required:
-                issues.append({"key": key, "message": "Required value is missing."})
-            continue
-
-        if enum_values and value not in enum_values:
-            issues.append({"key": key, "message": f"Must be one of: {', '.join(enum_values)}."})
-            continue
-
-        if field_type == "integer":
-            try:
-                int(str(value).strip())
-            except (TypeError, ValueError):
-                issues.append({"key": key, "message": "Must be a whole number."})
-        elif field_type == "boolean":
-            if _normalize_bool(value) is None:
-                issues.append({"key": key, "message": "Must be true or false."})
-
-    return issues
-
-
-def _serialize_form_values(
-    raw_values: dict[str, Any],
-    fields: dict[str, dict[str, Any]],
-    current_values: Optional[dict[str, str]] = None,
-) -> dict[str, str]:
-    serialized: dict[str, str] = {}
-    current_values = current_values or {}
-
-    for key, field in fields.items():
-        value = raw_values.get(key, current_values.get(key, ""))
-        # Reject newlines and null bytes to prevent .env injection
-        if value is not None and any(c in str(value) for c in ("\n", "\r", "\0")):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Value for '{key}' contains invalid characters (newlines or null bytes are not allowed)",
-            )
-        if value is None:
-            serialized[key] = current_values.get(key, "") if field.get("secret") else ""
-            continue
-
-        field_type = field.get("type", "string")
-        if field.get("secret") and str(value).strip() == "":
-            serialized[key] = current_values.get(key, "")
-            continue
-        if field_type == "boolean":
-            normalized = _normalize_bool(value)
-            serialized[key] = normalized if normalized is not None else str(value).strip()
-        elif field_type == "integer":
-            serialized[key] = str(value).strip()
-        else:
-            serialized[key] = str(value)
-
-    return serialized
-
-
-def _match_apply_service(key: str) -> Optional[str]:
-    if key in _LLAMA_APPLY_KEYS or key.startswith(("LLAMA_", "GGUF_")):
-        return "llama-server"
-    if (
-        key in _OPEN_WEBUI_APPLY_KEYS
-        or key.startswith("WEBUI_")
-        or key.startswith("OPENAI_API_")
-        or key.startswith("SEARXNG_")
-    ):
-        return "open-webui"
-    if key in _TOKEN_SPY_APPLY_KEYS or key.startswith("TOKEN_SPY_"):
-        return "token-spy"
-    if key in _PRIVACY_SHIELD_APPLY_KEYS or key.startswith("SHIELD_"):
-        return "privacy-shield"
-    if key.startswith("LITELLM_"):
-        return "litellm"
-    if key.startswith("LANGFUSE_"):
-        return "langfuse"
-    if key.startswith("N8N_"):
-        return "n8n"
-    if key.startswith("COMFYUI_"):
-        return "comfyui"
-    if key.startswith("WHISPER_"):
-        return "whisper"
-    if key.startswith("QDRANT_"):
-        return "qdrant"
-    if key.startswith("TTS_") or key.startswith("KOKORO_"):
-        return "tts"
-    if key.startswith("EMBEDDINGS_"):
-        return "embeddings"
-    if key.startswith("PERPLEXICA_"):
-        return "perplexica"
-    if key.startswith("APE_"):
-        return "ape"
-    return None
-
-
-def _build_apply_summary(services: list[str], manual_keys: list[str]) -> str:
-    if services and manual_keys:
-        return (
-            f"Saved changes can be applied now to {', '.join(services)}. "
-            f"Other keys still need a broader manual restart: {', '.join(manual_keys)}."
-        )
-    if services:
-        return f"Saved changes are ready to apply to {', '.join(services)}."
-    if manual_keys:
-        return (
-            "Saved changes were written to .env, but these keys still need a manual stack restart: "
-            + ", ".join(manual_keys)
-            + "."
-        )
-    return "No service recreation is required for the saved keys."
-
-
-def _compute_env_apply_plan(previous_values: dict[str, str], next_values: dict[str, str]) -> dict[str, Any]:
-    changed_keys = sorted(
-        key for key in set(previous_values) | set(next_values)
-        if previous_values.get(key, "") != next_values.get(key, "")
-    )
-    services: set[str] = set()
-    manual_keys: list[str] = []
-
-    for key in changed_keys:
-        service = _match_apply_service(key)
-        if service and service in _SETTINGS_APPLY_ALLOWED_SERVICES:
-            services.add(service)
-            continue
-        if key in _MANUAL_RESTART_KEYS or key.startswith("DREAM_AGENT_"):
-            manual_keys.append(key)
-            continue
-        if key not in {"TZ", "TIMEZONE"}:
-            manual_keys.append(key)
-
-    services_list = sorted(services)
-    manual_list = sorted(set(manual_keys))
-    if not changed_keys:
-        status = "none"
-    elif services_list and manual_list:
-        status = "partial"
-    elif services_list:
-        status = "ready"
-    else:
-        status = "manual"
-
-    return {
-        "status": status,
-        "changedKeys": changed_keys,
-        "services": services_list,
-        "manualKeys": manual_list,
-        "supported": bool(services_list),
-        "summary": _build_apply_summary(services_list, manual_list),
-    }
-
-
 def _render_env_from_values(values: dict[str, str]) -> str:
     example_path = _resolve_template_path(".env.example")
     seen: set[str] = set()
@@ -701,9 +445,8 @@ def _render_env_from_values(values: dict[str, str]) -> str:
         if commented_assignment:
             key = commented_assignment.group(1)
             seen.add(key)
-            value = values.get(key, "")
-            if value != "":
-                output_lines.append(f"{key}={value}")
+            if key in values:
+                output_lines.append(f"{key}={values[key]}")
             else:
                 output_lines.append(line)
             continue
@@ -760,14 +503,6 @@ def _call_agent_env_update(raw_text: str) -> dict[str, Any]:
     )
     with urllib.request.urlopen(request, timeout=60) as response:
         return json.loads(response.read().decode("utf-8"))
-
-
-def _check_host_agent_available() -> bool:
-    try:
-        with urllib.request.urlopen(f"{AGENT_URL}/health", timeout=3) as response:
-            return response.status == 200
-    except Exception:
-        return False
 
 
 def _build_settings_env_payload(
@@ -861,10 +596,19 @@ def _prepare_env_save(payload: dict[str, Any]) -> tuple[str, list[dict[str, Any]
 
 # --- App ---
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    asyncio.create_task(collect_metrics())
+    asyncio.create_task(_poll_service_health())
+    asyncio.create_task(gpu_router.poll_gpu_history())
+    yield
+
+
 app = FastAPI(
     title="Dream Server Dashboard API",
     version="2.0.0",
-    description="System status API for Dream Server Dashboard"
+    description="System status API for Dream Server Dashboard",
+    lifespan=_lifespan,
 )
 
 # --- CORS ---
@@ -911,6 +655,9 @@ app.include_router(voice.router)
 app.include_router(models_router.router)
 app.include_router(templates.router)
 app.include_router(projects.router)
+app.include_router(auth_router.router)
+app.include_router(magic_link.router)
+app.include_router(tailscale.router)
 
 
 # ================================================================
@@ -1080,13 +827,14 @@ async def status(api_key: str = Depends(verify_api_key)):
 async def api_status(api_key: str = Depends(verify_api_key)):
     """Dashboard-compatible status endpoint.
 
-    Wrapped in a top-level try/except so that a transient failure in any
-    sub-call (GPU, health checks, llama metrics …) never returns a raw 500
-    to the dashboard — the frontend would flash "0/17" otherwise.
+    Catches transient I/O failures from sub-calls (GPU, health checks,
+    llama metrics …) and returns a safe fallback. Programming errors
+    (AttributeError, KeyError, TypeError) propagate so they surface in
+    tests instead of being masked.
     """
     try:
         return await _build_api_status()
-    except Exception:
+    except (asyncio.TimeoutError, OSError):
         logger.exception("/api/status handler failed — returning safe fallback")
         return {
             "gpu": None, "services": [], "model": None,
@@ -1134,19 +882,6 @@ async def _build_api_status() -> dict:
 
     gpu_data = None
     if gpu_info:
-        # Infer gpu_count from display name ("RTX 4090 × 2") or env var GPU_COUNT
-        gpu_count = 1
-        gpu_count_env = os.environ.get("GPU_COUNT", "")
-        if gpu_count_env.isdigit():
-            gpu_count = int(gpu_count_env)
-        elif " \u00d7 " in gpu_info.name:
-            try:
-                gpu_count = int(gpu_info.name.rsplit(" \u00d7 ", 1)[-1])
-            except ValueError:
-                pass
-        elif " + " in gpu_info.name:
-            gpu_count = gpu_info.name.count(" + ") + 1
-
         gpu_data = {
             "name": gpu_info.name,
             "vramUsed": round(gpu_info.memory_used_mb / 1024, 1),
@@ -1155,13 +890,13 @@ async def _build_api_status() -> dict:
             "temperature": gpu_info.temperature_c,
             "memoryType": gpu_info.memory_type,
             "backend": gpu_info.gpu_backend,
-            "gpu_count": gpu_count,
+            "gpu_count": _infer_gpu_count(gpu_info),
         }
         if gpu_info.power_w is not None:
             gpu_data["powerDraw"] = gpu_info.power_w
         gpu_data["memoryLabel"] = "VRAM Partition" if gpu_info.memory_type == "unified" else "VRAM"
 
-    services_data = [{"name": s.name, "status": s.status, "port": s.external_port, "uptime": uptime if s.status == "healthy" else None} for s in service_statuses]
+    services_data = _serialize_services(service_statuses, uptime)
 
     model_data = None
     if model_info:
@@ -1177,21 +912,7 @@ async def _build_api_status() -> dict:
             "eta": bootstrap_info.eta_seconds, "speedMbps": bootstrap_info.speed_mbps
         }
 
-    tier = "Unknown"
-    if gpu_info:
-        vram_gb = gpu_info.memory_total_mb / 1024
-        if gpu_info.memory_type == "unified" and gpu_info.gpu_backend == "amd":
-            tier = "Strix Halo 90+" if vram_gb >= 90 else "Strix Halo Compact"
-        elif vram_gb >= 80:
-            tier = "Professional"
-        elif vram_gb >= 24:
-            tier = "Prosumer"
-        elif vram_gb >= 16:
-            tier = "Standard"
-        elif vram_gb >= 8:
-            tier = "Entry"
-        else:
-            tier = "Minimal"
+    tier = _infer_tier(gpu_info)
 
     result = {
         "gpu": gpu_data, "services": services_data, "model": model_data,
@@ -1362,7 +1083,7 @@ async def api_settings_env_save(
         try:
             err_payload = json.loads(exc.read().decode("utf-8"))
             detail = err_payload.get("error", detail)
-        except Exception:
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
             pass
         raise HTTPException(status_code=503, detail={"message": detail}) from exc
     except urllib.error.URLError as exc:
@@ -1422,7 +1143,7 @@ async def api_settings_env_apply(
         try:
             payload = json.loads(exc.read().decode("utf-8"))
             detail = payload.get("error", detail)
-        except Exception:
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
             pass
         raise HTTPException(status_code=503, detail={"message": detail}) from exc
     except urllib.error.URLError as exc:
@@ -1463,16 +1184,6 @@ async def _poll_service_health():
         except Exception:
             logger.exception("Service health poll failed")
         await asyncio.sleep(_SERVICE_POLL_INTERVAL)
-
-
-# --- Startup ---
-
-@app.on_event("startup")
-async def startup_event():
-    """Start background tasks."""
-    asyncio.create_task(collect_metrics())
-    asyncio.create_task(_poll_service_health())
-    asyncio.create_task(gpu_router.poll_gpu_history())
 
 
 if __name__ == "__main__":

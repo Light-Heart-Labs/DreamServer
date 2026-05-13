@@ -1,0 +1,108 @@
+services:
+  hermes:
+    # SHA-pinned to NousResearch/hermes-agent@dd0923bb89ed2dd56f82cb63656a1323f6f42e6f
+    # (2026-05-12). Upstream's CI publishes a sha-<full-sha> tag for every main
+    # push, so this is an immutable reference. Bumping the pin is a deliberate
+    # review-and-smoke-test pass — see docs/HERMES.md "How to bump the pin."
+    image: nousresearch/hermes-agent:sha-dd0923bb89ed2dd56f82cb63656a1323f6f42e6f
+    container_name: dream-hermes
+    restart: unless-stopped
+    # NOT host networking — we use bridge so the container can resolve
+    # `llama-server` via Docker's internal DNS. Upstream's reference compose
+    # uses host mode; we deviate because Dream Server is multi-service and
+    # depends on inter-container service discovery.
+    environment:
+      # User remapping: match the host user so files written into the volume
+      # are owned by the user, not container-root. Same pattern as n8n.
+      - HERMES_UID=${UID:-10000}
+      - HERMES_GID=${GID:-10000}
+      # Point Hermes at the local LLM. provider=custom is the documented
+      # alias for any OpenAI-compatible local server (vLLM / llama.cpp / Ollama).
+      # The actual provider/model wiring lives in cli-config.yaml (mounted below).
+      - OPENAI_BASE_URL=${HERMES_LLM_BASE_URL:-http://llama-server:8080/v1}
+      - OPENAI_API_KEY=${HERMES_LLM_API_KEY:-sk-dream-hermes-local}
+      # Aggressive timeouts for local cold starts — llama-server can take
+      # >60s to load a model under heavy use.
+      - HERMES_API_TIMEOUT=1800
+      - HERMES_API_CALL_STALE_TIMEOUT=900
+      # Locale + timezone match the rest of the stack.
+      - TZ=${TIMEZONE:-UTC}
+      - HERMES_LANGUAGE=${HERMES_LANGUAGE:-en}
+      # Embed the dashboard inside the gateway process (see `command` below).
+      # Upstream reads these env vars to configure the dashboard listener
+      # without separate CLI flags.
+      - HERMES_DASHBOARD=1
+      - HERMES_DASHBOARD_HOST=0.0.0.0
+      - HERMES_DASHBOARD_PORT=9119
+      # --insecure equivalent: dashboard refuses non-loopback binds without
+      # this since it stores API keys. The trusted-LAN posture is the v1
+      # trade-off (documented in docs/HERMES.md).
+      - HERMES_DASHBOARD_INSECURE=1
+      # --no-open equivalent: stops Hermes from trying to spawn a browser
+      # inside the container.
+      - HERMES_DASHBOARD_NO_OPEN=1
+    volumes:
+      # Persistent state: Hermes's HERMES_HOME. Sessions, skills, memories,
+      # cron jobs, audit logs all live here.
+      - ./data/hermes:/opt/data
+      # Bake our cli-config.yaml + SOUL.md as the defaults Hermes copies into
+      # HERMES_HOME on first start (its entrypoint copies these examples into
+      # /opt/data/ if the destination files don't exist yet). Mounting them
+      # over the in-image versions means our defaults win without needing
+      # a custom Dockerfile.
+      - ./extensions/services/hermes/cli-config.yaml.template:/opt/hermes/cli-config.yaml.example:ro
+      - ./extensions/services/hermes/SOUL.md.template:/opt/hermes/docker/SOUL.md:ro
+    # Hermes is exposed to the LAN via dream-hermes-proxy on port 9120 — that
+    # Caddy sidecar forward_auths to dashboard-api's verify-session and only
+    # then forwards traffic here. By NOT binding a host port on the Hermes
+    # container itself, we close the door on direct LAN access that would
+    # bypass the magic-link gate. If you disable the proxy, you'll need to
+    # re-add a `ports:` binding here OR `docker exec dream-hermes` to interact.
+    #
+    # Internal port 9119 stays reachable from other containers (the proxy
+    # forwards to dream-hermes:9119 via the Docker network).
+    expose:
+      - "9119"
+    # Run the gateway with the dashboard embedded.
+    #
+    # Why `gateway run` and not just `dashboard`: Hermes's scheduler (the
+    # cron tick that fires recurring tasks) runs INSIDE the gateway process,
+    # not the dashboard. Earlier drafts of this extension ran only
+    # `dashboard`, which let users create cron jobs through the UI but
+    # never actually fired them — `tick()` lives in the gateway's main
+    # loop. `gateway run` with HERMES_DASHBOARD=1 (set above) gives us
+    # both: the gateway's scheduler + the React UI, in one process.
+    #
+    # We don't enable any messaging platforms (Telegram / Discord / etc.)
+    # so the gateway has no adapters to drive — its only job here is to
+    # tick cron and host the dashboard. That's the upstream-supported
+    # shape; see https://hermes-agent.nousresearch.com/docs/gateway.
+    command:
+      - gateway
+      - run
+    healthcheck:
+      # /api/health does not exist in the pinned upstream image, and most
+      # /api/* routes are session-token gated. /api/status is explicitly
+      # public, read-only, and JSON-backed, so use it for container health.
+      test: ["CMD", "curl", "-fs", "http://127.0.0.1:9119/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s  # skills sync + config bootstrap can take a while
+    # Hermes pulls in playwright + ffmpeg + chromium + ML deps — image is
+    # multi-GB. Reasonable resource caps so it doesn't crowd out the LLM.
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

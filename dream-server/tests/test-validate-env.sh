@@ -15,6 +15,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# validate-env.sh uses associative arrays (declare -A), which require Bash 4+.
+# Its shebang is #!/bin/bash, and macOS ships /bin/bash 3.2 — invoking by raw
+# path there hits the Bash-4+ guard and exits 1 before any validation runs.
+# Invoke through "$BASH" (the shell running this test) so the interpreter is
+# guaranteed to be whatever bash launched us (typically Homebrew bash on
+# macOS, /bin/bash 4+ on Linux/WSL2). Fall back to $PATH bash if $BASH is
+# unset (e.g. when the test is launched from a non-bash shell).
+VALIDATE_ENV_BASH="${BASH:-$(command -v bash)}"
+
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 NC='\033[0m'
@@ -56,7 +65,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 # 2. Missing .env → exit 3
 set +e
-"$ROOT_DIR/scripts/validate-env.sh" "$TMP_DIR/nonexistent.env" "$ROOT_DIR/.env.schema.json" >/dev/null 2>&1
+"$VALIDATE_ENV_BASH" "$ROOT_DIR/scripts/validate-env.sh" "$TMP_DIR/nonexistent.env" "$ROOT_DIR/.env.schema.json" >/dev/null 2>&1
 r=$?
 set -e
 if [[ $r -eq 3 ]]; then
@@ -68,7 +77,7 @@ fi
 # 3. Missing schema → exit 3
 touch "$TMP_DIR/empty.env"
 set +e
-"$ROOT_DIR/scripts/validate-env.sh" "$TMP_DIR/empty.env" "$TMP_DIR/nonexistent.json" >/dev/null 2>&1
+"$VALIDATE_ENV_BASH" "$ROOT_DIR/scripts/validate-env.sh" "$TMP_DIR/empty.env" "$TMP_DIR/nonexistent.json" >/dev/null 2>&1
 r=$?
 set -e
 if [[ $r -eq 3 ]]; then
@@ -88,7 +97,7 @@ LITELLM_KEY=testkey
 OPENCLAW_TOKEN=testtoken
 EOF
 set +e
-"$ROOT_DIR/scripts/validate-env.sh" "$TMP_DIR/valid.env" "$ROOT_DIR/.env.schema.json" >/dev/null 2>&1
+"$VALIDATE_ENV_BASH" "$ROOT_DIR/scripts/validate-env.sh" "$TMP_DIR/valid.env" "$ROOT_DIR/.env.schema.json" >/dev/null 2>&1
 r=$?
 set -e
 if [[ $r -eq 0 ]]; then
@@ -106,7 +115,7 @@ N8N_PASS=testpass
 LITELLM_KEY=testkey
 EOF
 set +e
-out=$("$ROOT_DIR/scripts/validate-env.sh" "$TMP_DIR/missing.env" "$ROOT_DIR/.env.schema.json" 2>&1)
+out=$("$VALIDATE_ENV_BASH" "$ROOT_DIR/scripts/validate-env.sh" "$TMP_DIR/missing.env" "$ROOT_DIR/.env.schema.json" 2>&1)
 r=$?
 set -e
 if [[ $r -eq 2 ]]; then
@@ -131,7 +140,7 @@ OPENCLAW_TOKEN=testtoken
 UNKNOWN_KEY=value
 EOF
 set +e
-"$ROOT_DIR/scripts/validate-env.sh" "$TMP_DIR/unknown.env" "$ROOT_DIR/.env.schema.json" >/dev/null 2>&1
+"$VALIDATE_ENV_BASH" "$ROOT_DIR/scripts/validate-env.sh" "$TMP_DIR/unknown.env" "$ROOT_DIR/.env.schema.json" >/dev/null 2>&1
 r=$?
 set -e
 if [[ $r -eq 2 ]]; then

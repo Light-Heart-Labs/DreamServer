@@ -226,6 +226,56 @@ setup() {
 
 # ── LORE_MESSAGES ───────────────────────────────────────────────────────────
 
+@test "check_service: exits early when managed container has exited" {
+    export DRY_RUN="false"
+    export DOCKER_CMD="docker"
+    mkdir -p "$BATS_TEST_TMPDIR/bin"
+    cat > "$BATS_TEST_TMPDIR/bin/timeout" <<'MOCK'
+#!/bin/bash
+exit 7
+MOCK
+    cat > "$BATS_TEST_TMPDIR/bin/docker" <<'MOCK'
+#!/bin/bash
+if [[ "$1" == "inspect" ]]; then
+    echo "exited"
+    exit 0
+fi
+exit 1
+MOCK
+    chmod +x "$BATS_TEST_TMPDIR/bin/timeout" "$BATS_TEST_TMPDIR/bin/docker"
+    export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
+
+    run check_service "llama-server" "http://127.0.0.1:8080/health" 3 1 "dream-llama-server"
+    assert_failure
+    assert_output --partial "container exited"
+    assert_output --partial "not retrying"
+}
+
+@test "check_service: supports sudo docker command for container state" {
+    export DRY_RUN="false"
+    export DOCKER_CMD="sudo docker"
+    mkdir -p "$BATS_TEST_TMPDIR/bin"
+    cat > "$BATS_TEST_TMPDIR/bin/timeout" <<'MOCK'
+#!/bin/bash
+exit 7
+MOCK
+    cat > "$BATS_TEST_TMPDIR/bin/sudo" <<'MOCK'
+#!/bin/bash
+if [[ "$1" == "docker" && "$2" == "inspect" ]]; then
+    echo "dead"
+    exit 0
+fi
+exit 1
+MOCK
+    chmod +x "$BATS_TEST_TMPDIR/bin/timeout" "$BATS_TEST_TMPDIR/bin/sudo"
+    export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
+
+    run check_service "llama-server" "http://127.0.0.1:8080/health" 3 1 "dream-llama-server"
+    assert_failure
+    assert_output --partial "container dead"
+    assert_output --partial "not retrying"
+}
+
 @test "LORE_MESSAGES: array is non-empty" {
     [[ ${#LORE_MESSAGES[@]} -gt 0 ]]
 }

@@ -1,5 +1,7 @@
 # OpenClaw
 
+> ⚠️ **DEPRECATED as of 2026-05-12.** Replaced by **Hermes Agent** (see `extensions/services/hermes/` and [docs/HERMES.md](../../../docs/HERMES.md)). New Dream Server installs no longer enable OpenClaw by default. This extension stays installable for one release cycle, then is removed. Migration notes: [docs/MIGRATION-OPENCLAW-TO-HERMES.md](../../../docs/MIGRATION-OPENCLAW-TO-HERMES.md).
+
 Autonomous agent framework for Dream Server
 
 ## Overview
@@ -44,7 +46,9 @@ Environment variables (set in `.env`):
 |-----------|---------------|---------|
 | `./config/openclaw` | `/config` (read-only) | Gateway config files and token injection script |
 | `./data/openclaw` | `/data` | Agent task state and persistent data |
-| `./data/openclaw/home` | `/home/node/.openclaw` | OpenClaw user home directory |
+| `./data/openclaw/home/agents` | `/home/node/.openclaw/agents` | Agent definitions and sessions |
+| `./data/openclaw/home/canvas` | `/home/node/.openclaw/canvas` | OpenClaw canvas state |
+| `./data/openclaw/home/cron` | `/home/node/.openclaw/cron` | Scheduled agent jobs |
 | `./config/openclaw/workspace` | `/home/node/.openclaw/workspace` | Agent workspace directory |
 
 ## Architecture

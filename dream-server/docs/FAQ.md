@@ -195,10 +195,102 @@ Options:
 ### How do I get updates?
 
 ```bash
-./dream-cli update
+dream update
 ```
 
-That's it. Updates are optional — you control when to apply them.
+Updates are optional — you control when to apply them.
+
+**Preview changes without applying:**
+```bash
+dream update --dry-run
+```
+
+**Skip version-compatibility confirmation:**
+```bash
+dream update --force
+```
+
+`dream update` automatically creates a pre-update snapshot before pulling new images, then verifies all services are healthy afterward. If something goes wrong, run:
+
+```bash
+dream rollback
+```
+
+This restores configuration from the pre-update snapshot and restarts services.
+
+---
+
+### How do I back up and restore my data?
+
+**Create a backup** (saves user data and config to `.backups/`):
+```bash
+dream backup
+```
+
+**Create a compressed backup:**
+```bash
+dream backup -c
+```
+
+**List existing backups:**
+```bash
+dream backup -l
+```
+
+**Verify a backup's integrity:**
+```bash
+dream backup verify <backup_id>
+```
+
+**Restore from a backup** (interactive — lets you choose from available backups):
+```bash
+dream restore
+```
+
+**Restore a specific backup by ID:**
+```bash
+dream restore <backup_id>
+```
+
+**Rollback after a failed update** (restores the pre-update snapshot):
+```bash
+dream rollback
+```
+
+`dream update` always creates a pre-update snapshot, so `dream rollback` is available immediately after any update attempt.
+
+---
+
+### What are service templates?
+
+Templates are curated presets that enable a group of extensions suited to a specific use case — for example, a creative-studio setup (image generation + voice) or a research workflow (RAG + web search + agents).
+
+**List available templates:**
+```bash
+dream template list
+```
+
+**Preview what a template will change before applying:**
+```bash
+dream template preview <template-id>
+```
+
+**Apply a template (enables the template's services):**
+```bash
+dream template apply <template-id>
+```
+
+Applying a template only enables services — it doesn't disable anything you've already set up.
+
+---
+
+### Can I chat while models are downloading?
+
+Yes. During install, a small bootstrap model (~1.5GB, Qwen 3.5 2B) downloads first so you can start chatting within a couple of minutes. The full tier-appropriate model downloads in the background.
+
+When the full model finishes, the system swaps it in automatically — you don't need to do anything. `dream status` shows the current bootstrap state if a swap is still in progress.
+
+---
 
 ### Where do I get help?
 

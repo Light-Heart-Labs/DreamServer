@@ -173,7 +173,7 @@ test_service() {
         return 1
     fi
 
-    if curl -sf --max-time "$timeout" "http://localhost:${port}${health}" >/dev/null 2>&1; then
+    if curl -sf --max-time "$timeout" "http://127.0.0.1:${port}${health}" >/dev/null 2>&1; then
         result_set "$sid" "ok"
         return 0
     fi

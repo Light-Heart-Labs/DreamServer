@@ -91,7 +91,7 @@ def extract_entry(manifest: dict) -> dict | None:
     if not isinstance(env_vars, list):
         env_vars = []
 
-    return {
+    entry = {
         "id": service_id,
         "name": service.get("name", service_id),
         "description": service.get("description", ""),
@@ -106,6 +106,13 @@ def extract_entry(manifest: dict) -> dict | None:
         "tags": manifest.get("tags") or service.get("tags", []),
         "features": manifest.get("features") or service.get("features", []),
     }
+
+    if "startup_check" in service:
+        entry["startup_check"] = service.get("startup_check")
+    if "startup_timeout" in service:
+        entry["startup_timeout"] = service.get("startup_timeout")
+
+    return entry
 
 
 def generate_catalog(library_dir: Path) -> list[dict]:

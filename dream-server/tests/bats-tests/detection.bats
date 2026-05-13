@@ -208,3 +208,91 @@ MOCK
     run detect_gpu
     assert_failure
 }
+
+# ── detect_gpu AMD APU path ──────────────────────────────────────────────────
+
+_setup_amd_sysfs() {
+    local vram_bytes="$1"
+    local gtt_bytes="$2"
+    local card_dir="$BATS_TEST_TMPDIR/sys/class/drm/card0/device"
+    mkdir -p "$card_dir"
+    echo "0x1002" > "$card_dir/vendor"
+    echo "0x1234" > "$card_dir/device"
+    echo "$vram_bytes" > "$card_dir/mem_info_vram_total"
+    echo "$gtt_bytes"  > "$card_dir/mem_info_gtt_total"
+    export DREAM_DRM_SYS="$BATS_TEST_TMPDIR/sys/class/drm"
+    # Shadow nvidia-smi so the NVIDIA branch is skipped
+    mkdir -p "$BATS_TEST_TMPDIR/bin"
+    printf '#!/bin/bash\nexit 1\n' > "$BATS_TEST_TMPDIR/bin/nvidia-smi"
+    chmod +x "$BATS_TEST_TMPDIR/bin/nvidia-smi"
+    export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
+}
+
+@test "detect_gpu: detects AMD APU via small VRAM + large GTT" {
+    # Classic APU: 2 GB dedicated VRAM, 32 GB GTT (system RAM pool)
+    _setup_amd_sysfs $(( 2 * 1073741824 )) $(( 32 * 1073741824 ))
+    detect_gpu
+    assert_equal "$GPU_BACKEND"     "amd"
+    assert_equal "$GPU_MEMORY_TYPE" "unified"
+}
+
+@test "detect_gpu: detects Strix Halo via large GTT alone" {
+    # Strix Halo: 8 GB VRAM tile, 96 GB GTT — GTT alone is the signal
+    _setup_amd_sysfs $(( 8 * 1073741824 )) $(( 96 * 1073741824 ))
+    detect_gpu
+    assert_equal "$GPU_BACKEND"     "amd"
+    assert_equal "$GPU_MEMORY_TYPE" "unified"
+}
+
+@test "amd_gpu_runtime_devices_available: accepts mocked AMD device nodes" {
+    export DREAM_AMD_DEVICE_ROOT="$BATS_TEST_TMPDIR/dev"
+    mkdir -p "$DREAM_AMD_DEVICE_ROOT/dri"
+    touch "$DREAM_AMD_DEVICE_ROOT/kfd"
+    touch "$DREAM_AMD_DEVICE_ROOT/dri/renderD128"
+
+    run amd_gpu_runtime_devices_available
+    assert_success
+}
+
+@test "amd_gpu_runtime_devices_available: reports missing AMD device nodes" {
+    export DREAM_AMD_DEVICE_ROOT="$BATS_TEST_TMPDIR/dev"
+    mkdir -p "$DREAM_AMD_DEVICE_ROOT/dri"
+
+    run amd_gpu_runtime_devices_available
+    assert_failure
+
+    run amd_gpu_missing_devices_csv
+    assert_success
+    assert_output --partial "$DREAM_AMD_DEVICE_ROOT/kfd"
+    assert_output --partial "$DREAM_AMD_DEVICE_ROOT/dri/renderD*"
+}
+
+@test "apply_cpu_gpu_fallback: resets AMD capability state to CPU" {
+    GPU_BACKEND="amd"
+    GPU_NAME="AMD APU"
+    GPU_VRAM=98304
+    GPU_COUNT=1
+    GPU_MEMORY_TYPE="unified"
+    CAP_LLM_BACKEND="amd"
+    CAP_RECOMMENDED_TIER="SH_LARGE"
+    CAP_COMPOSE_OVERLAYS="docker-compose.base.yml,docker-compose.amd.yml"
+
+    apply_cpu_gpu_fallback "test fallback"
+
+    assert_equal "$GPU_BACKEND" "cpu"
+    assert_equal "$GPU_COUNT" "0"
+    assert_equal "$GPU_VRAM" "0"
+    assert_equal "$GPU_MEMORY_TYPE" "none"
+    assert_equal "$CAP_LLM_BACKEND" "cpu"
+    assert_equal "$CAP_RECOMMENDED_TIER" ""
+    assert_equal "$CAP_COMPOSE_OVERLAYS" ""
+}
+
+@test "detect_gpu: does not misidentify discrete AMD GPU as APU" {
+    # Future discrete card: 32 GB VRAM, 16 GB GTT — should NOT be an APU
+    _setup_amd_sysfs $(( 32 * 1073741824 )) $(( 16 * 1073741824 ))
+    run detect_gpu
+    # Falls through to CPU-only (returns failure) — GPU_BACKEND never set to amd
+    assert_failure
+    [[ "${GPU_BACKEND:-cpu}" != "amd" ]]
+}

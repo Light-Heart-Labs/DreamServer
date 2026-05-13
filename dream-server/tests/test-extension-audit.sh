@@ -37,7 +37,7 @@ fail() {
 
 header() {
     echo ""
-    echo -e "${BOLD}${CYAN}[$1/6]${NC} ${BOLD}$2${NC}"
+    echo -e "${BOLD}${CYAN}[$1/7]${NC} ${BOLD}$2${NC}"
     echo -e "${CYAN}$(printf '%.0s─' {1..60})${NC}"
 }
 
@@ -215,7 +215,7 @@ PY
 
 header "1" "Valid Project Passes Cleanly"
 root=$(make_fixture_root)
-trap 'rm -rf "$root" "${root2:-}" "${root3:-}" "${root4:-}" "${root5:-}" "${root6:-}"' EXIT
+trap 'rm -rf "$root" "${root2:-}" "${root3:-}" "${root4:-}" "${root5:-}" "${root6:-}" "${root7:-}"' EXIT
 create_valid_project "$root"
 report=$(mktemp)
 if run_audit "$root" --json > "$report"; then
@@ -342,6 +342,26 @@ if run_audit "$root6" --strict >/dev/null 2>&1; then
     fail "strict mode should fail on warnings"
 else
     pass "strict mode converts warnings into failure"
+fi
+
+header "7" "External Port Zero Is Accepted"
+root7=$(make_fixture_root)
+create_valid_project "$root7"
+python3 - "$root7/extensions/services/search/manifest.yaml" <<'PY'
+import yaml
+import sys
+path = sys.argv[1]
+doc = yaml.safe_load(open(path, encoding="utf-8"))
+doc["service"].pop("external_port_env", None)
+doc["service"]["external_port_default"] = 0
+with open(path, "w", encoding="utf-8") as handle:
+    yaml.safe_dump(doc, handle, sort_keys=False)
+PY
+report7=$(mktemp)
+if run_audit "$root7" --json > "$report7" 2>/dev/null; then
+    pass "external_port_default=0 fixture audits successfully"
+else
+    fail "external_port_default=0 should be allowed for internal-only services"
 fi
 
 echo ""

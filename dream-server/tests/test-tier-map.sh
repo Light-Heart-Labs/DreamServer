@@ -93,12 +93,24 @@ echo ""
 
 # --- NV_ULTRA ---
 echo "NV_ULTRA (NVIDIA Ultra 90GB+):"
+unset HOST_ARCH
 run_tier NV_ULTRA
 assert_eq "TIER_NAME"   "NVIDIA Ultra (90GB+)"                 "$TIER_NAME"
 assert_eq "MODEL_PROFILE_EFFECTIVE" "qwen"                   "$MODEL_PROFILE_EFFECTIVE"
 assert_eq "LLM_MODEL"   "qwen3-coder-next"                   "$LLM_MODEL"
 assert_eq "GGUF_FILE"   "qwen3-coder-next-Q4_K_M.gguf"       "$GGUF_FILE"
 assert_eq "MAX_CONTEXT"  "131072"                               "$MAX_CONTEXT"
+echo ""
+
+echo "NV_ULTRA (aarch64 A3B substitution):"
+HOST_ARCH=arm64
+run_tier NV_ULTRA
+assert_eq "TIER_NAME"   "NVIDIA Ultra (90GB+, aarch64 — A3B substitution)" "$TIER_NAME"
+assert_eq "MODEL_PROFILE_EFFECTIVE" "qwen"                   "$MODEL_PROFILE_EFFECTIVE"
+assert_eq "LLM_MODEL"   "qwen3.6-35b-a3b"                    "$LLM_MODEL"
+assert_eq "GGUF_FILE"   "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"     "$GGUF_FILE"
+assert_eq "MAX_CONTEXT"  "131072"                               "$MAX_CONTEXT"
+unset HOST_ARCH
 echo ""
 
 # --- SH_LARGE ---
@@ -176,7 +188,8 @@ MODEL_PROFILE=gemma4 run_tier 2
 assert_eq "MODEL_PROFILE_EFFECTIVE" "gemma4"                   "$MODEL_PROFILE_EFFECTIVE"
 assert_eq "LLM_MODEL"               "gemma-4-e4b-it"           "$LLM_MODEL"
 assert_eq "GGUF_FILE"               "gemma-4-E4B-it-Q4_K_M.gguf" "$GGUF_FILE"
-assert_eq "LLAMA_CPP_RELEASE_TAG_OVERRIDE" "b8648"             "$LLAMA_CPP_RELEASE_TAG_OVERRIDE"
+assert_eq "LLAMA_SERVER_IMAGE" "ghcr.io/ggml-org/llama.cpp:server-cuda-b9014" "$LLAMA_SERVER_IMAGE"
+assert_eq "LLAMA_CPP_RELEASE_TAG_OVERRIDE" "b9014"             "$LLAMA_CPP_RELEASE_TAG_OVERRIDE"
 unset MODEL_PROFILE
 echo ""
 

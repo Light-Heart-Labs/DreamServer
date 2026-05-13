@@ -71,6 +71,7 @@ $LibDir = Join-Path $ScriptDir "lib"
 . (Join-Path $LibDir "env-generator.ps1")
 . (Join-Path $LibDir "llm-endpoint.ps1")
 . (Join-Path $LibDir "opencode-config.ps1")
+. (Join-Path $LibDir "readiness-summary.ps1")
 
 # ── Phase context variables ───────────────────────────────────────────────────
 # These are plain (non-$script:) variables set in the orchestrator scope.
@@ -165,7 +166,7 @@ Write-DreamBanner
 #  Phase 03 → $enableVoice, $enableWorkflows, $enableRag, $enableOpenClaw, $openClawConfig
 #  Phase 04 → $requirementsMet
 #  Phase 05 → $dockerComposeCmd
-#  Phase 06 → $envResult (EnvPath, SearxngSecret, OpenclawToken, DreamAgentKey)
+#  Phase 06 → $envResult (SearxngSecret, OpenclawToken)
 #  Phase 07 → (no output -- tools installed to $env:USERPROFILE)
 
 . (Join-Path $PhasesDir "01-preflight.ps1")
@@ -433,6 +434,16 @@ if ($dryRun) {
                     "--n-gpu-layers", "999",
                     "--ctx-size", "$($tierConfig.MaxContext)"
                 )
+                $_llamaEnv = @{}
+                Get-Content -LiteralPath (Join-Path $installDir ".env") -ErrorAction SilentlyContinue | ForEach-Object {
+                    if ($_ -match '^\s*#' -or $_ -notmatch '=') { return }
+                    $parts = $_ -split '=', 2
+                    $_llamaEnv[$parts[0].Trim()] = $parts[1].Trim().Trim('"')
+                }
+                if ($_llamaEnv["LLAMA_ARG_FLASH_ATTN"]) { $llamaArgs += @("--flash-attn", $_llamaEnv["LLAMA_ARG_FLASH_ATTN"]) }
+                if ($_llamaEnv["LLAMA_ARG_CACHE_TYPE_K"]) { $llamaArgs += @("--cache-type-k", $_llamaEnv["LLAMA_ARG_CACHE_TYPE_K"]) }
+                if ($_llamaEnv["LLAMA_ARG_CACHE_TYPE_V"]) { $llamaArgs += @("--cache-type-v", $_llamaEnv["LLAMA_ARG_CACHE_TYPE_V"]) }
+                if ($_llamaEnv["LLAMA_ARG_N_CPU_MOE"]) { $llamaArgs += @("--n-cpu-moe", $_llamaEnv["LLAMA_ARG_N_CPU_MOE"]) }
                 $pidDir = Split-Path $script:INFERENCE_PID_FILE
                 New-Item -ItemType Directory -Path $pidDir -Force | Out-Null
 
@@ -493,6 +504,12 @@ if ($dryRun) {
             }
         } elseif ($gpuInfo.Backend -eq "amd") {
             $composeFlags += @("-f", "installers/windows/docker-compose.windows-amd.yml")
+            # Local-LLM readiness sidecar: gates open-webui on the native inference
+            # server (Lemonade or llama-server.exe) becoming healthy. Only added
+            # when a native server actually runs (AMD non-cloud); cloud mode loads
+            # the windows-amd.yml overlay too but starts no native server, so the
+            # sidecar would block open-webui forever there.
+            $composeFlags += @("-f", "installers/windows/docker-compose.windows-amd.local.yml")
         } else {
             # No supported GPU detected (Intel integrated, etc.) -- use CPU-only overlay
             Write-AIWarn "No supported GPU detected. Using CPU-only inference (slower)."
@@ -547,6 +564,8 @@ if ($dryRun) {
                     "embeddings" { if (-not $enableRag)       { $skip = $true } }
                     "openclaw"   { if (-not $enableOpenClaw)  { $skip = $true } }
                     "comfyui"    { if (-not $enableComfyui)   { $skip = $true } }
+                    # Paid API extension; users enable it post-install after adding a key.
+                    "brave-search" { $skip = $true }
                 }
                 if ($skip) { continue }
 
@@ -597,7 +616,79 @@ if ($dryRun) {
             exit 1
         }
 
-        Write-AI "Running: docker compose $($composeFlags -join ' ') up -d"
+        function Test-DreamDockerImageAvailable {
+            param([string]$Image)
+            if ([string]::IsNullOrWhiteSpace($Image)) { return $false }
+
+            & docker image inspect $Image *> $null
+            if ($LASTEXITCODE -eq 0) { return $true }
+
+            & docker manifest inspect $Image *> $null
+            return ($LASTEXITCODE -eq 0)
+        }
+
+        function Resolve-DreamDockerImageOrFallback {
+            param(
+                [string]$Image,
+                [string]$Label,
+                [string]$FallbackImage = ""
+            )
+
+            if (Test-DreamDockerImageAvailable -Image $Image) {
+                Write-AISuccess "$Label image available: $Image"
+                return $Image
+            }
+
+            $fallback = $FallbackImage
+            if ([string]::IsNullOrWhiteSpace($fallback)) {
+                $fallback = [Environment]::GetEnvironmentVariable("LLAMA_SERVER_IMAGE_FALLBACK")
+            }
+            if (-not [string]::IsNullOrWhiteSpace($fallback)) {
+                Write-AIWarn "$Label image unavailable: $Image"
+                Write-AIWarn "Trying explicit fallback from LLAMA_SERVER_IMAGE_FALLBACK: $fallback"
+                if (Test-DreamDockerImageAvailable -Image $fallback) {
+                    Write-AISuccess "$Label fallback image available: $fallback"
+                    return $fallback
+                }
+                Write-AIError "$Label fallback image is also unavailable: $fallback"
+            } else {
+                Write-AIError "$Label image is unavailable: $Image"
+            }
+
+            Write-AI "  Docker cannot resolve this image tag before service startup."
+            Write-AI "  Check the tag, registry access, and Docker Desktop network."
+            Write-AI "  To override intentionally, set LLAMA_SERVER_IMAGE to a valid image."
+            Write-AI "  To permit an explicit fallback, set LLAMA_SERVER_IMAGE_FALLBACK to a valid image."
+            return $null
+        }
+
+        if (-not $cloudMode -and $currentBackend -ne "amd") {
+            $envLlamaImage = ""
+            $envFallbackImage = ""
+            foreach ($line in Get-Content $_envCheck) {
+                if ($line -match '^LLAMA_SERVER_IMAGE=(.+)$') {
+                    $envLlamaImage = $Matches[1].Trim().Trim('"').Trim("'")
+                } elseif ($line -match '^LLAMA_SERVER_IMAGE_FALLBACK=(.+)$') {
+                    $envFallbackImage = $Matches[1].Trim().Trim('"').Trim("'")
+                }
+            }
+
+            if (-not [string]::IsNullOrWhiteSpace($envLlamaImage)) {
+                Write-AI "Validating llama-server image tag before startup..."
+                $validatedImage = Resolve-DreamDockerImageOrFallback -Image $envLlamaImage -Label "llama-server" -FallbackImage $envFallbackImage
+                if ([string]::IsNullOrWhiteSpace($validatedImage)) { exit 1 }
+
+                if ($validatedImage -ne $envLlamaImage) {
+                    $envLines = Get-Content $_envCheck
+                    $envLines = $envLines | ForEach-Object {
+                        if ($_ -match '^LLAMA_SERVER_IMAGE=') { "LLAMA_SERVER_IMAGE=$validatedImage" } else { $_ }
+                    }
+                    Write-Utf8NoBom -Path $_envCheck -Content ($envLines -join "`n")
+                }
+            }
+        }
+
+        Write-AI "Running: docker compose $($composeFlags -join ' ') up -d --remove-orphans --no-build"
         # PS 5.1 treats ANY stderr output from native commands as NativeCommandError.
         # Silence stderr-as-error so $LASTEXITCODE reflects the real compose exit code.
         # Write output to log file to avoid ForEach-Object pipeline hang on failure.
@@ -606,8 +697,29 @@ if ($dryRun) {
         $_composeLogDir = Join-Path $installDir "logs"
         if (-not (Test-Path $_composeLogDir)) { New-Item -ItemType Directory -Path $_composeLogDir -Force | Out-Null }
         $_composeLog = Join-Path $_composeLogDir "compose-up.log"
+
+        # ── Rebuild local-built images ─────────────────────────────────────
+        # Mirrors phases/11-services.sh on Linux: local Dockerfiles can drift
+        # from the baked images, so we always rebuild without cache before
+        # `up -d`. llama-server runs natively on Windows (Lemonade or Vulkan
+        # binary) so it is not built here. ComfyUI is included only if
+        # explicitly enabled.
+        $_buildServices = @("dashboard", "dashboard-api", "ape", "token-spy", "privacy-shield")
+        if ($enableComfyui) { $_buildServices += "comfyui" }
+        Write-AI "Rebuilding local-built images (no-cache)..."
+        $_buildLog = Join-Path $_composeLogDir "compose-build.log"
+        "" | Out-File -FilePath $_buildLog -Encoding ascii
+        foreach ($_svc in $_buildServices) {
+            Write-AI "  building $_svc ..."
+            & docker compose @composeFlags build --no-cache $_svc *>> $_buildLog
+            if ($LASTEXITCODE -ne 0) {
+                Write-AIWarn "$_svc build failed (non-fatal - see $_buildLog)"
+            }
+        }
+        Write-AISuccess "Local images rebuilt"
+
         Write-AI "Starting services... this may take several minutes."
-        & docker compose @composeFlags up -d *> $_composeLog
+        & docker compose @composeFlags up -d --remove-orphans --no-build *> $_composeLog
         $composeExit = $LASTEXITCODE
         $ErrorActionPreference = $prevEAP
         # Show tail of compose output for immediate feedback
@@ -616,7 +728,11 @@ if ($dryRun) {
         }
         if ($composeExit -ne 0) {
             Write-AIError "docker compose up failed (exit code: $composeExit)"
-            Write-DreamComposeDiagnostics -InstallDir $installDir -ComposeFlags $composeFlags -Phase "install-windows.ps1 docker compose up -d"
+            Write-DreamComposeDiagnostics -InstallDir $installDir -ComposeFlags $composeFlags `
+                -ComposeArgs @("up", "-d", "--remove-orphans", "--no-build") `
+                -ComposeLogPath $_composeLog `
+                -Phase "install-windows.ps1 docker compose up -d" `
+                -SaveReport
             exit 1
         }
         Write-AISuccess "Docker services started"
@@ -851,6 +967,56 @@ if ($perplexicaOk) {
 } else {
     Write-AIWarn "Perplexica auto-config skipped -- complete setup at http://localhost:3004"
 }
+
+$readinessEnv = Get-WindowsDreamEnvMap -InstallDir $installDir
+function Get-ReadinessPort {
+    param([string]$Name, [string]$Default)
+    if ($readinessEnv.ContainsKey($Name) -and -not [string]::IsNullOrWhiteSpace($readinessEnv[$Name])) {
+        return $readinessEnv[$Name]
+    }
+    return $Default
+}
+
+$dashboardPort = Get-ReadinessPort -Name "DASHBOARD_PORT" -Default "3001"
+$webuiPort = Get-ReadinessPort -Name "WEBUI_PORT" -Default "3000"
+$dashboardApiPort = Get-ReadinessPort -Name "DASHBOARD_API_PORT" -Default "3002"
+$litellmPort = Get-ReadinessPort -Name "LITELLM_PORT" -Default "4000"
+$perplexicaPort = Get-ReadinessPort -Name "PERPLEXICA_PORT" -Default "3004"
+$llmContainer = if ($useLemonade -or $cloudMode -or $gpuInfo.Backend -eq "amd") { "" } else { "dream-llama-server" }
+$readinessChecks = @(
+    @{ Name = "Dashboard"; Url = "http://localhost:$dashboardPort"; Container = "dream-dashboard"; OpenUrl = "http://localhost:$dashboardPort" }
+    @{ Name = "Chat UI (Open WebUI)"; Url = "http://localhost:$webuiPort"; Container = "dream-webui"; OpenUrl = "http://localhost:$webuiPort" }
+    @{ Name = $llmEndpoint.Name; Url = $llmEndpoint.HealthUrl; Container = $llmContainer; OpenUrl = $llmEndpoint.BaseUrl }
+    @{ Name = "Dashboard API"; Url = "http://localhost:$dashboardApiPort/health"; Container = "dream-dashboard-api"; OpenUrl = "http://localhost:$dashboardApiPort" }
+    @{ Name = "LiteLLM"; Url = "http://localhost:$litellmPort/health/readiness"; Container = "dream-litellm"; OpenUrl = "http://localhost:$litellmPort" }
+    @{ Name = "Perplexica"; Url = "http://localhost:$perplexicaPort"; Container = "dream-perplexica"; OpenUrl = "http://localhost:$perplexicaPort" }
+)
+if ($enableVoice) {
+    $whisperPort = Get-ReadinessPort -Name "WHISPER_PORT" -Default "9000"
+    $ttsPort = Get-ReadinessPort -Name "TTS_PORT" -Default "8880"
+    $readinessChecks += @{ Name = "Whisper (STT)"; Url = "http://localhost:$whisperPort/health"; Container = "dream-whisper"; OpenUrl = "http://localhost:$whisperPort" }
+    $readinessChecks += @{ Name = "Kokoro (TTS)"; Url = "http://localhost:$ttsPort/health"; Container = "dream-tts"; OpenUrl = "http://localhost:$ttsPort" }
+}
+if ($enableWorkflows) {
+    $n8nPort = Get-ReadinessPort -Name "N8N_PORT" -Default "5678"
+    $readinessChecks += @{ Name = "n8n"; Url = "http://localhost:$n8nPort/healthz"; Container = "dream-n8n"; OpenUrl = "http://localhost:$n8nPort" }
+}
+if ($enableRag) {
+    $qdrantPort = Get-ReadinessPort -Name "QDRANT_PORT" -Default "6333"
+    $readinessChecks += @{ Name = "Qdrant"; Url = "http://localhost:$qdrantPort"; Container = "dream-qdrant"; OpenUrl = "http://localhost:$qdrantPort" }
+}
+if ($enableOpenClaw) {
+    $openClawPort = Get-ReadinessPort -Name "OPENCLAW_PORT" -Default "7860"
+    $readinessChecks += @{ Name = "OpenClaw"; Url = "http://localhost:$openClawPort"; Container = "dream-openclaw"; OpenUrl = "http://localhost:$openClawPort" }
+}
+if ($enableComfyui) {
+    $comfyPort = Get-ReadinessPort -Name "COMFYUI_PORT" -Default "8188"
+    $readinessChecks += @{ Name = "ComfyUI"; Url = "http://localhost:$comfyPort"; Container = "dream-comfyui"; OpenUrl = "http://localhost:$comfyPort" }
+}
+Write-DreamInstallReadinessSummary -Checks $readinessChecks `
+    -StatusCommand ".\dream.ps1 status" `
+    -LogPath (Join-Path $installDir "logs\install.log") `
+    -DashboardUrl "http://localhost:$dashboardPort"
 
 # ── Desktop & Start Menu shortcuts ───────────────────────────────────────────
 try {

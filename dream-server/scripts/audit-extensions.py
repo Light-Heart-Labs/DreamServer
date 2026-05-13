@@ -277,6 +277,18 @@ def parse_positive_int(value: Any) -> int | None:
     return integer if integer > 0 else None
 
 
+def parse_non_negative_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return None
+    try:
+        integer = int(value)
+    except (TypeError, ValueError):
+        return None
+    return integer if integer >= 0 else None
+
+
 def collect_service_references(feature: dict[str, Any]) -> list[str]:
     refs: list[str] = []
     for path in FEATURE_SERVICE_KEYS:
@@ -325,6 +337,15 @@ def load_compose_definitions(record: ServiceRecord) -> tuple[dict[str, Any], dic
 
 
 def extract_target_ports(service_def: Any) -> list[int]:
+    """Return every container-internal port a service makes available.
+
+    Looks at BOTH `ports:` (host-bound) and `expose:` (internal-only)
+    declarations so internal-only services like dream-hermes (fronted by
+    hermes-proxy) still register their port. Without this, a service
+    that switches from `ports:` to `expose:` would fail
+    compose-port-mismatch even though its container is fully reachable
+    by other containers on the bridge network.
+    """
     if not isinstance(service_def, dict):
         return []
 
@@ -349,6 +370,20 @@ def extract_target_ports(service_def: Any) -> list[int]:
             target_int = parse_positive_int(target)
             if target_int:
                 results.append(target_int)
+
+    # `expose:` is a list of "<port>" or "<port>/<proto>" strings/ints —
+    # internal-network-only, never bound to the host.
+    for entry in as_list(service_def.get("expose")):
+        if isinstance(entry, int):
+            if entry > 0:
+                results.append(entry)
+            continue
+        if isinstance(entry, str):
+            head = entry.split("/", 1)[0]
+            try:
+                results.append(int(head))
+            except ValueError:
+                continue
     return results
 
 
@@ -453,12 +488,19 @@ def validate_records(
                 path=record.manifest_path,
             )
 
+        # `host_network: true` marks services that use Docker's
+        # `network_mode: host` (Tailscale being the canonical example) — they
+        # don't have a Docker-mapped port or an HTTP health endpoint, so the
+        # port/health requirements don't apply. The flag also flips off the
+        # compose-port-mismatch check further down.
+        host_network = bool(service.get("host_network"))
+
         port = parse_positive_int(service.get("port"))
-        if port is None:
+        if port is None and not host_network:
             record.add_issue("error", "service-port-invalid", "service.port must be a positive integer", path=record.manifest_path)
 
         health = str(service.get("health") or "")
-        if not health.startswith("/"):
+        if not health.startswith("/") and not host_network:
             record.add_issue(
                 "error",
                 "service-health-invalid",
@@ -467,11 +509,11 @@ def validate_records(
             )
 
         ext_port_default = service.get("external_port_default")
-        if ext_port_default not in (None, "") and parse_positive_int(ext_port_default) is None:
+        if ext_port_default not in (None, "") and parse_non_negative_int(ext_port_default) is None:
             record.add_issue(
                 "error",
                 "service-external-port-invalid",
-                "service.external_port_default must be a positive integer when set",
+                "service.external_port_default must be a non-negative integer when set",
                 path=record.manifest_path,
             )
 
@@ -658,7 +700,11 @@ def validate_records(
                     path=source_paths.get("base", record.manifest_path),
                 )
 
-        if port is not None:
+        if port is not None and not host_network:
+            # host-network services share the host's network namespace; their
+            # listen ports come from whatever process binds inside the host,
+            # not from Docker's port mapping. Skipping this check is what
+            # makes host_network: true viable in the first place.
             port_matches = False
             for definition in definitions.values():
                 if port in extract_target_ports(definition):

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from main import get_allowed_origins, _build_api_status, TTLCache
+from main import get_allowed_origins, _build_api_status, _fallback_services, _serialize_services, TTLCache
 
 
 # --- get_allowed_origins ---
@@ -461,6 +461,23 @@ class TestPreflightPorts:
         finally:
             sock.close()
 
+    @pytest.mark.parametrize("port", [0, -1, 65536, "not-a-port"])
+    def test_rejects_invalid_port_values(self, test_client, port):
+        resp = test_client.post(
+            "/api/preflight/ports",
+            json={"ports": [port]},
+            headers=test_client.auth_headers,
+        )
+        assert resp.status_code == 422
+
+    def test_accepts_valid_port_range_edges(self, test_client):
+        resp = test_client.post(
+            "/api/preflight/ports",
+            json={"ports": [1, 65535]},
+            headers=test_client.auth_headers,
+        )
+        assert resp.status_code == 200
+
 
 # --- /gpu endpoint (cached paths) ---
 
@@ -561,13 +578,61 @@ class TestStatusEndpoint:
         assert data["uptime_seconds"] == 3600
 
 
+# --- /api/status service serialization ---
+
+
+class TestApiStatusServiceSerialization:
+
+    def test_serialize_services_includes_service_id(self):
+        from models import ServiceStatus
+        services = [
+            ServiceStatus(
+                id="llama-server",
+                name="llama-server (LLM Inference)",
+                port=8080,
+                external_port=11434,
+                status="healthy",
+            )
+        ]
+
+        serialized = _serialize_services(services, uptime=42)
+
+        assert serialized == [{
+            "id": "llama-server",
+            "name": "llama-server (LLM Inference)",
+            "status": "healthy",
+            "port": 11434,
+            "uptime": 42,
+        }]
+
+    def test_fallback_services_include_service_ids(self, monkeypatch):
+        monkeypatch.setattr("main.SERVICES", {
+            "dashboard-api": {
+                "name": "Dashboard API (System Status)",
+                "port": 3002,
+                "external_port": 3002,
+            }
+        })
+
+        serialized = _fallback_services()
+
+        assert serialized == [{
+            "id": "dashboard-api",
+            "name": "Dashboard API (System Status)",
+            "status": "unknown",
+            "port": 3002,
+            "uptime": None,
+        }]
+
+
 # --- /api/status fallback on exception ---
 
 
 class TestApiStatusFallback:
 
-    def test_fallback_on_exception(self, test_client, monkeypatch):
-        monkeypatch.setattr("main._build_api_status", AsyncMock(side_effect=RuntimeError("boom")))
+    def test_fallback_on_oserror(self, test_client, monkeypatch):
+        """Narrow exception class (OSError) falls through to the safe-fallback dict."""
+        monkeypatch.setattr("main._build_api_status", AsyncMock(side_effect=OSError("network down")))
 
         resp = test_client.get("/api/status", headers=test_client.auth_headers)
         assert resp.status_code == 200
@@ -575,6 +640,21 @@ class TestApiStatusFallback:
         assert data["gpu"] is None
         assert data["tier"] == "Unknown"
         assert data["services"] == []
+
+    def test_runtime_error_propagates_as_500(self, test_client, monkeypatch):
+        """Programming errors (RuntimeError) inside _build_api_status must
+        propagate so they surface in tests / monitoring rather than being
+        silently masked as 200-with-zeros (CLAUDE.md "Let It Crash")."""
+        from fastapi.testclient import TestClient
+        from main import app
+
+        monkeypatch.setattr(
+            "main._build_api_status",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        )
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get("/api/status", headers=test_client.auth_headers)
+        assert resp.status_code == 500
 
 
 # --- _build_api_status tier branches ---

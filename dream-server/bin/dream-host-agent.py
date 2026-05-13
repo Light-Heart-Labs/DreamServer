@@ -12,9 +12,11 @@ import re
 import secrets
 import shutil
 import signal
+import stat as stat_mod
 import subprocess
 import sys
 import threading
+import time
 from datetime import datetime, timezone
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
@@ -134,10 +136,16 @@ def _detect_docker_bridge_gateway() -> str:
                 _ipaddress.ip_address(addr)  # validate — Docker can return "<no value>"
                 logger.info("Detected Docker bridge gateway: %s", addr)
                 return addr
+        else:
+            logger.warning(
+                "Docker bridge gateway detection failed (exit %d): %s",
+                result.returncode,
+                result.stderr.strip() or "<no stderr>",
+            )
     except ValueError:
         logger.debug("Docker bridge returned non-IP value, ignoring")
     except (subprocess.SubprocessError, OSError) as exc:
-        logger.debug("Docker bridge detection failed: %s", exc)
+        logger.warning("Docker bridge detection failed: %s", exc)
     return ""
 
 
@@ -226,7 +234,9 @@ def _fs_type(path: Path) -> str | None:
 
 def _precreate_data_dirs(service_id: str):
     """Pre-create data directories for an extension with correct ownership."""
-    ext_dir = USER_EXTENSIONS_DIR / service_id
+    ext_dir = _find_ext_dir(service_id)
+    if ext_dir is None:
+        return
     compose_path = ext_dir / "compose.yaml"
     if not compose_path.exists():
         return
@@ -258,33 +268,50 @@ def _precreate_data_dirs(service_id: str):
         if not isinstance(volumes, list):
             continue
         for vol in volumes:
-            vol_str = str(vol).split(":")[0]
-            if vol_str.startswith("./data/") or vol_str.startswith("data/"):
-                dir_path = (INSTALL_DIR / vol_str.lstrip("./")).resolve()
-                try:
-                    dir_path.relative_to(INSTALL_DIR.resolve())
-                except ValueError:
-                    logger.warning("Skipping out-of-tree volume path in %s: %s", service_id, vol_str)
+            if isinstance(vol, dict):
+                # Compose long-form mount; only bind mounts have a host source.
+                if vol.get("type") != "bind":
                     continue
-                try:
-                    dir_path.mkdir(parents=True, exist_ok=True)
-                    if uid is not None and os.getuid() == 0:
-                        # Defense-in-depth: the installer preflight already
-                        # blocks non-POSIX filesystems at INSTALL_DIR, but
-                        # runtime extension installs (post-setup) can still
-                        # land on a non-POSIX volume. chown there is a silent
-                        # no-op or raises EPERM/EOPNOTSUPP — skip cleanly.
-                        fs = _fs_type(dir_path)
-                        if fs in _NON_POSIX_FS:
-                            logger.warning(
-                                "Skipping chown for %s on non-POSIX filesystem %s "
-                                "(extension may not function correctly)",
-                                dir_path, fs,
-                            )
-                        else:
-                            os.chown(str(dir_path), uid, uid)
-                except OSError as e:
-                    logger.warning("Failed to pre-create %s: %s", dir_path, e)
+                vol_str = vol.get("source", "")
+            else:
+                vol_str = str(vol).split(":")[0]
+            # Skip sources compose does not pre-expand (env vars, home,
+            # backticks, Windows-style escapes) — we cannot resolve them safely.
+            if not vol_str or vol_str.startswith(("~", "$", "`", "\\")):
+                continue
+            # Accept any relative bind-mount source (e.g. "./data/state",
+            # "./upload", "config/stuff"). Skip named volumes (no "/") and
+            # absolute paths ("/etc/..."). Docker Compose v2 resolves relative
+            # bind paths against the project directory (the first -f file's
+            # parent = INSTALL_DIR), not the individual fragment's directory,
+            # so anchor on INSTALL_DIR to match where Compose actually mounts.
+            if vol_str.startswith("/") or "/" not in vol_str:
+                continue
+            dir_path = (INSTALL_DIR / vol_str.lstrip("./")).resolve()
+            try:
+                dir_path.relative_to(INSTALL_DIR.resolve())
+            except ValueError:
+                logger.warning("Skipping out-of-tree volume path in %s: %s", service_id, vol_str)
+                continue
+            try:
+                dir_path.mkdir(parents=True, exist_ok=True)
+                if uid is not None and os.getuid() == 0:
+                    # Defense-in-depth: the installer preflight already
+                    # blocks non-POSIX filesystems at INSTALL_DIR, but
+                    # runtime extension installs (post-setup) can still
+                    # land on a non-POSIX volume. chown there is a silent
+                    # no-op or raises EPERM/EOPNOTSUPP — skip cleanly.
+                    fs = _fs_type(dir_path)
+                    if fs in _NON_POSIX_FS:
+                        logger.warning(
+                            "Skipping chown for %s on non-POSIX filesystem %s "
+                            "(extension may not function correctly)",
+                            dir_path, fs,
+                        )
+                    else:
+                        os.chown(str(dir_path), uid, uid)
+            except OSError as e:
+                logger.warning("Failed to pre-create %s: %s", dir_path, e)
 
 
 def docker_compose_action(service_id: str, action: str) -> tuple:
@@ -341,6 +368,29 @@ def docker_compose_recreate(service_ids: list[str]) -> tuple:
         return False, f"Docker compose operation timed out ({SUBPROCESS_TIMEOUT_START}s)"
 
 
+def _post_install_core_recreate(service_id: str) -> None:
+    """Force-recreate core services whose env was overridden by ``service_id``'s
+    compose.yaml overlay.
+
+    ``docker compose up -d <ext>`` (how _handle_install starts the extension)
+    will not pick up overlay changes targeting already-running core services
+    without ``--force-recreate``. openclaw's compose.yaml appends an
+    OPENAI_API_BASE_URLS entry to open-webui; without this post-install
+    recreate that overlay is silently ignored until the next core restart.
+
+    Failure is logged and swallowed — the extension itself is already running;
+    the overlay will apply on the next manual restart of the core service.
+    """
+    if service_id != "openclaw":
+        return
+    ok, err = docker_compose_recreate(["open-webui"])
+    if not ok:
+        logger.warning(
+            "Post-install recreate of open-webui failed after openclaw install: %s",
+            err,
+        )
+
+
 def _parse_mem_value(s: str) -> float:
     """Parse Docker memory string like '256MiB' or '4GiB' to MB."""
     s = s.strip()
@@ -389,7 +439,197 @@ def _write_progress(service_id: str, status: str, phase_label: str = "",
         "updated_at": _iso_now(),
     }
     tmp_file.write_text(json.dumps(data), encoding="utf-8")
-    os.rename(str(tmp_file), str(progress_file))
+    # os.replace (not os.rename) — Windows os.rename raises FileExistsError
+    # when the destination exists; os.replace always overwrites atomically.
+    os.replace(str(tmp_file), str(progress_file))
+
+
+def _read_progress_status(service_id: str) -> str | None:
+    """Return the ``status`` field of the progress file, or None if absent/unreadable.
+
+    Used by the enable-retry path to detect a prior failed install so the
+    host agent can re-run the post_install hook instead of silently calling
+    ``docker compose up`` against a half-configured service.
+    """
+    progress_file = DATA_DIR / "extension-progress" / f"{service_id}.json"
+    if not progress_file.exists():
+        return None
+    try:
+        data = json.loads(progress_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    status = data.get("status")
+    return status if isinstance(status, str) else None
+
+
+def _run_post_install_hook(service_id: str, ext_dir: Path) -> tuple[bool, str]:
+    """Run an extension's ``post_install`` hook with sandboxed env.
+
+    Shared between the install path (``_handle_install._run_install``) and
+    the enable-retry path (``_enable_retry_work``) so both write the same
+    progress transitions and use the same env allowlist.
+
+    Returns ``(ok, error_message)``:
+    - ``(True, "")`` when no hook is declared OR the hook completes with
+      exit code 0. The caller continues with its own next progress write.
+    - ``(False, msg)`` when the hook times out or exits non-zero. The
+      helper has already written an ``error`` progress entry; the caller
+      should abort and NOT overwrite progress.
+
+    Progress writes:
+    - ``setup_hook`` ("Running setup...") only when a hook is actually
+      resolved — callers must NOT pre-write this message, otherwise the
+      "Running setup..." status appears for extensions with no hook.
+    - ``error`` on timeout / non-zero exit.
+    - On success the helper writes nothing further; the caller proceeds.
+
+    The 8-key env allowlist mirrors ``_execute_hook`` (L1488-1498) to
+    keep host-agent secrets out of extension scripts. Stderr is sliced
+    tail-500 so the actionable end of the output reaches the dashboard.
+    """
+    hook_path = _resolve_hook(ext_dir, "post_install")
+    if not hook_path:
+        return (True, "")
+
+    _write_progress(service_id, "setup_hook", "Running setup...")
+    manifest = _read_manifest(ext_dir)
+    if manifest is None:
+        return False, f"Service manifest is unavailable: {service_id}"
+    service_def = manifest.get("service", {})
+    if not isinstance(service_def, dict):
+        service_def = {}
+    hook_env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": os.environ.get("HOME", ""),
+        "SERVICE_ID": service_id,
+        "SERVICE_PORT": str(service_def.get("port", 0)),
+        "SERVICE_DATA_DIR": str(DATA_DIR / service_id),
+        "DREAM_VERSION": DREAM_VERSION,
+        "GPU_BACKEND": GPU_BACKEND,
+        "HOOK_NAME": "post_install",
+    }
+    try:
+        result = subprocess.run(
+            ["bash", str(hook_path), str(INSTALL_DIR), GPU_BACKEND],
+            cwd=str(ext_dir), env=hook_env,
+            capture_output=True, text=True,
+            timeout=SUBPROCESS_TIMEOUT_START,
+        )
+    except subprocess.TimeoutExpired:
+        msg = f"post_install hook timed out ({SUBPROCESS_TIMEOUT_START}s)"
+        _write_progress(service_id, "error", "Setup failed", error=msg)
+        return (False, msg)
+
+    if result.returncode != 0:
+        msg = (result.stderr or "")[-500:]
+        _write_progress(service_id, "error", "Setup failed", error=msg)
+        return (False, msg)
+
+    return (True, "")
+
+
+def _enable_retry_work(service_id: str) -> None:
+    """Re-run post_install hook (if declared) then start the service.
+
+    Writes progress transitions (``starting`` → ``setup_hook`` → ``started``/
+    ``error``) so the dashboard UI can poll the state of an enable-retry.
+    """
+    try:
+        _write_progress(service_id, "starting", "Retrying after failure...")
+
+        ext_dir = _find_ext_dir(service_id)
+        if ext_dir is None:
+            _write_progress(service_id, "error", "Retry failed",
+                            error=f"Extension directory not found for {service_id}")
+            return
+
+        # Re-run the post_install hook when declared. Setup hooks are
+        # expected to be idempotent (check-then-create for secrets,
+        # env vars, data dirs) so re-running repopulates anything an
+        # earlier failed install may have left unset.
+        ok, _ = _run_post_install_hook(service_id, ext_dir)
+        if not ok:
+            return
+
+        _write_progress(service_id, "starting", "Starting container...")
+        ok, err = docker_compose_action(service_id, "start")
+        if not ok:
+            _write_progress(service_id, "error", "Start failed", error=err)
+            return
+
+        retry_manifest = _read_manifest(ext_dir)
+        retry_service_def = retry_manifest.get("service", {}) if retry_manifest else {}
+        if not isinstance(retry_service_def, dict):
+            retry_service_def = {}
+        container_name = retry_service_def.get("container_name") or f"dream-{service_id}"
+        startup_check = retry_service_def.get("startup_check", True)
+
+        if startup_check:
+            startup_timeout = retry_service_def.get("startup_timeout", 15)
+            deadline = time.monotonic() + startup_timeout
+            state: str | None = None
+            state_error = ""
+            while time.monotonic() < deadline:
+                try:
+                    inspect_result = subprocess.run(
+                        ["docker", "inspect", "--format",
+                         "{{.State.Status}}|{{.State.Error}}", container_name],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                except subprocess.TimeoutExpired:
+                    inspect_result = None
+                if inspect_result is not None and inspect_result.returncode == 0:
+                    parts = inspect_result.stdout.strip().split("|", 1)
+                    state = parts[0] if parts else ""
+                    state_error = parts[1] if len(parts) > 1 else ""
+                    if state == "running":
+                        break
+                time.sleep(1)
+
+            if state != "running":
+                msg = f"Container did not reach running state within {startup_timeout}s (state={state or 'unknown'})"
+                if state_error:
+                    msg += f": {state_error}"
+                _write_progress(service_id, "error", "Start failed", error=msg)
+                return
+
+        _write_progress(service_id, "started", "Service started")
+    except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+        logger.exception("Enable-retry failed for %s", service_id)
+        _write_progress(service_id, "error", "Retry failed",
+                        error=str(exc)[:500])
+
+
+def _start_enable_retry(handler, service_id: str, lock: threading.Lock) -> None:
+    """Dispatch the enable-retry worker on a daemon thread.
+
+    The caller must hold ``lock``; the thread releases it on exit. Sends
+    the 202 response before spawning the thread so the HTTP request
+    returns promptly (hook + compose start can take minutes).
+    """
+    def _thread_target() -> None:
+        try:
+            _enable_retry_work(service_id)
+        finally:
+            lock.release()
+
+    try:
+        json_response(handler, 202, {"status": "retrying",
+                                     "service_id": service_id,
+                                     "action": "start"})
+        threading.Thread(target=_thread_target, daemon=True).start()
+    except Exception:
+        lock.release()
+        # If 202 was already sent, the dashboard expects a progress
+        # transition. Without this, the stale "error" from the prior
+        # failed install stays visible. Best-effort write — if progress
+        # itself fails, prefer the original exception.
+        try:
+            _write_progress(service_id, "error", "Retry failed",
+                            error="Failed to start retry thread")
+        except Exception:
+            pass
+        raise
 
 
 def json_response(handler, code: int, body: dict):
@@ -399,6 +639,60 @@ def json_response(handler, code: int, body: dict):
     handler.send_header("Content-Length", str(len(payload)))
     handler.end_headers()
     handler.wfile.write(payload)
+
+
+def _split_nmcli_terse(line: str) -> list[str]:
+    """Split a `nmcli -t` (terse) line on UNESCAPED colons, then unescape.
+
+    nmcli's terse mode escapes literal colons in values as ``\\:`` (and
+    backslashes as ``\\\\``) so the colon delimiter stays unambiguous.
+    The naive ``str.split(':')`` corrupts any field containing ':' — and
+    SSIDs, security strings, and connection names legally can.
+
+    Reference: ``man 1 nmcli`` — "-t, --terse" describes the escaping.
+
+    Returns the unescaped field list. Empty input → ``[]``.
+    """
+    if not line:
+        return []
+    parts: list[str] = []
+    buf: list[str] = []
+    i = 0
+    n = len(line)
+    while i < n:
+        ch = line[i]
+        if ch == "\\" and i + 1 < n:
+            # Escaped character — consume the next char literally.
+            buf.append(line[i + 1])
+            i += 2
+            continue
+        if ch == ":":
+            parts.append("".join(buf))
+            buf = []
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    parts.append("".join(buf))
+    return parts
+
+
+def _network_supported(handler) -> bool:
+    """Linux + nmcli precondition for Wi-Fi endpoints. Sends a 501 on failure
+    so the caller doesn't need to repeat the check; returns True only when
+    nmcli is callable.
+    """
+    if platform.system() != "Linux":
+        json_response(handler, 501, {
+            "error": f"Wi-Fi management only supported on Linux (this is {platform.system()})",
+        })
+        return False
+    if shutil.which("nmcli") is None:
+        json_response(handler, 501, {
+            "error": "nmcli not found; install NetworkManager to enable Wi-Fi management",
+        })
+        return False
+    return True
 
 
 def check_auth(handler) -> bool:
@@ -564,6 +858,93 @@ def _find_ext_dir(service_id: str) -> Path | None:
     return None
 
 
+def _service_has_docker_container(service_id: str) -> tuple[bool, str]:
+    """Return whether service_id maps to a Docker container restart target."""
+    ext_dir = _find_ext_dir(service_id)
+    if ext_dir is None:
+        if service_id in CORE_SERVICE_IDS:
+            return True, ""
+        return False, f"Service not found: {service_id}"
+
+    manifest = _read_manifest(ext_dir)
+    if manifest is None:
+        return False, f"Service manifest is unavailable: {service_id}"
+    service_def = manifest.get("service", {})
+    if not isinstance(service_def, dict):
+        return False, f"Service manifest is invalid: {service_id}"
+    service_type = service_def.get("type", "docker") or "docker"
+    if service_type == "host-systemd":
+        return False, f"Service is host-level, not a Docker container: {service_id}"
+    if service_type != "docker":
+        return False, f"Service type is not Docker: {service_id}"
+    container_name = service_def.get("container_name", f"dream-{service_id}")
+    if not isinstance(container_name, str) or not container_name.strip():
+        return False, f"Service does not declare a Docker container: {service_id}"
+    return True, ""
+
+
+def _is_other_ext_compose(fpath: str, service_id: str, ext_roots: tuple) -> bool:
+    """True if fpath points to an extension compose file owned by an
+    extension other than service_id. Used to filter `-f` args from the
+    install pull command so unrelated extensions' ${VAR:?} guards don't
+    abort the pull.
+    """
+    p = Path(fpath)
+    if not p.is_absolute():
+        p = INSTALL_DIR / p
+    try:
+        resolved = p.resolve()
+    except OSError:
+        return False
+    if resolved.parent.name == service_id:
+        return False
+    for root in ext_roots:
+        try:
+            resolved.relative_to(root)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def _narrow_install_pull_flags(flags: list, service_id: str) -> list:
+    """Return a filtered copy of `flags` with `-f <path>` pairs pointing
+    at OTHER extensions' compose fragments removed. Base compose, GPU
+    overlay, and the target extension's own fragments are preserved.
+    """
+    ext_roots = (EXTENSIONS_DIR.resolve(), USER_EXTENSIONS_DIR.resolve())
+    narrowed: list = []
+    i = 0
+    while i < len(flags):
+        if (flags[i] == "-f" and i + 1 < len(flags)
+                and _is_other_ext_compose(flags[i + 1], service_id, ext_roots)):
+            i += 2
+            continue
+        narrowed.append(flags[i])
+        i += 1
+    return narrowed
+
+
+def _narrowed_compose_set_resolves(narrowed_flags: list, service_id: str,
+                                   cwd: str, timeout: int) -> bool:
+    """Verify the narrowed compose set parses cleanly and includes the
+    target service. Some extensions declare cross-extension `depends_on`
+    (e.g. perplexica → searxng); narrowing must fall back to the full
+    flag set whenever that drops a referenced service, otherwise
+    `docker compose pull` errors with "depends on undefined service".
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "compose"] + narrowed_flags + ["config", "--services"],
+            cwd=cwd, capture_output=True, text=True, timeout=timeout,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if result.returncode != 0:
+        return False
+    return service_id in result.stdout.split()
+
+
 class AgentHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         logger.info(fmt, *args)
@@ -577,8 +958,125 @@ class AgentHandler(BaseHTTPRequestHandler):
             self._handle_model_list()
         elif self.path == "/v1/model/status":
             self._handle_model_status()
+        elif self.path == "/v1/network/wifi-scan":
+            self._handle_network_wifi_scan()
+        elif self.path == "/v1/network/status":
+            self._handle_network_status()
+        elif self.path == "/v1/tailscale/status":
+            self._handle_tailscale_status()
+        elif self.path == "/v1/ap-mode/status":
+            self._handle_ap_mode_status()
         else:
             json_response(self, 404, {"error": "Not found"})
+
+    def _handle_tailscale_status(self):
+        """Return Tailscale daemon status by docker-exec'ing into the
+        dream-tailscale container.
+
+        Three outcome shapes:
+          1. Container running AND authenticated:
+             {running:true, authenticated:true, self:{...},
+              magic_dns_suffix:"tail-xxxxx.ts.net", ...}
+          2. Container running but not authenticated (auth key absent
+             or rejected):
+             {running:true, authenticated:false, reason:"..."}
+          3. Container not running:
+             {running:false}
+
+        We never return 5xx for "container not running" — that's a normal
+        state. 5xx is reserved for "the docker daemon itself broke."
+        """
+        if not check_auth(self):
+            return
+        try:
+            result = subprocess.run(
+                ["docker", "exec", "dream-tailscale",
+                 "tailscale", "status", "--json"],
+                capture_output=True, text=True, timeout=10,
+            )
+        except subprocess.TimeoutExpired:
+            json_response(self, 504, {"error": "docker exec timed out"})
+            return
+        except OSError as exc:
+            json_response(self, 500, {"error": f"docker exec failed: {exc}"})
+            return
+
+        if result.returncode != 0:
+            stderr = (result.stderr or "").strip()
+            lowered = stderr.lower()
+            # Container not running -> normal "not enabled yet" state.
+            if "no such container" in lowered or "is not running" in lowered:
+                json_response(self, 200, {"running": False})
+                return
+            # Container up but daemon not yet authed.
+            if "logged out" in lowered or "needs login" in lowered:
+                json_response(self, 200, {
+                    "running": True,
+                    "authenticated": False,
+                    "reason": "Tailscale is running but not yet authenticated. Set TS_AUTHKEY and restart.",
+                })
+                return
+            json_response(self, 200, {
+                "running": True,
+                "authenticated": False,
+                "error": stderr[:300] or "tailscale status returned non-zero",
+            })
+            return
+
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            json_response(self, 500, {"error": f"could not parse tailscale status: {exc}"})
+            return
+
+        # Distill the chunky `tailscale status --json` blob to what the
+        # dashboard actually needs.
+        self_node = payload.get("Self", {}) or {}
+        magic_dns = payload.get("MagicDNSSuffix") or ""
+        dns_name = self_node.get("DNSName", "").rstrip(".") or None
+        tailnet = payload.get("CurrentTailnet")
+        tailnet_name = (
+            tailnet.get("Name") if isinstance(tailnet, dict) else None
+        )
+        json_response(self, 200, {
+            "running": True,
+            "authenticated": payload.get("BackendState") == "Running",
+            "backend_state": payload.get("BackendState"),
+            "self": {
+                "hostname": self_node.get("HostName"),
+                "dns_name": dns_name,
+                "ips": self_node.get("TailscaleIPs", []),
+                "online": self_node.get("Online", False),
+            },
+            "magic_dns_suffix": magic_dns,
+            "tailnet_name": tailnet_name,
+        })
+
+    def _handle_ap_mode_status(self):
+        """Read-only AP-mode status snapshot.
+
+        Reads /run/dream-ap-mode/state.json which ap-mode.sh writes
+        when the AP is up. Returns {"status": "inactive"} if the file
+        doesn't exist. NEVER enables or disables AP mode itself —
+        toggling is operator-only via systemctl, by design (turning
+        on an AP from an HTTP endpoint is a great way to lock yourself
+        out of a remote box).
+        """
+        if not check_auth(self):
+            return
+        state_path = Path("/run/dream-ap-mode/state.json")
+        if not state_path.exists():
+            json_response(self, 200, {"status": "inactive"})
+            return
+        try:
+            data = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            json_response(self, 503, {
+                "status": "unknown",
+                "error": f"could not read AP state file: {exc}",
+            })
+            return
+        json_response(self, 200, data)
 
     def _handle_service_stats(self):
         """Return CPU/memory stats for all Dream-managed containers."""
@@ -667,8 +1165,12 @@ class AgentHandler(BaseHTTPRequestHandler):
             self._handle_extension_compose_toggle(activate=True)
         elif self.path == "/v1/extension/deactivate":
             self._handle_extension_compose_toggle(activate=False)
+        elif self.path == "/v1/extension/sync_config":
+            self._handle_extension_sync_config()
         elif self.path == "/v1/service/logs":
             self._handle_service_logs()
+        elif self.path == "/v1/service/restart":
+            self._handle_service_restart()
         elif self.path == "/v1/model/download":
             self._handle_model_download()
         elif self.path == "/v1/model/download/cancel":
@@ -681,6 +1183,10 @@ class AgentHandler(BaseHTTPRequestHandler):
             self._handle_invalidate_compose_cache()
         elif self.path == "/v1/env/update":
             self._handle_env_update()
+        elif self.path == "/v1/network/wifi-connect":
+            self._handle_network_wifi_connect()
+        elif self.path == "/v1/network/wifi-forget":
+            self._handle_network_wifi_forget()
         else:
             json_response(self, 404, {"error": "Not found"})
 
@@ -691,6 +1197,332 @@ class AgentHandler(BaseHTTPRequestHandler):
         invalidate_compose_cache()
         logger.info("compose-flags cache invalidated")
         json_response(self, 200, {"status": "ok"})
+
+    # ------------------------------------------------------------------
+    # Wi-Fi / network management (Linux + NetworkManager only)
+    # ------------------------------------------------------------------
+    #
+    # These endpoints back the first-boot wizard's "join a network" step.
+    # Linux + nmcli is the only supported path today; macOS and Windows
+    # return 501 with a clear platform message so the wizard can fall
+    # back to "use ethernet / configure manually" without crashing.
+    #
+    # Security:
+    #   * Wi-Fi passwords are NEVER logged. Only the SSID and "password set"
+    #     boolean go to logs.
+    #   * Passwords pass through argv to nmcli. On modern Linux with
+    #     `kernel.yama.ptrace_scope >= 1` (default on Ubuntu/Fedora) and
+    #     the host-agent running as root, only root processes can see the
+    #     cmdline — that's an acceptable v1 posture. Hardening this further
+    #     (`nmcli con add` + secrets file) is a follow-up.
+    #   * SSID is rejected if it contains control characters; nmcli's own
+    #     argv parsing handles spaces and most special characters fine.
+
+    def _handle_network_wifi_scan(self):
+        if not check_auth(self):
+            return
+        if not _network_supported(self):
+            return
+        # Best-effort rescan — fresh networks take 5-10s to populate. We
+        # tolerate the rescan failing (e.g. radio off) and read whatever
+        # cached list nmcli has.
+        try:
+            subprocess.run(
+                ["nmcli", "device", "wifi", "rescan"],
+                capture_output=True, timeout=10,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+
+        try:
+            # NOTE: we deliberately do NOT pass `-e no`. With escaping enabled
+            # (the nmcli default in -t mode), nmcli backslash-escapes any
+            # colons that appear inside field values (e.g. an SSID called
+            # "Cafe:Lounge" comes back as "Cafe\:Lounge"). We then split on
+            # *unescaped* colons via _split_nmcli_terse() and un-escape each
+            # part. Disabling escaping with `-e no` corrupts the parse for
+            # any SSID, security name, or connection name containing ':'.
+            result = subprocess.run(
+                ["nmcli", "-t", "-f",
+                 "SSID,SIGNAL,SECURITY,IN-USE", "device", "wifi", "list"],
+                capture_output=True, text=True, timeout=15,
+            )
+        except subprocess.TimeoutExpired:
+            json_response(self, 504, {"error": "nmcli wifi list timed out"})
+            return
+        except OSError as exc:
+            json_response(self, 500, {"error": f"nmcli failed: {exc}"})
+            return
+
+        if result.returncode != 0:
+            stderr = (result.stderr or "").strip()[:200]
+            json_response(self, 503, {"error": stderr or "nmcli wifi list failed"})
+            return
+
+        networks_by_ssid = {}
+        for line in result.stdout.splitlines():
+            # Format: SSID:SIGNAL:SECURITY:IN-USE (IN-USE is empty or "*")
+            parts = _split_nmcli_terse(line)
+            if len(parts) < 4:
+                continue
+            ssid, signal_str, security, in_use_str = parts[0], parts[1], parts[2], parts[3]
+            if not ssid:
+                continue
+            try:
+                signal_pct = int(signal_str)
+            except (ValueError, TypeError):
+                signal_pct = 0
+            existing = networks_by_ssid.get(ssid)
+            if existing and existing["signal"] >= signal_pct:
+                continue
+            # nmcli sometimes returns multiple rows per SSID (one per BSSID).
+            # Collapse on SSID and keep the strongest signal observed.
+            networks_by_ssid[ssid] = {
+                "ssid": ssid,
+                "signal": signal_pct,
+                "security": security or "open",
+                "in_use": in_use_str == "*",
+            }
+
+        # Strongest signal first — that's the order the wizard wants to display.
+        networks = list(networks_by_ssid.values())
+        networks.sort(key=lambda n: -n["signal"])
+        json_response(self, 200, {"networks": networks})
+
+    def _handle_network_wifi_connect(self):
+        if not check_auth(self):
+            return
+        if not _network_supported(self):
+            return
+        body = read_json_body(self)
+        if body is None:
+            return
+
+        ssid = body.get("ssid", "")
+        password = body.get("password", "")
+
+        if not isinstance(ssid, str) or not ssid or len(ssid) > 32:
+            json_response(self, 400, {"error": "ssid must be 1-32 chars"})
+            return
+        if any(c in ssid for c in ("\n", "\r", "\0")):
+            json_response(self, 400, {"error": "ssid contains invalid characters"})
+            return
+        if not isinstance(password, str) or len(password) > 63:
+            # WPA2 PSK max is 63 chars. Open networks pass empty string.
+            json_response(self, 400, {"error": "password must be 0-63 chars"})
+            return
+        if any(c in password for c in ("\n", "\r", "\0")):
+            json_response(self, 400, {"error": "password contains invalid characters"})
+            return
+
+        logger.info(
+            "wifi-connect ssid=%s password_set=%s", ssid, bool(password)
+        )
+
+        args = ["nmcli", "device", "wifi", "connect", ssid]
+        if password:
+            args += ["password", password]
+
+        try:
+            result = subprocess.run(
+                args, capture_output=True, text=True, timeout=45,
+            )
+        except subprocess.TimeoutExpired:
+            json_response(self, 504, {"error": "Connection attempt timed out"})
+            return
+        except OSError as exc:
+            json_response(self, 500, {"error": f"nmcli failed: {exc}"})
+            return
+
+        if result.returncode != 0:
+            # nmcli errors don't echo the password. Map common ones to
+            # something the wizard can show without leaking internals.
+            raw = (result.stderr or result.stdout or "").strip()[:300]
+            lowered = raw.lower()
+            if "secrets were required" in lowered or "(7)" in raw:
+                err_msg = "Wrong password"
+            elif "no network with ssid" in lowered or "not found" in lowered:
+                err_msg = "Network not found"
+            elif "timeout" in lowered:
+                err_msg = "Connection timed out"
+            else:
+                err_msg = raw or "Connection failed"
+            json_response(self, 400, {
+                "error": err_msg, "code": result.returncode,
+            })
+            return
+
+        json_response(self, 200, {"success": True, "ssid": ssid})
+
+    def _handle_network_wifi_forget(self):
+        """Delete a saved NetworkManager connection profile by name.
+
+        Hard-gated to Wi-Fi profiles only. The endpoint name is "wifi-forget"
+        and that's all it should do — we MUST NOT delete wired / VPN / bridge /
+        bond / tun profiles even if the caller passes their names, because
+        that's a great way to cut off the host's connectivity. We resolve
+        the profile's TYPE field first via `nmcli connection show` and only
+        proceed when type starts with "802-11-wireless".
+        """
+        if not check_auth(self):
+            return
+        if not _network_supported(self):
+            return
+        body = read_json_body(self)
+        if body is None:
+            return
+
+        connection = body.get("connection", "")
+        if not isinstance(connection, str) or not connection or len(connection) > 64:
+            json_response(self, 400, {"error": "connection must be 1-64 chars"})
+            return
+        if any(c in connection for c in ("\n", "\r", "\0")):
+            json_response(self, 400, {"error": "connection contains invalid characters"})
+            return
+
+        # Step 1: resolve and verify this is a Wi-Fi profile. Use -t for
+        # terse output and -f to limit fields; we still split on the FIRST
+        # colon only so a value containing ':' doesn't fool the parser.
+        try:
+            check = subprocess.run(
+                ["nmcli", "-t", "-f", "connection.type", "connection", "show", connection],
+                capture_output=True, text=True, timeout=10,
+            )
+        except subprocess.TimeoutExpired:
+            json_response(self, 504, {"error": "nmcli show timed out"})
+            return
+        except OSError as exc:
+            json_response(self, 500, {"error": f"nmcli failed: {exc}"})
+            return
+
+        if check.returncode != 0:
+            stderr = (check.stderr or "").strip()[:200]
+            # 404 if the profile doesn't exist; 400 for other errors.
+            if "no such" in stderr.lower() or "unknown" in stderr.lower() or "not found" in stderr.lower():
+                json_response(self, 404, {"error": f"No such connection: {connection}"})
+            else:
+                json_response(self, 400, {"error": stderr or "Failed to inspect connection"})
+            return
+
+        # Parse "connection.type:802-11-wireless" — split on the FIRST ':' only
+        # so a connection name containing ':' (unusual but legal) doesn't
+        # confuse the result.
+        ctype_line = (check.stdout or "").strip()
+        _, _, ctype = ctype_line.partition(":")
+        ctype = ctype.strip().lower()
+        if not ctype.startswith("802-11-wireless"):
+            json_response(self, 400, {
+                "error": (
+                    f"Refusing to delete non-Wi-Fi connection '{connection}' "
+                    f"(type='{ctype or 'unknown'}'). The wifi-forget endpoint "
+                    "only deletes Wi-Fi profiles; use nmcli directly for other types."
+                ),
+            })
+            return
+
+        # Step 2: type-confirmed Wi-Fi → safe to delete.
+        try:
+            result = subprocess.run(
+                ["nmcli", "connection", "delete", connection],
+                capture_output=True, text=True, timeout=15,
+            )
+        except subprocess.TimeoutExpired:
+            json_response(self, 504, {"error": "nmcli delete timed out"})
+            return
+        except OSError as exc:
+            json_response(self, 500, {"error": f"nmcli failed: {exc}"})
+            return
+
+        if result.returncode != 0:
+            stderr = (result.stderr or "").strip()[:200]
+            json_response(self, 400, {"error": stderr or "Forget failed"})
+            return
+
+        json_response(self, 200, {"success": True, "connection": connection})
+
+    def _handle_network_status(self):
+        if not check_auth(self):
+            return
+        if platform.system() != "Linux":
+            json_response(self, 200, {
+                "platform_supported": False,
+                "platform": platform.system(),
+                "reason": "Wi-Fi management requires Linux + NetworkManager",
+            })
+            return
+        if shutil.which("nmcli") is None:
+            json_response(self, 200, {
+                "platform_supported": False,
+                "reason": "nmcli not installed",
+            })
+            return
+
+        try:
+            result = subprocess.run(
+                ["nmcli", "-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device", "status"],
+                capture_output=True, text=True, timeout=5,
+            )
+        except subprocess.TimeoutExpired:
+            json_response(self, 504, {"error": "nmcli timed out"})
+            return
+        except OSError as exc:
+            json_response(self, 500, {"error": f"nmcli failed: {exc}"})
+            return
+
+        if result.returncode != 0:
+            stderr = (result.stderr or result.stdout or "").strip()[:200]
+            json_response(self, 200, {
+                "platform_supported": False,
+                "reason": stderr or "nmcli device status failed",
+            })
+            return
+
+        devices = []
+        wifi_connected = False
+        for line in result.stdout.splitlines():
+            # See _split_nmcli_terse — connection names containing ':' come
+            # through as '\:' under default `nmcli -t` escaping; naive
+            # str.split(':') would corrupt them.
+            parts = _split_nmcli_terse(line)
+            if len(parts) < 4:
+                continue
+            device, typ, state, connection = parts[0], parts[1], parts[2], parts[3]
+            if state != "connected":
+                continue
+            ip_addr = ""
+            gateway = ""
+            try:
+                ip_result = subprocess.run(
+                    ["nmcli", "-t", "-f", "IP4.ADDRESS,IP4.GATEWAY",
+                     "device", "show", device],
+                    capture_output=True, text=True, timeout=5,
+                )
+                for ip_line in ip_result.stdout.splitlines():
+                    if ip_line.startswith("IP4.ADDRESS"):
+                        _, _, val = ip_line.partition(":")
+                        ip_addr = val.split("/")[0]
+                    elif ip_line.startswith("IP4.GATEWAY"):
+                        _, _, val = ip_line.partition(":")
+                        gateway = val
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+
+            devices.append({
+                "device": device,
+                "type": typ,
+                "state": state,
+                "connection": connection,
+                "ip": ip_addr,
+                "gateway": gateway,
+            })
+            if typ == "wifi":
+                wifi_connected = True
+
+        json_response(self, 200, {
+            "platform_supported": True,
+            "devices": devices,
+            "wifi_connected": wifi_connected,
+        })
 
     def _handle_env_update(self):
         """Write a validated .env file. Dashboard-api delegates here because the
@@ -862,6 +1694,17 @@ class AgentHandler(BaseHTTPRequestHandler):
         if not lock.acquire(blocking=False):
             json_response(self, 409, {"error": f"Operation already in progress for {service_id}"})
             return
+
+        # Enable-retry path: if a prior install left progress status=error,
+        # "start" must re-run the post_install hook (if declared) and write
+        # progress updates — otherwise the UI stays stuck on the old error and
+        # env vars populated by the hook never get regenerated. Hook + start
+        # can take minutes, so mirror _handle_install's 202-accept-then-thread
+        # pattern. Non-retry start/stop keeps the existing synchronous path.
+        if action == "start" and _read_progress_status(service_id) == "error":
+            _start_enable_retry(self, service_id, lock)
+            return
+
         try:
             ok, err = docker_compose_action(service_id, action)
         except RuntimeError as exc:
@@ -922,7 +1765,10 @@ class AgentHandler(BaseHTTPRequestHandler):
                 state = "enabled" if activate else "disabled"
                 json_response(self, 409, {"error": f"Extension already {state}: {sid}"})
                 return
-            os.rename(str(src), str(dst))
+            # os.replace (not os.rename) — Windows os.rename raises
+            # FileExistsError when destination exists; os.replace always
+            # overwrites atomically.
+            os.replace(str(src), str(dst))
         except OSError as exc:
             json_response(self, 500, {"error": f"Failed to {action} extension: {exc}"})
             return
@@ -931,6 +1777,174 @@ class AgentHandler(BaseHTTPRequestHandler):
 
         logger.info("%sd extension compose: %s", action, sid)
         json_response(self, 200, {"status": "ok", "service_id": sid, "action": action})
+
+    def _handle_extension_sync_config(self):
+        """Copy <ext_dir>/config/* into INSTALL_DIR/config/.
+
+        Some extensions ship a config/ subdirectory whose files are
+        bind-mounted by compose.yaml relative to the compose project root
+        (INSTALL_DIR), not the extension directory.  Without this sync,
+        Docker auto-creates the mount source as an empty directory and
+        the container fails at startup.
+
+        The dashboard-api previously did this copy itself, but its
+        bind-mount of /dream-server/config is read-only, so it cannot
+        write there.  The host agent runs on the host filesystem
+        (writable) and is the right place for this work.
+        """
+        if not check_auth(self):
+            return
+        body = read_json_body(self)
+        if body is None:
+            return
+
+        sid = body.get("service_id", "")
+        if not isinstance(sid, str) or not SERVICE_ID_RE.match(sid):
+            json_response(self, 400, {"error": "Invalid service_id"})
+            return
+
+        # Only user-installed extensions ship a config/ subdir for sync
+        # at install time; built-in configs are pre-created by the
+        # installer and must not be overwritten on re-toggle.
+        ext_dir = USER_EXTENSIONS_DIR / sid
+        if not ext_dir.is_dir():
+            # Not a user extension — no-op (built-ins handled by installer).
+            json_response(self, 200, {"status": "ok", "service_id": sid, "synced": []})
+            return
+
+        ext_config = ext_dir / "config"
+        if not ext_config.is_dir():
+            json_response(self, 200, {"status": "ok", "service_id": sid, "synced": []})
+            return
+
+        # Reject ANY symlink in the config/ tree (or if config/ itself is a
+        # symlink). _copytree_safe (the install-time copier) strips symlinks
+        # from user extensions, so legitimate extensions never have any.
+        # A symlink here implies tampering or a packaging bug, and would be
+        # dereferenced by shutil.copytree(symlinks=False) below — exfiltrating
+        # link-target content into a path the dashboard-api container can read.
+        # Iterating dirs + files (not just files) closes the symlinked-directory
+        # gap: os.walk(followlinks=False) does NOT recurse into symlinked dirs,
+        # so they only ever surface in the parent's `dirs` list.
+        # The walk covers the WHOLE config/ tree (including out-of-scope
+        # siblings) — a symlink anywhere is treated as tampering, even if the
+        # contract restriction below means we wouldn't have copied it anyway.
+        if ext_config.is_symlink():
+            json_response(self, 400, {
+                "error": (
+                    f"config sync refused: {sid}/config is a symlink "
+                    f"(symlinks are not permitted in extension configs)"
+                ),
+            })
+            return
+        for root, dirs, files in os.walk(str(ext_config), followlinks=False):
+            for name in dirs + files:
+                if (Path(root) / name).is_symlink():
+                    json_response(self, 400, {
+                        "error": (
+                            f"config sync refused: symlink {name} in "
+                            f"{sid}/config (symlinks are not permitted)"
+                        ),
+                    })
+                    return
+
+        # Default copy contract: an extension may only write to its OWN
+        # config tree — `<ext>/config/<service_id>/` → `INSTALL_DIR/config/<service_id>/`.
+        # Anything else under `<ext>/config/` (e.g. `<ext>/config/open-webui/`,
+        # `<ext>/config/litellm/`) is silently ignored — copying those would let
+        # a user extension overwrite installer-managed core configs or another
+        # extension's config tree. Cross-service writes are not part of the
+        # default contract; if a legitimate use case ever surfaces, an explicit
+        # manifest allowlist field is the right escape hatch (out of scope here).
+        src_svc = ext_config / sid
+
+        # Inventory siblings so the response can audit what was ignored.
+        out_of_scope: list[str] = []
+        for child in ext_config.iterdir():
+            if child.name != sid:
+                out_of_scope.append(child.name)
+                logger.info(
+                    "ignoring out-of-scope config entry %s/config/%s "
+                    "(default contract: only %s/config/%s/ is synced)",
+                    sid, child.name, sid, sid,
+                )
+
+        # If the extension ships no `config/<sid>/` at all, no-op.
+        if not src_svc.exists():
+            json_response(self, 200, {
+                "status": "ok",
+                "service_id": sid,
+                "synced": [],
+                "skipped": out_of_scope,
+            })
+            return
+        if not src_svc.is_dir():
+            json_response(self, 400, {
+                "error": (
+                    f"config sync refused: {sid}/config/{sid} must be a directory"
+                ),
+            })
+            return
+
+        install_config = (INSTALL_DIR / "config").resolve()
+        try:
+            install_config.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            json_response(self, 500, {"error": f"Failed to prepare config dir: {exc}"})
+            return
+
+        target = (install_config / sid).resolve()
+        # Path-traversal guard: target must stay under install_config. Always true
+        # because sid is validated against SERVICE_ID_RE above (no slashes / dots),
+        # but kept as defense-in-depth in case the regex ever loosens.
+        if not target.is_relative_to(install_config):
+            json_response(self, 400, {
+                "error": f"config sync refused: target outside install dir for {sid}",
+            })
+            return
+
+        synced: list[str] = []
+        lock = _service_locks[sid]
+        if not lock.acquire(blocking=False):
+            json_response(self, 409, {"error": f"Operation already in progress for {sid}"})
+            return
+        try:
+            try:
+                shutil.copytree(
+                    str(src_svc), str(target),
+                    dirs_exist_ok=True, symlinks=False,
+                )
+                synced.append(sid)
+            except OSError as exc:
+                json_response(self, 500, {
+                    "error": f"Failed to copy {sid}/config/{sid}: {exc}",
+                })
+                return
+            # Mark .sh files executable in the synced service tree.
+            for root, _dirs, files in os.walk(str(target)):
+                for fname in files:
+                    if fname.endswith(".sh"):
+                        fpath = Path(root) / fname
+                        try:
+                            fpath.chmod(
+                                fpath.stat().st_mode
+                                | stat_mod.S_IXUSR | stat_mod.S_IXGRP | stat_mod.S_IXOTH,
+                            )
+                        except OSError as exc:
+                            logger.warning("chmod +x failed for %s: %s", fpath, exc)
+        finally:
+            lock.release()
+
+        logger.info(
+            "synced config for extension %s (%d in-scope, %d out-of-scope ignored)",
+            sid, len(synced), len(out_of_scope),
+        )
+        json_response(self, 200, {
+            "status": "ok",
+            "service_id": sid,
+            "synced": synced,
+            "skipped": out_of_scope,
+        })
 
     def _handle_logs(self):
         if not check_auth(self):
@@ -1024,6 +2038,98 @@ class AgentHandler(BaseHTTPRequestHandler):
             json_response(self, 503, {"error": "Log fetch timed out"})
         except Exception as exc:
             json_response(self, 500, {"error": f"Failed to fetch logs: {exc}"})
+
+    def _handle_service_restart(self):
+        """Restart one known DreamServer service container."""
+        if not check_auth(self):
+            return
+        body = read_json_body(self)
+        if body is None:
+            return
+
+        sid = body.get("service_id", "")
+        if not isinstance(sid, str) or not SERVICE_ID_RE.match(sid):
+            json_response(self, 400, {"error": "Invalid service_id"})
+            return
+
+        has_container, restart_error = _service_has_docker_container(sid)
+        if not has_container:
+            status = 404 if restart_error.startswith("Service not found") else 400
+            json_response(self, status, {"error": restart_error})
+            return
+
+        lock = _service_locks[sid]
+        if not lock.acquire(blocking=False):
+            json_response(self, 409, {"error": f"Operation already in progress for {sid}"})
+            return
+
+        try:
+            delay_seconds = min(max(float(body.get("delay_seconds", 0) or 0), 0), 10)
+        except (ValueError, TypeError):
+            json_response(self, 400, {"error": "Invalid delay_seconds"})
+            lock.release()
+            return
+
+        container_name = _resolve_container_name(sid)
+
+        def restart_container():
+            if delay_seconds > 0:
+                time.sleep(delay_seconds)
+            result = subprocess.run(
+                ["docker", "restart", container_name],
+                capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode != 0:
+                stderr = (result.stderr or result.stdout or "").strip()
+                status = 404 if "no such container" in stderr.lower() else 500
+                json_response(self, status, {
+                    "error": f"docker restart failed: {stderr[:500]}",
+                    "service_id": sid,
+                    "container_name": container_name,
+                })
+                return
+            json_response(self, 200, {
+                "status": "ok",
+                "service_id": sid,
+                "container_name": container_name,
+                "action": "restart",
+            })
+
+        def restart_container_later():
+            try:
+                if delay_seconds > 0:
+                    time.sleep(delay_seconds)
+                result = subprocess.run(
+                    ["docker", "restart", container_name],
+                    capture_output=True, text=True, timeout=60,
+                )
+                if result.returncode != 0:
+                    stderr = (result.stderr or result.stdout or "").strip()
+                    logger.warning("Delayed restart failed for %s (%s): %s", sid, container_name, stderr[:500])
+            except Exception as exc:
+                logger.warning("Delayed restart failed for %s (%s): %s", sid, container_name, exc)
+            finally:
+                lock.release()
+
+        if delay_seconds > 0:
+            threading.Thread(target=restart_container_later, daemon=True).start()
+            json_response(self, 202, {
+                "status": "accepted",
+                "service_id": sid,
+                "container_name": container_name,
+                "action": "restart",
+                "delay_seconds": delay_seconds,
+            })
+            return
+
+        try:
+            restart_container()
+        except subprocess.TimeoutExpired:
+            json_response(self, 503, {"error": "Service restart timed out"})
+        except Exception as exc:
+            json_response(self, 500, {"error": f"Failed to restart service: {exc}"})
+        finally:
+            lock.release()
 
 
     def _handle_setup_hook(self):
@@ -1172,49 +2278,58 @@ class AgentHandler(BaseHTTPRequestHandler):
             try:
                 flags = resolve_compose_flags()
 
-                # Step 1: Setup hook (if requested)
-                if run_setup_hook:
-                    _write_progress(service_id, "setup_hook", "Running setup...")
-                    ext_dir = USER_EXTENSIONS_DIR / service_id
-                    hook_path = _resolve_hook(ext_dir, "post_install")
-                    if hook_path:
-                        # Minimal allowlist env — mirror _execute_hook (L856-866)
-                        # to prevent leaking host-agent secrets to extension scripts.
-                        manifest = _read_manifest(ext_dir)
-                        service_def = manifest.get("service", {}) if manifest else {}
-                        if not isinstance(service_def, dict):
-                            service_def = {}
-                        hook_env = {
-                            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-                            "HOME": os.environ.get("HOME", ""),
-                            "SERVICE_ID": service_id,
-                            "SERVICE_PORT": str(service_def.get("port", 0)),
-                            "SERVICE_DATA_DIR": str(DATA_DIR / service_id),
-                            "DREAM_VERSION": DREAM_VERSION,
-                            "GPU_BACKEND": GPU_BACKEND,
-                            "HOOK_NAME": "post_install",
-                        }
-                        result = subprocess.run(
-                            ["bash", str(hook_path), str(INSTALL_DIR), GPU_BACKEND],
-                            cwd=str(ext_dir), env=hook_env,
-                            capture_output=True, text=True,
-                            timeout=SUBPROCESS_TIMEOUT_START,
-                        )
-                        if result.returncode != 0:
-                            _write_progress(service_id, "error", "Setup failed",
-                                            error=result.stderr[:500])
-                            return
+                ext_dir = _find_ext_dir(service_id)
+                if ext_dir is None:
+                    _write_progress(service_id, "error", "Installation failed",
+                                    error=f"Extension directory not found for {service_id}")
+                    return
 
-                # Step 2: Pull (best-effort — failure is non-fatal if cached image exists)
+                # Step 1: Setup hook (if requested). The helper is a no-op
+                # when no hook is declared — it does not pre-write any
+                # "Running setup..." progress, so extensions without a hook
+                # don't show a misleading setup phase in the dashboard.
+                if run_setup_hook:
+                    ok, _ = _run_post_install_hook(service_id, ext_dir)
+                    if not ok:
+                        return
+
+                # Step 2: Pull (best-effort — failure is non-fatal if cached image exists).
+                # Narrow the pull to base + GPU overlay + this extension's own
+                # compose so we don't refetch images for every other installed
+                # extension on each install. The `up` step below keeps full
+                # `flags` so cross-service `depends_on` still resolves.
+                #
+                # Some extensions declare cross-extension `depends_on`
+                # (e.g. perplexica → searxng). Narrowing those out makes
+                # `docker compose pull` fail at config-parse time with
+                # "depends on undefined service". Validate the narrowed
+                # set with `config --services` first; if it doesn't
+                # resolve, fall back to the full flag set.
+                narrowed = _narrow_install_pull_flags(flags, service_id)
+                # 30s mirrors `resolve_compose_flags`: `config --services`
+                # is essentially instant when Docker is healthy; a long
+                # timeout just delays detection of a hung daemon.
+                if narrowed != flags and _narrowed_compose_set_resolves(
+                    narrowed, service_id, str(INSTALL_DIR), 30,
+                ):
+                    pull_flags = narrowed
+                else:
+                    if narrowed != flags:
+                        logger.info(
+                            "Narrowed compose for %s drops a referenced service; using full set",
+                            service_id,
+                        )
+                    pull_flags = flags
+
                 _write_progress(service_id, "pulling", "Downloading image...")
                 pull_result = subprocess.run(
-                    ["docker", "compose"] + flags + ["pull", service_id],
+                    ["docker", "compose"] + pull_flags + ["pull", service_id],
                     cwd=str(INSTALL_DIR), capture_output=True, text=True,
                     timeout=SUBPROCESS_TIMEOUT_START,
                 )
                 if pull_result.returncode != 0:
                     logger.warning("Pull failed for %s (rc=%d), proceeding to start: %s",
-                                   service_id, pull_result.returncode, pull_result.stderr[:200])
+                                   service_id, pull_result.returncode, pull_result.stderr[-200:])
 
                 # Step 3: Start
                 _write_progress(service_id, "starting", "Starting container...")
@@ -1226,11 +2341,78 @@ class AgentHandler(BaseHTTPRequestHandler):
                 )
                 if start_result.returncode != 0:
                     _write_progress(service_id, "error", "Installation failed",
-                                    error=start_result.stderr[:500])
+                                    error=start_result.stderr[-500:])
                     return
+
+                # By default, poll for running state: compose `up -d`
+                # returns 0 even for Created/Exited/Restarting containers,
+                # so a 0 exit is NOT conclusive proof the service actually
+                # started. Extensions whose containers intentionally exit
+                # after init (one-shot setup containers, extensions whose
+                # value is purely the setup_hook) can opt out via the
+                # manifest's `service.startup_check: false`, in which
+                # case compose's 0 exit is taken as success.
+                install_manifest = _read_manifest(ext_dir)
+                install_service_def = install_manifest.get("service", {}) if install_manifest else {}
+                if not isinstance(install_service_def, dict):
+                    install_service_def = {}
+                container_name = install_service_def.get("container_name") or f"dream-{service_id}"
+
+                # Manifest-driven opt-out for one-shot / setup-only extensions
+                # whose containers intentionally exit (init containers,
+                # extensions whose value is purely the setup_hook). Setting
+                # `service.startup_check: false` skips the running-state poll
+                # — compose up's clean exit is taken as success. Default is
+                # True so existing long-running services are unchanged.
+                startup_check = install_service_def.get("startup_check", True)
+
+                if startup_check:
+                    # Per-extension startup deadline; manifests with heavy init
+                    # (postgres, clickhouse, JVM-based services) can override the
+                    # 15s default via service.startup_timeout.
+                    startup_timeout = install_service_def.get("startup_timeout", 15)
+                    deadline = time.monotonic() + startup_timeout
+                    state: str | None = None
+                    state_error = ""
+                    while time.monotonic() < deadline:
+                        try:
+                            inspect_result = subprocess.run(
+                                ["docker", "inspect", "--format",
+                                 "{{.State.Status}}|{{.State.Error}}", container_name],
+                                capture_output=True, text=True, timeout=5,
+                            )
+                        except subprocess.TimeoutExpired:
+                            inspect_result = None
+                        if inspect_result is not None and inspect_result.returncode == 0:
+                            parts = inspect_result.stdout.strip().split("|", 1)
+                            state = parts[0] if parts else ""
+                            state_error = parts[1] if len(parts) > 1 else ""
+                            if state == "running":
+                                break
+                        time.sleep(1)
+
+                    if state != "running":
+                        msg = f"Container did not reach running state within {startup_timeout}s (state={state or 'unknown'})"
+                        if state_error:
+                            msg += f": {state_error}"
+                        _write_progress(service_id, "error", "Installation failed",
+                                        error=msg)
+                        return
 
                 # Step 4: Success
                 _write_progress(service_id, "started", "Service started")
+
+                # Step 5: Post-install core recreate (best-effort, non-fatal).
+                # Some extensions (e.g. openclaw) add overlay env to already-
+                # running core services; `up -d <ext>` (without --force-recreate)
+                # won't apply those changes. Failure here must not fail the install.
+                try:
+                    _post_install_core_recreate(service_id)
+                except Exception:
+                    logger.exception(
+                        "Post-install core recreate raised for %s (ignored)",
+                        service_id,
+                    )
 
             except subprocess.TimeoutExpired:
                 _write_progress(service_id, "error", "Installation failed",
@@ -1261,13 +2443,17 @@ class AgentHandler(BaseHTTPRequestHandler):
             library_path = INSTALL_DIR / "config" / "model-library.json"
             env_path = INSTALL_DIR / ".env"
 
-            # Load library
+            # Load library. A missing file is fine (fresh install); an
+            # unreadable/malformed file is a real error — surface it as 500
+            # rather than silently returning an empty catalog.
             library = []
             if library_path.exists():
                 try:
                     library = json.loads(library_path.read_text(encoding="utf-8")).get("models", [])
                 except (json.JSONDecodeError, OSError):
-                    pass
+                    logger.exception("Model library catalog unavailable")
+                    json_response(self, 500, {"error": "Model catalog unavailable"})
+                    return
 
             # Scan downloaded GGUFs
             downloaded = {}
@@ -1344,10 +2530,15 @@ class AgentHandler(BaseHTTPRequestHandler):
         # cover every part of split-file downloads, not just single-file models.
         library_path = INSTALL_DIR / "config" / "model-library.json"
         allowed = False
+        # Sentinel: distinguishes "catalog unreadable/missing" (500) from
+        # "catalog readable but model not listed" (403). Conflating the two
+        # masks broken installs as policy denials.
+        catalog_ok = False
         expected_sha_by_file: dict = {}
         if library_path.exists():
             try:
                 lib = json.loads(library_path.read_text(encoding="utf-8"))
+                catalog_ok = True
                 for m in lib.get("models", []):
                     if m.get("gguf_file") != gguf_file:
                         continue
@@ -1370,7 +2561,12 @@ class AgentHandler(BaseHTTPRequestHandler):
                         expected_sha_by_file = {gguf_file: m.get("gguf_sha256", "")}
                     break
             except (json.JSONDecodeError, OSError):
-                pass
+                logger.exception("Model library catalog unavailable")
+                json_response(self, 500, {"error": "Model catalog unavailable"})
+                return
+        if not catalog_ok:
+            json_response(self, 500, {"error": "Model catalog unavailable"})
+            return
         if not allowed:
             json_response(self, 403, {"error": "Model not in library catalog"})
             return
@@ -1625,6 +2821,21 @@ class AgentHandler(BaseHTTPRequestHandler):
         models_ini = INSTALL_DIR / "config" / "llama-server" / "models.ini"
         lemonade_yaml = INSTALL_DIR / "config" / "litellm" / "lemonade.yaml"
 
+        # Hoisted so the outer except's rollback can reference them safely.
+        # None means the snapshot was not captured, so rollback must skip it.
+        env_backup: str | None = None
+        ini_backup: str | None = None
+        lemonade_backup = None
+        committed = False
+
+        def restore_backups():
+            if env_backup is not None:
+                env_path.write_text(env_backup, encoding="utf-8")
+            if ini_backup is not None:
+                models_ini.write_text(ini_backup, encoding="utf-8")
+            if lemonade_backup is not None:
+                lemonade_yaml.write_text(lemonade_backup, encoding="utf-8")
+
         try:
             # Read current env BEFORE modification — needed for gpu_backend guard
             env_pre = load_env(env_path)
@@ -1675,19 +2886,25 @@ class AgentHandler(BaseHTTPRequestHandler):
             # Regenerate LiteLLM lemonade config so it routes to the new model.
             # Only written on AMD installs where lemonade.yaml exists.
             if lemonade_yaml.exists():
+                # Read from .env (already loaded as env_pre above). The host-agent
+                # systemd unit does not source .env as an EnvironmentFile, so
+                # os.environ is unreliable for installer-written values like the
+                # rotated LITELLM_LEMONADE_API_KEY — falling back to the legacy
+                # static "sk-lemonade" would silently revert key rotation.
+                lemonade_api_key = env_pre.get("LITELLM_LEMONADE_API_KEY", "sk-lemonade")
                 lemonade_yaml.write_text(
                     f"model_list:\n"
                     f"  - model_name: default\n"
                     f"    litellm_params:\n"
                     f"      model: openai/extra.{gguf_file}\n"
                     f"      api_base: http://llama-server:8080/api/v1\n"
-                    f"      api_key: sk-lemonade\n"
+                    f"      api_key: {lemonade_api_key}\n"
                     f"\n"
                     f"  - model_name: \"*\"\n"
                     f"    litellm_params:\n"
                     f"      model: openai/extra.{gguf_file}\n"
                     f"      api_base: http://llama-server:8080/api/v1\n"
-                    f"      api_key: sk-lemonade\n"
+                    f"      api_key: {lemonade_api_key}\n"
                     f"\n"
                     f"litellm_settings:\n"
                     f"  drop_params: true\n"
@@ -1716,8 +2933,7 @@ class AgentHandler(BaseHTTPRequestHandler):
                 llama_log = INSTALL_DIR / "data" / "llama-server.log"
 
                 if not llama_bin.exists():
-                    env_path.write_text(env_backup, encoding="utf-8")
-                    models_ini.write_text(ini_backup, encoding="utf-8")
+                    restore_backups()
                     json_response(self, 500, {"error": "llama-server binary not found — re-run installer"})
                     return
 
@@ -1829,14 +3045,12 @@ class AgentHandler(BaseHTTPRequestHandler):
                 for svc in ["dream-litellm", "dream-dreamforge"]:
                     subprocess.run(["docker", "restart", svc],
                                    capture_output=True, timeout=60)
+                committed = True  # system state is committed before the response write
                 json_response(self, 200, {"status": "activated", "model_id": model_id})
             else:
                 # Rollback
                 logger.warning("Model activation failed — rolling back")
-                env_path.write_text(env_backup, encoding="utf-8")
-                models_ini.write_text(ini_backup, encoding="utf-8")
-                if lemonade_backup is not None:
-                    lemonade_yaml.write_text(lemonade_backup, encoding="utf-8")
+                restore_backups()
                 rollback_env = load_env(env_path)
                 if gpu_backend == "apple":
                     # Stop newly launched native process, re-launch with old params
@@ -1873,6 +3087,11 @@ class AgentHandler(BaseHTTPRequestHandler):
                 json_response(self, 500, {"error": "Health check failed — rolled back to previous model", "rolled_back": True})
 
         except Exception as exc:
+            if not committed:
+                try:
+                    restore_backups()
+                except OSError:
+                    logger.exception("Rollback write failed during model-activate failure handling")
             json_response(self, 500, {"error": f"Model activation failed: {exc}"})
 
     def _handle_model_delete(self):
@@ -1982,13 +3201,18 @@ def _write_lemonade_config(install_dir: Path, gguf_file: str):
     Mirrors bootstrap-upgrade.sh lines 369-382.
     """
     config_path = install_dir / "config" / "litellm" / "lemonade.yaml"
+    # Read from .env via load_env, NOT os.environ. The host-agent systemd
+    # unit does not source .env as an EnvironmentFile, so os.environ is
+    # unreliable for installer-written values; falling back to the legacy
+    # static "sk-lemonade" would silently revert key rotation.
+    lemonade_api_key = load_env(install_dir / ".env").get("LITELLM_LEMONADE_API_KEY", "sk-lemonade")
     content = (
         "model_list:\n"
         "  - model_name: \"*\"\n"
         "    litellm_params:\n"
         f"      model: openai/extra.{gguf_file}\n"
         "      api_base: http://llama-server:8080/api/v1\n"
-        "      api_key: sk-lemonade\n"
+        f"      api_key: {lemonade_api_key}\n"
         "\n"
         "litellm_settings:\n"
         "  drop_params: true\n"
@@ -2013,15 +3237,28 @@ def _launch_native_llama_server(env_path: Path, llama_bin: Path, llama_log: Path
     reasoning_fmt = {"off": "none", "on": "deepseek"}.get(reasoning, reasoning)
     # Honour the unified BIND_ADDRESS knob (PR #964); empty/missing → loopback.
     bind_addr = env.get("BIND_ADDRESS", "").strip() or "127.0.0.1"
+    args = [
+        str(llama_bin),
+        "--host", bind_addr, "--port", "8080",
+        "--model", str(model_path),
+        "--ctx-size", ctx_size,
+        "--n-gpu-layers", "999",
+        "--reasoning-format", reasoning_fmt,
+        "--metrics",
+    ]
+    optional_args = {
+        "LLAMA_ARG_FLASH_ATTN": "--flash-attn",
+        "LLAMA_ARG_CACHE_TYPE_K": "--cache-type-k",
+        "LLAMA_ARG_CACHE_TYPE_V": "--cache-type-v",
+        "LLAMA_ARG_N_CPU_MOE": "--n-cpu-moe",
+    }
+    for env_key, flag in optional_args.items():
+        value = env.get(env_key, "").strip()
+        if value:
+            args.extend([flag, value])
     with open(llama_log, "a") as log_f:
         proc = subprocess.Popen(
-            [str(llama_bin),
-             "--host", bind_addr, "--port", "8080",
-             "--model", str(model_path),
-             "--ctx-size", ctx_size,
-             "--n-gpu-layers", "999",
-             "--reasoning-format", reasoning_fmt,
-             "--metrics"],
+            args,
             stdout=log_f, stderr=log_f,
         )
     pid_file.write_text(str(proc.pid), encoding="utf-8")
@@ -2217,8 +3454,8 @@ def _recreate_llama_server(env: dict, override_image: str = ""):
     result = subprocess.run(run_cmd, capture_output=True, text=True, timeout=60)
     if result.returncode != 0:
         logger.error("Failed to create llama-server: %s", result.stderr)
-    else:
-        logger.info("llama-server container created successfully")
+        raise RuntimeError(f"docker run failed: {result.stderr[-500:]}")
+    logger.info("llama-server container created successfully")
 
 
 def _write_model_status(path: Path, status: str, model: str, downloaded: int, total: int, error: str = ""):
@@ -2236,8 +3473,10 @@ def _write_model_status(path: Path, status: str, model: str, downloaded: int, to
     try:
         tmp.write_text(json.dumps(data), encoding="utf-8")
         tmp.rename(path)
-    except OSError:
-        pass
+    except OSError as e:
+        # Don't crash the activate flow; surface to the journal so operators
+        # can diagnose why progress stalled.
+        logger.warning("Failed to write model status to %s: %s", path, e)
 
 
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):

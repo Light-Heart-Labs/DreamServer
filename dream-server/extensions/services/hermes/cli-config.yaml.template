@@ -1,0 +1,109 @@
+# Hermes Agent configuration — Dream Server defaults.
+#
+# This file is mounted into the upstream image at
+# /opt/hermes/cli-config.yaml.example, which Hermes's entrypoint copies into
+# /opt/data/config.yaml on first start IF that file doesn't already exist.
+# Re-running `dream enable hermes` after editing here won't overwrite an
+# existing config — delete /opt/data/config.yaml manually if you want to
+# reset to these defaults.
+#
+# Documentation for every key: https://hermes-agent.nousresearch.com/docs/
+
+# =============================================================================
+# Model — points at Dream Server's local LLM by default
+# =============================================================================
+model:
+  # Local model name advertised to Hermes. llama.cpp's OpenAI-compat server
+  # ignores this field and serves whatever's loaded, but Lemonade (AMD) and
+  # other strict OpenAI-compat servers DO require an exact match — they will
+  # 404 every chat completion if Hermes asks for "qwen3.5-9b" but the server
+  # only serves "extra.Qwen3.5-4B-Q4_K_M.gguf" or similar. The installer
+  # should sed-replace this value with the actually-served model name
+  # during phase 11 (open follow-up). Until that lands, operators on
+  # AMD / Apple Silicon / aarch64 must hand-edit /opt/data/config.yaml
+  # after first start to match the output of:
+  #   curl http://<llama-server-host>:<port>/v1/models | jq .data[0].id
+  # (Hermes does NOT read HERMES_MODEL_NAME from env — config.yaml is the
+  # source of truth once it's copied out of the example.)
+  default: "qwen3.5-9b"
+
+  # provider=custom = any OpenAI-compatible local server. Aliases:
+  # ollama, vllm, llamacpp. We pick "custom" for portability.
+  provider: "custom"
+
+  # base_url for the LLM client. This value WINS over the OPENAI_BASE_URL
+  # env var that compose.yaml sets — empirically verified on macOS, where
+  # HERMES_LLM_BASE_URL=http://host.docker.internal:8080/v1 in .env got
+  # passed through as OPENAI_BASE_URL but Hermes still dialed
+  # llama-server:8080 and failed with `Connection error`. Operators on
+  # macOS (where llama-server runs native on the host, not as a sibling
+  # container) must hand-edit this to `http://host.docker.internal:8080/v1`
+  # or rely on a future installer-side substitution.
+  base_url: "http://llama-server:8080/v1"
+
+  # Hermes Agent v0.13.0+ enforces a 64K minimum context window — anything
+  # smaller and *every* prompt 500s with "context window of N tokens is
+  # below the minimum 64,000 required by Hermes Agent". 131072 (128K) gives
+  # plenty of headroom for long agentic conversations while staying well
+  # within qwen3-coder-next's native 128K context. Bump higher in
+  # /opt/data/config.yaml if you've loaded a model with a larger context.
+  context_length: 131072
+
+# =============================================================================
+# Auxiliary models — compression, etc.
+# =============================================================================
+# Hermes runs a separate "compression" model when the conversation history
+# nears the context budget. That model's context window is ALSO checked
+# against the 64K minimum, independent of model.context_length above.
+# Without this override, prompts bomb with:
+#   "Auxiliary compression model X has a context window of N tokens, which
+#    is below the minimum 64,000 required by Hermes Agent."
+# even after the main model.context_length is bumped.
+auxiliary:
+  compression:
+    context_length: 131072
+
+# =============================================================================
+# Terminal backend — where tool calls execute
+# =============================================================================
+# Hermes can run tools in a few different sandboxes. For Dream Server we keep
+# it local-to-the-container: no SSH out, no Modal/Daytona, no Docker-in-Docker.
+# The container IS the sandbox.
+terminal:
+  backend: "local"
+
+# =============================================================================
+# Messaging gateways — none enabled by default in Dream Server
+# =============================================================================
+# Hermes ships with Telegram / Discord / Slack / WhatsApp / Signal / email /
+# Teams / Google Chat / Matrix / Mattermost / SMS gateway adapters. Dream
+# Server users reach Hermes via the web dashboard, not platform bots — so
+# none of these are configured here.
+#
+# IMPORTANT: there is NO top-level `gateway.enabled: false` switch in
+# upstream's config schema. Earlier drafts of this template had one; it
+# was silently ignored. The gateway is "disabled" by simply not
+# configuring any adapter (no TELEGRAM_TOKEN, no DISCORD_TOKEN, etc.),
+# which means `hermes gateway run` starts, ticks cron, hosts the
+# dashboard, and has no platforms to message on.
+#
+# To enable a platform, follow upstream's adapter docs and add the
+# matching block under the platform-specific config keys, then restart
+# the container.
+
+# =============================================================================
+# Compression — keep memory bounded on small devices
+# =============================================================================
+# Hermes auto-compacts long conversations once they cross the threshold.
+# These are the upstream-correct keys (compression.*); an earlier draft
+# used compact_threshold under a context: block which upstream silently
+# ignores.
+compression:
+  # Token count at which Hermes starts compacting the conversation.
+  # Lower = more aggressive = lower disk/token cost but more summary loss.
+  # Keep this comfortably below model.context_length so there's headroom
+  # before hitting the hard window limit.
+  threshold: 10000
+  # Fraction of the conversation to retain after compaction. 0.5 = aim
+  # for half the original token count post-summary.
+  target_ratio: 0.5

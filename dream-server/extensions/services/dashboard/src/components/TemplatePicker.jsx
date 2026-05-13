@@ -93,7 +93,7 @@ export function TemplatePicker({ templates, onApplied, compact = false }) {
                 <span>{tmpl.services?.length || 0} services</span>
                 {tmpl.estimated_disk_gb && (
                   <span className="flex items-center gap-1">
-                    <HardDrive size={10} />
+                    <HardDrive size={10} aria-hidden="true" />
                     ~{tmpl.estimated_disk_gb}GB
                   </span>
                 )}
@@ -149,7 +149,7 @@ export function TemplatePreview({ template, onClose, onApplied }) {
         timeout: 120000,
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       if (data.enabled_count > 0) {
         setApplied(data.restart_required ? 'restart_required' : 'enabled')
       } else {

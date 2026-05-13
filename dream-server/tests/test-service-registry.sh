@@ -117,7 +117,10 @@ else
             continue
         fi
 
-        # Validate required fields
+        # Validate required fields. host_network services (Docker
+        # network_mode: host) don't have a Docker-mapped port and may
+        # not serve an HTTP health endpoint — port and health drop to
+        # "optional" for them.
         validation=$("$PYTHON_CMD" -c "
 import yaml, sys
 with open(sys.argv[1]) as f:
@@ -129,7 +132,9 @@ s = m.get('service', {})
 if not isinstance(s, dict):
     errors.append('service must be a dict')
 else:
-    for field in ('id', 'name', 'port', 'health'):
+    host_network = bool(s.get('host_network'))
+    required = ['id', 'name'] if host_network else ['id', 'name', 'port', 'health']
+    for field in required:
         if not s.get(field):
             errors.append(f'missing required field: service.{field}')
     if 'category' in s and s['category'] not in ('core', 'recommended', 'optional'):
@@ -160,6 +165,55 @@ else:
     else
         pass "Validated $manifest_count manifests"
     fi
+fi
+
+declare -A SERVICE_INTERNAL_PORTS=()
+if "$PYTHON_CMD" -c "import yaml" 2>/dev/null; then
+    while IFS=$'\t' read -r sid internal_port; do
+        [[ -z "$sid" ]] && continue
+        SERVICE_INTERNAL_PORTS["$sid"]="$internal_port"
+    done < <("$PYTHON_CMD" - "$EXTENSIONS_DIR" <<'PY'
+import sys
+import yaml
+from pathlib import Path
+
+ext_dir = Path(sys.argv[1])
+if not ext_dir.exists():
+    raise SystemExit(0)
+
+service_dirs = sorted(ext_dir.iterdir())
+user_ext_dir = ext_dir.parent.parent / "data" / "user-extensions"
+if user_ext_dir.exists():
+    service_dirs += sorted(user_ext_dir.iterdir())
+
+seen = set()
+for service_dir in service_dirs:
+    if not service_dir.is_dir():
+        continue
+    manifest_path = None
+    for name in ("manifest.yaml", "manifest.yml", "manifest.json"):
+        candidate = service_dir / name
+        if candidate.exists():
+            manifest_path = candidate
+            break
+    if manifest_path is None:
+        continue
+    try:
+        manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        continue
+    if not isinstance(manifest, dict) or manifest.get("schema_version") != "dream.services.v1":
+        continue
+    service = manifest.get("service")
+    if not isinstance(service, dict):
+        continue
+    sid = service.get("id")
+    if not sid or sid in seen:
+        continue
+    seen.add(sid)
+    print(f"{sid}\t{service.get('port', 0) or 0}")
+PY
+    )
 fi
 
 # ============================================
@@ -263,12 +317,21 @@ for sid in "${SERVICE_IDS[@]}"; do
         fail "Missing health endpoint: $sid"
     fi
 
-    # Every service should have a port
-    port="${SERVICE_PORTS[$sid]:-0}"
-    if [[ "$port" != "0" ]]; then
-        pass "Has port: $sid → $port"
+    # Every service should have a runtime port. SERVICE_PORTS is the
+    # user-facing external port; internal-only services may intentionally set
+    # it to 0 when a proxy owns the LAN entry point. Host-network services
+    # share the host namespace and have no Docker-mapped port to validate.
+    if [[ "${SERVICE_HOST_NETWORK[$sid]:-}" == "1" ]]; then
+        pass "host_network service exempt from port check: $sid"
     else
-        fail "Missing/zero port: $sid"
+        port="${SERVICE_PORTS[$sid]:-0}"
+        if [[ "$port" != "0" ]]; then
+            pass "Has external port: $sid → $port"
+        elif [[ "${SERVICE_INTERNAL_PORTS[$sid]:-0}" != "0" ]]; then
+            pass "Internal-only service has container port: $sid → ${SERVICE_INTERNAL_PORTS[$sid]}"
+        else
+            fail "Missing/zero port: $sid"
+        fi
     fi
 done
 

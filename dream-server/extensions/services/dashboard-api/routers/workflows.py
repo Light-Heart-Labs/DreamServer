@@ -16,9 +16,15 @@ from security import verify_api_key
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["workflows"])
+_WORKFLOW_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
 # --- Helpers ---
+
+def _validate_workflow_id(workflow_id: str) -> None:
+    if not _WORKFLOW_ID_RE.fullmatch(workflow_id):
+        raise HTTPException(status_code=400, detail="Invalid workflow ID format")
+
 
 def load_workflow_catalog() -> dict:
     """Load workflow catalog from JSON file."""
@@ -163,8 +169,7 @@ async def api_workflows(api_key: str = Depends(verify_api_key)):
 @router.post("/api/workflows/{workflow_id}/enable")
 async def enable_workflow(workflow_id: str, api_key: str = Depends(verify_api_key)):
     """Import a workflow template into n8n."""
-    if not re.match(r'^[a-zA-Z0-9_-]+$', workflow_id):
-        raise HTTPException(status_code=400, detail="Invalid workflow ID format")
+    _validate_workflow_id(workflow_id)
 
     catalog = load_workflow_catalog()
     wf_info = next((wf for wf in catalog.get("workflows", []) if wf["id"] == workflow_id), None)
@@ -213,6 +218,8 @@ async def enable_workflow(workflow_id: str, api_key: str = Depends(verify_api_ke
                 else:
                     error_text = await resp.text()
                     raise HTTPException(status_code=resp.status, detail=f"n8n API error: {error_text}")
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="n8n workflow add timed out")
     except aiohttp.ClientError as e:
         raise HTTPException(status_code=503, detail=f"Cannot reach n8n: {e}")
 
@@ -245,6 +252,8 @@ async def _remove_workflow(workflow_id: str):
                 else:
                     error_text = await resp.text()
                     raise HTTPException(status_code=resp.status, detail=f"n8n API error: {error_text}")
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="n8n workflow remove timed out")
     except aiohttp.ClientError as e:
         raise HTTPException(status_code=503, detail=f"Cannot reach n8n: {e}")
 
@@ -252,18 +261,21 @@ async def _remove_workflow(workflow_id: str):
 @router.post("/api/workflows/{workflow_id}/disable")
 async def disable_workflow_post(workflow_id: str, api_key: str = Depends(verify_api_key)):
     """Remove a workflow from n8n (POST /disable)."""
+    _validate_workflow_id(workflow_id)
     return await _remove_workflow(workflow_id)
 
 
 @router.delete("/api/workflows/{workflow_id}")
 async def disable_workflow(workflow_id: str, api_key: str = Depends(verify_api_key)):
     """Remove a workflow from n8n (DELETE)."""
+    _validate_workflow_id(workflow_id)
     return await _remove_workflow(workflow_id)
 
 
 @router.get("/api/workflows/{workflow_id}/executions")
 async def workflow_executions(workflow_id: str, limit: int = 20, api_key: str = Depends(verify_api_key)):
     """Get recent executions for a workflow."""
+    _validate_workflow_id(workflow_id)
     n8n_workflows = await get_n8n_workflows()
     catalog = load_workflow_catalog()
     wf_info = next((wf for wf in catalog.get("workflows", []) if wf["id"] == workflow_id), None)

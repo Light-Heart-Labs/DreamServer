@@ -189,6 +189,13 @@ MOCK
     touch "$SCRIPT_DIR/docker-compose.base.yml"
     mkdir -p "$INSTALL_DIR"
 
+    # Stub curl and jq so the phase script doesn't try to auto-install them via sudo
+    mkdir -p "$BATS_TEST_TMPDIR/bin"
+    printf '#!/bin/bash\necho "curl 8.0.0"\n' > "$BATS_TEST_TMPDIR/bin/curl"
+    printf '#!/bin/bash\necho "jq-1.7"\n'     > "$BATS_TEST_TMPDIR/bin/jq"
+    chmod +x "$BATS_TEST_TMPDIR/bin/curl" "$BATS_TEST_TMPDIR/bin/jq"
+    export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
+
     run bash -c '
         export SCRIPT_DIR="'"$SCRIPT_DIR"'"
         export INSTALL_DIR="'"$INSTALL_DIR"'"

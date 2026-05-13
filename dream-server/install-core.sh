@@ -69,8 +69,12 @@ source "$SCRIPT_DIR/installers/lib/constants.sh"
 source "$SCRIPT_DIR/installers/lib/logging.sh"
 source "$SCRIPT_DIR/installers/lib/ui.sh"
 source "$SCRIPT_DIR/installers/lib/detection.sh"
+source "$SCRIPT_DIR/installers/lib/host-arch.sh"
 source "$SCRIPT_DIR/installers/lib/tier-map.sh"
+source "$SCRIPT_DIR/installers/lib/docker-images.sh"
 source "$SCRIPT_DIR/installers/lib/compose-select.sh"
+source "$SCRIPT_DIR/installers/lib/compose-failure-report.sh"
+source "$SCRIPT_DIR/installers/lib/readiness-summary.sh"
 source "$SCRIPT_DIR/installers/lib/packaging.sh"
 source "$SCRIPT_DIR/installers/lib/progress.sh"
 if [[ -f "$SCRIPT_DIR/lib/service-registry.sh" ]]; then 
@@ -93,7 +97,14 @@ TIER=""
 ENABLE_VOICE=true
 ENABLE_WORKFLOWS=true
 ENABLE_RAG=true
-ENABLE_OPENCLAW=true
+# Default agent flipped to Hermes Agent (Nous Research) on 2026-05-12.
+# OpenClaw is deprecated and will be removed in the next release; new
+# installs no longer enable it by default. Users who explicitly pass
+# --openclaw or upgrade an existing install with OpenClaw enabled keep
+# it working until the removal release. See docs/MIGRATION-OPENCLAW-TO-HERMES.md.
+ENABLE_HERMES=true
+ENABLE_OPENCLAW=false
+OPENCLAW_EXPLICIT=false
 ENABLE_COMFYUI=true
 ENABLE_DREAMFORGE=true
 # Langfuse (LLM observability) defaults OFF on all tiers because its
@@ -121,9 +132,15 @@ Options:
     --tier N          Force specific tier (1-4) instead of auto-detect
     --cloud           Cloud mode: skip GPU detection, use LiteLLM + cloud APIs
     --voice           Enable voice services (Whisper + Kokoro)
+    --no-voice        Disable voice services
     --workflows       Enable n8n workflow automation
+    --no-workflows    Disable n8n workflow automation
     --rag             Enable RAG with Qdrant vector database
-    --openclaw        Enable OpenClaw AI agent framework
+    --no-rag          Disable RAG / Qdrant
+    --hermes          Enable Hermes Agent (default; new default agent as of 2026-05-12)
+    --no-hermes       Disable Hermes Agent
+    --openclaw        Enable OpenClaw (DEPRECATED — see docs/MIGRATION-OPENCLAW-TO-HERMES.md)
+    --no-openclaw     Disable OpenClaw
     --comfyui         Enable ComfyUI image generation
     --no-comfyui      Disable ComfyUI image generation (saves ~34GB)
     --dreamforge      Enable DreamForge agent system (default)
@@ -168,9 +185,15 @@ while [[ $# -gt 0 ]]; do
         --tier) TIER="$2"; shift 2 ;;
         --cloud) DREAM_MODE="cloud"; shift ;;
         --voice) ENABLE_VOICE=true; shift ;;
+        --no-voice) ENABLE_VOICE=false; shift ;;
         --workflows) ENABLE_WORKFLOWS=true; shift ;;
+        --no-workflows) ENABLE_WORKFLOWS=false; shift ;;
         --rag) ENABLE_RAG=true; shift ;;
-        --openclaw) ENABLE_OPENCLAW=true; shift ;;
+        --no-rag) ENABLE_RAG=false; shift ;;
+        --hermes) ENABLE_HERMES=true; shift ;;
+        --no-hermes) ENABLE_HERMES=false; shift ;;
+        --openclaw) ENABLE_OPENCLAW=true; OPENCLAW_EXPLICIT=true; shift ;;
+        --no-openclaw) ENABLE_OPENCLAW=false; OPENCLAW_EXPLICIT=true; shift ;;
         --comfyui) ENABLE_COMFYUI=true; shift ;;
         --no-comfyui) ENABLE_COMFYUI=false; shift ;;
         --dreamforge) ENABLE_DREAMFORGE=true; shift ;;
@@ -179,7 +202,10 @@ while [[ $# -gt 0 ]]; do
         # NOTE: with --all, --no-langfuse must appear AFTER --all on the command
         # line (flag processing is case-loop ordered, matching comfyui/dreamforge).
         --no-langfuse) ENABLE_LANGFUSE=false; shift ;;
-        --all) ENABLE_VOICE=true; ENABLE_WORKFLOWS=true; ENABLE_RAG=true; ENABLE_OPENCLAW=true; ENABLE_COMFYUI=true; ENABLE_DREAMFORGE=true; ENABLE_LANGFUSE=true; shift ;;
+        # --all enables Hermes (the new default agent) but NOT OpenClaw —
+        # the deprecated agent is opt-in via --openclaw for the deprecation
+        # release. Will be dropped entirely in the removal release.
+        --all) ENABLE_VOICE=true; ENABLE_WORKFLOWS=true; ENABLE_RAG=true; ENABLE_HERMES=true; ENABLE_OPENCLAW=false; ENABLE_COMFYUI=true; ENABLE_DREAMFORGE=true; ENABLE_LANGFUSE=true; shift ;;
         --non-interactive) INTERACTIVE=false; shift ;;
         --offline) OFFLINE_MODE=true; shift ;;
         --lan) BIND_ADDRESS="0.0.0.0"; shift ;;
@@ -189,6 +215,11 @@ while [[ $# -gt 0 ]]; do
         *) error "Unknown option: $1" ;;
     esac
 done
+
+if [[ "$OPENCLAW_EXPLICIT" != "true" && -f "$INSTALL_DIR/extensions/services/openclaw/compose.yaml" ]]; then
+    ENABLE_OPENCLAW=true
+    log "Existing OpenClaw install detected; preserving it for this deprecation release"
+fi
 
 # Detect distro + package manager (after arg parsing so --help still shows
 # the correct VERSION before /etc/os-release overwrites it)

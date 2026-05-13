@@ -20,17 +20,20 @@ For adding or authoring extensions, see [EXTENSIONS.md](../docs/EXTENSIONS.md) a
 | whisper         | Whisper (STT)            | optional   | 9000        | amd, nvidia    | Speech-to-text. |
 | tts             | Kokoro (TTS)             | optional   | 8880        | amd, nvidia    | Text-to-speech. |
 | comfyui         | ComfyUI (Image Gen)      | optional   | 8188        | amd, nvidia    | Image generation (SDXL Lightning). |
-| openclaw        | OpenClaw (Agents)        | optional   | 7860        | amd, nvidia    | Agent with tools. |
+| hermes          | Hermes Agent             | recommended | 9119       | amd, nvidia    | Generalist self-improving agent (Nous Research) — chat, tools, persistent memory, scheduled tasks. **Default agent as of 2026-05-12.** |
+| hermes-proxy    | Hermes Agent (auth gate) | recommended | 9120       | amd, nvidia    | Caddy auth-proxy in front of Hermes; gates access on a redeemed magic-link `dream-session` cookie. |
+| openclaw        | OpenClaw (Agents) **(deprecated)** | optional   | 7860        | amd, nvidia    | Agent with tools. **DEPRECATED** — removal planned in the next release. Use `hermes` instead. See [MIGRATION-OPENCLAW-TO-HERMES.md](../docs/MIGRATION-OPENCLAW-TO-HERMES.md). |
 | perplexica      | Perplexica (Deep Research) | optional | 3004        | amd, nvidia    | Deep research UI. |
 | embeddings      | TEI (Embeddings)        | optional   | 8090        | amd, nvidia    | Text embeddings for RAG. |
 | privacy-shield  | Privacy Shield           | optional   | 8085        | amd, nvidia    | PII detection and protection. |
 | opencode        | OpenCode (IDE)           | optional   | 3003        | amd, nvidia    | In-browser IDE integration. |
+| langfuse        | Langfuse (LLM Observability) | optional | 3006      | amd, nvidia    | LLM tracing, evaluations, and prompt management. |
 
 ## Categories
 
 - **core** — Always part of the base stack (llama-server, open-webui, dashboard, dashboard-api).
-- **recommended** — Enabled by default in the installer; can be disabled (litellm, searxng, token-spy).
-- **optional** — User opts in during install or later (n8n, qdrant, whisper, tts, comfyui, openclaw, perplexica, embeddings, privacy-shield, opencode).
+- **recommended** — Enabled by default in the installer; can be disabled (litellm, searxng, token-spy, hermes, hermes-proxy).
+- **optional** — User opts in during install or later (n8n, qdrant, whisper, tts, comfyui, perplexica, embeddings, privacy-shield, opencode). `openclaw` is also in this category but is **deprecated** as of 2026-05-12.
 
 ## Ports and .env
 
@@ -60,7 +63,9 @@ extensions/services/
   whisper/manifest.yaml
   tts/manifest.yaml
   comfyui/manifest.yaml
-  openclaw/manifest.yaml
+  hermes/manifest.yaml
+  hermes-proxy/manifest.yaml
+  openclaw/manifest.yaml      # deprecated; removal planned next release
   perplexica/manifest.yaml
   embeddings/manifest.yaml
   litellm/manifest.yaml
@@ -68,6 +73,7 @@ extensions/services/
   token-spy/manifest.yaml
   privacy-shield/manifest.yaml
   opencode/manifest.yaml
+  langfuse/manifest.yaml
 ```
 
 Each directory typically also has a `compose.yaml` (and optional overlay like `compose.nvidia.yaml`). The resolver `scripts/resolve-compose-stack.sh` builds the full compose command from enabled extensions and the selected GPU backend.

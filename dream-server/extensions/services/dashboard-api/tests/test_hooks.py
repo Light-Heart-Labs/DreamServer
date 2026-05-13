@@ -229,3 +229,37 @@ class TestHookEnvAllowlist:
         assert "DREAM_VERSION" in source
         assert "GPU_BACKEND" in source
         assert "HOOK_NAME" in source
+
+
+# --- Langfuse manifest setup_hook structural guard ---
+
+
+class TestLangfuseManifestHook:
+    """Structural guard — langfuse manifest setup_hook + hook file must coexist.
+
+    The langfuse postgres uid 70 install fix ships service.setup_hook +
+    hooks/post_install.sh. If either drifts (file renamed, manifest field
+    removed, hook deleted), _validate_hook_path returns None and
+    _handle_install silently skips the hook — langfuse silently regresses
+    to the broken Linux postgres uid mismatch behavior with no CI signal.
+    This test catches that.
+    """
+
+    def test_langfuse_manifest_declares_post_install_hook(self):
+        ext_dir = Path(__file__).resolve().parents[2] / "langfuse"
+        manifest = yaml.safe_load((ext_dir / "manifest.yaml").read_text())
+        setup_hook = manifest.get("service", {}).get("setup_hook")
+        assert setup_hook == "hooks/post_install.sh", (
+            "langfuse manifest must declare service.setup_hook = 'hooks/post_install.sh' "
+            "(part of the langfuse postgres uid 70 install fix). "
+            "If this field changed, update the hook file path or this test."
+        )
+
+    def test_langfuse_post_install_hook_file_exists(self):
+        ext_dir = Path(__file__).resolve().parents[2] / "langfuse"
+        hook_path = ext_dir / "hooks" / "post_install.sh"
+        assert hook_path.is_file(), (
+            f"langfuse hook file missing at {hook_path}. "
+            "The langfuse postgres uid 70 install fix ships this file; "
+            "if removed, langfuse silently regresses to broken Linux behavior."
+        )

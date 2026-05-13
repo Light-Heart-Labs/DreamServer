@@ -10,7 +10,6 @@
 #   $dryRun, $cloudMode         -- from orchestrator context
 #   $installDir                 -- from orchestrator context
 #   $tierConfig                 -- from phase 02 (LlmModel, MaxContext, GgufFile)
-#   $envResult                  -- from phase 06 (OpenclawToken, DreamAgentKey)
 #   $script:OPENCODE_*          -- from lib/constants.ps1
 #
 # Writes:
@@ -218,12 +217,29 @@ if (Test-Path $_agentScript) {
         $pidDir = Split-Path $script:DREAM_AGENT_PID_FILE
         New-Item -ItemType Directory -Path $pidDir -Force -ErrorAction SilentlyContinue | Out-Null
 
-        # Start agent via cmd.exe wrapper for stderr→log redirect.
-        # Prepend Docker to PATH so the agent can find docker.exe
-        # (Docker Desktop may not be in the system PATH yet after fresh install).
+        # Start agent through a hidden PowerShell host so login persistence does
+        # not leave a visible cmd.exe window on the desktop. Prepend Docker to
+        # PATH so the agent can find docker.exe (Docker Desktop may not be in
+        # the system PATH yet after fresh install).
         $_dockerBin = "C:\Program Files\Docker\Docker\resources\bin"
-        $_agentArgs = "set `"PATH=$_dockerBin;%PATH%`" && `"$($_python3.Source)`" `"$_agentScript`" --port $($script:DREAM_AGENT_PORT) --pid-file `"$($script:DREAM_AGENT_PID_FILE)`" --install-dir `"$installDir`" 2>> `"$($script:DREAM_AGENT_LOG_FILE)`""
-        Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $_agentArgs `
+        $_psQuote = {
+            param([string]$Value)
+            "'" + ($Value -replace "'", "''") + "'"
+        }
+        $_dockerPathLiteral = & $_psQuote "$_dockerBin;"
+        $_pythonLiteral = & $_psQuote $_python3.Source
+        $_agentScriptLiteral = & $_psQuote $_agentScript
+        $_pidFileLiteral = & $_psQuote $script:DREAM_AGENT_PID_FILE
+        $_installDirLiteral = & $_psQuote $installDir
+        $_logFileLiteral = & $_psQuote $script:DREAM_AGENT_LOG_FILE
+        $_agentCommand = @"
+`$env:PATH = $_dockerPathLiteral + `$env:PATH
+`$agentArgs = @($_agentScriptLiteral, '--port', '$($script:DREAM_AGENT_PORT)', '--pid-file', $_pidFileLiteral, '--install-dir', $_installDirLiteral)
+Start-Process -FilePath $_pythonLiteral -ArgumentList `$agentArgs -WorkingDirectory $_installDirLiteral -WindowStyle Hidden -RedirectStandardError $_logFileLiteral
+"@
+        $_encodedAgentCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($_agentCommand))
+        Start-Process -FilePath "powershell.exe" `
+            -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-EncodedCommand", $_encodedAgentCommand `
             -WindowStyle Hidden -WorkingDirectory $installDir
 
         # Brief health check
@@ -244,8 +260,8 @@ if (Test-Path $_agentScript) {
         Unregister-ScheduledTask -TaskName $script:DREAM_AGENT_TASK_NAME `
             -Confirm:$false -ErrorAction SilentlyContinue
 
-        $taskAction = New-ScheduledTaskAction -Execute "cmd.exe" `
-            -Argument "/c set `"PATH=$_dockerBin;%PATH%`" && `"$($_python3.Source)`" `"$_agentScript`" --port $($script:DREAM_AGENT_PORT) --pid-file `"$($script:DREAM_AGENT_PID_FILE)`" --install-dir `"$installDir`" 2>> `"$($script:DREAM_AGENT_LOG_FILE)`"" `
+        $taskAction = New-ScheduledTaskAction -Execute "powershell.exe" `
+            -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand $_encodedAgentCommand" `
             -WorkingDirectory $installDir
         $taskTrigger  = New-ScheduledTaskTrigger -AtLogOn
         $taskSettings = New-ScheduledTaskSettingsSet `

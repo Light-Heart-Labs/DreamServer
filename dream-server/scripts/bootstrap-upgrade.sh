@@ -327,7 +327,7 @@ fi
 # ── Phase 5: Hot-swap llama-server (if running) ──
 # Read OLLAMA_PORT from .env (nohup doesn't inherit env vars from parent)
 if [[ -f "$ENV_FILE" ]]; then
-    OLLAMA_PORT=$(grep -E '^OLLAMA_PORT=' "$ENV_FILE" | cut -d= -f2)
+    OLLAMA_PORT=$(grep -E '^OLLAMA_PORT=' "$ENV_FILE" | cut -d= -f2 | tr -d '"\047\r')
 fi
 
 if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --format '{{.Names}}' 2>/dev/null | grep -q dream-llama-server; then
@@ -336,7 +336,7 @@ if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --f
     # Read GPU backend from .env (needed for health endpoint and restart strategy)
     _gpu_backend=""
     if [[ -f "$ENV_FILE" ]]; then
-        _gpu_backend=$(grep -E '^GPU_BACKEND=' "$ENV_FILE" | cut -d= -f2 | tr -d '"'"'")
+        _gpu_backend=$(grep -E '^GPU_BACKEND=' "$ENV_FILE" | cut -d= -f2 | tr -d '"\047\r')
     fi
 
     # Detect compose files
@@ -402,9 +402,9 @@ if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --f
     # Pick health endpoint based on GPU backend — Lemonade (AMD) serves
     # /api/v1/health, llama.cpp (NVIDIA/Apple/CPU) serves /health.
     if [[ "$_gpu_backend" == "amd" ]]; then
-        _health_url="http://localhost:${OLLAMA_PORT:-8080}/api/v1/health"
+        _health_url="http://127.0.0.1:${OLLAMA_PORT:-8080}/api/v1/health"
     else
-        _health_url="http://localhost:${OLLAMA_PORT:-8080}/health"
+        _health_url="http://127.0.0.1:${OLLAMA_PORT:-8080}/health"
     fi
 
     # Wait for health (up to 5 minutes for the larger model to load)
@@ -439,7 +439,7 @@ if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --f
                     _model_id="extra.${FULL_GGUF_FILE//\"/\\\"}"
                     log "Sending warm-up request to trigger model loading: $_model_id (attempt $_i/60)"
                     if curl -sf --max-time 30 -X POST \
-                        "http://localhost:${OLLAMA_PORT:-8080}/api/v1/chat/completions" \
+                        "http://127.0.0.1:${OLLAMA_PORT:-8080}/api/v1/chat/completions" \
                         -H "Content-Type: application/json" \
                         -d "{\"model\":\"${_model_id}\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],\"max_tokens\":1}" \
                         &>/dev/null; then
@@ -464,19 +464,24 @@ if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --f
         # reference the exact ID, not a wildcard passthrough.
         if $DOCKER_CMD ps --filter name=dream-litellm --format '{{.Names}}' 2>/dev/null | grep -q dream-litellm; then
             log "Updating LiteLLM config for new model: extra.${FULL_GGUF_FILE}"
+            # Read per-install lemonade key from .env; fall back to literal so
+            # older installs without the key still produce a valid config (lemonade
+            # itself ignores the value).
+            LITELLM_LEMONADE_API_KEY=$(grep '^LITELLM_LEMONADE_API_KEY=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d '"\047\r')
+            : "${LITELLM_LEMONADE_API_KEY:=sk-lemonade}"
             cat > "$INSTALL_DIR/config/litellm/lemonade.yaml" << LITELLM_UPGRADE_EOF
 model_list:
   - model_name: default
     litellm_params:
       model: openai/extra.${FULL_GGUF_FILE}
       api_base: http://llama-server:8080/api/v1
-      api_key: sk-lemonade
+      api_key: ${LITELLM_LEMONADE_API_KEY}
 
   - model_name: "*"
     litellm_params:
       model: openai/extra.${FULL_GGUF_FILE}
       api_base: http://llama-server:8080/api/v1
-      api_key: sk-lemonade
+      api_key: ${LITELLM_LEMONADE_API_KEY}
 
 litellm_settings:
   drop_params: true
@@ -490,18 +495,156 @@ LITELLM_UPGRADE_EOF
         # Restart DreamForge so it auto-detects the new model from llama-server
         if $DOCKER_CMD ps --filter name=dream-dreamforge --format '{{.Names}}' 2>/dev/null | grep -q dream-dreamforge; then
             log "Restarting DreamForge to pick up model change..."
-            docker restart dream-dreamforge 2>&1 || log "WARNING: DreamForge restart failed (non-fatal)"
+            $DOCKER_CMD restart dream-dreamforge 2>&1 || log "WARNING: DreamForge restart failed (non-fatal)"
         fi
         # Recreate OpenClaw so inject-token.js picks up the new GGUF_FILE/LLM_MODEL
         # from .env. A restart alone won't work — env vars are baked in at container
         # creation time, and inject-token.js builds the Lemonade model name from them.
-        if docker ps --filter name=dream-openclaw --format '{{.Names}}' 2>/dev/null | grep -q dream-openclaw; then
+        if $DOCKER_CMD ps --filter name=dream-openclaw --format '{{.Names}}' 2>/dev/null | grep -q dream-openclaw; then
             log "Recreating OpenClaw to pick up model change..."
-            if [[ ${#COMPOSE_ARGS[@]} -gt 0 ]]; then
-                docker compose "${COMPOSE_ARGS[@]}" up -d --force-recreate openclaw 2>&1 || \
+            # Guard on BOTH compose args AND a non-empty $DOCKER_COMPOSE_CMD —
+            # mirrors the llama-server hot-swap contract above (the
+            # `${#COMPOSE_ARGS[@]} -gt 0 && -n "$DOCKER_COMPOSE_CMD"` checks).
+            # If $DOCKER_COMPOSE_CMD is empty (no compose v2 plugin AND no
+            # docker-compose v1 binary), expanding it as the command word
+            # would turn the line into `"${COMPOSE_ARGS[@]}" up -d ...`,
+            # which executes the first compose-arg (e.g. `-f`) as a binary.
+            # Skip the recreate and surface a clear warning instead.
+            if [[ ${#COMPOSE_ARGS[@]} -gt 0 && -n "$DOCKER_COMPOSE_CMD" ]]; then
+                $DOCKER_COMPOSE_CMD "${COMPOSE_ARGS[@]}" up -d --force-recreate openclaw 2>&1 || \
                     log "WARNING: OpenClaw recreate failed (non-fatal)"
             else
-                log "WARNING: No compose args — cannot recreate OpenClaw. Restart manually."
+                log "WARNING: No compose binary available (DOCKER_COMPOSE_CMD empty or compose args missing) — OpenClaw was NOT recreated. The new model will not take effect until OpenClaw is recreated manually with: docker compose up -d --force-recreate openclaw"
+            fi
+        fi
+        # Patch Hermes Agent's config so it stops asking the LLM server for the
+        # bootstrap model id. PR #1191 substitutes model.default in the template
+        # at install time, but at install time we've only loaded the bootstrap
+        # model (Qwen3.5-2B) — Hermes's /opt/data/config.yaml is therefore
+        # pinned to that name. Once this script swaps Lemonade/llama-server
+        # to the full model, Hermes keeps sending the stale bootstrap id and
+        # every chat completion 404s.
+        #
+        # This is hard-broken on AMD/Lemonade (which strictly validates the
+        # `model` field) and silently masked on NVIDIA/Apple (llama.cpp
+        # ignores the field and serves whatever's loaded), so the bug
+        # surfaces as "Hermes works on Tower2/Mac but every prompt 404s on
+        # Strix Halo" after a bootstrap-to-full swap.
+        #
+        # Two files to keep in sync:
+        #   1. /opt/data/config.yaml inside the container — the live config
+        #      Hermes reads at startup. Owned by container UID; patch via
+        #      `docker exec` so we don't need host sudo.
+        #   2. extensions/services/hermes/cli-config.yaml.template — the
+        #      source Hermes copies into /opt/data on first start. Updating
+        #      it keeps subsequent down-and-up cycles correct.
+        # Lemonade prefixes the served model id with "extra."; llama.cpp
+        # serves under the bare file name. Mirror the same branch PR #1191
+        # added in installers/phases/11-services.sh.
+        _hermes_old_model="$BOOTSTRAP_GGUF_FILE"
+        _hermes_new_model="$FULL_GGUF_FILE"
+        _gpu_backend_for_hermes=$(grep -E '^GPU_BACKEND=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"\047\r' || echo "")
+        if [[ "$_gpu_backend_for_hermes" == "amd" ]]; then
+            _hermes_old_model="extra.$BOOTSTRAP_GGUF_FILE"
+            _hermes_new_model="extra.$FULL_GGUF_FILE"
+        fi
+        log "Patching Hermes config: model.default $_hermes_old_model -> $_hermes_new_model"
+
+        # Template on host (user-owned, no sudo needed). Patch this even when
+        # Hermes is stopped so future container creates do not copy the stale
+        # bootstrap model id.
+        _hermes_tpl="$INSTALL_DIR/extensions/services/hermes/cli-config.yaml.template"
+        if [[ -f "$_hermes_tpl" ]]; then
+            if sed -i.bak \
+                -e "s|^  default: \"${_hermes_old_model}\"|  default: \"${_hermes_new_model}\"|" \
+                "$_hermes_tpl" 2>&1; then
+                rm -f "${_hermes_tpl}.bak"
+            else
+                log "WARNING: Could not patch ${_hermes_tpl} (non-fatal — operator can hand-edit before restarting Hermes)"
+            fi
+        fi
+
+        if $DOCKER_CMD ps --filter name=dream-hermes --format '{{.Names}}' 2>/dev/null | grep -q dream-hermes; then
+            # Live config inside the running container (owned by container UID).
+            $DOCKER_CMD exec dream-hermes sh -c \
+                "sed -i 's|^  default: \"${_hermes_old_model}\"|  default: \"${_hermes_new_model}\"|' /opt/data/config.yaml" 2>&1 || \
+                log "WARNING: Could not patch Hermes /opt/data/config.yaml (non-fatal — operator can hand-edit and 'docker restart dream-hermes')"
+            log "Restarting Hermes to pick up model change..."
+            $DOCKER_CMD restart dream-hermes 2>&1 || log "WARNING: Hermes restart failed (non-fatal — hand-restart with 'docker restart dream-hermes')"
+
+            # Pre-warm the freshly-swapped LLM + Hermes's 14K-token system prompt.
+            #
+            # Two latency hits if we skip this:
+            #   1. llama-server / Lemonade loads the full model into VRAM on first
+            #      request (`--n-gpu-layers 999` is lazy). PR #1192 already warms
+            #      this at install time, but that warm-up was against the
+            #      bootstrap model — after the swap, the slot is cold again.
+            #   2. Hermes's runtime config bakes a 14K-token system prompt
+            #      (skills, soul, tool descriptors). First Hermes prompt has
+            #      to prefill all of it. Empirically 67s on Strix Halo,
+            #      1m25s on macOS, ~5s once cached. We've seen real users
+            #      think Hermes is broken because they alt-tabbed away during
+            #      a fresh install and the first prompt looked stuck.
+            #
+            # Mirrors PR #1192's pattern: best-effort, time-bounded, never fails
+            # the upgrade. If either warm-up times out the swap still succeeds —
+            # the user just eats the slow first call.
+            log "Pre-warming llama-server slot with full model..."
+            _prewarm_api_path="/v1"
+            _prewarm_model="$FULL_GGUF_FILE"
+            if [[ "$_gpu_backend_for_hermes" == "amd" ]]; then
+                _prewarm_api_path="/api/v1"
+                _prewarm_model="extra.$FULL_GGUF_FILE"
+            fi
+            _prewarm_body="{\"model\":\"${_prewarm_model}\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1,\"temperature\":0,\"stream\":false}"
+            if $DOCKER_CMD exec dream-hermes curl -sf --max-time 120 -X POST \
+                "http://llama-server:8080${_prewarm_api_path}/chat/completions" \
+                -H "Content-Type: application/json" \
+                -d "$_prewarm_body" >/dev/null 2>&1; then
+                log "llama-server slot pre-warmed."
+            else
+                log "WARNING: llama-server pre-warm timed out — first Hermes prompt may be slow."
+            fi
+
+            # Wait for Hermes to come back up after the restart, then trigger
+            # one no-op invocation so the 14K system prompt gets into
+            # llama-server's KV cache. We cap at 90s total — long enough for
+            # Hermes's skills sync + config bootstrap (start_period: 60s in
+            # compose.yaml) plus a few decode tokens, short enough that a
+            # broken Hermes doesn't stall the script forever.
+            log "Pre-warming Hermes system prompt (caches 14K-token prefill)..."
+            _hermes_ready=false
+            for _i in $(seq 1 30); do
+                if $DOCKER_CMD exec dream-hermes curl -sf --max-time 3 http://127.0.0.1:9119/api/status >/dev/null 2>&1; then
+                    _hermes_ready=true
+                    break
+                fi
+                sleep 2
+            done
+            if $_hermes_ready; then
+                if $DOCKER_CMD exec dream-hermes timeout 90 \
+                    /opt/hermes/.venv/bin/hermes -z "ping" --yolo \
+                    >/dev/null 2>&1; then
+                    log "Hermes system prompt cached — first user prompt will be fast."
+                else
+                    log "WARNING: Hermes warm-up timed out (>90s). First user prompt will incur the full 14K-token prefill."
+                fi
+            else
+                log "WARNING: Hermes did not respond on /api/status within 60s; skipping system-prompt warm-up."
+            fi
+        else
+            # If Hermes is stopped, its persisted /opt/data mount may still
+            # exist on the host. Patch it when writable; otherwise the template
+            # update above still protects first-time/fresh data starts.
+            _hermes_live="$INSTALL_DIR/data/hermes/config.yaml"
+            if [[ -f "$_hermes_live" ]]; then
+                if sed -i.bak \
+                    -e "s|^  default: \"${_hermes_old_model}\"|  default: \"${_hermes_new_model}\"|" \
+                    "$_hermes_live" 2>&1; then
+                    rm -f "${_hermes_live}.bak"
+                else
+                    log "WARNING: Could not patch ${_hermes_live} (non-fatal — operator can hand-edit and restart Hermes)"
+                fi
             fi
         fi
         sync_windows_opencode_config
@@ -566,17 +709,26 @@ elif [[ -f "$INSTALL_DIR/data/.llama-server.pid" ]]; then
             # Honour the unified BIND_ADDRESS knob (PR #964); empty/missing → loopback.
             _bind=$(grep '^BIND_ADDRESS=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
             [[ -z "$_bind" ]] && _bind="127.0.0.1"
+            _flash_attn=$(grep '^LLAMA_ARG_FLASH_ATTN=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+            _cache_type_k=$(grep '^LLAMA_ARG_CACHE_TYPE_K=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+            _cache_type_v=$(grep '^LLAMA_ARG_CACHE_TYPE_V=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+            _n_cpu_moe=$(grep '^LLAMA_ARG_N_CPU_MOE=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+            _llama_args=(
+                --host "$_bind" --port 8080
+                --model "$_model_path"
+                --ctx-size "$_ctx_size"
+                --n-gpu-layers 999
+                --reasoning-format "$_reasoning_fmt"
+                --metrics
+            )
+            [[ -n "$_flash_attn" ]] && _llama_args+=(--flash-attn "$_flash_attn")
+            [[ -n "$_cache_type_k" ]] && _llama_args+=(--cache-type-k "$_cache_type_k")
+            [[ -n "$_cache_type_v" ]] && _llama_args+=(--cache-type-v "$_cache_type_v")
+            [[ -n "$_n_cpu_moe" ]] && _llama_args+=(--n-cpu-moe "$_n_cpu_moe")
 
             # Relaunch with new model
             log "Starting native llama-server with ${_gguf_file}..."
-            "$LLAMA_SERVER_BIN" \
-                --host "$_bind" --port 8080 \
-                --model "$_model_path" \
-                --ctx-size "$_ctx_size" \
-                --n-gpu-layers 999 \
-                --reasoning-format "$_reasoning_fmt" \
-                --metrics \
-                > "$LLAMA_SERVER_LOG" 2>&1 &
+            "$LLAMA_SERVER_BIN" "${_llama_args[@]}" > "$LLAMA_SERVER_LOG" 2>&1 &
             _new_pid=$!
             echo "$_new_pid" > "$LLAMA_SERVER_PID_FILE"
 

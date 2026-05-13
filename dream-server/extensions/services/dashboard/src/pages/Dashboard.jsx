@@ -15,9 +15,12 @@ import {
   Image,
   Code,
   ChevronRight,
+  ChevronDown,
   CircleHelp,
+  MoreHorizontal,
+  Search,
 } from 'lucide-react'
-import { memo, useEffect, useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { FeatureDiscoveryBanner } from '../components/FeatureDiscovery'
 
@@ -78,16 +81,6 @@ function normalizeFeatureStatus(featureStatus) {
   }
 }
 
-// Sort services: down/unhealthy first, then degraded, then healthy; exclude not_deployed
-const severityOrder = { down: 0, unhealthy: 1, degraded: 2, unknown: 3, healthy: 4 }
-function sortBySeverity(services) {
-  return [...(services || [])]
-    .filter(s => s.status !== 'not_deployed')
-    .sort((a, b) =>
-      (severityOrder[a.status] ?? 9) - (severityOrder[b.status] ?? 9)
-    )
-}
-
 // Format large token counts: 1234 → "1.2k", 1500000 → "1.5M", 1500000000 → "1.5B"
 function formatTokenCount(n) {
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`
@@ -111,6 +104,318 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value))
 }
 
+const OVERVIEW_HISTORY_KEY = 'dream-system-overview-history-v1'
+const SERVICE_CPU_HISTORY_KEY = 'dream-service-cpu-history-v1'
+const OVERVIEW_MAX_SAMPLES = 720
+const SERVICE_CPU_MAX_SAMPLES = 80
+const OVERVIEW_RANGES = [
+  { key: '1H', label: '1H', ms: 60 * 60 * 1000, compareMs: 5 * 60 * 1000, deltaLabel: '5m ago' },
+  { key: '6H', label: '6H', ms: 6 * 60 * 60 * 1000, compareMs: 60 * 60 * 1000, deltaLabel: '1h ago' },
+  { key: '24H', label: '24H', ms: 24 * 60 * 60 * 1000, compareMs: 6 * 60 * 60 * 1000, deltaLabel: '6h ago' },
+  { key: '7D', label: '7D', ms: 7 * 24 * 60 * 60 * 1000, compareMs: 24 * 60 * 60 * 1000, deltaLabel: '1d ago' },
+]
+const SERVICE_TABS = [
+  { key: 'all', label: 'All' },
+  { key: 'online', label: 'Online' },
+  { key: 'degraded', label: 'Degraded' },
+  { key: 'inactive', label: 'Inactive' },
+]
+const TECH_PANEL_STYLE = {
+  background: 'linear-gradient(180deg, rgba(10,10,18,0.96), rgba(7,7,13,0.92))',
+  borderColor: 'rgba(255,255,255,0.08)',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.035), 0 20px 60px rgba(0,0,0,0.22)',
+}
+const TECH_TILE_STYLE = {
+  background: `
+    linear-gradient(180deg, rgba(14,14,21,0.88), rgba(8,8,14,0.92)),
+    repeating-linear-gradient(90deg, transparent 0 31px, rgba(255,255,255,0.028) 31px 32px),
+    repeating-linear-gradient(180deg, transparent 0 31px, rgba(255,255,255,0.024) 31px 32px),
+    radial-gradient(circle at 18% 0%, rgba(157,0,255,0.08), transparent 30%)
+  `,
+  borderColor: 'rgba(255,255,255,0.11)',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.045), inset 0 -18px 34px rgba(0,0,0,0.18)',
+}
+let overviewMemoryHistory = []
+let serviceCpuMemoryHistory = {}
+
+const SERVICE_DESCRIPTIONS = {
+  ape: 'Policy management and enforcement',
+  dashboard: 'Central dashboard and web UI',
+  'dashboard-api': 'System metrics and status API',
+  litellm: 'LLM routing and load balancing',
+  'llama-server': 'Local model inference runtime',
+  'open-webui': 'Chat interface for local models',
+  perplexica: 'Deep research and search interface',
+  searxng: 'Private metasearch engine',
+  'privacy-shield': 'PII detection and privacy filtering',
+  'token-spy': 'Usage telemetry and token tracking',
+  opencode: 'Browser-based coding assistant',
+  qdrant: 'Vector database for retrieval',
+  whisper: 'Speech-to-text service',
+  kokoro: 'Text-to-speech service',
+  comfyui: 'Image generation workflow UI',
+  n8n: 'Workflow automation engine',
+}
+
+function normalizeMetricNumber(value) {
+  const n = Number(value)
+  return Number.isFinite(n) && n > 0 ? n : 0
+}
+
+function normalizeServiceKey(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+function getServiceDescription(id, name) {
+  const key = normalizeServiceKey(id || name)
+  return SERVICE_DESCRIPTIONS[id] || SERVICE_DESCRIPTIONS[key] || 'DreamServer service'
+}
+
+function getStatusTone(status) {
+  switch (status) {
+    case 'healthy':
+      return {
+        label: 'Online',
+        dot: 'bg-emerald-400',
+        text: 'text-emerald-300',
+        pill: 'border-emerald-400/25 bg-emerald-400/[0.08]',
+      }
+    case 'restarting':
+      return {
+        label: 'Restarting',
+        dot: 'bg-amber-400',
+        text: 'text-amber-300',
+        pill: 'border-amber-400/25 bg-amber-400/[0.08]',
+      }
+    case 'degraded':
+      return {
+        label: 'Degraded',
+        dot: 'bg-amber-400',
+        text: 'text-amber-300',
+        pill: 'border-amber-400/25 bg-amber-400/[0.08]',
+      }
+    default:
+      return {
+        label: 'Inactive',
+        dot: 'bg-red-400',
+        text: 'text-red-300',
+        pill: 'border-red-400/25 bg-red-400/[0.08]',
+      }
+  }
+}
+
+function getServiceTabStatus(status) {
+  if (status === 'healthy') return 'online'
+  if (status === 'degraded') return 'degraded'
+  return 'inactive'
+}
+
+function formatRamMb(value) {
+  if (value == null) return '—'
+  const n = Number(value)
+  if (!Number.isFinite(n)) return '—'
+  if (n >= 1024) return `${(n / 1024).toFixed(n >= 10240 ? 0 : 1)} GB`
+  return `${Math.round(n)} MB`
+}
+
+function formatCpuPercent(value) {
+  if (value == null) return '—'
+  const n = Number(value)
+  if (!Number.isFinite(n)) return '—'
+  return `${n.toFixed(1)}%`
+}
+
+function readOverviewHistory() {
+  try {
+    const raw = globalThis.localStorage?.getItem(OVERVIEW_HISTORY_KEY)
+    if (!raw) return overviewMemoryHistory
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return overviewMemoryHistory
+    return parsed.filter(sample =>
+      Number.isFinite(sample?.t) &&
+      Number.isFinite(sample?.tokensPerSecond) &&
+      Number.isFinite(sample?.totalTokens)
+    )
+  } catch {
+    return overviewMemoryHistory
+  }
+}
+
+function writeOverviewHistory(samples) {
+  overviewMemoryHistory = samples
+  try {
+    globalThis.localStorage?.setItem(OVERVIEW_HISTORY_KEY, JSON.stringify(samples))
+  } catch {
+    // Memory history keeps the tabs usable when storage is blocked.
+  }
+}
+
+function readServiceCpuHistory() {
+  try {
+    const raw = globalThis.localStorage?.getItem(SERVICE_CPU_HISTORY_KEY)
+    if (!raw) return serviceCpuMemoryHistory
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return serviceCpuMemoryHistory
+    return Object.fromEntries(
+      Object.entries(parsed).map(([id, samples]) => [
+        id,
+        Array.isArray(samples)
+          ? samples.filter(sample => Number.isFinite(sample?.t) && Number.isFinite(sample?.cpu))
+          : [],
+      ])
+    )
+  } catch {
+    return serviceCpuMemoryHistory
+  }
+}
+
+function writeServiceCpuHistory(history) {
+  serviceCpuMemoryHistory = history
+  try {
+    globalThis.localStorage?.setItem(SERVICE_CPU_HISTORY_KEY, JSON.stringify(history))
+  } catch {
+    // Memory history keeps the sparkline usable when storage is blocked.
+  }
+}
+
+function useOverviewHistory(tokensPerSecond, totalTokens) {
+  const [samples, setSamples] = useState(() => readOverviewHistory())
+
+  useEffect(() => {
+    const now = Date.now()
+    const nextSample = {
+      t: now,
+      tokensPerSecond: normalizeMetricNumber(tokensPerSecond),
+      totalTokens: normalizeMetricNumber(totalTokens),
+    }
+
+    setSamples(current => {
+      const cutoff = now - OVERVIEW_RANGES[OVERVIEW_RANGES.length - 1].ms
+      const recent = current.filter(sample => sample.t >= cutoff)
+      const last = recent[recent.length - 1]
+      if (
+        last &&
+        now - last.t < 3000 &&
+        last.tokensPerSecond === nextSample.tokensPerSecond &&
+        last.totalTokens === nextSample.totalTokens
+      ) {
+        return current
+      }
+
+      const next = [...recent, nextSample].slice(-OVERVIEW_MAX_SAMPLES)
+      writeOverviewHistory(next)
+      return next
+    })
+  }, [tokensPerSecond, totalTokens])
+
+  return samples
+}
+
+function useServiceCpuHistory(services) {
+  const [history, setHistory] = useState(() => readServiceCpuHistory())
+
+  useEffect(() => {
+    const now = Date.now()
+    const cutoff = now - 60 * 60 * 1000
+    const rowsWithCpu = services.filter(service => Number.isFinite(service.cpuPercent))
+    if (!rowsWithCpu.length) return
+
+    setHistory(current => {
+      const next = { ...current }
+      let changed = false
+
+      rowsWithCpu.forEach(service => {
+        const currentSamples = (next[service.id] || []).filter(sample => sample.t >= cutoff)
+        const last = currentSamples[currentSamples.length - 1]
+        if (last && now - last.t < 3000 && last.cpu === service.cpuPercent) {
+          next[service.id] = currentSamples
+          return
+        }
+
+        next[service.id] = [
+          ...currentSamples,
+          { t: now, cpu: service.cpuPercent },
+        ].slice(-SERVICE_CPU_MAX_SAMPLES)
+        changed = true
+      })
+
+      Object.keys(next).forEach(serviceId => {
+        const pruned = (next[serviceId] || []).filter(sample => sample.t >= cutoff)
+        if (pruned.length !== next[serviceId].length) {
+          next[serviceId] = pruned
+          changed = true
+        }
+      })
+
+      if (!changed) return current
+      writeServiceCpuHistory(next)
+      return next
+    })
+  }, [services])
+
+  return history
+}
+
+function buildServiceRows(statusServices, resourceServices) {
+  const resources = resourceServices || []
+  const resourcesByName = new Map(resources.map(resource => [normalizeServiceKey(resource.name), resource]))
+  const seen = new Set()
+  const rows = []
+
+  ;(statusServices || [])
+    .filter(service => service.status !== 'not_deployed')
+    .forEach((service, index) => {
+      const resource = resourcesByName.get(normalizeServiceKey(service.name))
+      const id = resource?.id || normalizeServiceKey(service.name) || `service-${index}`
+      seen.add(id)
+      rows.push({
+        id,
+        name: service.name || resource?.name || id,
+        description: getServiceDescription(id, service.name || resource?.name),
+        status: service.status || 'unknown',
+        port: service.port,
+        uptime: service.uptime,
+        cpuPercent: Number.isFinite(resource?.container?.cpu_percent) ? resource.container.cpu_percent : null,
+        memoryUsedMb: Number.isFinite(resource?.container?.memory_used_mb) ? resource.container.memory_used_mb : null,
+        memoryLimitMb: Number.isFinite(resource?.container?.memory_limit_mb) ? resource.container.memory_limit_mb : null,
+        pids: Number.isFinite(resource?.container?.pids) ? resource.container.pids : null,
+        containerName: resource?.container?.container_name || null,
+        type: resource?.type || 'unknown',
+        restartable: resource?.restartable === true,
+        restartUnavailableReason: resource?.restart_unavailable_reason || null,
+        disk: resource?.disk || null,
+      })
+    })
+
+  resources.forEach((resource, index) => {
+    const id = resource.id || normalizeServiceKey(resource.name) || `resource-${index}`
+    if (seen.has(id)) return
+    rows.push({
+      id,
+      name: resource.name || id,
+      description: getServiceDescription(id, resource.name),
+      status: 'unknown',
+      port: null,
+      uptime: null,
+      cpuPercent: Number.isFinite(resource?.container?.cpu_percent) ? resource.container.cpu_percent : null,
+      memoryUsedMb: Number.isFinite(resource?.container?.memory_used_mb) ? resource.container.memory_used_mb : null,
+      memoryLimitMb: Number.isFinite(resource?.container?.memory_limit_mb) ? resource.container.memory_limit_mb : null,
+      pids: Number.isFinite(resource?.container?.pids) ? resource.container.pids : null,
+      containerName: resource?.container?.container_name || null,
+      type: resource?.type || 'unknown',
+      restartable: resource?.restartable === true,
+      restartUnavailableReason: resource?.restart_unavailable_reason || null,
+      disk: resource?.disk || null,
+    })
+  })
+
+  return rows
+}
+
 function buildSignalPath(points) {
   if (!points.length) return ''
   if (points.length === 1) return `M ${points[0].x} ${points[0].y}`
@@ -130,45 +435,78 @@ function buildSignalPath(points) {
   return path
 }
 
-function buildTokenSamples(tokensPerSecond) {
-  const base = Math.max(tokensPerSecond || 8, 8)
-  const pattern = [0.58, 0.66, 0.62, 0.79, 0.73, 0.88, 0.82, 0.92, 1]
-
-  return pattern.map((multiplier, index) => {
-    const value = base * multiplier
-    return Number((index === pattern.length - 1 ? base : value).toFixed(1))
-  })
+function reduceSamples(samples, maxPoints = 16) {
+  if (samples.length <= maxPoints) return samples
+  const step = (samples.length - 1) / (maxPoints - 1)
+  return Array.from({ length: maxPoints }, (_, index) => samples[Math.round(index * step)])
 }
 
-function buildGeneratedTokenSamples(totalTokens) {
-  const total = Math.max(totalTokens || 1200, 1200)
-  const pattern = [0.14, 0.22, 0.31, 0.43, 0.57, 0.68, 0.79, 0.9, 1]
+function buildOverviewSeries(samples, range, field) {
+  const now = Date.now()
+  const filtered = reduceSamples(samples.filter(sample => sample.t >= now - range.ms))
+  return {
+    values: filtered.map(sample => sample[field]),
+    timestamps: filtered.map(sample => sample.t),
+  }
+}
 
-  return pattern.map((multiplier, index) => {
-    const value = total * multiplier
-    return Math.round(index === pattern.length - 1 ? total : value)
-  })
+function formatClockLabel(timestamp, rangeKey) {
+  const date = new Date(timestamp)
+  if (rangeKey === '7D') {
+    return date.toLocaleDateString(undefined, { weekday: 'short' })
+  }
+
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${hours}:${minutes}`
+}
+
+function buildTimeLabels(timestamps, rangeKey) {
+  if (!timestamps.length) return []
+  const indexes = [0, 0.25, 0.5, 0.75, 1].map(progress =>
+    Math.min(timestamps.length - 1, Math.round(progress * (timestamps.length - 1)))
+  )
+  return indexes.map(index => formatClockLabel(timestamps[index], rangeKey))
+}
+
+function computeDeltaFromSamples(samples, range, field, currentValue) {
+  const now = Date.now()
+  const scoped = samples
+    .filter(sample => sample.t >= now - range.ms && Number.isFinite(sample[field]))
+    .sort((a, b) => a.t - b.t)
+  if (scoped.length < 2) return null
+
+  const current = normalizeMetricNumber(currentValue)
+  const targetTime = now - range.compareMs
+  const historical = scoped.filter(sample => sample.t <= targetTime)
+  const baseSample = historical[historical.length - 1] || scoped[0]
+  const base = baseSample?.[field]
+  if (!base) return null
+  return ((current - base) / Math.abs(base)) * 100
 }
 
 function buildChartPoints(values, maxValue) {
-  const width = 430
-  const height = 170
-  const paddingX = 20
-  const paddingY = 18
-  const usableWidth = width - paddingX * 2
-  const usableHeight = height - paddingY * 2
+  const width = 460
+  const height = 190
+  const paddingLeft = 38
+  const paddingRight = 12
+  const paddingTop = 26
+  const paddingBottom = 30
+  const usableWidth = width - paddingLeft - paddingRight
+  const usableHeight = height - paddingTop - paddingBottom
 
   return values.map((value, index) => {
     const ratio = clamp(maxValue > 0 ? value / maxValue : 0, 0.08, 0.94)
     return {
-      x: paddingX + (usableWidth / (values.length - 1)) * index,
-      y: height - paddingY - ratio * usableHeight,
+      x: paddingLeft + (usableWidth / Math.max(values.length - 1, 1)) * index,
+      y: height - paddingBottom - ratio * usableHeight,
     }
   })
 }
 
 export default function Dashboard({ status, loading }) {
   const [featuresData, setFeaturesData] = useState(null)
+  const [serviceResources, setServiceResources] = useState(null)
 
   useEffect(() => {
     let mounted = true
@@ -192,6 +530,28 @@ export default function Dashboard({ status, loading }) {
     }
   }, [])
 
+  useEffect(() => {
+    let mounted = true
+
+    const fetchServiceResources = async () => {
+      try {
+        const res = await fetch('/api/services/resources')
+        if (!res.ok) return
+        const data = await res.json()
+        if (mounted) setServiceResources(data)
+      } catch {
+        // Service rows keep rendering status data when per-container metrics are unavailable.
+      }
+    }
+
+    fetchServiceResources()
+    const timer = setInterval(fetchServiceResources, 10000)
+    return () => {
+      mounted = false
+      clearInterval(timer)
+    }
+  }, [])
+
   // All hooks must be called before any conditional returns (React rules of hooks)
   const features = useMemo(() => {
     if (featuresData?.features?.length) {
@@ -199,6 +559,10 @@ export default function Dashboard({ status, loading }) {
     }
     return []
   }, [featuresData])
+  const serviceRows = useMemo(
+    () => buildServiceRows(status?.services, serviceResources?.services),
+    [status?.services, serviceResources?.services]
+  )
 
   if (loading) {
     return (
@@ -215,32 +579,11 @@ export default function Dashboard({ status, loading }) {
   }
 
   const health = computeHealth(status?.services)
-  const servicesSorted = sortBySeverity(status?.services)
-  const serviceGroups = [
-    {
-      key: 'online',
-      label: 'Online',
-      tone: 'online',
-      services: servicesSorted.filter(service => service.status === 'healthy'),
-    },
-    {
-      key: 'degraded',
-      label: 'Degraded',
-      tone: 'degraded',
-      services: servicesSorted.filter(service => service.status === 'degraded'),
-    },
-    {
-      key: 'inactive',
-      label: 'Inactive',
-      tone: 'inactive',
-      services: servicesSorted.filter(service => ['down', 'unhealthy', 'unknown'].includes(service.status)),
-    },
-  ]
   const systemMetrics = []
 
   if (status?.gpu) {
     if (status.gpu.memoryType === 'unified') {
-      // Apple Silicon: GPU utilization isn't available (always 0), show chip info instead
+      // Apple Silicon: GPU utilization isn't available (always 0), show chip info instead.
       systemMetrics.push({
         icon: Zap,
         label: 'Chip',
@@ -303,7 +646,6 @@ export default function Dashboard({ status, loading }) {
     })
   }
 
-  // GPU Temp: skip on Apple Silicon (always 0, not readable without IOKit)
   if (status?.gpu?.memoryType !== 'unified') {
     systemMetrics.push({
       icon: Thermometer,
@@ -347,7 +689,10 @@ export default function Dashboard({ status, loading }) {
             {health.text}
           </p>
         </div>
-        <div className="liquid-metal-frame liquid-metal-frame--soft flex items-center gap-4 text-xs text-theme-text-muted font-mono bg-theme-card border border-theme-border rounded-lg px-3 py-2">
+        <div
+          className="liquid-metal-frame liquid-metal-frame--soft flex items-center gap-4 rounded-lg border px-3 py-2 font-mono text-xs text-theme-text-muted"
+          style={TECH_TILE_STYLE}
+        >
           {status?.tier && <span className="text-theme-accent-light">{status.tier}</span>}
           {status?.model?.name && <span>{status.model.name}</span>}
           {status?.version && <span>v{status.version}</span>}
@@ -414,50 +759,16 @@ export default function Dashboard({ status, loading }) {
         </Link>
       )}
 
-      {/* System Status */}
-      <h2 className="text-lg font-semibold text-theme-text mb-5">System Status</h2>
-      <div className="rounded-2xl border border-white/8 bg-black/[0.14] px-4 py-4 mb-10">
-        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.18fr)_minmax(320px,0.82fr)] gap-4 xl:items-start">
-          <div className="min-w-0 xl:border-r xl:border-white/8 xl:pr-4">
-            <TokenSignalPanel
-              tokensPerSecond={status?.inference?.tokensPerSecond || 0}
-              totalTokens={status?.inference?.lifetimeTokens || 0}
-              gpuTemp={status?.gpu?.temperature}
-              cpuTemp={status?.cpu?.temp_c}
-              memFree={status?.ram ? Math.max(status.ram.total_gb - status.ram.used_gb, 0) : null}
-              contextValue={status?.inference?.contextSize ? `${(status.inference.contextSize / 1024).toFixed(0)}k` : '—'}
-              isUnifiedMemory={status?.gpu?.memoryType === 'unified'}
-            />
-          </div>
-          <div className="liquid-metal-sequence-grid liquid-metal-sequence-grid--system grid grid-cols-2 gap-1.5 self-start">
-            {systemMetrics.map((metric) => (
-              <MetricCard
-                key={metric.label}
-                icon={metric.icon}
-                label={metric.label}
-                value={metric.value}
-                subvalue={metric.subvalue}
-                percent={metric.percent}
-                alert={metric.alert}
-                compact
-              />
-            ))}
-          </div>
-        </div>
+      {/* System Overview */}
+      <div className="mb-10 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.28fr)_minmax(320px,0.72fr)]">
+        <SystemOverviewPanel
+          tokensPerSecond={status?.inference?.tokensPerSecond || 0}
+          totalTokens={status?.inference?.lifetimeTokens || 0}
+        />
+        <SystemMetricsPanel metrics={systemMetrics} />
       </div>
 
-      {/* Services Grid — sorted by severity */}
-      <h2 className="text-lg font-semibold text-theme-text mb-5">Services</h2>
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 mb-12 items-start">
-        {serviceGroups.map((group) => (
-          <ServiceGroup
-            key={group.key}
-            label={group.label}
-            tone={group.tone}
-            services={group.services}
-          />
-        ))}
-      </div>
+      <ServicesPanel services={serviceRows} />
 
       {/* Feature Discovery is already shown at the top */}
     </div>
@@ -468,9 +779,9 @@ export default function Dashboard({ status, loading }) {
 const FeatureCard = memo(function FeatureCard({ icon: Icon, title, description, href, status, hint }) {
   const isExternal = href?.startsWith('http')
   const statusColors = {
-    ready: 'border-theme-border bg-theme-card hover:border-theme-accent/30',
-    disabled: 'border-theme-border/60 bg-theme-card opacity-60',
-    coming: 'border-transparent bg-theme-bg/50 opacity-30'
+    ready: 'hover:border-theme-accent/30',
+    disabled: 'opacity-60',
+    coming: 'opacity-30'
   }
   const statusMeta = {
     ready: {
@@ -488,11 +799,11 @@ const FeatureCard = memo(function FeatureCard({ icon: Icon, title, description, 
 
   const content = (
     <div
-      className={`feature-card-compact liquid-metal-frame liquid-metal-sequence-card group h-full min-h-[56px] px-2.5 py-2 rounded-xl border ${statusColors[status]} transition-all cursor-pointer hover:bg-theme-surface-hover hover:shadow-md flex items-center justify-between gap-2`}
-      style={{ overflow: 'visible' }}
+      className={`feature-card-compact liquid-metal-frame liquid-metal-sequence-card group h-full min-h-[56px] px-2.5 py-2 rounded-xl border ${statusColors[status]} transition-all cursor-pointer hover:shadow-md flex items-center justify-between gap-2`}
+      style={{ ...TECH_TILE_STYLE, overflow: 'visible' }}
     >
       <div className="min-w-0 flex items-center gap-2">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-theme-bg border border-white/5">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-black/20">
           <Icon size={16} className="text-theme-text-secondary" />
         </div>
 
@@ -511,7 +822,7 @@ const FeatureCard = memo(function FeatureCard({ icon: Icon, title, description, 
       </div>
 
       <div className="relative shrink-0 group/info" title={detailText}>
-        <div className="flex h-6.5 w-6.5 items-center justify-center rounded-full border border-white/10 bg-theme-bg/80 text-theme-text-muted/75 transition-colors group-hover:text-theme-text-secondary group-hover:border-theme-accent/20">
+        <div className="flex h-6.5 w-6.5 items-center justify-center rounded-full border border-white/10 bg-black/25 text-theme-text-muted/75 transition-colors group-hover:text-theme-text-secondary group-hover:border-theme-accent/20">
           <CircleHelp size={13} />
         </div>
 
@@ -540,157 +851,163 @@ const FeatureCard = memo(function FeatureCard({ icon: Icon, title, description, 
   return <Link to={href} className="block h-full liquid-metal-sequence-slot">{content}</Link>
 })
 
-const TokenSignalPanel = memo(function TokenSignalPanel({
-  tokensPerSecond,
-  totalTokens,
-  gpuTemp,
-  cpuTemp,
-  memFree,
-  contextValue,
-  isUnifiedMemory,
-}) {
-  const throughputSeries = useMemo(() => buildTokenSamples(tokensPerSecond), [tokensPerSecond])
-  const generatedSeries = useMemo(() => buildGeneratedTokenSamples(totalTokens), [totalTokens])
+const SystemOverviewPanel = memo(function SystemOverviewPanel({ tokensPerSecond, totalTokens }) {
+  const [rangeKey, setRangeKey] = useState('1H')
+  const range = OVERVIEW_RANGES.find(item => item.key === rangeKey) || OVERVIEW_RANGES[0]
+  const history = useOverviewHistory(tokensPerSecond, totalTokens)
+  const throughput = useMemo(
+    () => buildOverviewSeries(history, range, 'tokensPerSecond'),
+    [history, range]
+  )
+  const generated = useMemo(
+    () => buildOverviewSeries(history, range, 'totalTokens'),
+    [history, range]
+  )
 
   return (
-    <div className="min-w-0">
-      <div className="mb-2">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-theme-text-muted/70">
-          Signal Graph
-        </p>
-        <h3 className="mt-1 text-base font-semibold text-theme-text">
-          Inference telemetry
-        </h3>
-        <p className="mt-1 text-[11px] uppercase tracking-[0.16em] text-theme-text-secondary">
-          Context {contextValue}
-        </p>
-      </div>
-
-      <div className="mb-3 flex flex-wrap gap-1.5">
-        {!isUnifiedMemory && (
-          <div className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-theme-text-secondary">
-            GPU Temp {gpuTemp != null ? `${gpuTemp}°C` : '—'}
-          </div>
-        )}
-        {cpuTemp != null && (
-          <div className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-theme-text-secondary">
-            CPU Temp {cpuTemp}°C
-          </div>
-        )}
-        <div className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-theme-text-secondary">
-          Mem Free {memFree != null ? `${memFree.toFixed(1)} GB` : '—'}
+    <section
+      className="h-full rounded-xl border px-4 py-4 sm:px-5 sm:py-5"
+      style={TECH_PANEL_STYLE}
+    >
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <h2 className="text-base font-semibold text-theme-text sm:text-lg">System Overview</h2>
+        <div className="flex h-7 shrink-0 items-center rounded-md border border-white/[0.08] bg-white/[0.025] p-0.5">
+          {OVERVIEW_RANGES.map(item => (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => setRangeKey(item.key)}
+              className={`h-6 min-w-10 rounded px-2 text-[10px] font-semibold transition-colors ${
+                rangeKey === item.key
+                  ? 'bg-theme-accent/28 text-theme-accent-light shadow-[0_0_0_1px_rgba(215,164,255,0.22)_inset]'
+                  : 'text-theme-text-muted hover:text-theme-text-secondary'
+              }`}
+              aria-pressed={rangeKey === item.key}
+            >
+              {item.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 xl:gap-5">
-        <InteractiveSignalChart
-          chartId="throughput"
-          title="Tokens per second"
-          description="Live throughput"
-          values={throughputSeries}
-          currentDisplay={`${tokensPerSecond || 0}`}
-          accent="rgba(138,44,255,0.94)"
-          valueFormatter={(value) => `${Number(value).toFixed(1)}`}
+      <div className="grid min-h-[246px] grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-0">
+        <OverviewChart
+          chartId="tokens-per-second"
+          title="TOKENS PER SECOND"
+          subtitle="Live Throughput"
+          values={throughput.values}
+          timestamps={throughput.timestamps}
+          range={range}
+          rangeKey={rangeKey}
+          currentDisplay={(tokensPerSecond || 0).toFixed(1)}
+          unit="tokens / sec"
+          delta={computeDeltaFromSamples(history, range, 'tokensPerSecond', tokensPerSecond)}
+          accent="rgba(168,85,247,0.98)"
+          fill="rgba(157,0,255,0.52)"
+          defaultMax={12}
           axisFormatter={(value) => `${Math.round(value)}`}
         />
-        <InteractiveSignalChart
-          chartId="generated"
-          title="Tokens generated"
-          description="Accumulated output"
-          values={generatedSeries}
+        <OverviewChart
+          chartId="tokens-generated"
+          title="TOKENS GENERATED"
+          subtitle="Accumulated Output"
+          values={generated.values}
+          timestamps={generated.timestamps}
+          range={range}
+          rangeKey={rangeKey}
           currentDisplay={formatTokenCount(totalTokens || 0)}
-          accent="rgba(255,184,108,0.94)"
-          valueFormatter={(value) => formatTokenCount(Math.round(value))}
+          unit="tokens"
+          delta={computeDeltaFromSamples(history, range, 'totalTokens', totalTokens)}
+          accent="rgba(251,146,60,0.98)"
+          fill="rgba(245,158,11,0.48)"
+          defaultMax={6000}
           axisFormatter={(value) => formatTokenCount(Math.round(value))}
+          divided
         />
       </div>
-    </div>
+    </section>
   )
 })
 
-const InteractiveSignalChart = memo(function InteractiveSignalChart({
+const OverviewChart = memo(function OverviewChart({
   chartId,
   title,
-  description,
+  subtitle,
   values,
+  timestamps,
+  range,
+  rangeKey,
   currentDisplay,
+  unit,
+  delta,
   accent,
-  valueFormatter,
+  fill,
+  defaultMax,
   axisFormatter,
+  divided = false,
 }) {
-  const [selectedProgress, setSelectedProgress] = useState(1)
-  const [dragging, setDragging] = useState(false)
-
-  useEffect(() => {
-    setSelectedProgress(1)
-  }, [values])
-
-  const maxValue = Math.max(...values, 12) * 1.12
+  const maxValue = Math.max(...values, defaultMax) * 1.08
   const points = buildChartPoints(values, maxValue)
-  const path = buildSignalPath(points)
-  const rawIndex = selectedProgress * Math.max(points.length - 1, 1)
-  const lowerIndex = Math.floor(rawIndex)
-  const upperIndex = Math.min(lowerIndex + 1, points.length - 1)
-  const interpolation = rawIndex - lowerIndex
-  const lowerPoint = points[lowerIndex] || points[0] || { x: 0, y: 0 }
-  const upperPoint = points[upperIndex] || lowerPoint
-  const selectedPoint = {
-    x: lowerPoint.x + (upperPoint.x - lowerPoint.x) * interpolation,
-    y: lowerPoint.y + (upperPoint.y - lowerPoint.y) * interpolation,
-  }
-  const lowerValue = values[lowerIndex] ?? values[0] ?? 0
-  const upperValue = values[upperIndex] ?? lowerValue
-  const selectedValue = lowerValue + (upperValue - lowerValue) * interpolation
-  const bubbleWidth = 82
-  const bubbleHeight = 28
-  const bubbleX = clamp(selectedPoint.x - bubbleWidth / 2, 10, 430 - bubbleWidth - 10)
-  const bubbleY = clamp(selectedPoint.y - 50, 8, 170 - bubbleHeight - 8)
-
-  const updateSelection = (clientX, element) => {
-    const rect = element.getBoundingClientRect()
-    const ratio = clamp((clientX - rect.left) / rect.width, 0, 1)
-    setSelectedProgress(ratio)
-  }
+  const hasSeries = points.length >= 2
+  const path = hasSeries ? buildSignalPath(points) : ''
+  const baseline = 160
+  const firstPoint = points[0] || { x: 38, y: baseline }
+  const lastPoint = points[points.length - 1] || firstPoint
+  const areaPath = path
+    ? `${path} L ${lastPoint.x} ${baseline} L ${firstPoint.x} ${baseline} Z`
+    : ''
+  const yLabels = [maxValue, maxValue * 0.66, maxValue * 0.33, 0]
+  const timeLabels = buildTimeLabels(timestamps, rangeKey)
+  const deltaPrefix = delta == null || delta >= 0 ? '↑' : '↓'
+  const deltaTone = delta != null && delta < 0 ? 'text-red-400' : 'text-emerald-400'
 
   return (
-    <div className="min-w-0 border-t border-white/8 pt-2 xl:border-t-0 xl:pt-0 xl:first:border-r xl:first:border-white/8 xl:first:pr-4 xl:last:pl-1">
-      <div className="mb-2 flex items-end justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold text-theme-text">{title}</p>
-          <p className="text-[10px] uppercase tracking-[0.16em] text-theme-text-muted/55">{description}</p>
+    <div className={`min-w-0 ${divided ? 'lg:border-l lg:border-white/10 lg:pl-8' : 'lg:pr-8'}`}>
+      <div className="mb-3 flex min-h-[64px] flex-wrap items-end justify-between gap-x-4 gap-y-2">
+        <div className="min-w-[210px]">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-theme-text-muted/70">
+            {title}
+          </p>
+          <p className="mt-1 text-xs text-theme-text-muted">{subtitle}</p>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="font-mono text-[34px] font-bold leading-none text-theme-text sm:text-[38px]">
+              {currentDisplay}
+            </span>
+            <span className="text-xs text-theme-text-muted">{unit}</span>
+          </div>
         </div>
-        <div className="text-right">
-          <p className="text-sm font-semibold text-theme-text">{currentDisplay}</p>
-        </div>
+
+        {delta == null ? (
+          <div className="mb-2 whitespace-nowrap text-xs font-medium text-theme-text-muted">
+            collecting samples
+          </div>
+        ) : (
+          <div className={`mb-2 whitespace-nowrap text-xs font-semibold ${deltaTone}`}>
+            {deltaPrefix} {Math.abs(delta).toFixed(1)}%
+            <span className="ml-1 font-normal text-theme-text-muted">vs {range.deltaLabel}</span>
+          </div>
+        )}
       </div>
 
       <svg
-        viewBox="0 0 430 170"
-        preserveAspectRatio="xMinYMid meet"
-        className="block h-[144px] w-full max-w-[430px] touch-none select-none overflow-visible"
-        onPointerDown={(event) => {
-          setDragging(true)
-          updateSelection(event.clientX, event.currentTarget)
-          event.currentTarget.setPointerCapture?.(event.pointerId)
-        }}
-        onPointerMove={(event) => {
-          if (dragging) {
-            updateSelection(event.clientX, event.currentTarget)
-          }
-        }}
-        onPointerUp={(event) => {
-          setDragging(false)
-          event.currentTarget.releasePointerCapture?.(event.pointerId)
-        }}
-        onPointerLeave={() => setDragging(false)}
+        viewBox="0 0 460 190"
+        preserveAspectRatio="none"
+        className="block h-[176px] w-full select-none overflow-visible"
+        role="img"
+        aria-label={`${title} chart`}
       >
         <defs>
-          <linearGradient id={`signal-line-${chartId}`} x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor={accent} stopOpacity="0.66" />
-            <stop offset="55%" stopColor="#ffffff" stopOpacity="1" />
-            <stop offset="100%" stopColor={accent} stopOpacity="0.96" />
+          <linearGradient id={`overview-line-${chartId}`} x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor={accent} stopOpacity="0.82" />
+            <stop offset="48%" stopColor={accent} stopOpacity="1" />
+            <stop offset="100%" stopColor="#ffffff" stopOpacity="0.8" />
           </linearGradient>
-          <filter id={`signal-glow-${chartId}`} x="-25%" y="-40%" width="150%" height="180%">
+          <linearGradient id={`overview-fill-${chartId}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={fill} stopOpacity="0.68" />
+            <stop offset="58%" stopColor={fill} stopOpacity="0.24" />
+            <stop offset="100%" stopColor={fill} stopOpacity="0" />
+          </linearGradient>
+          <filter id={`overview-glow-${chartId}`} x="-20%" y="-35%" width="140%" height="170%">
             <feGaussianBlur stdDeviation="4" result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
@@ -699,77 +1016,105 @@ const InteractiveSignalChart = memo(function InteractiveSignalChart({
           </filter>
         </defs>
 
-        {[28, 58, 88, 118, 148].map((y) => (
+        {[36, 72, 108, 144, 160].map((y) => (
           <line
             key={`${chartId}-grid-${y}`}
-            x1="20"
-            x2="410"
+            x1="38"
+            x2="448"
             y1={y}
             y2={y}
-            stroke="rgba(255,255,255,0.08)"
+            stroke="rgba(255,255,255,0.065)"
             strokeWidth="1"
           />
         ))}
 
-        {[0, Math.round(maxValue / 2), Math.round(maxValue)].map((label, index) => (
+        {yLabels.map((label, index) => (
           <text
-            key={`${chartId}-label-${label}`}
+            key={`${chartId}-axis-${index}`}
             x="0"
-            y={index === 0 ? 150 : index === 1 ? 89 : 29}
-            fill="rgba(255,255,255,0.55)"
+            y={[39, 83, 127, 162][index]}
+            fill="rgba(255,255,255,0.45)"
             fontSize="10"
-            fontWeight={index === 0 ? '700' : '500'}
+            fontWeight="500"
           >
             {axisFormatter(label)}
           </text>
         ))}
 
-        <path
-          d={path}
-          fill="none"
-          stroke={`url(#signal-line-${chartId})`}
-          strokeWidth="4"
-          strokeLinecap="round"
-          filter={`url(#signal-glow-${chartId})`}
-          style={{ transition: dragging ? 'none' : 'all 220ms ease' }}
-        />
-
-        <line
-          x1={selectedPoint.x}
-          x2={selectedPoint.x}
-          y1={bubbleY + bubbleHeight}
-          y2={selectedPoint.y}
-          stroke="rgba(255,255,255,0.72)"
-          strokeWidth="1.2"
-          style={{ transition: dragging ? 'none' : 'all 180ms ease' }}
-        />
-
-        <g transform={`translate(${bubbleX}, ${bubbleY})`}>
-          <rect width={bubbleWidth} height={bubbleHeight} rx="14" fill="#ffffff" />
+        {areaPath && (
+          <path
+            d={areaPath}
+            fill={`url(#overview-fill-${chartId})`}
+          />
+        )}
+        {hasSeries ? (
+          <path
+            d={path}
+            fill="none"
+            stroke={`url(#overview-line-${chartId})`}
+            strokeWidth="3"
+            strokeLinecap="round"
+            filter={`url(#overview-glow-${chartId})`}
+          />
+        ) : (
           <text
-            x={bubbleWidth / 2}
-            y="18"
+            x="243"
+            y="105"
             textAnchor="middle"
+            fill="rgba(255,255,255,0.42)"
             fontSize="11"
-            fontWeight="700"
-            fill="#0f0f13"
+            fontWeight="600"
           >
-            {valueFormatter(selectedValue)}
+            collecting telemetry
           </text>
-        </g>
+        )}
 
-        <circle cx={selectedPoint.x} cy={selectedPoint.y} r="7" fill="#ffffff" style={{ transition: dragging ? 'none' : 'all 180ms ease' }} />
-        <circle
-          cx={selectedPoint.x}
-          cy={selectedPoint.y}
-          r={dragging ? '18' : '14'}
-          fill="rgba(255,255,255,0.08)"
-          stroke="rgba(255,255,255,0.06)"
-          strokeWidth="8"
-          style={{ transition: dragging ? 'none' : 'all 180ms ease' }}
-        />
+        {timeLabels.map((label, index) => (
+          <text
+            key={`${chartId}-time-${index}`}
+            x={38 + ((448 - 38) / Math.max(timeLabels.length - 1, 1)) * index}
+            y="184"
+            textAnchor={index === 0 ? 'start' : index === timeLabels.length - 1 ? 'end' : 'middle'}
+            fill="rgba(255,255,255,0.42)"
+            fontSize="10"
+            fontWeight="500"
+          >
+            {label}
+          </text>
+        ))}
       </svg>
     </div>
+  )
+})
+
+const SystemMetricsPanel = memo(function SystemMetricsPanel({ metrics }) {
+  return (
+    <aside
+      className="h-full rounded-xl border px-4 py-4 sm:px-5 sm:py-5"
+      style={TECH_PANEL_STYLE}
+    >
+      <div className="mb-4 flex min-h-7 items-center justify-between gap-3">
+        <h2 className="text-base font-semibold text-theme-text sm:text-lg">System Status</h2>
+        <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-theme-text-muted/65">
+          Live Telemetry
+        </span>
+      </div>
+
+      <div className="liquid-metal-sequence-grid liquid-metal-sequence-grid--system grid grid-cols-2 gap-2">
+        {metrics.map((metric) => (
+          <MetricCard
+            key={metric.label}
+            icon={metric.icon}
+            label={metric.label}
+            value={metric.value}
+            subvalue={metric.subvalue}
+            percent={metric.percent}
+            alert={metric.alert}
+            compact
+          />
+        ))}
+      </div>
+    </aside>
   )
 })
 
@@ -781,7 +1126,10 @@ const MetricCard = memo(function MetricCard({ icon: Icon, label, value, subvalue
       : 'liquid-metal-progress-fill'
 
   return (
-    <div className={`liquid-metal-frame liquid-metal-frame--soft liquid-metal-sequence-card bg-theme-card border border-theme-border rounded-xl min-w-0 ${compact ? 'px-2.5 py-2' : 'p-4'} overflow-hidden`}>
+    <div
+      className={`liquid-metal-frame liquid-metal-frame--soft liquid-metal-sequence-card min-w-0 rounded-xl border ${compact ? 'px-2.5 py-2' : 'p-4'} overflow-hidden`}
+      style={TECH_TILE_STYLE}
+    >
       <div className={`flex items-center gap-1.5 ${compact ? 'mb-1' : 'mb-2'}`}>
         <Icon size={compact ? 12 : 13} className={alert ? 'text-red-400' : 'text-theme-text-muted/50'} />
         <span className={`${compact ? 'text-[9px]' : 'text-[9px]'} font-semibold uppercase tracking-[0.13em] text-theme-text-muted/55`}>{label}</span>
@@ -800,104 +1148,332 @@ const MetricCard = memo(function MetricCard({ icon: Icon, label, value, subvalue
   )
 })
 
-const SERVICE_GROUP_STYLES = {
-  inactive: {
-    dot: 'bg-red-500',
-    text: 'text-theme-text-secondary',
-    line: 'rgba(239,68,68,0.26)',
-  },
-  degraded: {
-    dot: 'bg-amber-400',
-    text: 'text-theme-text-secondary',
-    line: 'rgba(245,158,11,0.24)',
-  },
-  online: {
-    dot: 'bg-emerald-400',
-    text: 'text-theme-text-secondary',
-    line: 'rgba(52,211,153,0.22)',
-  },
-}
-
-const ServiceGroup = memo(function ServiceGroup({ label, tone, services }) {
-  const styles = SERVICE_GROUP_STYLES[tone]
-  const isPrimaryGroup = tone === 'online'
+const ServicesPanel = memo(function ServicesPanel({ services }) {
+  const [activeTab, setActiveTab] = useState('all')
+  const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState(false)
-  const visibleServices = isPrimaryGroup
-    ? (expanded ? services : services.slice(0, 4))
-    : (expanded ? services : [])
-  const hiddenCount = Math.max(services.length - visibleServices.length, 0)
-  const summaryNames = services.slice(0, 2).map(service => service.name).join(' · ')
+  const [openMenuId, setOpenMenuId] = useState(null)
+  const [actionState, setActionState] = useState({})
+  const panelRef = useRef(null)
+  const cpuHistory = useServiceCpuHistory(services)
+  useEffect(() => {
+    if (!openMenuId) return undefined
+
+    const handlePointerDown = (event) => {
+      if (panelRef.current && !panelRef.current.contains(event.target)) {
+        setOpenMenuId(null)
+      }
+    }
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setOpenMenuId(null)
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [openMenuId])
+  const counts = useMemo(() => {
+    const next = { all: services.length, online: 0, degraded: 0, inactive: 0 }
+    services.forEach(service => {
+      next[getServiceTabStatus(service.status)] += 1
+    })
+    return next
+  }, [services])
+  const filteredServices = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
+    return services.filter(service => {
+      if (activeTab !== 'all' && getServiceTabStatus(service.status) !== activeTab) return false
+      if (!normalizedQuery) return true
+      return [
+        service.name,
+        service.description,
+        service.status,
+        service.port ? `:${service.port}` : '',
+      ].some(value => String(value || '').toLowerCase().includes(normalizedQuery))
+    })
+  }, [activeTab, query, services])
+  const visibleServices = expanded ? filteredServices : filteredServices.slice(0, 4)
+  const hiddenCount = Math.max(filteredServices.length - visibleServices.length, 0)
 
   return (
-    <div
-      className="self-start rounded-2xl border bg-theme-card px-3 py-2.5"
-      style={{
-        borderColor: 'rgba(255,255,255,0.08)',
-        boxShadow: `inset 2px 0 0 ${styles.line}`,
-      }}
+    <section
+      ref={panelRef}
+      className="mb-12 rounded-xl border px-3 py-3 sm:px-4 sm:py-4"
+      style={TECH_PANEL_STYLE}
     >
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <span className={`h-1.5 w-1.5 rounded-full ${styles.dot}`} />
-          <p className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${styles.text}`}>
-            {label}
-          </p>
-          <span className="text-[10px] text-theme-text-muted/60">
-            {services.length} {services.length === 1 ? 'service' : 'services'}
-          </span>
+      <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <h2 className="text-lg font-semibold text-theme-text">Services</h2>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="flex min-h-8 items-center gap-1 border-b border-white/10 sm:border-b-0">
+            {SERVICE_TABS.map(tab => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => {
+                  setActiveTab(tab.key)
+                  setExpanded(false)
+                  setOpenMenuId(null)
+                }}
+                className={`relative h-8 px-2.5 text-[10px] font-semibold transition-colors ${
+                  activeTab === tab.key
+                    ? 'text-theme-accent-light'
+                    : 'text-theme-text-muted hover:text-theme-text-secondary'
+                }`}
+                aria-pressed={activeTab === tab.key}
+              >
+                {tab.label} ({counts[tab.key]})
+                {activeTab === tab.key && (
+                  <span className="absolute inset-x-1 -bottom-px h-px bg-theme-accent" />
+                )}
+              </button>
+            ))}
+          </div>
+
+          <label className="relative block min-w-0 sm:w-56">
+            <span className="sr-only">Search services</span>
+            <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-theme-text-muted/60" />
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value)
+                setExpanded(false)
+                setOpenMenuId(null)
+              }}
+              placeholder="Search services..."
+              className="h-8 w-full rounded-lg border border-white/[0.08] bg-black/20 pl-8 pr-3 text-xs text-theme-text outline-none transition-colors placeholder:text-theme-text-muted/45 focus:border-theme-accent/45"
+            />
+          </label>
         </div>
-        {services.length > 0 && (
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-white/[0.045]" style={TECH_TILE_STYLE}>
+        <div className="hidden grid-cols-[minmax(220px,1.5fr)_108px_96px_132px_112px_32px] gap-4 border-b border-white/[0.045] px-4 py-2.5 text-[9px] font-semibold uppercase tracking-[0.18em] text-theme-text-muted/55 md:grid">
+          <span>Service</span>
+          <span>Status</span>
+          <span>Uptime</span>
+          <span>CPU</span>
+          <span>RAM</span>
+          <span />
+        </div>
+
+        <div className="divide-y divide-white/[0.035]">
+          {visibleServices.length > 0 ? (
+            visibleServices.map(service => (
+              <ServiceTableRow
+                key={service.id}
+                service={service}
+                cpuSamples={cpuHistory[service.id] || []}
+                actionState={actionState[service.id]}
+                menuOpen={openMenuId === service.id}
+                onToggleMenu={() => setOpenMenuId(current => current === service.id ? null : service.id)}
+                onRestart={async () => {
+                  setOpenMenuId(null)
+                  setActionState(current => ({ ...current, [service.id]: { type: 'loading', text: 'Restarting...' } }))
+                  try {
+                    const res = await fetch(`/api/services/${encodeURIComponent(service.id)}/restart`, { method: 'POST' })
+                    const data = await res.json().catch(() => ({}))
+                    if (!res.ok) throw new Error(data.detail || data.error || 'Restart failed')
+                    setActionState(current => ({ ...current, [service.id]: { type: 'success', text: 'Restarted' } }))
+                    window.setTimeout(() => {
+                      setActionState(current => {
+                        const next = { ...current }
+                        delete next[service.id]
+                        return next
+                      })
+                    }, 3500)
+                  } catch (error) {
+                    setActionState(current => ({
+                      ...current,
+                      [service.id]: { type: 'error', text: error?.message || 'Restart failed' },
+                    }))
+                  }
+                }}
+              />
+            ))
+          ) : (
+            <div className="px-4 py-8 text-center text-xs text-theme-text-muted">
+              No services match this view.
+            </div>
+          )}
+        </div>
+
+        {hiddenCount > 0 && (
           <button
             type="button"
-            onClick={() => setExpanded(current => !current)}
-            className="text-[10px] font-mono uppercase tracking-[0.16em] text-theme-text-muted/65 transition-colors hover:text-theme-text"
+            onClick={() => {
+              setExpanded(true)
+              setOpenMenuId(null)
+            }}
+            className="flex w-full items-center gap-2 border-t border-white/[0.045] px-4 py-2 text-left text-[11px] font-medium text-theme-text-muted transition-colors hover:text-theme-text-secondary"
           >
-            {expanded ? 'Collapse' : 'Show all'}
+            +{hiddenCount} more services
+            <ChevronDown size={13} />
+          </button>
+        )}
+
+        {expanded && filteredServices.length > 4 && (
+          <button
+            type="button"
+            onClick={() => {
+              setExpanded(false)
+              setOpenMenuId(null)
+            }}
+            className="flex w-full items-center gap-2 border-t border-white/[0.045] px-4 py-2 text-left text-[11px] font-medium text-theme-text-muted transition-colors hover:text-theme-text-secondary"
+          >
+            Show fewer services
           </button>
         )}
       </div>
+    </section>
+  )
+})
 
-      {visibleServices.length > 0 ? (
-        <div className="mt-2 space-y-1">
-          {visibleServices.map((service) => (
-            <CompactServiceRow key={service.name} service={service} tone={tone} />
-          ))}
-          {!expanded && hiddenCount > 0 && (
-            <p className="px-1 pt-0.5 text-[10px] uppercase tracking-[0.14em] text-theme-text-muted/45">
-              +{hiddenCount} more
-            </p>
-          )}
+const ServiceTableRow = memo(function ServiceTableRow({
+  service,
+  cpuSamples,
+  actionState,
+  menuOpen,
+  onToggleMenu,
+  onRestart,
+}) {
+  const isRestarting = actionState?.type === 'loading'
+  const status = getStatusTone(isRestarting ? 'restarting' : service.status)
+  const isRestartable = service.restartable === true
+
+  return (
+    <div
+      className="grid gap-3 px-4 py-3 transition-colors hover:bg-white/[0.025] md:grid-cols-[minmax(220px,1.5fr)_108px_96px_132px_112px_32px] md:items-center md:gap-4"
+      data-testid={`service-row-${service.id}`}
+    >
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${status.dot}`} />
+          <span className="truncate text-xs font-semibold text-theme-text">{service.name}</span>
         </div>
-      ) : services.length === 0 ? (
-        <p className="mt-2 text-[10px] uppercase tracking-[0.14em] text-theme-text-muted/40">
-          Clear
-        </p>
-      ) : (
-        <div className="mt-1.5 min-h-[1.75rem]">
-          <p className="truncate text-[10px] uppercase tracking-[0.14em] text-theme-text-muted/52">
-            {summaryNames}
-            {services.length > 2 ? ` +${services.length - 2} more` : ''}
-          </p>
+        <div className="mt-1 truncate pl-3.5 text-[10px] text-theme-text-muted/65">
+          {service.description}
+          {service.port ? <span className="md:hidden"> · :{service.port}</span> : null}
         </div>
-      )}
+      </div>
+
+      <div>
+        <span className={`inline-flex rounded-full border px-2 py-1 text-[10px] font-semibold ${status.pill} ${status.text}`}>
+          {status.label}
+        </span>
+      </div>
+
+      <div className="font-mono text-xs text-theme-text-muted md:text-theme-text-secondary">
+        {formatUptime(service.uptime)}
+      </div>
+
+      <div className="flex items-center gap-3">
+        <span className="w-10 font-mono text-xs text-theme-text-secondary">
+          {formatCpuPercent(service.cpuPercent)}
+        </span>
+        <ServiceSparkline samples={cpuSamples} />
+      </div>
+
+      <div className="font-mono text-xs text-theme-text-secondary">
+        {formatRamMb(service.memoryUsedMb)}
+      </div>
+
+      <div className="relative flex items-center md:justify-end">
+        {isRestartable && actionState && actionState.type !== 'loading' && (
+          <span
+            className={`mr-2 hidden max-w-24 truncate text-[10px] font-medium md:inline ${
+              actionState.type === 'error' ? 'text-red-300' : 'text-emerald-300'
+            }`}
+            title={actionState.text}
+          >
+            {actionState.text}
+          </span>
+        )}
+        {isRestartable ? (
+          <button
+            type="button"
+            onClick={onToggleMenu}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-theme-text-muted transition-colors hover:bg-white/5 hover:text-theme-text-secondary"
+            aria-label={`${service.name} actions`}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+          >
+            <MoreHorizontal size={14} />
+          </button>
+        ) : (
+          <span
+            className="hidden h-7 w-7 md:block"
+            title={service.restartUnavailableReason || 'Restart unavailable'}
+            aria-hidden="true"
+          />
+        )}
+        {isRestartable && menuOpen && (
+          <div
+            role="menu"
+            className="absolute right-0 top-8 z-20 w-44 overflow-hidden rounded-lg border border-white/[0.08] bg-[#080810] py-1 shadow-2xl shadow-black/50"
+            style={TECH_TILE_STYLE}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={onRestart}
+              disabled={isRestarting}
+              className="flex w-full items-center justify-between px-3 py-2 text-left text-[11px] font-semibold text-theme-text-secondary transition-colors hover:bg-white/[0.045] hover:text-theme-text disabled:cursor-wait disabled:opacity-60"
+            >
+              <span>{isRestarting ? 'Restarting...' : 'Restart service'}</span>
+              <Power size={12} />
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
 })
 
-const CompactServiceRow = memo(function CompactServiceRow({ service, tone }) {
-  const styles = SERVICE_GROUP_STYLES[tone]
+const ServiceSparkline = memo(function ServiceSparkline({ samples }) {
+  const values = samples.map(sample => sample.cpu)
+  const hasSeries = values.length >= 2
+  const max = Math.max(...values, 1)
+  const width = 74
+  const height = 20
+  const points = values.map((value, index) => ({
+    x: (width / Math.max(values.length - 1, 1)) * index,
+    y: height - clamp(value / max, 0, 1) * (height - 4) - 2,
+  }))
+  const path = hasSeries ? buildSignalPath(points) : ''
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-white/6 bg-black/[0.1] px-2 py-1.5">
-      <div className="flex min-w-0 items-center gap-2">
-        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${styles.dot}`} />
-        <span className="truncate text-[11px] font-medium text-theme-text">{service.name}</span>
-      </div>
-      <div className="flex shrink-0 items-center gap-2 text-[9px] text-theme-text-muted/75">
-        {service.port ? <span className="font-mono">:{service.port}</span> : null}
-        <span className="font-mono uppercase tracking-[0.14em]">{formatUptime(service.uptime)}</span>
-      </div>
-    </div>
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+      className="h-5 w-20 overflow-visible"
+      aria-hidden="true"
+    >
+      {hasSeries ? (
+        <path
+          d={path}
+          fill="none"
+          stroke="rgba(168,85,247,0.95)"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+      ) : (
+        <line
+          x1="0"
+          x2={width}
+          y1={height / 2}
+          y2={height / 2}
+          stroke="rgba(255,255,255,0.12)"
+          strokeWidth="1"
+          strokeDasharray="3 4"
+        />
+      )}
+    </svg>
   )
 })
 

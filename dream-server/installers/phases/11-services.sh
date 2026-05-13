@@ -25,6 +25,58 @@ if $DRY_RUN; then
 else
     cd "$INSTALL_DIR" || exit 1
 
+    _phase11_env_set() {
+        local key="$1" value="$2" env_file="$INSTALL_DIR/.env" tmp_file
+        [[ -f "$env_file" ]] || return 0
+        tmp_file="${env_file}.tmp.$$"
+        awk -v k="$key" -v v="$value" '
+            BEGIN { found = 0 }
+            index($0, k "=") == 1 { print k "=" v; found = 1; next }
+            { print }
+            END { if (!found) print k "=" v }
+        ' "$env_file" > "$tmp_file" && cat "$tmp_file" > "$env_file" && rm -f "$tmp_file"
+    }
+
+    _phase11_apply_cpu_fallback() {
+        local missing="$1"
+        show_amd_gpu_device_guidance "$missing"
+        apply_cpu_gpu_fallback "Falling back to CPU mode before launching services."
+
+        if [[ "${TIER_FORCED:-false}" != "true" ]]; then
+            TIER="$(select_cpu_fallback_tier "${RAM_GB:-0}")"
+            log "CPU fallback tier selected: $TIER"
+        fi
+
+        load_backend_contract "cpu" || true
+        LLM_HEALTHCHECK_URL="${BACKEND_PUBLIC_HEALTH_URL:-http://localhost:8080/health}"
+        LLM_PUBLIC_API_PORT="${BACKEND_PUBLIC_API_PORT:-8080}"
+        OPENCLAW_PROVIDER_NAME_DEFAULT="${BACKEND_PROVIDER_NAME:-local-llama}"
+        OPENCLAW_PROVIDER_URL_DEFAULT="${BACKEND_PROVIDER_URL:-http://llama-server:8080/v1}"
+        resolve_tier_config
+        GPU_BACKEND="cpu"
+
+        _phase11_env_set GPU_BACKEND "$GPU_BACKEND"
+        _phase11_env_set DREAM_MODE "local"
+        _phase11_env_set LLM_API_URL "http://llama-server:8080"
+        _phase11_env_set LLM_MODEL "$LLM_MODEL"
+        _phase11_env_set GGUF_FILE "$GGUF_FILE"
+        _phase11_env_set MAX_CONTEXT "$MAX_CONTEXT"
+        _phase11_env_set CTX_SIZE "$MAX_CONTEXT"
+        _phase11_env_set AUDIO_STT_MODEL "Systran/faster-whisper-base"
+        _phase11_env_set LLAMA_SERVER_IMAGE "${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-b8248}"
+        ai_ok "Rewrote .env for CPU fallback"
+    }
+
+    if [[ "${GPU_BACKEND:-}" == "amd" ]] && ! amd_gpu_runtime_devices_available; then
+        _amd_missing_devices="$(amd_gpu_missing_devices_csv)"
+        if [[ "${GPU_BACKEND_FORCED:-false}" == "true" ]]; then
+            ai_bad "GPU_BACKEND=amd was explicitly requested, but required AMD device nodes are missing."
+            show_amd_gpu_device_guidance "$_amd_missing_devices"
+            exit 1
+        fi
+        _phase11_apply_cpu_fallback "$_amd_missing_devices"
+    fi
+
     # Re-resolve compose flags against the actual install directory.
     # Phase 03 may have disabled services (e.g., ComfyUI on Tier 0) after
     # COMPOSE_FLAGS was first set in Phase 02, making the cached value stale.
@@ -127,15 +179,28 @@ else
             _dl_success=false
             for _attempt in 1 2 3; do
                 [[ $_attempt -gt 1 ]] && ai "Retry attempt $_attempt of 3..."
-                curl -fSL -C - --connect-timeout 30 --max-time 3600 -o "$GGUF_DIR/$GGUF_FILE.part" "$GGUF_URL" \
+                curl -fSL -C - --connect-timeout 30 --max-time 3600 \
+                    --retry 3 --retry-delay 5 --retry-all-errors \
+                    -o "$GGUF_DIR/$GGUF_FILE.part" "$GGUF_URL" \
                     >> "$INSTALL_DIR/logs/model-download.log" 2>&1 &
                 dl_pid=$!
 
                 if spin_task $dl_pid "Downloading $GGUF_FILE"; then
-                    mv "$GGUF_DIR/$GGUF_FILE.part" "$GGUF_DIR/$GGUF_FILE"
-                    printf "\r  ${BGRN}✓${NC} %-60s\n" "Model downloaded: $GGUF_FILE"
-                    _dl_success=true
-                    break
+                    # Verify the file actually landed before claiming success.
+                    # Today's chain (spin_task → mv → printf) trusts each step's
+                    # exit code separately and can race: mv can silently fail if
+                    # the target dir is read-only or .part was truncated, or
+                    # another process can remove the file before the printf
+                    # fires. A spurious "Model downloaded" line then misleads
+                    # later phases that depend on the file existing.
+                    if mv "$GGUF_DIR/$GGUF_FILE.part" "$GGUF_DIR/$GGUF_FILE" && [[ -s "$GGUF_DIR/$GGUF_FILE" ]]; then
+                        printf "\r  ${BGRN}✓${NC} %-60s\n" "Model downloaded: $GGUF_FILE"
+                        _dl_success=true
+                        break
+                    else
+                        rm -f "$GGUF_DIR/$GGUF_FILE" 2>/dev/null || true
+                        printf "\r  ${AMB}⚠${NC} %-60s\n" "Download claimed to succeed but $GGUF_FILE is missing/empty"
+                    fi
                 fi
                 printf "\r  ${AMB}⚠${NC} %-60s\n" "Download attempt $_attempt failed"
                 sleep 3
@@ -217,7 +282,9 @@ else
                     echo "[SDXL] Starting SDXL Lightning model download..."
                     if [[ ! -f "$SDXL_CHECKPOINT_DIR/$SDXL_MODEL" ]]; then
                         echo "[SDXL] Downloading $SDXL_MODEL (~6.5GB)..."
-                        curl -fSL -C - --connect-timeout 30 --max-time 3600 -o "$SDXL_CHECKPOINT_DIR/$SDXL_MODEL.part" \
+                        curl -fSL -C - --connect-timeout 30 --max-time 3600 \
+                            --retry 5 --retry-delay 10 --retry-all-errors \
+                            -o "$SDXL_CHECKPOINT_DIR/$SDXL_MODEL.part" \
                             "$SDXL_URL" 2>&1 && \
                             mv "$SDXL_CHECKPOINT_DIR/$SDXL_MODEL.part" "$SDXL_CHECKPOINT_DIR/$SDXL_MODEL" && \
                             echo "[SDXL] $SDXL_MODEL complete" || \
@@ -260,10 +327,23 @@ MODELS_INI_EOF
                 for _key_val in "GGUF_FILE=$GGUF_FILE" "LLM_MODEL=$LLM_MODEL" "MAX_CONTEXT=$MAX_CONTEXT"; do
                     _key="${_key_val%%=*}"
                     _val="${_key_val#*=}"
-                    if ! awk -v v="$_val" '{ if (index($0, "'"$_key"'=") == 1) print "'"$_key"'=" v; else print }' \
+                    if awk -v v="$_val" '{ if (index($0, "'"$_key"'=") == 1) print "'"$_key"'=" v; else print }' \
                         "$_env_file" > "${_env_file}.tmp" 2>>"$LOG_FILE" \
                         && cat "${_env_file}.tmp" > "$_env_file" 2>>"$LOG_FILE" \
                         && rm -f "${_env_file}.tmp"; then
+                        # Verify the patch took effect — the awk-then-cat
+                        # chain can succeed bytewise while landing a line
+                        # that isn't what we asked for (e.g. when $_val
+                        # contains awk-meta characters or the original
+                        # line had trailing whitespace the regex didn't
+                        # match). Re-read the file and assert.
+                        if grep -Fqx "${_key}=${_val}" "$_env_file"; then
+                            : # confirmed
+                        else
+                            _env_patch_ok=false
+                            warn "Patched $_key in .env, but verification re-read shows a different value (expected '$_val')"
+                        fi
+                    else
                         _env_patch_ok=false
                         warn "Failed to patch $_key in .env"
                     fi
@@ -271,6 +351,64 @@ MODELS_INI_EOF
                 if [[ "$_env_patch_ok" == "true" ]]; then
                     ai_ok "Patched .env for bootstrap model ($GGUF_FILE)"
                 fi
+            fi
+
+            # End-of-bootstrap-block sanity: refuse to leave Phase 11 with
+            # $LLM_MODEL pointing at a file that isn't on disk. Without this
+            # guard, compose-up brings up llama-server, which immediately
+            # crash-loops trying to open a missing GGUF, and the operator
+            # spends the next ~20 minutes watching the linker retry. Better
+            # to surface the missing file here, while there's still a clean
+            # recovery path (re-run the download, fix .env, then resume).
+            if [[ -n "${GGUF_DIR:-}" && -n "${GGUF_FILE:-}" ]]; then
+                if [[ ! -s "$GGUF_DIR/$GGUF_FILE" ]]; then
+                    warn "Bootstrap sanity: $GGUF_DIR/$GGUF_FILE missing or empty after Phase 11 — llama-server will crash-loop on compose-up. Investigate before proceeding."
+                fi
+            fi
+        fi
+
+        # ── Hermes config substitution ──
+        #
+        # The Hermes Agent extension ships a config template at
+        # extensions/services/hermes/cli-config.yaml.template which is
+        # mounted into the container at /opt/hermes/cli-config.yaml.example.
+        # On first container start, Hermes's entrypoint copies that into
+        # /opt/data/config.yaml — and never reads it again. So the values
+        # we want Hermes to use (model name, base_url) need to land in the
+        # template BEFORE compose-up, not after.
+        #
+        # Two values vary per platform / backend and the template ships
+        # placeholders for both:
+        #   model.default — Hermes asks the LLM server for this exact name.
+        #                   llama.cpp serves under "<file>.gguf"; Lemonade
+        #                   (AMD) wraps it as "extra.<file>.gguf". Asking
+        #                   for the wrong name 404s every chat completion.
+        #   model.base_url — llama-server's URL. The compose bridge name
+        #                   "llama-server:8080" works for the Linux installs,
+        #                   but on macOS llama-server runs native on the
+        #                   host (not as a sibling container), so Hermes
+        #                   has to dial "host.docker.internal:8080".
+        #
+        # Substitute both values now, then verify. macOS does its own
+        # substitution in installers/macos/install-macos.sh.
+        _hermes_tpl="$INSTALL_DIR/extensions/services/hermes/cli-config.yaml.template"
+        if [[ -f "$_hermes_tpl" ]]; then
+            # Model name: Lemonade prefixes with "extra.", llama.cpp uses
+            # the file name as-is.
+            _hermes_model="$GGUF_FILE"
+            if [[ "${GPU_BACKEND:-}" == "amd" ]]; then
+                _hermes_model="extra.$GGUF_FILE"
+            fi
+            # base_url stays at the compose-bridge name for Linux installs.
+            # On Linux there's a sibling llama-server container; on macOS
+            # the install-macos.sh path handles the host.docker.internal swap.
+            sed -i.bak \
+                -e "s|^  default: \"qwen3.5-9b\"|  default: \"$_hermes_model\"|" \
+                "$_hermes_tpl" 2>>"$LOG_FILE" && rm -f "${_hermes_tpl}.bak"
+            if grep -q "^  default: \"$_hermes_model\"$" "$_hermes_tpl"; then
+                ai_ok "Patched Hermes template: model.default=$_hermes_model"
+            else
+                warn "Hermes template substitution didn't take effect — Hermes may 404 every chat completion. Hand-edit $_hermes_tpl after install if Hermes prompts hang."
             fi
         fi
     fi
@@ -328,21 +466,102 @@ MODELS_INI_EOF
         ai "DreamForge is compiling from Rust source — this takes 15-25 minutes on first run."
     fi
     _build_total=${#_build_services[@]}
+    # Track builds that didn't produce a usable image so we don't abort the
+    # whole compose-up on a single missing service. Each entry is a service
+    # name (matches dream-cli's service id) that will be excluded below.
+    _failed_build_services=()
     for _svc in "${_build_services[@]}"; do
         _build_count=$((_build_count + 1))
         $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" build --no-cache "$_svc" >> "$LOG_FILE" 2>&1 &
         _build_pid=$!
-        if ! spin_task $_build_pid "[$_build_count/$_build_total] Building $_svc"; then
-            printf "\r  ${AMB}⚠${NC} %-60s\n" "$_svc build failed (non-critical)"
+        _build_failed=false
+        spin_task $_build_pid "[$_build_count/$_build_total] Building $_svc" || _build_failed=true
+        # Cross-check: did the build actually produce a usable image? A
+        # build can "succeed" (exit 0) yet leave no tagged image (rare —
+        # buildx bugs, disk-full mid-export) and a "failed" build can
+        # still leave a usable cached image (idempotent re-run). Inspect
+        # the resolved image tag rather than trusting the exit code alone.
+        _resolved_image=$($DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" config --format json 2>/dev/null \
+            | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    svc_name = '$_svc'
+    svc = d.get('services', {}).get(svc_name, {})
+    image = svc.get('image', '') or ''
+    if not image and svc.get('build') is not None:
+        project = d.get('name') or 'dream-server'
+        image = f'{project}-{svc_name}'
+    print(image)
+except Exception:
+    pass
+" 2>/dev/null || echo "")
+        if [[ -n "$_resolved_image" ]] && ! $DOCKER_CMD image inspect "$_resolved_image" &>/dev/null; then
+            _build_failed=true
+        fi
+        if $_build_failed; then
+            printf "\r  ${AMB}⚠${NC} %-60s\n" "$_svc build failed or image missing"
+            _failed_build_services+=("$_svc")
         else
             printf "\r  ${BGRN}✓${NC} %-60s\n" "$_svc built"
         fi
     done
-    # Start everything — --no-build skips services whose images failed to build.
-    # Up to 3 attempts with increasing wait between retries. On AMD/Lemonade,
-    # the first boot builds a cached llama-server binary which can take 3-5 min.
+
+    # Exclude failed-build services from compose-up. Without this, --no-build
+    # at compose-up time would see a referenced image that doesn't exist and
+    # abort the ENTIRE stack — a single failed build of, say, comfyui takes
+    # down the other 24+ healthy services. Repro'd on Tower2 during today's
+    # cross-platform install test. Removing the compose file from
+    # COMPOSE_FLAGS_ARR lets compose-up proceed with everything that did
+    # build, and the operator can re-attempt the failed extension later via
+    # `dream enable <svc>` once they've fixed the build cause.
+    if [[ ${#_failed_build_services[@]} -gt 0 ]]; then
+        _new_compose_flags_arr=()
+        _excluded_build_services=()
+        _skip_next=false
+        for _arg in "${COMPOSE_FLAGS_ARR[@]}"; do
+            if $_skip_next; then
+                _skip_next=false
+                _drop=false
+                for _failed in "${_failed_build_services[@]}"; do
+                    if [[ "$_arg" == *"/extensions/services/$_failed/"* ]]; then
+                        _drop=true
+                        if [[ " ${_excluded_build_services[*]} " != *" $_failed "* ]]; then
+                            _excluded_build_services+=("$_failed")
+                        fi
+                        break
+                    fi
+                done
+                $_drop || _new_compose_flags_arr+=("-f" "$_arg")
+            elif [[ "$_arg" == "-f" ]]; then
+                _skip_next=true
+            else
+                _new_compose_flags_arr+=("$_arg")
+            fi
+        done
+        COMPOSE_FLAGS_ARR=("${_new_compose_flags_arr[@]}")
+        _retained_failed_build_services=()
+        for _failed in "${_failed_build_services[@]}"; do
+            if [[ " ${_excluded_build_services[*]} " != *" $_failed "* ]]; then
+                _retained_failed_build_services+=("$_failed")
+            fi
+        done
+        if [[ ${#_excluded_build_services[@]} -gt 0 ]]; then
+            ai_warn "Excluding from compose-up due to build failure: ${_excluded_build_services[*]}"
+        fi
+        if [[ ${#_retained_failed_build_services[@]} -gt 0 ]]; then
+            ai_warn "Build failed for core/overlay service(s) still present in compose-up: ${_retained_failed_build_services[*]}"
+        fi
+    fi
+
+    # Start everything. --no-build is intentional: the explicit build loop
+    # above already produced (or failed-and-excluded) every buildable image,
+    # and we don't want compose-up silently re-invoking the slow ComfyUI /
+    # DreamForge builds on each retry. Up to 3 attempts with increasing wait
+    # between retries — on AMD/Lemonade, the first boot builds a cached
+    # llama-server binary which can take 3-5 min.
     for _attempt in 1 2 3; do
-        $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up -d --no-build >> "$LOG_FILE" 2>&1 &
+        $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up -d --remove-orphans --no-build >> "$LOG_FILE" 2>&1 &
         compose_pid=$!
         if spin_task $compose_pid "Launching containers (attempt $_attempt/3)..."; then
             compose_ok=true
@@ -361,7 +580,7 @@ MODELS_INI_EOF
     $DOCKER_CMD start $($DOCKER_CMD ps -a --filter status=created -q) 2>/dev/null || true
     # Step 2: wait for services to stabilize, then compose pass
     sleep 10
-    $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up -d --no-build >> "$LOG_FILE" 2>&1 || true
+    $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up -d --remove-orphans --no-build >> "$LOG_FILE" 2>&1 || true
     # Step 3: catch any stragglers from the second pass
     $DOCKER_CMD start $($DOCKER_CMD ps -a --filter status=created -q) 2>/dev/null || true
 
@@ -374,6 +593,17 @@ MODELS_INI_EOF
         echo ""
         ai_warn "Some services failed. Check: docker compose logs"
         ai_warn "Log file: $LOG_FILE"
+        if command -v write_compose_failure_report >/dev/null 2>&1; then
+            _compose_report_path="$(write_compose_failure_report \
+                "$INSTALL_DIR" \
+                "install-core phase 11 docker compose up" \
+                "$DOCKER_COMPOSE_CMD $COMPOSE_FLAGS up -d --remove-orphans --no-build" \
+                "$LOG_FILE" \
+                "${GPU_BACKEND:-unknown}" \
+                "Open the saved report, fix the failed image/port/compose error it identifies, then re-run ./install.sh." |
+                tail -n 1)" || true
+            [[ -n "${_compose_report_path:-}" ]] && ai_warn "Compose failure report saved: $_compose_report_path"
+        fi
     fi
 
     # ── Bootstrap: launch background full-model download + auto hot-swap ──

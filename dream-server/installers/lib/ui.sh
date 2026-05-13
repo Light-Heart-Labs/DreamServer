@@ -265,6 +265,7 @@ check_service() {
   local url=$2
   local max_attempts=${3:-30}
   local timeout=${4:-10}  # Timeout per request (default 10s)
+  local container_name=${5:-}
   local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
   local i=0
   local lore_idx=$(( RANDOM % ${#LORE_MESSAGES[@]} ))
@@ -293,6 +294,24 @@ check_service() {
 
     local curl_exit=$?
     elapsed=$((elapsed + backoff))
+
+    if [[ -n "$container_name" ]]; then
+      local docker_cmd="${DOCKER_CMD:-docker}"
+      local -a docker_cmd_arr=()
+      read -r -a docker_cmd_arr <<< "$docker_cmd"
+      [[ ${#docker_cmd_arr[@]} -gt 0 ]] || docker_cmd_arr=(docker)
+      local container_state=""
+      if command -v "${docker_cmd_arr[0]}" >/dev/null 2>&1; then
+        container_state=$("${docker_cmd_arr[@]}" inspect --format '{{.State.Status}}' "$container_name" 2>/dev/null || echo "missing")
+        case "$container_state" in
+          exited|dead|missing)
+            printf "\r  ${RED}✗${NC} %-55s\n" "$name container $container_state"
+            ai_warn "$name container is $container_state; not retrying health probe."
+            return 1
+            ;;
+        esac
+      fi
+    fi
 
     # Distinguish between timeout (124), connection refused (7),
     # and transient startup errors (56 = recv error, 52 = empty reply)
@@ -390,7 +409,8 @@ show_install_menu() {
             ENABLE_VOICE=true
             ENABLE_WORKFLOWS=true
             ENABLE_RAG=true
-            ENABLE_OPENCLAW=true
+            ENABLE_HERMES=true
+            ENABLE_OPENCLAW=false  # deprecated; Hermes is the new default
             ENABLE_COMFYUI=true
             ENABLE_LANGFUSE=true
 
@@ -411,6 +431,7 @@ show_install_menu() {
             ENABLE_VOICE=false
             ENABLE_WORKFLOWS=false
             ENABLE_RAG=false
+            ENABLE_HERMES=false
             ENABLE_OPENCLAW=false
             ENABLE_COMFYUI=false
             ENABLE_DREAMFORGE=false
@@ -425,7 +446,8 @@ show_install_menu() {
             ENABLE_VOICE=true
             ENABLE_WORKFLOWS=true
             ENABLE_RAG=true
-            ENABLE_OPENCLAW=true
+            ENABLE_HERMES=true
+            ENABLE_OPENCLAW=false  # deprecated; Hermes is the new default
             ENABLE_COMFYUI=true
             ENABLE_LANGFUSE=true
 

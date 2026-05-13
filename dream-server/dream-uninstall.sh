@@ -126,6 +126,14 @@ for unit in opencode-web.service openclaw-session-cleanup.timer \
     fi
 done
 systemctl --user daemon-reload 2>/dev/null || true
+
+# Remove system-mode dream-host-agent unit (migrated from --user mode).
+# Idempotent — no-op if the unit was never installed (e.g. older user-mode installs).
+if systemctl is-enabled dream-host-agent.service >/dev/null 2>&1; then
+    sudo systemctl disable --now dream-host-agent.service 2>/dev/null || true
+fi
+sudo rm -f /etc/systemd/system/dream-host-agent.service 2>/dev/null || true
+sudo systemctl daemon-reload 2>/dev/null || true
 log_ok "Systemd services removed"
 
 # 3. Remove CLI symlink
@@ -144,6 +152,7 @@ fi
 
 # 5. Remove install directory (with optional data/model preservation)
 log_info "Removing installation directory..."
+INSTALL_DIR_CLEANED=true
 if $KEEP_MODELS && [[ -d "$INSTALL_DIR/data/models" ]]; then
     MODELS_BACKUP="$HOME/.dream-server-models-backup"
     mkdir -p "$MODELS_BACKUP"
@@ -152,13 +161,40 @@ if $KEEP_MODELS && [[ -d "$INSTALL_DIR/data/models" ]]; then
 fi
 
 if $KEEP_DATA; then
-    # Remove everything except data/
+    # Remove everything except data/. Container-UID files under data/ stay
+    # untouched (--keep-data implies preserving them anyway).
     find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 ! -name 'data' -exec rm -rf {} + 2>/dev/null || true
     log_info "User data preserved at: $INSTALL_DIR/data/"
 else
-    rm -rf "$INSTALL_DIR"
+    # Containers (open-webui, qdrant, baserow, searxng, ...) write into
+    # $INSTALL_DIR/data/ as their own UIDs, not the host user's. Plain
+    # `rm -rf` then fails on every file with Permission denied and exits
+    # with $INSTALL_DIR still present — which silently turns "uninstall"
+    # into "uninstall everything but the install directory."
+    #
+    # Reclaim ownership before the rm. The installer itself does the same
+    # dance at `installers/phases/06-directories.sh` after picking up
+    # container-owned dirs from a prior run, so the pattern is already
+    # blessed for this codebase. If sudo is unavailable, fall back to a
+    # best-effort rm and let the operator see the failures explicitly.
+    if command -v sudo >/dev/null 2>&1; then
+        sudo chown -R "$(id -u):$(id -g)" "$INSTALL_DIR" 2>/dev/null || \
+            log_warn "Could not chown $INSTALL_DIR (container-UID files may remain)"
+    else
+        log_warn "sudo not available; attempting non-privileged removal of $INSTALL_DIR"
+    fi
+    rm -rf "$INSTALL_DIR" || \
+        log_warn "Could not fully remove $INSTALL_DIR"
+    if [[ -d "$INSTALL_DIR" ]]; then
+        INSTALL_DIR_CLEANED=false
+        log_warn "Install dir still present at $INSTALL_DIR - likely container-UID files that need: sudo rm -rf \"$INSTALL_DIR\""
+    fi
 fi
-log_ok "Installation directory cleaned"
+if $INSTALL_DIR_CLEANED; then
+    log_ok "Installation directory cleaned"
+else
+    log_warn "Installation directory cleanup incomplete"
+fi
 
 # 6. Remove backup directory
 if [[ -d "$HOME/.dream-server" ]]; then

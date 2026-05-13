@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
+import pytest
 
 
 def test_workflows_requires_auth(test_client):
@@ -433,6 +434,20 @@ def test_workflow_enable_invalid_id_format(test_client):
 # ---------------------------------------------------------------------------
 # /api/workflows/{id}/enable — missing dependencies (400)
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("post", "/api/workflows/bad!id@here/disable"),
+        ("delete", "/api/workflows/bad!id@here"),
+        ("get", "/api/workflows/bad!id@here/executions"),
+    ],
+)
+def test_workflow_id_mutation_routes_reject_invalid_format(test_client, method, path):
+    resp = getattr(test_client, method)(path, headers=test_client.auth_headers)
+    assert resp.status_code == 400
+    assert "Invalid workflow ID format" in resp.json()["detail"]
 
 
 def test_workflow_enable_missing_deps(test_client, tmp_path, monkeypatch):

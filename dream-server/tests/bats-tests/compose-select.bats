@@ -95,6 +95,14 @@ STUB
 
 # ── Numeric tiers (default NVIDIA path) ────────────────────────────────────
 
+@test "resolve_compose_config: CPU backend overrides Strix Halo tier" {
+    TIER=SH_LARGE
+    GPU_BACKEND=cpu
+    resolve_compose_config
+    assert_equal "$COMPOSE_FLAGS" "-f docker-compose.base.yml -f docker-compose.cpu.yml"
+    assert_equal "$COMPOSE_FILE" "docker-compose.cpu.yml"
+}
+
 @test "resolve_compose_config: numeric tier selects base + nvidia" {
     TIER=3
     GPU_BACKEND=nvidia

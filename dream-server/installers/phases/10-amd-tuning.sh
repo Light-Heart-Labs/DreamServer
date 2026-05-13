@@ -73,12 +73,14 @@ elif [[ "$GPU_BACKEND" == "amd" ]] && ! $DRY_RUN; then
     chmod +x "$INSTALL_DIR/scripts/session-cleanup.sh" \
              "$INSTALL_DIR/memory-shepherd/memory-shepherd.sh" 2>/dev/null || true
 
-    # Copy systemd unit files — skip dream-host-agent.service which was already
-    # rendered with path substitutions (__INSTALL_DIR__ etc.) by phase 07.
+    # Copy user-level systemd units/timers. Skip root/system units and units
+    # rendered with path substitutions (__INSTALL_DIR__ etc.) elsewhere.
     if [[ -d "$INSTALL_DIR/scripts/systemd" ]]; then
         for _unit in "$INSTALL_DIR/scripts/systemd"/*.service "$INSTALL_DIR/scripts/systemd"/*.timer; do
             [[ -f "$_unit" ]] || continue
-            [[ "$(basename "$_unit")" == "dream-host-agent.service" ]] && continue
+            case "$(basename "$_unit")" in
+                dream-host-agent.service|dream-ap-mode.service) continue ;;
+            esac
             cp "$_unit" "$SYSTEMD_USER_DIR/" 2>/dev/null || true
         done
     fi
