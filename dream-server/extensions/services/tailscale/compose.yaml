@@ -1,6 +1,6 @@
 services:
   tailscale:
-    image: tailscale/tailscale:v1.78.0
+    image: tailscale/tailscale:v1.96.5
     container_name: dream-tailscale
     restart: unless-stopped
     # network_mode: host puts the Tailscale daemon in the host's network
