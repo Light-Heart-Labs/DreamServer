@@ -9,11 +9,14 @@ export default function Models() {
     models,
     gpu,
     currentModel,
+    configuredModel,
+    recommendationAlternatives,
     loading,
     error,
     actionLoading,
     downloadModel,
     loadModel,
+    benchmarkModel,
     deleteModel,
     refresh
   } = useModels()
@@ -114,6 +117,20 @@ export default function Models() {
         </div>
       )}
 
+      {!currentModel && configuredModel && (
+        <div className="mb-6 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+          <span className="text-sm text-amber-300">
+            <AlertCircle size={14} className="inline mr-2" />
+            Selected during install: <strong>{configuredModel}</strong>. Run a benchmark after first launch for local tok/s.
+          </span>
+          {recommendationAlternatives.length > 0 && (
+            <p className="text-xs text-amber-200/70 mt-1">
+              Top catalog fit: {recommendationAlternatives.slice(0, 3).map(item => item.name).join(' / ')}
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Models Grid */}
       <div className="grid gap-4">
         {models.map(model => (
@@ -126,6 +143,7 @@ export default function Models() {
             downloadStarting={downloadStarting === model.id}
             onDownload={() => handleDownload(model.id)}
             onLoad={() => loadModel(model.id)}
+            onBenchmark={() => benchmarkModel(model.id)}
             onDelete={() => deleteModel(model.id)}
           />
         ))}
@@ -140,7 +158,7 @@ export default function Models() {
   )
 }
 
-function ModelCard({ model, isLoading, loadBusy, downloadBusy, downloadStarting, onDownload, onLoad, onDelete }) {
+function ModelCard({ model, isLoading, loadBusy, downloadBusy, downloadStarting, onDownload, onLoad, onBenchmark, onDelete }) {
   const isLoaded = model.status === 'loaded'
   const isDownloaded = model.status === 'downloaded'
   const isAvailable = model.status === 'available'
@@ -154,6 +172,20 @@ function ModelCard({ model, isLoading, loadBusy, downloadBusy, downloadStarting,
     'Reasoning': 'bg-pink-500/20 text-pink-400',
     'Bootstrap': 'bg-cyan-500/20 text-cyan-400'
   }
+
+  const performanceBadges = {
+    measured_local: ['bg-green-500/20 text-green-400', 'Measured locally'],
+    published_exact: ['bg-cyan-500/20 text-cyan-400', 'Published exact'],
+    predicted_calibrated: ['bg-blue-500/20 text-blue-400', 'Calibrated estimate'],
+    benchmark_required: ['bg-amber-500/20 text-amber-400', 'Benchmark required'],
+    incompatible: ['bg-red-500/20 text-red-400', 'Incompatible']
+  }
+  const performanceBadge = performanceBadges[model.performance?.source]
+  const estimatedRequired = Number(model.estimatedRequired || 0)
+  const catalogRequired = Number(model.vramRequired || 0)
+  const memoryLabel = estimatedRequired > catalogRequired + 0.1
+    ? `~${estimatedRequired.toFixed(1)} GB incl. KV`
+    : `${catalogRequired} GB VRAM`
 
   return (
     <div className={`p-6 bg-theme-card border rounded-xl transition-all ${
@@ -182,9 +214,9 @@ function ModelCard({ model, isLoading, loadBusy, downloadBusy, downloadStarting,
             <div className="flex items-center gap-3 mt-3 text-sm text-theme-text-muted">
               <span>{model.size}</span>
               <span>•</span>
-              <span>{model.vramRequired} GB VRAM</span>
+              <span title="Estimated runtime memory includes model weights plus context/KV cache">{memoryLabel}</span>
               <span>•</span>
-              <span>~{model.tokensPerSec} tok/s</span>
+              <span>{model.performanceLabel || (model.tokensPerSec ? `${model.tokensPerSec} tok/s` : 'benchmark required')}</span>
               <span>•</span>
               <span>{(model.contextLength / 1024).toFixed(0)}K context</span>
             </div>
@@ -214,6 +246,16 @@ function ModelCard({ model, isLoading, loadBusy, downloadBusy, downloadStarting,
                   Downloaded
                 </span>
               )}
+              {performanceBadge && (
+                <span className={`px-2 py-0.5 text-xs rounded ${performanceBadge[0]}`}>
+                  {performanceBadge[1]}
+                </span>
+              )}
+              {model.recommended && !isLoaded && (
+                <span className="px-2 py-0.5 text-xs bg-amber-500/20 text-amber-300 rounded">
+                  Selected install
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -226,9 +268,19 @@ function ModelCard({ model, isLoading, loadBusy, downloadBusy, downloadStarting,
               Loading...
             </div>
           ) : isLoaded ? (
-            <span className="px-4 py-2 bg-green-600/20 text-green-400 rounded-lg text-sm font-medium">
-              Active
-            </span>
+            <>
+              <span className="px-4 py-2 bg-green-600/20 text-green-400 rounded-lg text-sm font-medium">
+                Active
+              </span>
+              <button
+                onClick={onBenchmark}
+                className="px-4 py-2 bg-theme-accent hover:bg-theme-accent-hover text-white rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
+                title="Run a local benchmark for this loaded model"
+              >
+                <RefreshCw size={16} />
+                Benchmark
+              </button>
+            </>
           ) : isDownloaded ? (
             <>
               <button

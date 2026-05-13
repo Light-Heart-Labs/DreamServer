@@ -108,6 +108,12 @@ if (-not $env:MODEL_PROFILE) {
 }
 
 $tierConfig = Resolve-TierConfig -Tier $selectedTier
+$tierConfig = Resolve-CatalogModelRecommendation `
+    -TierConfig $tierConfig `
+    -Tier $selectedTier `
+    -GpuInfo $gpuInfo `
+    -SystemRamGB $systemRamGB `
+    -SourceRoot $sourceRoot
 $llamaServerImage = if ($tierConfig.LlamaServerImage) { $tierConfig.LlamaServerImage } else { "" }
 if ($tierConfig.LlamaCppReleaseTag) {
     $script:LLAMA_CPP_RELEASE_TAG = $tierConfig.LlamaCppReleaseTag
@@ -121,31 +127,9 @@ Write-InfoBox "  Model:"   "$($tierConfig.LlmModel)"
 Write-InfoBox "  GGUF:"    "$(if ($tierConfig.GgufFile) { $tierConfig.GgufFile } else { '(cloud API -- no local model)' })"
 Write-InfoBox "  Context:" "$($tierConfig.MaxContext) tokens"
 
-# ── Speed / user estimates (informational) ────────────────────────────────────
-$_speedEst = switch ($selectedTier) {
-    "NV_ULTRA"   { "~50 tok/s" }
-    "SH_LARGE"   { "~40 tok/s" }
-    "SH_COMPACT" { "~80 tok/s" }
-    "0"          { "~50 tok/s (CPU)" }
-    "1"          { "~25 tok/s" }
-    "2"          { "~45 tok/s" }
-    "3"          { "~55 tok/s" }
-    "4"          { "~40 tok/s" }
-    "CLOUD"      { "cloud API" }
-    default      { "~30 tok/s" }
-}
-$_usersEst = switch ($selectedTier) {
-    "NV_ULTRA"   { "10-20 concurrent" }
-    "SH_LARGE"   { "5-10 concurrent" }
-    "SH_COMPACT" { "5-10 concurrent" }
-    "0"          { "1 user" }
-    "1"          { "1-2 concurrent" }
-    "2"          { "3-5 concurrent" }
-    "3"          { "5-8 concurrent" }
-    "4"          { "10-15 concurrent" }
-    "CLOUD"      { "depends on API tier" }
-    default      { "varies" }
-}
+# ── Performance disclosure (informational) ────────────────────────────────────
+$_speedEst = if ($selectedTier -eq "CLOUD") { "cloud API" } else { "benchmark after first launch" }
+$_usersEst = if ($selectedTier -eq "CLOUD") { "depends on API tier" } else { "measured after local benchmark" }
 Write-InfoBox "  Speed:"   "$_speedEst"
 Write-InfoBox "  Capacity:" "$_usersEst"
 

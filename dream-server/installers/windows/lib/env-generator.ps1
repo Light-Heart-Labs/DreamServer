@@ -273,6 +273,16 @@ LLM_MODEL=$($TierConfig.LlmModel)
 GGUF_FILE=$($TierConfig.GgufFile)
 MAX_CONTEXT=$($TierConfig.MaxContext)
 CTX_SIZE=$($TierConfig.MaxContext)
+MODEL_RECOMMENDED_MODEL=$($TierConfig.LlmModel)
+MODEL_RECOMMENDED_GGUF=$($TierConfig.GgufFile)
+MODEL_RECOMMENDED_CONTEXT=$($TierConfig.MaxContext)
+MODEL_RECOMMENDATION_SOURCE=$(if ($TierConfig.RecommendationSource) { $TierConfig.RecommendationSource } else { "installer_tier_map" })
+MODEL_RECOMMENDATION_POLICY=$(if ($TierConfig.RecommendationPolicy) { $TierConfig.RecommendationPolicy } else { "tier-map" })
+MODEL_RECOMMENDATION_CONFIDENCE=$(if ($TierConfig.RecommendationConfidence) { $TierConfig.RecommendationConfidence } else { "medium" })
+MODEL_RECOMMENDATION_REASON=$(if ($TierConfig.RecommendationReason) { $TierConfig.RecommendationReason } else { "Selected by installer tier $Tier ($($TierConfig.TierName)) for $GpuBackend backend; benchmark locally after first launch." })
+MODEL_RECOMMENDED_ALTERNATIVES=$(if ($TierConfig.RecommendationAlternatives) { $TierConfig.RecommendationAlternatives } else { "" })
+MODEL_PERFORMANCE_SOURCE=benchmark_required
+MODEL_PERFORMANCE_LABEL=Benchmark after first launch
 GPU_BACKEND=$GpuBackend
 $(if ($LlamaServerImage) { "LLAMA_SERVER_IMAGE=$LlamaServerImage" } else { "#LLAMA_SERVER_IMAGE=ghcr.io/ggml-org/llama.cpp:server-cuda" })
 $(if ($llamaServerImageFallback) { "LLAMA_SERVER_IMAGE_FALLBACK=$llamaServerImageFallback" } else { "#LLAMA_SERVER_IMAGE_FALLBACK=ghcr.io/ggml-org/llama.cpp:server-cuda-b9014" })

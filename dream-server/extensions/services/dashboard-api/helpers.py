@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import platform
+import re
 import shutil
 import socket
 import time
@@ -84,6 +85,7 @@ async def _get_httpx_client() -> httpx.AsyncClient:
 # --- Token Tracking ---
 
 _TOKEN_FILE = Path(DATA_DIR) / "token_counter.json"
+_PERF_FILE = Path(DATA_DIR) / "model_performance.json"
 _prev_tokens = {"count": 0, "time": 0.0, "tps": 0.0}
 
 
@@ -115,6 +117,131 @@ def _get_lifetime_tokens() -> int:
         return json.loads(_TOKEN_FILE.read_text()).get("lifetime", 0)
     except (json.JSONDecodeError, OSError):
         return 0
+
+
+def _normalize_perf_key(value: str | None) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", str(value or "").lower()).strip("-")
+
+
+def _read_json_file(path: Path, default):
+    try:
+        if path.exists():
+            return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        logger.debug("Failed to read JSON file %s: %s", path, e)
+    return default
+
+
+def _write_json_file(path: Path, data) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+    except OSError as e:
+        logger.debug("Failed to write JSON file %s: %s", path, e)
+
+
+def _performance_key(backend: str, gpu_name: str, model_name: str,
+                     context_length: Optional[int] = None,
+                     gguf: Optional[str] = None,
+                     vram_total_mb: Optional[int] = None) -> str:
+    parts = [
+        _normalize_perf_key(backend or "unknown"),
+        _normalize_perf_key(gpu_name),
+        _normalize_perf_key(model_name),
+    ]
+    if gguf:
+        parts.append(_normalize_perf_key(gguf))
+    if context_length:
+        parts.append(f"ctx-{int(context_length)}")
+    if vram_total_mb:
+        parts.append(f"vram-{int(round(vram_total_mb / 1024))}gb")
+    return ":".join(parts)
+
+
+def record_model_performance(
+    model_name: Optional[str],
+    gpu_name: Optional[str],
+    backend: str,
+    tokens_per_second: float,
+    *,
+    model_id: Optional[str] = None,
+    gguf: Optional[str] = None,
+    quantization: Optional[str] = None,
+    architecture: Optional[str] = None,
+    context_length: Optional[int] = None,
+    decode_read_mb: Optional[float] = None,
+    vram_total_mb: Optional[int] = None,
+    os_name: Optional[str] = None,
+    flags: Optional[dict] = None,
+    source: str = "local_metric",
+) -> None:
+    """Persist observed throughput for this exact machine/model pair."""
+    if not model_name or not gpu_name:
+        return
+    try:
+        tps = float(tokens_per_second)
+    except (TypeError, ValueError):
+        return
+    if tps <= 0:
+        return
+
+    data = _read_json_file(_PERF_FILE, {"schema_version": "dream.model-performance.v1", "samples": {}})
+    samples = data.setdefault("samples", {})
+    key = _performance_key(backend, gpu_name, model_name, context_length, gguf, vram_total_mb)
+    previous = samples.get(key, {})
+    previous_avg = float(previous.get("tokens_per_second", tps))
+    previous_count = int(previous.get("sample_count", 0))
+    avg = (previous_avg * 0.8) + (tps * 0.2) if previous_count else tps
+    samples[key] = {
+        "model": model_name,
+        "model_id": model_id or previous.get("model_id"),
+        "gguf": gguf or previous.get("gguf"),
+        "quantization": quantization or previous.get("quantization"),
+        "architecture": architecture or previous.get("architecture"),
+        "gpu": gpu_name,
+        "backend": backend or "unknown",
+        "context_length": context_length or previous.get("context_length"),
+        "decode_read_mb": decode_read_mb or previous.get("decode_read_mb"),
+        "vram_total_mb": vram_total_mb or previous.get("vram_total_mb"),
+        "os": os_name or previous.get("os"),
+        "flags": flags or previous.get("flags", {}),
+        "source": source,
+        "tokens_per_second": round(avg, 1),
+        "last_tokens_per_second": round(tps, 1),
+        "sample_count": previous_count + 1,
+        "updated_at": int(time.time()),
+    }
+    samples[_performance_key(backend, gpu_name, model_name)] = samples[key]
+    _write_json_file(_PERF_FILE, data)
+
+
+def get_recorded_model_performance(
+    model_name: str,
+    gpu_name: str,
+    backend: str,
+    *,
+    context_length: Optional[int] = None,
+    gguf: Optional[str] = None,
+    vram_total_mb: Optional[int] = None,
+) -> Optional[dict]:
+    data = _read_json_file(_PERF_FILE, {"samples": {}})
+    keys = [
+        _performance_key(backend, gpu_name, model_name, context_length, gguf, vram_total_mb),
+        _performance_key(backend, gpu_name, model_name, context_length, gguf),
+        _performance_key(backend, gpu_name, model_name, context_length),
+        _performance_key(backend, gpu_name, model_name),
+    ]
+    samples = data.get("samples", {})
+    sample = next((samples.get(k) for k in keys if samples.get(k)), None)
+    return sample if isinstance(sample, dict) else None
+
+
+def get_model_performance_samples() -> list[dict]:
+    data = _read_json_file(_PERF_FILE, {"samples": {}})
+    samples = data.get("samples", {})
+    if not isinstance(samples, dict):
+        return []
+    return [sample for sample in samples.values() if isinstance(sample, dict)]
 
 
 # --- LLM Metrics ---
