@@ -421,19 +421,100 @@ MODELS_INI_EOF
         ai "DreamForge is compiling from Rust source — this takes 15-25 minutes on first run."
     fi
     _build_total=${#_build_services[@]}
+    # Track builds that didn't produce a usable image so we don't abort the
+    # whole compose-up on a single missing service. Each entry is a service
+    # name (matches dream-cli's service id) that will be excluded below.
+    _failed_build_services=()
     for _svc in "${_build_services[@]}"; do
         _build_count=$((_build_count + 1))
         $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" build --no-cache "$_svc" >> "$LOG_FILE" 2>&1 &
         _build_pid=$!
-        if ! spin_task $_build_pid "[$_build_count/$_build_total] Building $_svc"; then
-            printf "\r  ${AMB}⚠${NC} %-60s\n" "$_svc build failed (non-critical)"
+        _build_failed=false
+        spin_task $_build_pid "[$_build_count/$_build_total] Building $_svc" || _build_failed=true
+        # Cross-check: did the build actually produce a usable image? A
+        # build can "succeed" (exit 0) yet leave no tagged image (rare —
+        # buildx bugs, disk-full mid-export) and a "failed" build can
+        # still leave a usable cached image (idempotent re-run). Inspect
+        # the resolved image tag rather than trusting the exit code alone.
+        _resolved_image=$($DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" config --format json 2>/dev/null \
+            | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    svc_name = '$_svc'
+    svc = d.get('services', {}).get(svc_name, {})
+    image = svc.get('image', '') or ''
+    if not image and svc.get('build') is not None:
+        project = d.get('name') or 'dream-server'
+        image = f'{project}-{svc_name}'
+    print(image)
+except Exception:
+    pass
+" 2>/dev/null || echo "")
+        if [[ -n "$_resolved_image" ]] && ! $DOCKER_CMD image inspect "$_resolved_image" &>/dev/null; then
+            _build_failed=true
+        fi
+        if $_build_failed; then
+            printf "\r  ${AMB}⚠${NC} %-60s\n" "$_svc build failed or image missing"
+            _failed_build_services+=("$_svc")
         else
             printf "\r  ${BGRN}✓${NC} %-60s\n" "$_svc built"
         fi
     done
-    # Start everything — --no-build skips services whose images failed to build.
-    # Up to 3 attempts with increasing wait between retries. On AMD/Lemonade,
-    # the first boot builds a cached llama-server binary which can take 3-5 min.
+
+    # Exclude failed-build services from compose-up. Without this, --no-build
+    # at compose-up time would see a referenced image that doesn't exist and
+    # abort the ENTIRE stack — a single failed build of, say, comfyui takes
+    # down the other 24+ healthy services. Repro'd on Tower2 during today's
+    # cross-platform install test. Removing the compose file from
+    # COMPOSE_FLAGS_ARR lets compose-up proceed with everything that did
+    # build, and the operator can re-attempt the failed extension later via
+    # `dream enable <svc>` once they've fixed the build cause.
+    if [[ ${#_failed_build_services[@]} -gt 0 ]]; then
+        _new_compose_flags_arr=()
+        _excluded_build_services=()
+        _skip_next=false
+        for _arg in "${COMPOSE_FLAGS_ARR[@]}"; do
+            if $_skip_next; then
+                _skip_next=false
+                _drop=false
+                for _failed in "${_failed_build_services[@]}"; do
+                    if [[ "$_arg" == *"/extensions/services/$_failed/"* ]]; then
+                        _drop=true
+                        if [[ " ${_excluded_build_services[*]} " != *" $_failed "* ]]; then
+                            _excluded_build_services+=("$_failed")
+                        fi
+                        break
+                    fi
+                done
+                $_drop || _new_compose_flags_arr+=("-f" "$_arg")
+            elif [[ "$_arg" == "-f" ]]; then
+                _skip_next=true
+            else
+                _new_compose_flags_arr+=("$_arg")
+            fi
+        done
+        COMPOSE_FLAGS_ARR=("${_new_compose_flags_arr[@]}")
+        _retained_failed_build_services=()
+        for _failed in "${_failed_build_services[@]}"; do
+            if [[ " ${_excluded_build_services[*]} " != *" $_failed "* ]]; then
+                _retained_failed_build_services+=("$_failed")
+            fi
+        done
+        if [[ ${#_excluded_build_services[@]} -gt 0 ]]; then
+            ai_warn "Excluding from compose-up due to build failure: ${_excluded_build_services[*]}"
+        fi
+        if [[ ${#_retained_failed_build_services[@]} -gt 0 ]]; then
+            ai_warn "Build failed for core/overlay service(s) still present in compose-up: ${_retained_failed_build_services[*]}"
+        fi
+    fi
+
+    # Start everything. --no-build is intentional: the explicit build loop
+    # above already produced (or failed-and-excluded) every buildable image,
+    # and we don't want compose-up silently re-invoking the slow ComfyUI /
+    # DreamForge builds on each retry. Up to 3 attempts with increasing wait
+    # between retries — on AMD/Lemonade, the first boot builds a cached
+    # llama-server binary which can take 3-5 min.
     for _attempt in 1 2 3; do
         $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up -d --remove-orphans --no-build >> "$LOG_FILE" 2>&1 &
         compose_pid=$!
