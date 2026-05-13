@@ -441,8 +441,13 @@ MODELS_INI_EOF
 import json, sys
 try:
     d = json.load(sys.stdin)
-    svc = d.get('services', {}).get('$_svc', {})
-    print(svc.get('image', '') or '')
+    svc_name = '$_svc'
+    svc = d.get('services', {}).get(svc_name, {})
+    image = svc.get('image', '') or ''
+    if not image and svc.get('build') is not None:
+        project = d.get('name') or 'dream-server'
+        image = f'{project}-{svc_name}'
+    print(image)
 except Exception:
     pass
 " 2>/dev/null || echo "")
@@ -450,7 +455,7 @@ except Exception:
             _build_failed=true
         fi
         if $_build_failed; then
-            printf "\r  ${AMB}⚠${NC} %-60s\n" "$_svc build failed — will skip from compose stack"
+            printf "\r  ${AMB}⚠${NC} %-60s\n" "$_svc build failed or image missing"
             _failed_build_services+=("$_svc")
         else
             printf "\r  ${BGRN}✓${NC} %-60s\n" "$_svc built"
@@ -466,8 +471,8 @@ except Exception:
     # build, and the operator can re-attempt the failed extension later via
     # `dream enable <svc>` once they've fixed the build cause.
     if [[ ${#_failed_build_services[@]} -gt 0 ]]; then
-        ai_warn "Excluding from compose-up due to build failure: ${_failed_build_services[*]}"
         _new_compose_flags_arr=()
+        _excluded_build_services=()
         _skip_next=false
         for _arg in "${COMPOSE_FLAGS_ARR[@]}"; do
             if $_skip_next; then
@@ -476,6 +481,9 @@ except Exception:
                 for _failed in "${_failed_build_services[@]}"; do
                     if [[ "$_arg" == *"/extensions/services/$_failed/"* ]]; then
                         _drop=true
+                        if [[ " ${_excluded_build_services[*]} " != *" $_failed "* ]]; then
+                            _excluded_build_services+=("$_failed")
+                        fi
                         break
                     fi
                 done
@@ -487,6 +495,18 @@ except Exception:
             fi
         done
         COMPOSE_FLAGS_ARR=("${_new_compose_flags_arr[@]}")
+        _retained_failed_build_services=()
+        for _failed in "${_failed_build_services[@]}"; do
+            if [[ " ${_excluded_build_services[*]} " != *" $_failed "* ]]; then
+                _retained_failed_build_services+=("$_failed")
+            fi
+        done
+        if [[ ${#_excluded_build_services[@]} -gt 0 ]]; then
+            ai_warn "Excluding from compose-up due to build failure: ${_excluded_build_services[*]}"
+        fi
+        if [[ ${#_retained_failed_build_services[@]} -gt 0 ]]; then
+            ai_warn "Build failed for core/overlay service(s) still present in compose-up: ${_retained_failed_build_services[*]}"
+        fi
     fi
 
     # Start everything. --no-build is intentional: the explicit build loop
