@@ -160,11 +160,30 @@ if $KEEP_MODELS && [[ -d "$INSTALL_DIR/data/models" ]]; then
 fi
 
 if $KEEP_DATA; then
-    # Remove everything except data/
+    # Remove everything except data/. Container-UID files under data/ stay
+    # untouched (--keep-data implies preserving them anyway).
     find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 ! -name 'data' -exec rm -rf {} + 2>/dev/null || true
     log_info "User data preserved at: $INSTALL_DIR/data/"
 else
+    # Containers (open-webui, qdrant, baserow, searxng, ...) write into
+    # $INSTALL_DIR/data/ as their own UIDs, not the host user's. Plain
+    # `rm -rf` then fails on every file with Permission denied and exits
+    # with $INSTALL_DIR still present — which silently turns "uninstall"
+    # into "uninstall everything but the install directory."
+    #
+    # Reclaim ownership before the rm. The installer itself does the same
+    # dance at `installers/phases/06-directories.sh` after picking up
+    # container-owned dirs from a prior run, so the pattern is already
+    # blessed for this codebase. If sudo is unavailable, fall back to a
+    # best-effort rm and let the operator see the failures explicitly.
+    if command -v sudo >/dev/null 2>&1; then
+        sudo chown -R "$(id -u):$(id -g)" "$INSTALL_DIR" 2>/dev/null || \
+            log_warn "Could not chown $INSTALL_DIR (container-UID files may remain)"
+    fi
     rm -rf "$INSTALL_DIR"
+    if [[ -d "$INSTALL_DIR" ]]; then
+        log_warn "Install dir still present at $INSTALL_DIR — likely container-UID files that need: sudo rm -rf $INSTALL_DIR"
+    fi
 fi
 log_ok "Installation directory cleaned"
 
