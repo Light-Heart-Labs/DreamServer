@@ -338,19 +338,44 @@ if [[ -f "$INSTALL_DIR/bin/dream-mdns.py" ]] && [[ "$(uname -s)" == "Linux" ]]; 
     # Install python3-zeroconf via the system package manager. Non-fatal —
     # mDNS is a quality-of-life feature; if zeroconf isn't available the
     # device is still reachable by IP.
+    #
+    # Two-tier strategy:
+    #   1. Try the distro package manager first (best: integrates with apt
+    #      upgrades, doesn't require pip / network in offline mode).
+    #   2. Fall back to `pip install --user zeroconf` if the package isn't
+    #      in the distro's repos (e.g. minimal images, stale apt cache,
+    #      Ubuntu universe disabled) — without this, the install logs a
+    #      warning and the mDNS announcer never starts even though the
+    #      Python module is one pip away.
+    _install_zeroconf_via_pkg() {
+        case "$PKG_MANAGER" in
+            apt)    sudo apt-get install -y python3-zeroconf 2>&1 | tee -a "$LOG_FILE" ;;
+            dnf)    sudo dnf install -y python3-zeroconf 2>&1 | tee -a "$LOG_FILE" ;;
+            pacman) sudo pacman -S --noconfirm --needed python-zeroconf 2>&1 | tee -a "$LOG_FILE" ;;
+            zypper) sudo zypper --non-interactive install python3-zeroconf 2>&1 | tee -a "$LOG_FILE" ;;
+            *)      return 99 ;;
+        esac
+    }
+    _install_zeroconf_via_pip() {
+        # `--user` writes into ~/.local/lib/python3.x/site-packages so we
+        # don't need sudo and don't fight PEP 668 (Debian/Ubuntu mark the
+        # system site-packages as externally-managed). The mDNS announcer
+        # runs as $USER, not root, so --user is the right install scope.
+        if command -v pip3 >/dev/null 2>&1; then
+            pip3 install --user --quiet --no-warn-script-location zeroconf 2>&1 | tee -a "$LOG_FILE"
+        else
+            return 99
+        fi
+    }
     if ! python3 -c "import zeroconf" 2>/dev/null; then
         ai "Installing python3-zeroconf (for mDNS announcer)..."
-        case "$PKG_MANAGER" in
-            apt)    sudo apt-get install -y python3-zeroconf 2>&1 | tee -a "$LOG_FILE" || \
-                        ai_warn "Failed to install python3-zeroconf via apt (non-fatal — mDNS announcer will not start)" ;;
-            dnf)    sudo dnf install -y python3-zeroconf 2>&1 | tee -a "$LOG_FILE" || \
-                        ai_warn "Failed to install python3-zeroconf via dnf (non-fatal — mDNS announcer will not start)" ;;
-            pacman) sudo pacman -S --noconfirm --needed python-zeroconf 2>&1 | tee -a "$LOG_FILE" || \
-                        ai_warn "Failed to install python-zeroconf via pacman (non-fatal — mDNS announcer will not start)" ;;
-            zypper) sudo zypper --non-interactive install python3-zeroconf 2>&1 | tee -a "$LOG_FILE" || \
-                        ai_warn "Failed to install python3-zeroconf via zypper (non-fatal — mDNS announcer will not start)" ;;
-            *)      ai_warn "Unknown package manager — install python3-zeroconf manually for mDNS" ;;
-        esac
+        if ! _install_zeroconf_via_pkg && python3 -c "import zeroconf" 2>/dev/null; then
+            : # pkg manager succeeded
+        elif _install_zeroconf_via_pip && python3 -c "import zeroconf" 2>/dev/null; then
+            ai_ok "Installed zeroconf via pip --user (system package manager unavailable / failed)"
+        else
+            ai_warn "Failed to install zeroconf via $PKG_MANAGER AND pip --user — mDNS announcer will not start (non-fatal; device still reachable by IP)"
+        fi
     fi
 
     # Install the systemd unit alongside dream-host-agent. Reuses the same
