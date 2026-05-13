@@ -226,26 +226,6 @@ mkdir -p "$(dirname "$DS_LOG_FILE")"
 show_dream_banner
 show_phase 1 6 "PREFLIGHT CHECKS" "30 seconds"
 
-# Reap orphan native llama-server processes from prior install runs.
-#
-# The Metal-backed `bin/llama-server` is spawned via launchctl in Phase 5.
-# Re-running the installer (debugging, version bump, switching models)
-# leaves the prior PID alive and listening on the same port — `lsof` then
-# shows multiple instances, only the first wins the bind, and the
-# debugging operator wastes time wondering why their config change didn't
-# take effect. Kill any process whose argv references THIS install dir's
-# `bin/llama-server`. Other native llama-server installs (e.g. a personal
-# one outside INSTALL_DIR) are left alone.
-_reaped=0
-if command -v pgrep >/dev/null 2>&1 && [[ -n "${INSTALL_DIR:-}" ]]; then
-    while read -r _pid; do
-        [[ -z "$_pid" ]] && continue
-        kill "$_pid" 2>/dev/null && _reaped=$((_reaped + 1))
-    done < <(pgrep -f "${INSTALL_DIR}/bin/llama-server" 2>/dev/null)
-    [[ "$_reaped" -gt 0 ]] && ai "Reaped $_reaped orphan llama-server process(es) from prior install run(s)."
-fi
-unset _reaped
-
 # macOS version
 get_macos_version
 info_box "macOS:" "${MACOS_NAME} ${MACOS_VERSION} (${MACOS_BUILD})"
@@ -861,6 +841,22 @@ else
                 sleep 2
             fi
         fi
+        # Reap orphan native llama-server processes from prior install runs.
+        # The PID file only tracks the most recent process, so model switches
+        # or interrupted installs can leave older copies shadowing the new
+        # config. Scope to this install dir so personal llama-server installs
+        # elsewhere are left alone, and do this only when we are about to start
+        # the replacement server so failed preflights do not take a working
+        # server down.
+        _reaped=0
+        if command -v pgrep >/dev/null 2>&1 && [[ -x "${LLAMA_SERVER_BIN:-}" ]]; then
+            while read -r _pid; do
+                [[ -z "$_pid" ]] && continue
+                kill "$_pid" 2>/dev/null && _reaped=$((_reaped + 1))
+            done < <(pgrep -f "$LLAMA_SERVER_BIN" 2>/dev/null)
+            [[ "$_reaped" -gt 0 ]] && ai "Reaped $_reaped orphan llama-server process(es) from prior install run(s)."
+        fi
+        unset _reaped
 
         # Read reasoning mode from .env (default off to prevent thinking models
         # from consuming the entire token budget on internal reasoning)
