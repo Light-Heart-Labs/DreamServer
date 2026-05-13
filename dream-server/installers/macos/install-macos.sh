@@ -921,6 +921,25 @@ else
 
         if $HEALTHY; then
             ai_ok "Native llama-server healthy (PID ${LLAMA_PID})"
+
+            # ── Pre-warm the LLM slot ──
+            # /health returning 200 only means the model is mmap'd. The
+            # FIRST chat completion still has to materialize KV cache and
+            # JIT compile fused kernels — during that, llama-server 503s
+            # concurrent requests. Hermes Agent's default 3-retry / 120s
+            # budget burns out on this on slower hardware, so we force
+            # the slot through cold path here while we're already in the
+            # "this may take a minute" install context. Bounded by curl
+            # --max-time so a stalled llama-server can't hang the install.
+            _prewarm_url="http://127.0.0.1:${OLLAMA_PORT:-8080}/v1/chat/completions"
+            _prewarm_body='{"messages":[{"role":"user","content":"hi"}],"max_tokens":1,"temperature":0,"stream":false}'
+            if curl -sf --max-time 120 -X POST "$_prewarm_url" \
+                -H "Content-Type: application/json" \
+                -d "$_prewarm_body" >/dev/null 2>&1; then
+                ai_ok "LLM slot pre-warmed (first real chat will be fast)"
+            else
+                ai_warn "LLM pre-warm timed out — first Hermes prompt may need a retry while the slot warms."
+            fi
         else
             ai_warn "llama-server did not become healthy within ${MAX_WAIT}s. It may still be loading."
         fi
