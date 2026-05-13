@@ -932,7 +932,8 @@ else
             # "this may take a minute" install context. Bounded by curl
             # --max-time so a stalled llama-server can't hang the install.
             _prewarm_url="http://127.0.0.1:${OLLAMA_PORT:-8080}/v1/chat/completions"
-            _prewarm_body='{"messages":[{"role":"user","content":"hi"}],"max_tokens":1,"temperature":0,"stream":false}'
+            _prewarm_model="${GGUF_FILE:-default}"
+            _prewarm_body="{\"model\":\"${_prewarm_model}\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1,\"temperature\":0,\"stream\":false}"
             if curl -sf --max-time 120 -X POST "$_prewarm_url" \
                 -H "Content-Type: application/json" \
                 -d "$_prewarm_body" >/dev/null 2>&1; then

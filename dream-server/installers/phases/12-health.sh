@@ -129,8 +129,14 @@ _check_health "llama-server" "http://127.0.0.1:${SERVICE_PORTS[llama-server]:-80
 # lands on an already-hot slot. Bounded by curl --max-time so a stalled
 # llama-server doesn't hang phase 12.
 dream_progress 87 "health" "Pre-warming LLM slot"
-_prewarm_url="http://127.0.0.1:${SERVICE_PORTS[llama-server]:-8080}/v1/chat/completions"
-_prewarm_body='{"messages":[{"role":"user","content":"hi"}],"max_tokens":1,"temperature":0,"stream":false}'
+_prewarm_api_path="/v1"
+_prewarm_model="${GGUF_FILE:-${LLM_MODEL:-default}}"
+if [[ "${GPU_BACKEND:-}" == "amd" ]]; then
+    _prewarm_api_path="/api/v1"
+    [[ -n "${GGUF_FILE:-}" ]] && _prewarm_model="extra.${GGUF_FILE}"
+fi
+_prewarm_url="http://127.0.0.1:${SERVICE_PORTS[llama-server]:-8080}${_prewarm_api_path}/chat/completions"
+_prewarm_body="{\"model\":\"${_prewarm_model}\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1,\"temperature\":0,\"stream\":false}"
 if curl -sf --max-time 120 -X POST "$_prewarm_url" \
     -H "Content-Type: application/json" \
     -d "$_prewarm_body" >/dev/null 2>&1; then
