@@ -186,7 +186,6 @@ else
                 dl_pid=$!
 
                 if spin_task $dl_pid "Downloading $GGUF_FILE"; then
-                    mv "$GGUF_DIR/$GGUF_FILE.part" "$GGUF_DIR/$GGUF_FILE"
                     # Verify the file actually landed before claiming success.
                     # Today's chain (spin_task → mv → printf) trusts each step's
                     # exit code separately and can race: mv can silently fail if
@@ -194,11 +193,12 @@ else
                     # another process can remove the file before the printf
                     # fires. A spurious "Model downloaded" line then misleads
                     # later phases that depend on the file existing.
-                    if [[ -s "$GGUF_DIR/$GGUF_FILE" ]]; then
+                    if mv "$GGUF_DIR/$GGUF_FILE.part" "$GGUF_DIR/$GGUF_FILE" && [[ -s "$GGUF_DIR/$GGUF_FILE" ]]; then
                         printf "\r  ${BGRN}✓${NC} %-60s\n" "Model downloaded: $GGUF_FILE"
                         _dl_success=true
                         break
                     else
+                        rm -f "$GGUF_DIR/$GGUF_FILE" 2>/dev/null || true
                         printf "\r  ${AMB}⚠${NC} %-60s\n" "Download claimed to succeed but $GGUF_FILE is missing/empty"
                     fi
                 fi
@@ -337,7 +337,7 @@ MODELS_INI_EOF
                         # contains awk-meta characters or the original
                         # line had trailing whitespace the regex didn't
                         # match). Re-read the file and assert.
-                        if grep -q "^${_key}=${_val}$" "$_env_file"; then
+                        if grep -Fqx "${_key}=${_val}" "$_env_file"; then
                             : # confirmed
                         else
                             _env_patch_ok=false
