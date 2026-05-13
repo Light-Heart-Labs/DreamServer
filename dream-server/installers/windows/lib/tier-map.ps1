@@ -400,6 +400,43 @@ function Get-CatalogModelSelectorMemory {
     }
 }
 
+function Get-CatalogRuntimeProfile {
+    param(
+        [object]$Model,
+        [hashtable]$GpuInfo,
+        [int]$SystemRamGB
+    )
+
+    if (-not $Model.PSObject.Properties["runtime_profiles"]) { return $null }
+    $profiles = @($Model.runtime_profiles)
+    if ($profiles.Count -eq 0) { return $null }
+
+    $backend = "$($GpuInfo.Backend)".ToLowerInvariant()
+    $memoryType = "$($GpuInfo.MemoryType)".ToLowerInvariant()
+    if (-not $memoryType) { $memoryType = "discrete" }
+    $hostArch = Get-HostArchitecture
+    $vramGB = [double]$GpuInfo.VramMB / 1024.0
+
+    foreach ($runtimeProfile in $profiles) {
+        if (-not $runtimeProfile) { continue }
+        if ($runtimeProfile.backend -and "$($runtimeProfile.backend)".ToLowerInvariant() -ne $backend) { continue }
+        if ($runtimeProfile.host_arch) {
+            $arches = @($runtimeProfile.host_arch | ForEach-Object { Normalize-HostArchitecture -HostArchitecture $_ })
+            if ($arches.Count -gt 0 -and $arches -notcontains $hostArch) { continue }
+        }
+        if ($runtimeProfile.memory_type -and "$($runtimeProfile.memory_type)".ToLowerInvariant() -ne $memoryType) { continue }
+        try {
+            if ($null -ne $runtimeProfile.vram_min_gb -and $vramGB -lt [double]$runtimeProfile.vram_min_gb) { continue }
+            if ($null -ne $runtimeProfile.vram_max_gb -and $vramGB -gt [double]$runtimeProfile.vram_max_gb) { continue }
+            if ($null -ne $runtimeProfile.system_ram_min_gb -and [double]$SystemRamGB -lt [double]$runtimeProfile.system_ram_min_gb) { continue }
+        } catch {
+            continue
+        }
+        return $runtimeProfile
+    }
+    return $null
+}
+
 function Test-CatalogModelFamilyAllowed {
     param(
         [object]$Model,
@@ -445,21 +482,31 @@ function Get-CatalogModelEstimatedParamBillions {
 }
 
 function Get-CatalogModelEstimatedContextKvGB {
-    param([object]$Model)
+    param(
+        [object]$Model,
+        [object]$RuntimeProfile = $null
+    )
 
-    $context = [Math]::Max([int]$Model.context_length, 8192)
+    $context = if ($RuntimeProfile -and $RuntimeProfile.context_length) { [int]$RuntimeProfile.context_length } else { [int]$Model.context_length }
+    $context = [Math]::Max($context, 8192)
     $paramsB = Get-CatalogModelEstimatedParamBillions -Model $Model
     $kvPer32kGb = [Math]::Min([Math]::Max(($paramsB * 0.12), 0.35), 3.5)
     return [Math]::Round(($kvPer32kGb * ([double]$context / 32768.0)), 2)
 }
 
 function Get-CatalogModelSelectorRequiredGB {
-    param([object]$Model)
+    param(
+        [object]$Model,
+        [object]$RuntimeProfile = $null
+    )
 
+    if ($RuntimeProfile -and $null -ne $RuntimeProfile.estimated_required_gb) {
+        return [Math]::Round([double]$RuntimeProfile.estimated_required_gb, 2)
+    }
     $declared = [double]$Model.vram_required_gb
     $sizeGb = ([double]$Model.size_mb / 1024.0)
     if ($sizeGb -le 0) { return [Math]::Round($declared, 2) }
-    $withContext = $sizeGb + (Get-CatalogModelEstimatedContextKvGB -Model $Model)
+    $withContext = $sizeGb + (Get-CatalogModelEstimatedContextKvGB -Model $Model -RuntimeProfile $RuntimeProfile)
     return [Math]::Round([Math]::Max($declared, $withContext), 2)
 }
 
@@ -467,7 +514,8 @@ function Get-CatalogModelScore {
     param(
         [object]$Model,
         [double]$CapacityGB,
-        [string]$ModelProfileName
+        [string]$ModelProfileName,
+        [object]$RuntimeProfile = $null
     )
 
     $specialtyWeights = @{
@@ -486,8 +534,9 @@ function Get-CatalogModelScore {
     if ($ModelProfileName -eq "gemma4" -and $family -eq "gemma4") { $familyBonus += 0.35 }
     if (($ModelProfileName -eq "qwen" -or $ModelProfileName -eq "auto") -and $family -eq "qwen") { $familyBonus += 0.25 }
     $sizeMb = [Math]::Max([double]$Model.size_mb, 1.0)
-    $context = [Math]::Max([int]$Model.context_length, 8192)
-    $required = Get-CatalogModelSelectorRequiredGB -Model $Model
+    $context = if ($RuntimeProfile -and $RuntimeProfile.context_length) { [int]$RuntimeProfile.context_length } else { [int]$Model.context_length }
+    $context = [Math]::Max($context, 8192)
+    $required = Get-CatalogModelSelectorRequiredGB -Model $Model -RuntimeProfile $RuntimeProfile
     $contextBonus = [Math]::Min(([double]$context / 32768.0), 4.0) * 0.18
     $capability = [Math]::Min(($sizeMb / 1024.0), 48.0) * 0.24
     $fitRatio = $required / [Math]::Max($CapacityGB, 1.0)
@@ -561,11 +610,13 @@ function Resolve-CatalogModelRecommendation {
     foreach ($model in $catalog.models) {
         if (-not $model.gguf_url) { continue }
         if (-not (Test-CatalogModelFamilyAllowed -Model $model -ModelProfileName $modelProfileName)) { continue }
-        $requiredGb = Get-CatalogModelSelectorRequiredGB -Model $model
+        $runtimeProfile = Get-CatalogRuntimeProfile -Model $model -GpuInfo $GpuInfo -SystemRamGB $SystemRamGB
+        $requiredGb = Get-CatalogModelSelectorRequiredGB -Model $model -RuntimeProfile $runtimeProfile
         if ($requiredGb -gt ($capacityGb + 0.25)) { continue }
         $candidates += [pscustomobject]@{
             Model = $model
-            Score = Get-CatalogModelScore -Model $model -CapacityGB $capacityGb -ModelProfileName $modelProfileName
+            RuntimeProfile = $runtimeProfile
+            Score = Get-CatalogModelScore -Model $model -CapacityGB $capacityGb -ModelProfileName $modelProfileName -RuntimeProfile $runtimeProfile
             RequiredGB = $requiredGb
         }
     }
@@ -579,23 +630,42 @@ function Resolve-CatalogModelRecommendation {
         @{ Expression = { [int]$_.Model.context_length }; Descending = $true }
     $selected = $ranked[0].Model
     $alternatives = @($ranked | Select-Object -First 3 | ForEach-Object {
-        "$($_.Model.id):$([int]$_.Model.context_length):$([double]$_.RequiredGB)"
+        $altContext = if ($_.RuntimeProfile -and $_.RuntimeProfile.context_length) { [int]$_.RuntimeProfile.context_length } else { [int]$_.Model.context_length }
+        "$($_.Model.id):${altContext}:$([double]$_.RequiredGB)"
     }) -join ";"
     $confidence = if ($capacityGb -gt 0 -and $GpuInfo.Backend -and $GpuInfo.Backend -ne "unknown") { "high" } else { "medium" }
-    $contextK = [int]([int]$selected.context_length / 1024)
-    $selectedRequiredGb = Get-CatalogModelSelectorRequiredGB -Model $selected
-    $reason = "Catalog fit (context-aware-largest-capable-general-v1): $($selected.name) needs about ${selectedRequiredGb}GB including context/KV, fits $([Math]::Round($capacityGb, 1))GB $($memory.Label) on $($GpuInfo.Backend), and gives ${contextK}K context. Throughput requires a local benchmark after first launch."
+    $selectedRuntimeProfile = $ranked[0].RuntimeProfile
+    $selectedContext = if ($selectedRuntimeProfile -and $selectedRuntimeProfile.context_length) { [int]$selectedRuntimeProfile.context_length } else { [int]$selected.context_length }
+    $contextK = [int]($selectedContext / 1024)
+    $selectedRequiredGb = Get-CatalogModelSelectorRequiredGB -Model $selected -RuntimeProfile $selectedRuntimeProfile
+    if ($selectedRuntimeProfile) {
+        $reason = "Catalog runtime fit (context-aware-largest-capable-general-v1): $($selected.name) uses $($selectedRuntimeProfile.label) via $($selectedRuntimeProfile.runtime), needs about ${selectedRequiredGb}GB GPU headroom plus $($selectedRuntimeProfile.system_ram_min_gb)GB system RAM, fits $([Math]::Round($capacityGb, 1))GB $($memory.Label) on $($GpuInfo.Backend), and gives ${contextK}K context. Throughput requires a local benchmark after first launch."
+    } else {
+        $reason = "Catalog fit (context-aware-largest-capable-general-v1): $($selected.name) needs about ${selectedRequiredGb}GB including context/KV, fits $([Math]::Round($capacityGb, 1))GB $($memory.Label) on $($GpuInfo.Backend), and gives ${contextK}K context. Throughput requires a local benchmark after first launch."
+    }
 
     $TierConfig["LlmModel"] = $selected.llm_model_name
     $TierConfig["GgufFile"] = $selected.gguf_file
     $TierConfig["GgufUrl"] = $selected.gguf_url
     $TierConfig["GgufSha256"] = $selected.gguf_sha256
-    $TierConfig["MaxContext"] = [int]$selected.context_length
+    $TierConfig["MaxContext"] = $selectedContext
     $TierConfig["ModelSizeMB"] = [int][Math]::Round([double]$selected.size_mb)
-    if ($selected.llama_server_image) {
+    if ($selectedRuntimeProfile) {
+        $TierConfig["RuntimeProfile"] = $selectedRuntimeProfile.id
+        $TierConfig["RuntimeProfileLabel"] = $selectedRuntimeProfile.label
+        $TierConfig["RuntimeProfileSource"] = $selectedRuntimeProfile.source_url
+        if ($selectedRuntimeProfile.llama_server_image) {
+            $TierConfig["LlamaServerImage"] = $selectedRuntimeProfile.llama_server_image
+        }
+        if ($selectedRuntimeProfile.env) {
+            foreach ($prop in $selectedRuntimeProfile.env.PSObject.Properties) {
+                $TierConfig[$prop.Name] = [string]$prop.Value
+            }
+        }
+    } elseif ($selected.llama_server_image) {
         $TierConfig["LlamaServerImage"] = $selected.llama_server_image
     }
-    $TierConfig["RecommendationSource"] = "catalog_fit_pre_download"
+    $TierConfig["RecommendationSource"] = if ($selectedRuntimeProfile) { "catalog_runtime_profile_pre_download" } else { "catalog_fit_pre_download" }
     $TierConfig["RecommendationPolicy"] = "context-aware-largest-capable-general-v1"
     $TierConfig["RecommendationConfidence"] = $confidence
     $TierConfig["RecommendationReason"] = $reason

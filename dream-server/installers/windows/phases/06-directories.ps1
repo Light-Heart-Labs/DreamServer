@@ -123,6 +123,7 @@ $envResult = New-DreamEnv `
     -GpuBackend     $gpuInfo.Backend `
     -DreamMode      $_dreamMode `
     -LlamaServerImage $llamaServerImage `
+    -SystemRamGB    $systemRamGB `
     -EnableLangfuse $enableLangfuse `
     -EnableLan      $lanFlag
 Write-AISuccess "Generated .env with secure secrets"

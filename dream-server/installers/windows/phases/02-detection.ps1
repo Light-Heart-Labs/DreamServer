@@ -137,7 +137,8 @@ Write-InfoBox "  Capacity:" "$_usersEst"
 # Now that tier is known we can calculate the actual storage needed:
 # model file + Docker image layers (~15 GB headroom).
 $_modelGB = $(
-    if ($tierConfig.GgufFile -match "80B|Coder-Next") { 50 }
+    if ($tierConfig.ModelSizeMB) { [Math]::Ceiling([double]$tierConfig.ModelSizeMB / 1024.0) }
+    elseif ($tierConfig.GgufFile -match "80B|Coder-Next") { 50 }
     elseif ($tierConfig.GgufFile -match "31B") { 22 }
     elseif ($tierConfig.GgufFile -match "30B|26B") { 20 }
     elseif ($tierConfig.GgufFile -match "20b") { 12 }

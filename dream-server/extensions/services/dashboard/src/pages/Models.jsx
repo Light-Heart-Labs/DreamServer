@@ -228,7 +228,7 @@ function ModelCard({ model, isLoading, loadBusy, downloadBusy, downloadStarting,
               
               {model.fitsVram ? (
                 <span className="px-2 py-0.5 text-xs bg-green-500/20 text-green-400 rounded flex items-center gap-1">
-                  <Check size={12} /> Fits GPU
+                  <Check size={12} /> {model.fitLabel || 'Fits GPU'}
                 </span>
               ) : (
                 <span className="px-2 py-0.5 text-xs bg-red-500/20 text-red-400 rounded flex items-center gap-1">

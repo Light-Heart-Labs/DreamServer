@@ -2840,6 +2840,15 @@ class AgentHandler(BaseHTTPRequestHandler):
             # Read current env BEFORE modification — needed for gpu_backend guard
             env_pre = load_env(env_path)
             gpu_backend = env_pre.get("GPU_BACKEND", "nvidia")
+            runtime_profile = _select_runtime_profile(model, env_pre)
+            runtime_env = {}
+            if runtime_profile:
+                try:
+                    context_length = int(runtime_profile.get("context_length") or context_length)
+                except (TypeError, ValueError):
+                    pass
+                llama_server_image = runtime_profile.get("llama_server_image") or llama_server_image
+                runtime_env = runtime_profile.get("env") if isinstance(runtime_profile.get("env"), dict) else {}
 
             # Save rollback snapshot
             env_backup = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
@@ -2854,7 +2863,37 @@ class AgentHandler(BaseHTTPRequestHandler):
                     "LLM_MODEL": llm_model_name,
                     "CTX_SIZE": str(context_length),
                     "MAX_CONTEXT": str(context_length),
+                    "MODEL_RUNTIME_PROFILE": runtime_profile.get("id", "") if runtime_profile else "",
+                    "MODEL_RUNTIME_PROFILE_LABEL": runtime_profile.get("label", "") if runtime_profile else "",
+                    "MODEL_RUNTIME_PROFILE_SOURCE": runtime_profile.get("source_url", "") if runtime_profile else "",
                 }
+                runtime_keys = {
+                    "LLAMA_PARALLEL",
+                    "LLAMA_ARG_FLASH_ATTN",
+                    "LLAMA_ARG_CACHE_TYPE_K",
+                    "LLAMA_ARG_CACHE_TYPE_V",
+                    "LLAMA_ARG_N_CPU_MOE",
+                    "LLAMA_ARG_NO_CACHE_PROMPT",
+                    "LLAMA_ARG_CHECKPOINT_EVERY_N_TOKENS",
+                }
+                if runtime_profile:
+                    for key, value in runtime_env.items():
+                        if key in runtime_keys and value is not None:
+                            updates[key] = str(value)
+                else:
+                    updates.update({
+                        "LLAMA_PARALLEL": "1",
+                        "LLAMA_ARG_FLASH_ATTN": "auto",
+                        "LLAMA_ARG_CACHE_TYPE_K": "f16",
+                        "LLAMA_ARG_CACHE_TYPE_V": "f16",
+                    })
+                remove_keys = {
+                    "LLAMA_ARG_N_CPU_MOE",
+                    "LLAMA_ARG_NO_CACHE_PROMPT",
+                    "LLAMA_ARG_CHECKPOINT_EVERY_N_TOKENS",
+                    "LLAMA_SERVER_IMAGE",
+                }
+                remove_keys.difference_update(updates)
                 # Only update LLAMA_SERVER_IMAGE on Docker backends.
                 # macOS runs llama-server natively (no Docker image to pull).
                 if llama_server_image and gpu_backend != "apple":
@@ -2866,6 +2905,8 @@ class AgentHandler(BaseHTTPRequestHandler):
                     if key and key in updates:
                         new_lines.append(f"{key}={updates[key]}")
                         seen.add(key)
+                    elif key and key in remove_keys:
+                        continue
                     else:
                         new_lines.append(line)
                 for key, val in updates.items():
@@ -2968,7 +3009,7 @@ class AgentHandler(BaseHTTPRequestHandler):
                 # Re-launch native llama-server with new model
                 _launch_native_llama_server(env_path, llama_bin, llama_log, pid_file)
             elif _in_container:
-                override_image = llama_server_image or ""
+                override_image = llama_server_image or ("ghcr.io/ggml-org/llama.cpp:server-cuda-b9014" if gpu_backend == "nvidia" else "")
                 _recreate_llama_server(env, override_image=override_image)
             else:
                 _compose_restart_llama_server(env)
@@ -3223,6 +3264,105 @@ def _write_lemonade_config(install_dir: Path, gguf_file: str):
     config_path.write_text(content, encoding="utf-8")
     logger.info("Wrote lemonade.yaml for model: extra.%s", gguf_file)
 
+
+def _normalize_key(value) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", str(value or "").lower()).strip("-")
+
+
+def _normalize_host_arch(value) -> str:
+    key = _normalize_key(value)
+    if key in {"aarch64", "arm64"}:
+        return "arm64"
+    if key in {"x86-64", "x86_64", "amd64", "x64"}:
+        return "amd64"
+    return key or "unknown"
+
+
+def _system_ram_gb() -> int:
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+
+            stat = MEMORYSTATUSEX()
+            stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+                return int(round(stat.ullTotalPhys / (1024**3)))
+        pages = os.sysconf("SC_PHYS_PAGES")
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        return int(round((pages * page_size) / (1024**3)))
+    except (AttributeError, OSError, ValueError):
+        return 0
+
+
+def _nvidia_vram_gb() -> float:
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+        if result.returncode == 0:
+            first = result.stdout.strip().splitlines()[0].strip()
+            return float(first) / 1024.0
+    except (IndexError, OSError, subprocess.TimeoutExpired, ValueError):
+        pass
+    return 0.0
+
+
+def _select_runtime_profile(model: dict, env: dict) -> dict | None:
+    profiles = model.get("runtime_profiles")
+    if not isinstance(profiles, list):
+        return None
+    backend = _normalize_key(env.get("GPU_BACKEND", GPU_BACKEND or ""))
+    memory_type = _normalize_key(env.get("GPU_MEMORY_TYPE", "discrete"))
+    host_arch = _normalize_host_arch(platform.machine())
+    vram_gb = _nvidia_vram_gb() if backend == "nvidia" else 0.0
+    try:
+        ram_gb = int(env.get("SYSTEM_RAM_GB") or 0) or _system_ram_gb()
+    except (TypeError, ValueError):
+        ram_gb = _system_ram_gb()
+    for profile in profiles:
+        if not isinstance(profile, dict):
+            continue
+        if _normalize_key(profile.get("backend")) not in {"", backend}:
+            continue
+        allowed_arches = {
+            _normalize_host_arch(item)
+            for item in (profile.get("host_arch") if isinstance(profile.get("host_arch"), list) else [profile.get("host_arch")])
+            if item
+        }
+        if allowed_arches and host_arch not in allowed_arches:
+            continue
+        required_memory_type = _normalize_key(profile.get("memory_type"))
+        if required_memory_type and required_memory_type != memory_type:
+            continue
+        try:
+            if profile.get("vram_min_gb") is not None and vram_gb < float(profile["vram_min_gb"]):
+                continue
+            if profile.get("vram_max_gb") is not None and vram_gb > float(profile["vram_max_gb"]):
+                continue
+            if profile.get("system_ram_min_gb") is not None and float(ram_gb or 0) < float(profile["system_ram_min_gb"]):
+                continue
+        except (TypeError, ValueError):
+            continue
+        return profile
+    return None
+
+
 def _launch_native_llama_server(env_path: Path, llama_bin: Path, llama_log: Path, pid_file: Path):
     """Launch the native (Metal) llama-server process and write its PID file.
 
@@ -3243,6 +3383,7 @@ def _launch_native_llama_server(env_path: Path, llama_bin: Path, llama_log: Path
         "--model", str(model_path),
         "--ctx-size", ctx_size,
         "--n-gpu-layers", "999",
+        "--parallel", env.get("LLAMA_PARALLEL", "1"),
         "--reasoning-format", reasoning_fmt,
         "--metrics",
     ]
@@ -3251,11 +3392,14 @@ def _launch_native_llama_server(env_path: Path, llama_bin: Path, llama_log: Path
         "LLAMA_ARG_CACHE_TYPE_K": "--cache-type-k",
         "LLAMA_ARG_CACHE_TYPE_V": "--cache-type-v",
         "LLAMA_ARG_N_CPU_MOE": "--n-cpu-moe",
+        "LLAMA_ARG_CHECKPOINT_EVERY_N_TOKENS": "--checkpoint-every-n-tokens",
     }
     for env_key, flag in optional_args.items():
         value = env.get(env_key, "").strip()
         if value:
             args.extend([flag, value])
+    if _normalize_key(env.get("LLAMA_ARG_NO_CACHE_PROMPT")) not in {"", "0", "false", "off", "no"}:
+        args.append("--no-cache-prompt")
     with open(llama_log, "a") as log_f:
         proc = subprocess.Popen(
             args,
@@ -3358,6 +3502,10 @@ def _recreate_llama_server(env: dict, override_image: str = ""):
             new_cmd.append("--ctx-size")
             new_cmd.append(ctx_size)
             skip_next = True
+        elif arg == "--parallel" and i + 1 < len(old_cmd):
+            new_cmd.append("--parallel")
+            new_cmd.append(env.get("LLAMA_PARALLEL", "1"))
+            skip_next = True
         else:
             new_cmd.append(arg)
 
@@ -3411,8 +3559,24 @@ def _recreate_llama_server(env: dict, override_image: str = ""):
             run_cmd += ["-v", f"{src}:{dst}:{mode}"]
 
     # Environment variables
+    replacement_env = {
+        key: value
+        for key, value in env.items()
+        if key.startswith("LLAMA_ARG_") or key in {"LLAMA_PARALLEL", "LLAMA_REASONING", "GGUF_FILE", "LLM_MODEL", "CTX_SIZE", "MAX_CONTEXT"}
+    }
+    seen_env_keys = set()
     for e in (config["Config"].get("Env") or []):
-        run_cmd += ["-e", e]
+        key = e.split("=", 1)[0]
+        if key in replacement_env:
+            run_cmd += ["-e", f"{key}={replacement_env[key]}"]
+            seen_env_keys.add(key)
+        elif key.startswith("LLAMA_ARG_") or key in {"LLAMA_PARALLEL"}:
+            continue
+        else:
+            run_cmd += ["-e", e]
+    for key, value in replacement_env.items():
+        if key not in seen_env_keys:
+            run_cmd += ["-e", f"{key}={value}"]
 
     # Extra hosts
     for eh in (host_config.get("ExtraHosts") or []):

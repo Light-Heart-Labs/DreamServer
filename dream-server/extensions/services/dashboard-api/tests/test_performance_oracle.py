@@ -228,6 +228,45 @@ def test_pre_download_ranker_honors_gemma_profile(data_dir):
     assert ranked[0]["id"] == "gemma4-e4b-q4"
 
 
+def test_pre_download_ranker_allows_8gb_nvidia_runtime_profile(monkeypatch):
+    monkeypatch.setattr("performance_oracle._system_ram_gb", lambda: 32)
+    catalog = [
+        _model(),
+        {
+            "id": "qwen3.6-35b-a3b-ud-q4",
+            "name": "Qwen 3.6 35B-A3B",
+            "family": "qwen",
+            "gguf_file": "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+            "size_mb": 21110,
+            "vram_required_gb": 24,
+            "context_length": 131072,
+            "quantization": "UD-Q4_K_M",
+            "specialty": "Quality",
+            "description": "Large MoE model",
+            "llm_model_name": "qwen3.6-35b-a3b",
+            "runtime_profiles": [{
+                "id": "nvidia-8gb-qwen36-35b-a3b-turboquant",
+                "label": "Advanced 8GB NVIDIA TurboQuant MoE offload",
+                "backend": "nvidia",
+                "host_arch": ["amd64"],
+                "memory_type": "discrete",
+                "vram_min_gb": 7.5,
+                "vram_max_gb": 12.5,
+                "system_ram_min_gb": 32,
+                "estimated_required_gb": 8,
+                "context_length": 65536,
+                "fit_label": "Advanced 8GB TurboQuant fit",
+                "env": {"LLAMA_ARG_N_CPU_MOE": "30"},
+            }],
+        },
+    ]
+
+    ranked = rank_pre_download_models(catalog, _gpu(total_mb=8188), profile="qwen", limit=2)
+
+    assert ranked[0]["id"] == "qwen3.6-35b-a3b-ud-q4"
+    assert ranked[0]["_runtime_profile"]["id"] == "nvidia-8gb-qwen36-35b-a3b-turboquant"
+
+
 def test_measured_local_from_live_loaded_model(data_dir, tmp_path):
     install_dir = tmp_path / "dream-server"
     (install_dir / "data" / "models").mkdir(parents=True)

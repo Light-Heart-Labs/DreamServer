@@ -186,7 +186,32 @@
       "description": "Google's large MoE model. Strong at reasoning and analysis tasks.",
       "tokens_per_sec_estimate": 50,
       "llm_model_name": "gemma-4-26b-a4b-it",
-      "llama_server_image": "ghcr.io/ggml-org/llama.cpp:server-cuda-b9014"
+      "llama_server_image": "ghcr.io/ggml-org/llama.cpp:server-cuda-b9014",
+      "runtime_profiles": [
+        {
+          "id": "nvidia-8gb-gemma4-26b-a4b-moe-offload",
+          "label": "Advanced 8GB NVIDIA MoE offload",
+          "runtime": "llama.cpp turboquant",
+          "backend": "nvidia",
+          "host_arch": ["amd64"],
+          "memory_type": "discrete",
+          "vram_min_gb": 7.5,
+          "vram_max_gb": 12.5,
+          "system_ram_min_gb": 32,
+          "estimated_required_gb": 8,
+          "context_length": 32768,
+          "fit_label": "Advanced 8GB MoE fit",
+          "llama_server_image": "vito974/llama-cpp-turboquant:server-cuda12@sha256:8e30a8a24bb42e0fce952beb3a486fa7fd95c246d1582af0e4dae715ee45d58c",
+          "env": {
+            "LLAMA_PARALLEL": "1",
+            "LLAMA_ARG_FLASH_ATTN": "on",
+            "LLAMA_ARG_CACHE_TYPE_K": "q8_0",
+            "LLAMA_ARG_CACHE_TYPE_V": "q8_0",
+            "LLAMA_ARG_N_CPU_MOE": "23"
+          },
+          "source_url": "https://huggingface.co/datasets/witcheer/windows-rtx-4060ti-8gb-moe-offload-bench-2026-05"
+        }
+      ]
     },
     {
       "id": "qwen3-30b-a3b-q4",
@@ -271,7 +296,34 @@
       "description": "Current A3B MoE successor for Spark-class unified-memory hosts. Verified on DGX Spark with llama.cpp b9014.",
       "tokens_per_sec_estimate": 59,
       "llm_model_name": "qwen3.6-35b-a3b",
-      "llama_server_image": null
+      "llama_server_image": null,
+      "runtime_profiles": [
+        {
+          "id": "nvidia-8gb-qwen36-35b-a3b-turboquant",
+          "label": "Advanced 8GB NVIDIA TurboQuant MoE offload",
+          "runtime": "llama.cpp turboquant",
+          "backend": "nvidia",
+          "host_arch": ["amd64"],
+          "memory_type": "discrete",
+          "vram_min_gb": 7.5,
+          "vram_max_gb": 12.5,
+          "system_ram_min_gb": 32,
+          "estimated_required_gb": 8,
+          "context_length": 65536,
+          "fit_label": "Advanced 8GB TurboQuant fit",
+          "llama_server_image": "vito974/llama-cpp-turboquant:server-cuda12@sha256:8e30a8a24bb42e0fce952beb3a486fa7fd95c246d1582af0e4dae715ee45d58c",
+          "env": {
+            "LLAMA_PARALLEL": "1",
+            "LLAMA_ARG_FLASH_ATTN": "on",
+            "LLAMA_ARG_CACHE_TYPE_K": "q8_0",
+            "LLAMA_ARG_CACHE_TYPE_V": "turbo3",
+            "LLAMA_ARG_N_CPU_MOE": "30",
+            "LLAMA_ARG_NO_CACHE_PROMPT": "1",
+            "LLAMA_ARG_CHECKPOINT_EVERY_N_TOKENS": "-1"
+          },
+          "source_url": "https://huggingface.co/datasets/witcheer/rtx-4060ti-8gb-turboquant-bench-2026-05"
+        }
+      ]
     },
     {
       "id": "deepseek-r1-70b-q4",

@@ -46,6 +46,18 @@ def normalize_host_arch(value: str | None) -> str:
     return key or "unknown"
 
 
+def list_value(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    return [str(value)]
+
+
+def value_enabled(value: Any) -> bool:
+    return normalize_key(value) not in {"", "0", "false", "off", "no"}
+
+
 def effective_profile(profile: str, backend: str, tier: str) -> str:
     if profile != "auto":
         return profile
@@ -89,6 +101,7 @@ def normalize_model(raw: dict[str, Any]) -> dict[str, Any] | None:
         "quantization": raw.get("quantization") or "",
         "specialty": raw.get("specialty") or "General",
         "llama_server_image": raw.get("llama_server_image") or "",
+        "runtime_profiles": raw.get("runtime_profiles") if isinstance(raw.get("runtime_profiles"), list) else [],
     }
 
 
@@ -152,6 +165,51 @@ def selector_required_memory_gb(model: dict[str, Any]) -> float:
     return round(max(declared, size_gb + estimated_context_kv_gb(model)), 2)
 
 
+def matching_runtime_profile(model: dict[str, Any], backend: str, memory_type: str,
+                             vram_mb: int, ram_gb: int, host_arch: str) -> dict[str, Any] | None:
+    backend_key = normalize_key(backend)
+    memory_key = normalize_key(memory_type)
+    arch_key = normalize_host_arch(host_arch)
+    vram_gb = float(vram_mb or 0) / 1024.0
+    for profile in model.get("runtime_profiles", []) or []:
+        if not isinstance(profile, dict):
+            continue
+        if normalize_key(profile.get("backend")) not in {"", backend_key}:
+            continue
+        allowed_arches = {normalize_host_arch(item) for item in list_value(profile.get("host_arch"))}
+        if allowed_arches and arch_key not in allowed_arches:
+            continue
+        required_memory_type = normalize_key(profile.get("memory_type"))
+        if required_memory_type and required_memory_type != memory_key:
+            continue
+        try:
+            if profile.get("vram_min_gb") is not None and vram_gb < float(profile["vram_min_gb"]):
+                continue
+            if profile.get("vram_max_gb") is not None and vram_gb > float(profile["vram_max_gb"]):
+                continue
+            if profile.get("system_ram_min_gb") is not None and float(ram_gb or 0) < float(profile["system_ram_min_gb"]):
+                continue
+        except (TypeError, ValueError):
+            continue
+        return profile
+    return None
+
+
+def effective_context_length(model: dict[str, Any], runtime_profile: dict[str, Any] | None = None) -> int:
+    if runtime_profile and runtime_profile.get("context_length"):
+        return int(runtime_profile["context_length"])
+    return int(model.get("context_length") or 0)
+
+
+def effective_required_memory_gb(model: dict[str, Any],
+                                 runtime_profile: dict[str, Any] | None = None) -> float:
+    if runtime_profile and runtime_profile.get("estimated_required_gb") is not None:
+        return round(float(runtime_profile["estimated_required_gb"]), 2)
+    if runtime_profile and runtime_profile.get("context_length"):
+        model = {**model, "context_length": int(runtime_profile["context_length"])}
+    return selector_required_memory_gb(model)
+
+
 def family_allowed(model: dict[str, Any], profile: str) -> bool:
     family = normalize_key(model.get("family"))
     if profile == "gemma4":
@@ -160,9 +218,10 @@ def family_allowed(model: dict[str, Any], profile: str) -> bool:
 
 
 def score_model(model: dict[str, Any], capacity_gb: float, profile: str) -> float:
-    required = selector_required_memory_gb(model)
+    runtime_profile = model.get("_runtime_profile") if isinstance(model.get("_runtime_profile"), dict) else None
+    required = effective_required_memory_gb(model, runtime_profile)
     size_mb = max(float(model.get("size_mb") or 1), 1.0)
-    context = max(int(model.get("context_length") or 0), 8192)
+    context = max(effective_context_length(model, runtime_profile), 8192)
     specialty = str(model.get("specialty") or "General")
     family = normalize_key(model.get("family"))
     specialty_weight = {
@@ -184,17 +243,20 @@ def score_model(model: dict[str, Any], capacity_gb: float, profile: str) -> floa
 
 
 def rank_models(catalog: list[dict[str, Any]], capacity_gb: float, profile: str,
-                installable_only: bool) -> list[dict[str, Any]]:
+                installable_only: bool, backend: str, memory_type: str,
+                vram_mb: int, ram_gb: int, host_arch: str) -> list[dict[str, Any]]:
     candidates = []
     for model in catalog:
         if installable_only and not model.get("gguf_url"):
             continue
         if not family_allowed(model, profile):
             continue
-        required = selector_required_memory_gb(model)
+        runtime_profile = matching_runtime_profile(model, backend, memory_type, vram_mb, ram_gb, host_arch)
+        candidate_model = {**model, "_runtime_profile": runtime_profile} if runtime_profile else model
+        required = effective_required_memory_gb(candidate_model, runtime_profile)
         if not fits(required, capacity_gb):
             continue
-        candidates.append((score_model(model, capacity_gb, profile), model))
+        candidates.append((score_model(candidate_model, capacity_gb, profile), candidate_model))
     if not candidates:
         fallback_pool = [
             model for model in catalog
@@ -205,8 +267,8 @@ def rank_models(catalog: list[dict[str, Any]], capacity_gb: float, profile: str,
     candidates.sort(
         key=lambda item: (
             item[0],
-            selector_required_memory_gb(item[1]),
-            int(item[1].get("context_length") or 0),
+            effective_required_memory_gb(item[1], item[1].get("_runtime_profile")),
+            effective_context_length(item[1], item[1].get("_runtime_profile")),
         ),
         reverse=True,
     )
@@ -236,8 +298,19 @@ def shell_value(value: Any) -> str:
 
 def recommendation_reason(model: dict[str, Any], capacity_gb: float, memory_label: str,
                           backend: str, confidence: str) -> str:
-    context_k = int((model.get("context_length") or 0) / 1024)
-    required = selector_required_memory_gb(model)
+    runtime_profile = model.get("_runtime_profile") if isinstance(model.get("_runtime_profile"), dict) else None
+    context_k = int(effective_context_length(model, runtime_profile) / 1024)
+    required = effective_required_memory_gb(model, runtime_profile)
+    if runtime_profile:
+        label = runtime_profile.get("label") or runtime_profile.get("id") or "advanced runtime profile"
+        runtime = runtime_profile.get("runtime") or "llama.cpp"
+        return (
+            f"Catalog runtime fit ({POLICY}): {model['name']} uses {label} "
+            f"via {runtime}, needs about {required:g}GB GPU headroom plus "
+            f"{runtime_profile.get('system_ram_min_gb', 'documented')}GB system RAM, "
+            f"fits {capacity_gb:.1f}GB {memory_label} on {backend}, and gives "
+            f"{context_k}K context. Throughput still requires a local benchmark after first launch."
+        )
     return (
         f"Catalog fit ({POLICY}): {model['name']} needs "
         f"about {required:g}GB including context/KV, fits {capacity_gb:.1f}GB "
@@ -278,7 +351,17 @@ def main() -> int:
     capacity_gb, memory_label = usable_memory_gb(args.backend, args.memory_type, args.vram_mb, args.ram_gb)
     confidence = "high" if args.backend not in {"unknown", "none"} and capacity_gb > 0 else "medium"
     arch_selected = arch_policy_model(catalog, args.tier, profile, args.host_arch, args.installable_only)
-    ranked = rank_models(catalog, capacity_gb, profile, args.installable_only)
+    ranked = rank_models(
+        catalog,
+        capacity_gb,
+        profile,
+        args.installable_only,
+        args.backend,
+        args.memory_type,
+        args.vram_mb,
+        args.ram_gb,
+        args.host_arch,
+    )
     if arch_selected:
         selected = arch_selected
         alternatives = [selected] + [
@@ -292,9 +375,10 @@ def main() -> int:
         selected = ranked[0]
         alternatives = ranked[:3]
         policy = POLICY
-        source = "catalog_fit_pre_download"
+        source = "catalog_runtime_profile_pre_download" if selected.get("_runtime_profile") else "catalog_fit_pre_download"
         reason = recommendation_reason(selected, capacity_gb, memory_label, args.backend, confidence)
 
+    selected_public = {key: value for key, value in selected.items() if key != "_runtime_profile"}
     payload = {
         "policy": policy,
         "source": source,
@@ -303,7 +387,7 @@ def main() -> int:
         "host_arch": normalize_host_arch(args.host_arch),
         "memory_capacity_gb": round(capacity_gb, 1),
         "memory_label": memory_label,
-        "selected": selected,
+        "selected": selected_public,
         "reason": reason,
         "alternatives": [
             {
@@ -311,9 +395,10 @@ def main() -> int:
                 "name": model["name"],
                 "gguf": model["gguf_file"],
                 "vram_required_gb": model["vram_required_gb"],
-                "estimated_required_gb": selector_required_memory_gb(model),
-                "context_length": model["context_length"],
+                "estimated_required_gb": effective_required_memory_gb(model, model.get("_runtime_profile")),
+                "context_length": effective_context_length(model, model.get("_runtime_profile")),
                 "specialty": model["specialty"],
+                "runtime_profile": (model.get("_runtime_profile") or {}).get("id"),
             }
             for model in alternatives
         ],
@@ -324,15 +409,16 @@ def main() -> int:
         return 0
 
     alt_value = ";".join(
-        f"{m['id']}:{int(m['context_length'])}:{selector_required_memory_gb(m):g}"
+        f"{m['id']}:{effective_context_length(m, m.get('_runtime_profile'))}:{effective_required_memory_gb(m, m.get('_runtime_profile')):g}"
         for m in alternatives
     )
+    runtime_profile = selected.get("_runtime_profile") if isinstance(selected.get("_runtime_profile"), dict) else None
     env = {
         "LLM_MODEL": selected["llm_model_name"],
         "GGUF_FILE": selected["gguf_file"],
         "GGUF_URL": selected["gguf_url"],
         "GGUF_SHA256": selected["gguf_sha256"],
-        "MAX_CONTEXT": selected["context_length"],
+        "MAX_CONTEXT": effective_context_length(selected, runtime_profile),
         "LLM_MODEL_SIZE_MB": int(round(float(selected["size_mb"]))),
         "MODEL_RECOMMENDATION_SOURCE": payload["source"],
         "MODEL_RECOMMENDATION_POLICY": payload["policy"],
@@ -340,7 +426,16 @@ def main() -> int:
         "MODEL_RECOMMENDATION_REASON": payload["reason"],
         "MODEL_RECOMMENDED_ALTERNATIVES": alt_value,
     }
-    if selected.get("llama_server_image"):
+    if runtime_profile:
+        env["MODEL_RUNTIME_PROFILE"] = runtime_profile.get("id", "")
+        env["MODEL_RUNTIME_PROFILE_LABEL"] = runtime_profile.get("label", "")
+        env["MODEL_RUNTIME_PROFILE_SOURCE"] = runtime_profile.get("source_url", "")
+        if runtime_profile.get("llama_server_image"):
+            env["LLAMA_SERVER_IMAGE"] = runtime_profile["llama_server_image"]
+        for key, value in (runtime_profile.get("env") or {}).items():
+            if value is not None:
+                env[str(key)] = value
+    elif selected.get("llama_server_image"):
         env["LLAMA_SERVER_IMAGE"] = selected["llama_server_image"]
     for key, value in env.items():
         print(f"{key}={shell_value(value)}")

@@ -33,6 +33,52 @@ def normalize_key(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "-", str(value or "").lower()).strip("-")
 
 
+def _list_value(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    return [str(value)]
+
+
+def _normalize_host_arch(value: Any) -> str:
+    key = normalize_key(value)
+    if key in {"aarch64", "arm64"}:
+        return "arm64"
+    if key in {"x86-64", "x86_64", "amd64", "x64"}:
+        return "amd64"
+    return key or "unknown"
+
+
+def _system_ram_gb() -> int:
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+
+            stat = MEMORYSTATUSEX()
+            stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+                return int(round(stat.ullTotalPhys / (1024**3)))
+        pages = os.sysconf("SC_PHYS_PAGES")
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        return int(round((pages * page_size) / (1024**3)))
+    except (AttributeError, OSError, ValueError):
+        return 0
+
+
 def read_env_value(key: str, install_dir: str | Path) -> str:
     value = os.environ.get(key, "")
     if value:
@@ -116,6 +162,7 @@ def normalize_catalog_entry(raw: dict[str, Any]) -> dict[str, Any] | None:
         "architecture": raw.get("architecture", "dense"),
         "active_params_b": raw.get("active_params_b"),
         "tokens_per_sec_estimate": raw.get("tokens_per_sec_estimate"),
+        "runtime_profiles": raw.get("runtime_profiles") if isinstance(raw.get("runtime_profiles"), list) else [],
         "aliases": sorted(aliases),
     }
     if raw.get("decode_read_mb"):
@@ -153,6 +200,8 @@ def collect_runtime_flags(install_dir: str | Path) -> dict[str, str]:
         "LLAMA_FLASH_ATTN": "flash_attn",
         "LLAMA_ARG_CHECKPOINT_EVERY_N_TOKENS": "checkpoint_every_n_tokens",
         "LLAMA_CHECKPOINT_EVERY_N_TOKENS": "checkpoint_every_n_tokens",
+        "LLAMA_ARG_NO_CACHE_PROMPT": "no_cache_prompt",
+        "LLAMA_NO_CACHE_PROMPT": "no_cache_prompt",
     }
     flags: dict[str, str] = {}
     for env_name, canonical in mapping.items():
@@ -286,6 +335,54 @@ def _selector_required_memory_gb(model: dict[str, Any]) -> float:
     if size_gb <= 0:
         return round(declared, 2)
     return round(max(declared, size_gb + context_kv_gb), 2)
+
+
+def _matching_runtime_profile(model: dict[str, Any], gpu_info: Optional[GPUInfo],
+                              system_ram_gb: int | None = None) -> dict[str, Any] | None:
+    if not gpu_info:
+        return None
+    backend = normalize_key(gpu_info.gpu_backend)
+    memory_type = "unified" if backend == "apple" or "strix-halo" in normalize_key(gpu_info.name) else "discrete"
+    host_arch = _normalize_host_arch(platform.machine())
+    vram_gb = float(gpu_info.memory_total_mb or 0) / 1024.0
+    ram_gb = system_ram_gb if system_ram_gb is not None else _system_ram_gb()
+    for profile in model.get("runtime_profiles", []) or []:
+        if not isinstance(profile, dict):
+            continue
+        if normalize_key(profile.get("backend")) not in {"", backend}:
+            continue
+        allowed_arches = {_normalize_host_arch(item) for item in _list_value(profile.get("host_arch"))}
+        if allowed_arches and host_arch not in allowed_arches:
+            continue
+        required_memory_type = normalize_key(profile.get("memory_type"))
+        if required_memory_type and required_memory_type != memory_type:
+            continue
+        try:
+            if profile.get("vram_min_gb") is not None and vram_gb < float(profile["vram_min_gb"]):
+                continue
+            if profile.get("vram_max_gb") is not None and vram_gb > float(profile["vram_max_gb"]):
+                continue
+            if profile.get("system_ram_min_gb") is not None and float(ram_gb or 0) < float(profile["system_ram_min_gb"]):
+                continue
+        except (TypeError, ValueError):
+            continue
+        return profile
+    return None
+
+
+def _effective_context_length(model: dict[str, Any], runtime_profile: dict[str, Any] | None = None) -> int:
+    if runtime_profile and runtime_profile.get("context_length"):
+        return int(runtime_profile["context_length"])
+    return int(model.get("context_length") or 0)
+
+
+def _effective_required_memory_gb(model: dict[str, Any],
+                                  runtime_profile: dict[str, Any] | None = None) -> float:
+    if runtime_profile and runtime_profile.get("estimated_required_gb") is not None:
+        return round(float(runtime_profile["estimated_required_gb"]), 2)
+    if runtime_profile and runtime_profile.get("context_length"):
+        model = {**model, "context_length": int(runtime_profile["context_length"])}
+    return _selector_required_memory_gb(model)
 
 
 def _usable_model_memory_gb(gpu_info: Optional[GPUInfo]) -> float:
@@ -519,8 +616,17 @@ def _recommendation_from_env(install_dir: str | Path) -> dict[str, Any]:
 
 
 def _catalog_fit_reason(model: dict[str, Any], gpu_info: Optional[GPUInfo], configured: bool) -> str:
-    context_k = int((model.get("context_length") or 0) / 1024) if model.get("context_length") else 0
-    required = _selector_required_memory_gb(model)
+    runtime_profile = model.get("_runtime_profile") if isinstance(model.get("_runtime_profile"), dict) else None
+    context_k = int(_effective_context_length(model, runtime_profile) / 1024) if _effective_context_length(model, runtime_profile) else 0
+    required = _effective_required_memory_gb(model, runtime_profile)
+    if runtime_profile:
+        prefix = "Selected by the installer" if configured else "Recommended from catalog runtime profile"
+        label = runtime_profile.get("label") or runtime_profile.get("id") or "advanced runtime profile"
+        return (
+            f"{prefix}: {model['name']} uses {label}, needs about {required:g}GB GPU headroom "
+            f"plus {runtime_profile.get('system_ram_min_gb', 'documented')}GB system RAM, "
+            f"and provides {context_k}K context. Benchmark locally after first launch."
+        )
     if gpu_info:
         detected = round(gpu_info.memory_total_mb / 1024, 1)
         usable = round(_usable_model_memory_gb(gpu_info), 1)
@@ -560,9 +666,10 @@ def _family_allowed_for_profile(model: dict[str, Any], profile: str) -> bool:
 
 
 def _recommendation_score(model: dict[str, Any], capacity_gb: float, profile: str) -> float:
-    required = _selector_required_memory_gb(model)
+    runtime_profile = model.get("_runtime_profile") if isinstance(model.get("_runtime_profile"), dict) else None
+    required = _effective_required_memory_gb(model, runtime_profile)
     size_mb = max(float(model.get("size_mb") or 1), 1.0)
-    context = max(int(model.get("context_length") or 0), 8192)
+    context = max(_effective_context_length(model, runtime_profile), 8192)
     specialty = str(model.get("specialty") or "General")
     family = normalize_key(model.get("family"))
 
@@ -595,7 +702,7 @@ def _recommendation_score(model: dict[str, Any], capacity_gb: float, profile: st
 
 def rank_pre_download_models(catalog: list[dict[str, Any]], gpu_info: Optional[GPUInfo],
                              profile: str = "qwen", installable_only: bool = False,
-                             limit: int = 3) -> list[dict[str, Any]]:
+                             limit: int = 3, system_ram_gb: int | None = None) -> list[dict[str, Any]]:
     """Rank catalog entries before any model is installed.
 
     The ranker uses only compatibility metadata from model-library.json and the
@@ -614,13 +721,15 @@ def rank_pre_download_models(catalog: list[dict[str, Any]], gpu_info: Optional[G
             continue
         if not _family_allowed_for_profile(model, normalized_profile):
             continue
-        required = _selector_required_memory_gb(model)
+        runtime_profile = _matching_runtime_profile(model, gpu_info, system_ram_gb)
+        candidate_model = {**model, "_runtime_profile": runtime_profile} if runtime_profile else model
+        required = _effective_required_memory_gb(candidate_model, runtime_profile)
         fits = _fits_declared_vram(required, capacity_gb)
         if not fits:
             continue
         candidates.append({
-            "model": model,
-            "score": _recommendation_score(model, capacity_gb or max(required, 1.0), normalized_profile),
+            "model": candidate_model,
+            "score": _recommendation_score(candidate_model, capacity_gb or max(required, 1.0), normalized_profile),
         })
 
     if not candidates:
@@ -635,8 +744,8 @@ def rank_pre_download_models(catalog: list[dict[str, Any]], gpu_info: Optional[G
         candidates,
         key=lambda item: (
             item["score"],
-            _selector_required_memory_gb(item["model"]),
-            int(item["model"].get("context_length") or 0),
+            _effective_required_memory_gb(item["model"], item["model"].get("_runtime_profile")),
+            _effective_context_length(item["model"], item["model"].get("_runtime_profile")),
         ),
         reverse=True,
     )
@@ -655,9 +764,10 @@ def select_pre_download_model(catalog: list[dict[str, Any]], gpu_info: Optional[
 
 
 def _recommendation_alternative(model: dict[str, Any], gpu_info: Optional[GPUInfo]) -> dict[str, Any]:
-    context = int(model.get("context_length") or 0)
+    runtime_profile = model.get("_runtime_profile") if isinstance(model.get("_runtime_profile"), dict) else _matching_runtime_profile(model, gpu_info)
+    context = _effective_context_length(model, runtime_profile)
     vram_required = float(model.get("vram_required_gb") or 0)
-    selector_required = _selector_required_memory_gb(model)
+    selector_required = _effective_required_memory_gb(model, runtime_profile)
     return {
         "id": model.get("id"),
         "name": model.get("name"),
@@ -667,8 +777,9 @@ def _recommendation_alternative(model: dict[str, Any], gpu_info: Optional[GPUInf
         "estimatedRequired": selector_required,
         "contextLength": context,
         "specialty": model.get("specialty"),
+        "runtimeProfile": runtime_profile.get("id") if runtime_profile else None,
         "fitsVram": _fits_declared_vram(selector_required, _usable_model_memory_gb(gpu_info) if gpu_info else 4.0),
-        "reason": _catalog_fit_reason(model, gpu_info, configured=False),
+        "reason": _catalog_fit_reason({**model, "_runtime_profile": runtime_profile} if runtime_profile else model, gpu_info, configured=False),
     }
 
 
@@ -706,10 +817,21 @@ def build_models_payload(gpu_info: Optional[GPUInfo], loaded_model: Optional[str
     configured_gguf = recommendation.get("gguf") or read_env_value("GGUF_FILE", install_dir)
     configured_entry = find_catalog_model(catalog, configured_model, configured_gguf)
     profile = _model_profile(install_dir)
-    ranked_recommendations = rank_pre_download_models(catalog, gpu_info, profile=profile, limit=3)
+    try:
+        install_ram_gb = int(read_env_value("SYSTEM_RAM_GB", install_dir) or 0)
+    except ValueError:
+        install_ram_gb = 0
+    ranked_recommendations = rank_pre_download_models(catalog, gpu_info, profile=profile, limit=3, system_ram_gb=install_ram_gb or None)
     recommended_entry = configured_entry or (ranked_recommendations[0] if ranked_recommendations else None)
     flags = collect_runtime_flags(install_dir)
     runtime = read_env_value("LLM_BACKEND", install_dir) or os.environ.get("LLM_BACKEND") or "llama-server"
+    runtime_profile_text = " ".join([
+        read_env_value("MODEL_RUNTIME_PROFILE", install_dir),
+        read_env_value("MODEL_RUNTIME_PROFILE_LABEL", install_dir),
+        read_env_value("LLAMA_SERVER_IMAGE", install_dir),
+    ])
+    if "turboquant" in normalize_key(runtime_profile_text):
+        runtime = "turboquant"
     data_root = Path(data_dir) if data_dir is not None else Path(install_dir) / "data"
     models_dir = model_files_dir(data_root)
     if downloaded_files_override is not None:
@@ -747,10 +869,12 @@ def build_models_payload(gpu_info: Optional[GPUInfo], loaded_model: Optional[str
         if is_loaded:
             current_model_id = model["id"]
         metadata = inspect_gguf(path) if path else {"exists": False, "readable": False, "quantization": model.get("quantization", "unknown")}
+        runtime_profile = _matching_runtime_profile(model, gpu_info, install_ram_gb or None)
+        profile_context = _effective_context_length(model, runtime_profile)
         recommended_context = recommendation.get("contextLength") if is_configured else None
-        actual_context = context_length if is_loaded and context_length else recommended_context or model.get("context_length")
+        actual_context = context_length if is_loaded and context_length else recommended_context or profile_context or model.get("context_length")
         vram_required = float(model["vram_required_gb"])
-        selector_required = _selector_required_memory_gb({**model, "context_length": actual_context})
+        selector_required = _effective_required_memory_gb({**model, "context_length": actual_context}, runtime_profile)
         if gpu_info:
             capacity_gb = _usable_model_memory_gb(gpu_info)
             fits_total = bool(_fits_declared_vram(selector_required, capacity_gb) or is_loaded)
@@ -779,7 +903,7 @@ def build_models_payload(gpu_info: Optional[GPUInfo], loaded_model: Optional[str
                 **recommendation,
                 "source": recommendation["source"] if is_configured else "catalog_fit_pre_download",
                 "confidence": recommendation["confidence"] if is_configured else "medium",
-                "reason": reason or _catalog_fit_reason(model, gpu_info, is_configured),
+                "reason": reason or _catalog_fit_reason({**model, "_runtime_profile": runtime_profile}, gpu_info, is_configured),
                 "model": model.get("llm_model_name") or model["id"],
                 "gguf": model.get("gguf"),
                 "contextLength": actual_context,
@@ -817,6 +941,13 @@ def build_models_payload(gpu_info: Optional[GPUInfo], loaded_model: Optional[str
             "recommendation": model_recommendation,
             "fitsVram": fits_total,
             "fitsCurrentVram": fits_current,
+            "fitLabel": runtime_profile.get("fit_label") if runtime_profile else ("Fits GPU" if fits_total else "Too large"),
+            "runtimeProfile": {
+                "id": runtime_profile.get("id"),
+                "label": runtime_profile.get("label"),
+                "runtime": runtime_profile.get("runtime"),
+                "sourceUrl": runtime_profile.get("source_url"),
+            } if runtime_profile else None,
             "performance": perf,
             "performanceLabel": perf["label"],
         })
