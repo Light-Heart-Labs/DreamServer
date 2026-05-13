@@ -97,6 +97,26 @@ set_qwen_tier_config() {
             GGUF_SHA256="9e6032d2f3b50a60f17ce8bf5a1d85c71af9b53b89c7978020ae7c660f29b090"
             MAX_CONTEXT=131072
             LLM_MODEL_SIZE_MB=48500   # 48.5 GB per HF file listing
+            # NV_ULTRA on aarch64 (DGX Spark / GB10): the qwen3-coder-next MoE
+            # Q4_K_M GGUF produces all-`?` tokens on every chat completion.
+            # SHA256 verifies, llama-server starts cleanly, decode rate is
+            # normal — every output token is just a `?`. Reproducible via raw
+            # curl /v1/chat/completions, so it's a llama.cpp / Blackwell-
+            # aarch64 / MoE-Q4_K_M kernel issue, not a Dream Server bug.
+            # Dense Qwen3.5-2B (bootstrap) was healthy on the same hardware
+            # in the same session, so for now fall back to the dense
+            # Qwen3.5-9B until the upstream fix lands. This wastes ~115GB of
+            # unified memory but gives a working install on Spark; revisit
+            # when the llama.cpp/Blackwell-aarch64 build can run MoE Q4_K_M.
+            if [[ "${HOST_ARCH:-}" == "arm64" ]]; then
+                TIER_NAME="NVIDIA Ultra (90GB+, aarch64 — MoE workaround)"
+                LLM_MODEL="qwen3.5-9b"
+                GGUF_FILE="Qwen3.5-9B-Q4_K_M.gguf"
+                GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf"
+                GGUF_SHA256="03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8"
+                MAX_CONTEXT=32768
+                LLM_MODEL_SIZE_MB=5760
+            fi
             ;;
         SH_LARGE)
             TIER_NAME="Strix Halo 90+"
