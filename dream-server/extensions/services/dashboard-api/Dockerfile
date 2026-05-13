@@ -18,7 +18,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application
-COPY main.py config.py models.py security.py gpu.py helpers.py agent_monitor.py user_extensions.py ./
+COPY main.py config.py models.py security.py gpu.py helpers.py agent_monitor.py user_extensions.py session_signer.py ./
 COPY routers/ routers/
 
 # Non-root user
