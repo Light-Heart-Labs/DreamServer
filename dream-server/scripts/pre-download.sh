@@ -17,6 +17,14 @@
 # Cache location: ~/.cache/huggingface/hub/
 #=============================================================================
 
+# Require Bash 4+ (associative arrays used for tier → model mapping)
+if (( BASH_VERSINFO[0] < 4 )); then
+    echo "ERROR: $(basename "$0") requires Bash 4.0+ (you have $BASH_VERSION)" >&2
+    echo "  macOS ships Bash 3.2 due to licensing. Install a modern version:" >&2
+    echo "    brew install bash" >&2
+    exit 1
+fi
+
 set -euo pipefail
 
 # Colors

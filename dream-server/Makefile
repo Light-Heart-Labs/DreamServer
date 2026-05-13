@@ -41,6 +41,9 @@ test: ## Run unit and contract tests
 	@echo "=== dream-cli pipefail tolerance ==="
 	@bash tests/test-dream-cli-pipefail-tolerance.sh
 	@echo ""
+	@echo "=== Bash 3.2 guard contracts ==="
+	@bash tests/test-bash32-guards.sh
+	@echo ""
 	@echo "=== dream config show secret-mask matrix ==="
 	@bash tests/test-dream-config-secret-mask.sh
 	@echo ""
