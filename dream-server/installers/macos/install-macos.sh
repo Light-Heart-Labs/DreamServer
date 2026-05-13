@@ -160,6 +160,43 @@ _compute_launchd_path() {
     printf '%s' "$path_out"
 }
 
+_require_docker_cpu_budget() {
+    local min_cpus="${1:-6}"
+    local max_pin="${2:-4}"
+    local workload="${3:-compose stack}"
+    local docker_ncpu
+
+    if ! [[ "$min_cpus" =~ ^[0-9]+$ ]] || [[ "$min_cpus" -lt 1 ]]; then
+        min_cpus=6
+    fi
+
+    docker_ncpu=$(get_docker_available_cpus)
+    if [[ "$docker_ncpu" =~ ^[0-9]+$ ]] && [[ "$docker_ncpu" -lt "$min_cpus" ]]; then
+        ai_err "Docker daemon only has ${docker_ncpu} CPU(s); Dream Server's ${workload} pins limits up to ${max_pin} CPUs per service and needs at least ${min_cpus} to avoid 'range of CPUs is from 0.01 to N' compose failures."
+        case "${DOCKER_BACKEND:-unknown}" in
+            colima)
+                ai "Stop and re-create the Colima VM with more CPUs:"
+                ai "    colima stop && colima start --cpu ${min_cpus} --memory 12 --disk 60"
+                ai "Then re-run this installer."
+                ;;
+            desktop)
+                ai "Open Docker Desktop -> Settings -> Resources -> Advanced and raise CPUs to ${min_cpus}+, apply, then re-run."
+                ;;
+            rancher)
+                ai "Open Rancher Desktop -> Preferences -> Virtual Machine -> Hardware and raise CPUs to ${min_cpus}+, apply, then re-run."
+                ;;
+            orbstack)
+                ai "Open OrbStack -> Settings -> System and raise CPU allocation to ${min_cpus}+, then re-run."
+                ;;
+            *)
+                ai "Raise your docker daemon's CPU allocation to ${min_cpus}+ and re-run."
+                ;;
+        esac
+        exit 1
+    fi
+    ai_ok "Docker CPU budget: ${docker_ncpu} (>=${min_cpus} required for ${workload})"
+}
+
 # ── Resolve install directory ──
 INSTALL_DIR="${DS_INSTALL_DIR}"
 
@@ -225,37 +262,22 @@ if ! $DOCKER_RUNNING; then
 fi
 ai_ok "Docker daemon ready (v${DOCKER_VERSION}, backend=${DOCKER_BACKEND:-unknown})"
 
-# Pre-flight the docker daemon's CPU allocation. Some compose-stack
-# services pin `cpus: 4.0`, so a 4-CPU Colima VM compose-up bombs with
-# `range of CPUs is from 0.01 to 4.00, as there are only 4 CPUs
-# available`. Trip early with a clear message rather than letting
-# compose explode in Phase 5.
-_docker_ncpu=$(get_docker_available_cpus)
-DREAM_MIN_DOCKER_CPUS="${DREAM_MIN_DOCKER_CPUS:-6}"
-if [[ "$_docker_ncpu" =~ ^[0-9]+$ ]] && [[ "$_docker_ncpu" -lt "$DREAM_MIN_DOCKER_CPUS" ]]; then
-    ai_err "Docker daemon only has ${_docker_ncpu} CPU(s); Dream Server's compose stack pins limits up to 4 CPUs per service and needs at least ${DREAM_MIN_DOCKER_CPUS} to avoid 'range of CPUs is from 0.01 to N' compose failures."
-    case "${DOCKER_BACKEND:-unknown}" in
-        colima)
-            ai "Stop and re-create the Colima VM with more CPUs:"
-            ai "    colima stop && colima start --cpu 6 --memory 12 --disk 60"
-            ai "Then re-run this installer."
-            ;;
-        desktop)
-            ai "Open Docker Desktop → Settings → Resources → Advanced and raise CPUs to ${DREAM_MIN_DOCKER_CPUS}+, apply, then re-run."
-            ;;
-        rancher)
-            ai "Open Rancher Desktop → Preferences → Virtual Machine → Hardware and raise CPUs to ${DREAM_MIN_DOCKER_CPUS}+, apply, then re-run."
-            ;;
-        orbstack)
-            ai "Open OrbStack → Settings → System and raise CPU allocation to ${DREAM_MIN_DOCKER_CPUS}+, then re-run."
-            ;;
-        *)
-            ai "Raise your docker daemon's CPU allocation to ${DREAM_MIN_DOCKER_CPUS}+ and re-run."
-            ;;
-    esac
-    exit 1
+# Pre-flight the docker daemon's CPU allocation. Trip early with a clear
+# message rather than letting compose fail after pulls/builds. If the user
+# already requested voice from CLI flags (for example --all), account for
+# Kokoro's 8-CPU pin now; interactive feature selection is checked again
+# after the user picks features.
+_docker_cpu_override="${DREAM_MIN_DOCKER_CPUS:-}"
+_docker_cpu_min="${_docker_cpu_override:-6}"
+_docker_cpu_max_pin=4
+_docker_cpu_workload="base compose stack"
+if $ENABLE_VOICE && [[ -z "$_docker_cpu_override" ]]; then
+    _docker_cpu_min=10
+    _docker_cpu_max_pin=8
+    _docker_cpu_workload="voice-enabled compose stack"
 fi
-ai_ok "Docker CPU budget: ${_docker_ncpu} (>=${DREAM_MIN_DOCKER_CPUS} required)"
+_docker_cpu_preflight_min="$_docker_cpu_min"
+_require_docker_cpu_budget "$_docker_cpu_min" "$_docker_cpu_max_pin" "$_docker_cpu_workload"
 
 # Catch a common Colima-after-DockerDesktop config bomb: when a prior
 # Docker Desktop install left `"credsStore": "desktop"` in ~/.docker/config.json
@@ -507,6 +529,10 @@ info_box "  RAG:" "$(if $ENABLE_RAG; then echo enabled; else echo disabled; fi)"
 info_box "  Hermes:" "$(if $ENABLE_HERMES; then echo enabled; else echo disabled; fi)"
 info_box "  OpenClaw:" "$(if $ENABLE_OPENCLAW; then echo "enabled (DEPRECATED)"; else echo disabled; fi)"
 info_box "  Langfuse:" "$(if $ENABLE_LANGFUSE; then echo enabled; else echo disabled; fi)"
+
+if $ENABLE_VOICE && [[ -z "$_docker_cpu_override" ]] && [[ "${_docker_cpu_preflight_min:-0}" -lt 10 ]]; then
+    _require_docker_cpu_budget 10 8 "voice-enabled compose stack"
+fi
 
 # ============================================================================
 # PHASE 4 -- SETUP (directories, copy source, generate .env)
