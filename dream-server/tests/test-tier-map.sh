@@ -276,7 +276,7 @@ _selector_env="$(python3 "$SCRIPT_DIR/scripts/select-model.py" \
     --backend nvidia \
     --memory-type discrete \
     --vram-mb 8188 \
-    --ram-gb 32 \
+    --ram-gb 31 \
     --profile qwen \
     --tier 1 \
     --host-arch amd64 \
@@ -299,7 +299,7 @@ _selector_env="$(python3 "$SCRIPT_DIR/scripts/select-model.py" \
     --backend nvidia \
     --memory-type discrete \
     --vram-mb 8188 \
-    --ram-gb 32 \
+    --ram-gb 31 \
     --profile gemma4 \
     --tier 1 \
     --host-arch amd64 \

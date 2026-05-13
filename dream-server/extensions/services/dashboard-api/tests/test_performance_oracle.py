@@ -229,7 +229,7 @@ def test_pre_download_ranker_honors_gemma_profile(data_dir):
 
 
 def test_pre_download_ranker_allows_8gb_nvidia_runtime_profile(monkeypatch):
-    monkeypatch.setattr("performance_oracle._system_ram_gb", lambda: 32)
+    monkeypatch.setattr("performance_oracle._system_ram_gb", lambda: 31)
     catalog = [
         _model(),
         {
@@ -252,7 +252,7 @@ def test_pre_download_ranker_allows_8gb_nvidia_runtime_profile(monkeypatch):
                 "memory_type": "discrete",
                 "vram_min_gb": 7.5,
                 "vram_max_gb": 12.5,
-                "system_ram_min_gb": 32,
+                "system_ram_min_gb": 31,
                 "estimated_required_gb": 8,
                 "context_length": 65536,
                 "fit_label": "Advanced 8GB TurboQuant fit",
