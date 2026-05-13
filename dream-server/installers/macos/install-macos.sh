@@ -34,9 +34,20 @@ if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
   done
   if ! command -v brew >/dev/null 2>&1; then
     echo "DreamServer requires Bash 4+ (you have ${BASH_VERSION})." >&2
-    echo "Install Homebrew first:" >&2
-    echo "  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"" >&2
-    echo "Then re-run this installer." >&2
+    echo "macOS ships only Bash 3.2 — the last GPLv2 release Apple was willing to bundle." >&2
+    echo >&2
+    echo "Two-step bootstrap (one-time):" >&2
+    echo >&2
+    echo "  1. Install Homebrew. Requires an admin password and ~3 min:" >&2
+    echo "       /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"" >&2
+    echo >&2
+    echo "  2. Re-run this installer. It will detect Homebrew, run \`brew install bash\` for you, and proceed." >&2
+    echo >&2
+    echo "If \`brew install\` later complains \"Need sudo access on macOS\" under --non-interactive," >&2
+    echo "Homebrew is asking for passwordless sudo. Workaround:" >&2
+    echo "  echo \"\$USER ALL=(ALL) NOPASSWD: ALL\" | sudo tee /etc/sudoers.d/99-dream-install >/dev/null" >&2
+    echo "  sudo chmod 440 /etc/sudoers.d/99-dream-install" >&2
+    echo "(remove the file after install if you'd rather not keep passwordless sudo.)" >&2
     exit 1
   fi
   echo "Installing Bash 4+ via Homebrew (one-time setup)..."
