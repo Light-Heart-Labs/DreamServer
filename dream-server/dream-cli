@@ -2606,7 +2606,7 @@ cmd_model() {
             echo "  T4         — qwen3-30b-a3b (48GB+)"
             echo "  SH         — qwen3-30b-a3b (Strix Halo unified)"
             echo "  SH_LARGE   — qwen3-coder-next (90GB+ unified)"
-            echo "  NV_ULTRA   — qwen3-coder-next (90GB+ NVIDIA)"
+            echo "  NV_ULTRA   — qwen3-coder-next (amd64) / qwen3.6-35b-a3b (arm64 Spark)"
             echo ""
             echo "Usage: dream model swap <tier>"
             ;;

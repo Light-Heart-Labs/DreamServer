@@ -786,6 +786,41 @@ else
             sed -i '' "s|^CTX_SIZE=.*|CTX_SIZE=${MAX_CONTEXT}|" "$_env_file"
             ai_ok "Patched .env for bootstrap model ($GGUF_FILE)"
         fi
+
+    fi
+
+    # ── Hermes config substitution (macOS-specific) ──
+    #
+    # Same pattern as the Linux phase 11 substitution but with the
+    # macOS-specific base_url. The template ships with
+    # `base_url: "http://llama-server:8080/v1"`, which only resolves
+    # inside the dream-server compose bridge. On macOS llama-server
+    # runs native on the host (Metal binary, port 8080), so the
+    # Hermes container reaches it via host.docker.internal — and
+    # crucially `model.base_url` in cli-config.yaml WINS over the
+    # OPENAI_BASE_URL env compose.yaml sets, so the env override the
+    # Linux path relies on doesn't help here.
+    #
+    # Also patch model.default to the actual served file name. Native
+    # Mac llama.cpp serves under the file basename (Qwen3.5-9B-Q4_K_M.gguf
+    # rather than the friendly "qwen3.5-9b" the template ships with).
+    # This must run for all local macOS installs, not only bootstrap mode:
+    # Tier 0, offline/no-bootstrap, and already-downloaded full models need
+    # the same host.docker.internal base_url.
+    if ! $CLOUD_MODE; then
+        _hermes_tpl="${INSTALL_DIR}/extensions/services/hermes/cli-config.yaml.template"
+        if [[ -f "$_hermes_tpl" ]]; then
+            sed -i '' \
+                -e "s|^  default: \"qwen3.5-9b\"|  default: \"${GGUF_FILE}\"|" \
+                -e "s|^  base_url: \"http://llama-server:8080/v1\"|  base_url: \"http://host.docker.internal:${OLLAMA_PORT:-8080}/v1\"|" \
+                "$_hermes_tpl"
+            if grep -q "host.docker.internal" "$_hermes_tpl" && \
+               grep -q "^  default: \"${GGUF_FILE}\"$" "$_hermes_tpl"; then
+                ai_ok "Patched Hermes template for macOS (model=${GGUF_FILE}, base_url=host.docker.internal)"
+            else
+                ai_warn "Hermes template patch incomplete — Hermes may fail to reach llama-server. Hand-edit ${_hermes_tpl} if prompts hang."
+            fi
+        fi
     fi
 
     # ── Download and start native llama-server (Metal) ──
@@ -958,6 +993,26 @@ else
 
         if $HEALTHY; then
             ai_ok "Native llama-server healthy (PID ${LLAMA_PID})"
+
+            # ── Pre-warm the LLM slot ──
+            # /health returning 200 only means the model is mmap'd. The
+            # FIRST chat completion still has to materialize KV cache and
+            # JIT compile fused kernels — during that, llama-server 503s
+            # concurrent requests. Hermes Agent's default 3-retry / 120s
+            # budget burns out on this on slower hardware, so we force
+            # the slot through cold path here while we're already in the
+            # "this may take a minute" install context. Bounded by curl
+            # --max-time so a stalled llama-server can't hang the install.
+            _prewarm_url="http://127.0.0.1:${OLLAMA_PORT:-8080}/v1/chat/completions"
+            _prewarm_model="${GGUF_FILE:-default}"
+            _prewarm_body="{\"model\":\"${_prewarm_model}\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1,\"temperature\":0,\"stream\":false}"
+            if curl -sf --max-time 120 -X POST "$_prewarm_url" \
+                -H "Content-Type: application/json" \
+                -d "$_prewarm_body" >/dev/null 2>&1; then
+                ai_ok "LLM slot pre-warmed (first real chat will be fast)"
+            else
+                ai_warn "LLM pre-warm timed out — first Hermes prompt may need a retry while the slot warms."
+            fi
         else
             ai_warn "llama-server did not become healthy within ${MAX_WAIT}s. It may still be loading."
         fi

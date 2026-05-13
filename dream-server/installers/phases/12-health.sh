@@ -110,6 +110,41 @@ _check_container_health() {
 # llama-server: 150 attempts * adaptive backoff (2s->8s) = up to ~20 minutes (model loading can be slow)
 dream_progress 86 "health" "Waiting for LLM engine"
 _check_health "llama-server" "http://127.0.0.1:${SERVICE_PORTS[llama-server]:-8080}${SERVICE_HEALTH[llama-server]:-/health}" 150 15 "$(sr_container llama-server)"
+
+# ── Pre-warm the LLM slot so the first real chat doesn't 503 ──
+#
+# /health goes green once the model is mmap'd, but the FIRST chat
+# completion still materializes the KV cache, JIT-compiles fused kernels,
+# and processes any system prompt the caller injects. While that's in
+# flight, llama-server returns `HTTP 503: Loading model` to concurrent
+# requests — including from Hermes Agent, which sends a ~14k-token system
+# prompt and only retries 3 times within 120s. On big-model + single-GPU
+# boxes (DGX Spark with the 45 GB qwen3-coder-next, tested 2026-05-12),
+# that 14k prefill alone takes ~54s — fitting inside Hermes's first-call
+# window only by luck. Roll the dice the wrong way and Hermes 503s every
+# prompt for the rest of the install run.
+#
+# Pre-warming with a tiny dummy completion forces the slot through its
+# cold path inside the installer (where time isn't surprising) so Hermes
+# lands on an already-hot slot. Bounded by curl --max-time so a stalled
+# llama-server doesn't hang phase 12.
+dream_progress 87 "health" "Pre-warming LLM slot"
+_prewarm_api_path="/v1"
+_prewarm_model="${GGUF_FILE:-${LLM_MODEL:-default}}"
+if [[ "${GPU_BACKEND:-}" == "amd" ]]; then
+    _prewarm_api_path="/api/v1"
+    [[ -n "${GGUF_FILE:-}" ]] && _prewarm_model="extra.${GGUF_FILE}"
+fi
+_prewarm_url="http://127.0.0.1:${SERVICE_PORTS[llama-server]:-8080}${_prewarm_api_path}/chat/completions"
+_prewarm_body="{\"model\":\"${_prewarm_model}\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1,\"temperature\":0,\"stream\":false}"
+if curl -sf --max-time 120 -X POST "$_prewarm_url" \
+    -H "Content-Type: application/json" \
+    -d "$_prewarm_body" >/dev/null 2>&1; then
+    ai_ok "LLM slot pre-warmed (first real chat will be fast)"
+else
+    ai_warn "LLM pre-warm timed out — first Hermes prompt may need a retry or two while the slot finishes warming."
+fi
+
 # Open WebUI: 150 attempts * adaptive backoff = up to ~20 minutes
 dream_progress 89 "health" "Waiting for Chat UI"
 _check_health "Open WebUI" "http://127.0.0.1:${SERVICE_PORTS[open-webui]:-3000}${SERVICE_HEALTH[open-webui]:-/}" 150 10 "$(sr_container open-webui)"

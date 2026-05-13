@@ -366,6 +366,51 @@ MODELS_INI_EOF
                 fi
             fi
         fi
+
+        # ── Hermes config substitution ──
+        #
+        # The Hermes Agent extension ships a config template at
+        # extensions/services/hermes/cli-config.yaml.template which is
+        # mounted into the container at /opt/hermes/cli-config.yaml.example.
+        # On first container start, Hermes's entrypoint copies that into
+        # /opt/data/config.yaml — and never reads it again. So the values
+        # we want Hermes to use (model name, base_url) need to land in the
+        # template BEFORE compose-up, not after.
+        #
+        # Two values vary per platform / backend and the template ships
+        # placeholders for both:
+        #   model.default — Hermes asks the LLM server for this exact name.
+        #                   llama.cpp serves under "<file>.gguf"; Lemonade
+        #                   (AMD) wraps it as "extra.<file>.gguf". Asking
+        #                   for the wrong name 404s every chat completion.
+        #   model.base_url — llama-server's URL. The compose bridge name
+        #                   "llama-server:8080" works for the Linux installs,
+        #                   but on macOS llama-server runs native on the
+        #                   host (not as a sibling container), so Hermes
+        #                   has to dial "host.docker.internal:8080".
+        #
+        # Substitute both values now, then verify. macOS does its own
+        # substitution in installers/macos/install-macos.sh.
+        _hermes_tpl="$INSTALL_DIR/extensions/services/hermes/cli-config.yaml.template"
+        if [[ -f "$_hermes_tpl" ]]; then
+            # Model name: Lemonade prefixes with "extra.", llama.cpp uses
+            # the file name as-is.
+            _hermes_model="$GGUF_FILE"
+            if [[ "${GPU_BACKEND:-}" == "amd" ]]; then
+                _hermes_model="extra.$GGUF_FILE"
+            fi
+            # base_url stays at the compose-bridge name for Linux installs.
+            # On Linux there's a sibling llama-server container; on macOS
+            # the install-macos.sh path handles the host.docker.internal swap.
+            sed -i.bak \
+                -e "s|^  default: \"qwen3.5-9b\"|  default: \"$_hermes_model\"|" \
+                "$_hermes_tpl" 2>>"$LOG_FILE" && rm -f "${_hermes_tpl}.bak"
+            if grep -q "^  default: \"$_hermes_model\"$" "$_hermes_tpl"; then
+                ai_ok "Patched Hermes template: model.default=$_hermes_model"
+            else
+                warn "Hermes template substitution didn't take effect — Hermes may 404 every chat completion. Hand-edit $_hermes_tpl after install if Hermes prompts hang."
+            fi
+        fi
     fi
 
     # Validate service dependencies before launching
