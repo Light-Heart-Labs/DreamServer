@@ -3,9 +3,10 @@
 Gamma.ai source outline for an AMD-facing DS2 feature deck.
 
 This brief keeps the public product story hardware-neutral while using AMD
-hardware as the concrete opportunity. Strix Halo is the flagship showcase, but
-the higher-volume opportunity is AMD mini PCs and small-form-factor systems in
-the Mac mini price bracket.
+hardware as the concrete opportunity. Ryzen AI Max / Strix Halo is the premium
+showcase, and the same DS2 flow can extend across AMD mini PCs and
+small-form-factor systems from Ryzen AI 450-class devices through Ryzen AI Max
+systems.
 
 The DS2 feature is deployed in the Dream Server codebase and tested in pieces,
 but it still needs complete end-to-end validation on packaged target hardware
@@ -63,20 +64,20 @@ server.
 
 ## Slide 5: Two AMD Opportunities
 
-**Strix Halo is the showcase. Mac mini-class AMD boxes are the volume play.**
+**Ryzen AI Max is the showcase. Ryzen AI 450-class systems broaden the path.**
 
-Strix Halo showcase:
+Ryzen AI Max / Strix Halo showcase:
 
 - Premium local AI demo platform.
 - Strong story around memory, small form factor, and serious local models.
 - Great for creators, labs, developers, and high-end local AI appliances.
 
-Mac mini price-bracket volume:
+Ryzen AI 450-class / mainstream mini-PC category:
 
-- Higher potential unit volume.
+- Familiar, broadly deployable system category.
 - Familiar small desktop footprint.
 - Strong fit for home, office, classroom, and small business local AI.
-- Competes on private local AI usefulness, not only raw benchmark charts.
+- Differentiates on private local AI usefulness, not only raw benchmark charts.
 
 ## Slide 6: The DS2 Solution
 
@@ -143,23 +144,25 @@ flowchart LR
 
 ## Slide 10: Demo Plan
 
-Show the Strix Halo demo, then show the volume path.
+Show the Ryzen AI Max / Strix Halo demo, then show the broader deployment path.
 
-- Start with the Strix Halo device powered on and no monitor attached.
+- Start with the Ryzen AI Max / Strix Halo device powered on and no monitor
+  attached.
 - Scan the setup card from a phone.
 - Open the first-boot wizard.
 - Join Wi-Fi or confirm existing LAN connectivity.
 - Scan the magic-link invite QR.
 - Chat with a local agent or chat app from the phone or laptop.
 - Open the dashboard to show local services, model status, and controls.
-- Close by showing that the same DS2 flow can ship on lower-cost AMD mini PCs.
+- Close by showing that the same DS2 flow can ship on mainstream AMD mini PCs.
 
 ## Slide 11: What Still Needs Validation
 
 The code is present; packaged appliance images need end-to-end validation.
 
-- End-to-end setup on the exact Strix Halo image.
-- End-to-end setup on one or more Mac mini-class AMD mini PC images.
+- End-to-end setup on the exact Ryzen AI Max / Strix Halo image.
+- End-to-end setup on one or more Ryzen AI 450-class or adjacent AMD-powered
+  mini PC images.
 - Wi-Fi adapter AP-mode compatibility.
 - NetworkManager behavior across target Linux distributions.
 - mDNS behavior across common phone, laptop, router, and VPN environments.
@@ -170,10 +173,10 @@ The code is present; packaged appliance images need end-to-end validation.
 
 DS2 turns preinstalled AMD systems into ready-to-use local AI appliances.
 
-- Premium Strix Halo showcase: demonstrate full monitorless setup,
+- Premium Ryzen AI Max / Strix Halo showcase: demonstrate full monitorless setup,
   AMD-accelerated local inference, and local agent/chat surfaces.
-- Mac mini-class AMD volume device: use the same QR onboarding flow on
-  lower-cost small-form-factor systems.
+- Ryzen AI 450-class mini PC deployment path: use the same QR onboarding flow
+  on mainstream small-form-factor systems.
 - Retail or reseller handoff: preinstall Dream Server, include the setup card,
   and let the recipient activate the device from a phone.
 - Lab, classroom, and office deployment: ship configured local AI boxes without
@@ -208,6 +211,6 @@ Use full GitHub URLs. Do not convert them into relative links.
 ## Closing Message
 
 Dream Server Drop Ship (DS2) turns AMD local AI hardware into something a
-non-technical user can actually receive, activate, and use. Strix Halo can prove
-the premium experience; Mac mini-class AMD systems can scale the volume
-opportunity.
+non-technical user can actually receive, activate, and use. Ryzen AI Max /
+Strix Halo can prove the premium experience; Ryzen AI 450-class and adjacent
+AMD-powered mini PCs can extend the deployment opportunity.
