@@ -615,15 +615,22 @@ else
     fi
 
     # Copy extensions library to data dir for dashboard portal.
-    # SOURCE_ROOT resolves to dream-server/, so we climb one more level
-    # ($SOURCE_ROOT/..) to reach the repo root where resources/ lives.
-    _ext_lib_src="${SOURCE_ROOT}/../resources/dev/extensions-library/services"
-    if [[ -d "$_ext_lib_src" ]]; then
+    # Source resolution: dev installs find it via SOURCE_ROOT/.. (outer repo).
+    # Bootstrap installs (curl-piped) get the templates bundled inside the
+    # install dir by get-dream-server.sh under extensions-library-bundle/.
+    _ext_lib_src=""
+    for _candidate in \
+        "${SOURCE_ROOT}/../resources/dev/extensions-library/services" \
+        "${INSTALL_DIR}/extensions-library-bundle/services"
+    do
+        if [[ -d "$_candidate" ]]; then _ext_lib_src="$_candidate"; break; fi
+    done
+    if [[ -n "$_ext_lib_src" ]]; then
         mkdir -p "${INSTALL_DIR}/data/extensions-library"
         cp -r "$_ext_lib_src/." "${INSTALL_DIR}/data/extensions-library/"
-        ai_ok "Extensions library copied to data/extensions-library/"
+        ai_ok "Extensions library copied to data/extensions-library/ (from $_ext_lib_src)"
     else
-        ai_warn "Extensions library not found at ${_ext_lib_src}; dashboard Extensions page will return 503 until populated"
+        ai_warn "Extensions library not found; dashboard Extensions page will return 503 until populated"
     fi
 
     # Copy CLI tool to install root

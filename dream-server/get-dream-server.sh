@@ -259,6 +259,22 @@ fi
 
 success "Cloned to $INSTALL_DIR"
 
+# ── Bundle extensions-library templates ──────────────
+# The dashboard's Extensions page reads from data/extensions-library/, which the
+# installer (phase 06 / install-macos.sh) populates from resources/dev/extensions-library/.
+# That source path is in the OUTER repo (one level above dream-server/), which
+# the rsync above does not copy. Without it, dashboard-api returns:
+#   503 {"detail":"Extensions library is unavailable"}
+# on every install. Bundle the templates inside the install dir so the
+# installer can find them deterministically regardless of where it's invoked.
+if [[ -d "$TEMP_DIR/repo/resources/dev/extensions-library" ]]; then
+    cp -r "$TEMP_DIR/repo/resources/dev/extensions-library" "$INSTALL_DIR/extensions-library-bundle" \
+        && success "Bundled extensions-library templates" \
+        || warn "Failed to bundle extensions-library — Extensions page may 503"
+else
+    warn "resources/dev/extensions-library not in clone — Extensions page will 503"
+fi
+
 # ── Make scripts executable ──────────────────────────
 chmod +x "$INSTALL_DIR/install.sh" 2>/dev/null || true
 chmod +x "$INSTALL_DIR/dream-cli" 2>/dev/null || true
