@@ -409,6 +409,7 @@ dream mode status                        # Show current mode
 
 - [docs/README.md](docs/README.md) — **Full documentation index** (start here)
 - [QUICKSTART.md](QUICKSTART.md) — Detailed setup guide
+- [HEADLESS-SETUP.md](docs/HEADLESS-SETUP.md) — QR onboarding, first-boot setup, AP mode, mDNS, and local agent access
 - [HARDWARE-GUIDE.md](docs/HARDWARE-GUIDE.md) — What to buy
 - [EXTENSIONS.md](docs/EXTENSIONS.md) — Add services, manifests, dashboard plugins
 - [INSTALLER-ARCHITECTURE.md](docs/INSTALLER-ARCHITECTURE.md) — Modding the installer

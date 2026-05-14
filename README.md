@@ -344,6 +344,7 @@ Other tools get you part of the way. Dream Server gets you the whole way.
 | | |
 |---|---|
 | [Quickstart](dream-server/QUICKSTART.md) | Step-by-step install guide with troubleshooting |
+| [Headless Setup](dream-server/docs/HEADLESS-SETUP.md) | QR onboarding, first-boot setup, AP mode, mDNS, and local agent access |
 | [Hardware Guide](dream-server/docs/HARDWARE-GUIDE.md) | What to buy, tier recommendations |
 | [FAQ](dream-server/FAQ.md) | Common questions and configuration |
 | [Extensions](dream-server/docs/EXTENSIONS.md) | How to add custom services |
