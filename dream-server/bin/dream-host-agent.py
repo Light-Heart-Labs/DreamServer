@@ -3542,24 +3542,35 @@ def main():
 
     # Determine bind address: env var override, or platform-aware default.
     # macOS/Windows: 127.0.0.1 (Docker Desktop routes host.docker.internal to loopback)
-    # Linux: Docker bridge gateway IP (containers reach via host-gateway,
-    #   LAN devices cannot — the bridge is a virtual interface).
-    #   Falls back to 127.0.0.1 if detection fails.
+    # Linux: 0.0.0.0 — bind to all interfaces. Earlier versions bound to the
+    #   Docker bridge gateway (typically 172.17.0.1) to keep the agent off the
+    #   LAN, but that broke containers on custom networks like dream-network
+    #   (172.18.x.x) which can't route to 172.17.0.1 across Docker's default
+    #   bridge isolation. Reproduced on every fleet-test run as
+    #   `503 Host agent unreachable: <urlopen error timed out>` from
+    #   POST /api/models/{id}/download.
+    #   All endpoints already require Authorization: Bearer DREAM_AGENT_KEY,
+    #   which is the de-facto gate — the bind restriction was defense-in-depth,
+    #   not the primary control. With a 64-char hex key (256 bits of entropy),
+    #   brute-force is infeasible; LAN exposure is bounded by key custody.
+    #   Operators on hostile LANs can restrict via DREAM_AGENT_BIND=<ip> in .env.
     bind_addr = env.get("DREAM_AGENT_BIND", "")
     bind_from_env = bool(bind_addr)
     if not bind_addr:
         if platform.system() in ("Darwin", "Windows"):
             bind_addr = "127.0.0.1"
         else:
-            bind_addr = _detect_docker_bridge_gateway() or "127.0.0.1"
+            bind_addr = "0.0.0.0"
 
     server = ThreadedHTTPServer((bind_addr, port), AgentHandler)
     signal.signal(signal.SIGTERM, lambda *_: server.shutdown())
     logger.info("Dream Host Agent v%s listening on %s:%d", VERSION, bind_addr, port)
-    if bind_addr == "127.0.0.1" and not bind_from_env and platform.system() not in ("Darwin", "Windows"):
-        logger.warning(
-            "Docker bridge detection failed, using loopback (127.0.0.1). "
-            "Containers may not reach the agent. Set DREAM_AGENT_BIND=<bridge-ip> in .env."
+    if bind_addr == "0.0.0.0":
+        logger.info(
+            "Bound to all interfaces. Bearer-auth (DREAM_AGENT_KEY) is enforced "
+            "on every endpoint. To restrict to a specific interface, set "
+            "DREAM_AGENT_BIND=<ip> in %s/.env.",
+            INSTALL_DIR,
         )
     logger.info("Install dir: %s | GPU: %s | Tier: %s", INSTALL_DIR, GPU_BACKEND, TIER)
     try:
