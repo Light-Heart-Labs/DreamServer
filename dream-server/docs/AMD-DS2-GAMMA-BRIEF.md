@@ -1,6 +1,6 @@
 # Dream Server Drop Ship (DS2)
 
-Gamma.ai source outline for an AMD-facing partnership deck.
+Gamma.ai source outline for an AMD-facing DS2 feature deck.
 
 This brief keeps the public product story hardware-neutral while using AMD
 hardware as the concrete opportunity. Strix Halo is the flagship showcase, but
@@ -166,19 +166,21 @@ The code is present; packaged appliance images need end-to-end validation.
 - Agent/chat auth handoff through the proxy on packaged images.
 - Recovery path when the user changes networks or loses the setup card.
 
-## Slide 12: Partnership Ask
+## Slide 12: Feature Rollout Paths
 
-Turn the implemented feature into a polished AMD appliance demo and
-marketplace-ready user journey.
+DS2 turns preinstalled AMD systems into ready-to-use local AI appliances.
 
-- Access to representative Strix Halo hardware and target OS images.
-- Access to representative AMD mini PC hardware in the Mac mini price bracket.
-- AMD guidance on Lemonade, ROCm, Vulkan, and model packaging best practices.
-- Co-validation of the DS2 headless first-run flow.
-- A Dream Server listing in the Lemonade Marketplace once the user journey is
-  validated.
-- Optional co-marketing around private local AI appliance experiences on AMD
-  hardware.
+- Premium Strix Halo showcase: demonstrate full monitorless setup,
+  AMD-accelerated local inference, and local agent/chat surfaces.
+- Mac mini-class AMD volume device: use the same QR onboarding flow on
+  lower-cost small-form-factor systems.
+- Retail or reseller handoff: preinstall Dream Server, include the setup card,
+  and let the recipient activate the device from a phone.
+- Lab, classroom, and office deployment: ship configured local AI boxes without
+  requiring each recipient to connect a monitor.
+- Marketplace-ready story: once validation is complete, Dream Server can be
+  presented as a local AI app stack that makes AMD hardware immediately useful
+  to non-technical users.
 
 ## Slide 13: Repo Reference
 
