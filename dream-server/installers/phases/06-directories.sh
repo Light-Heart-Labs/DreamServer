@@ -111,12 +111,26 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
         log "Running in-place (source == install dir), skipping file copy"
     fi
 
-    # Copy extensions library to data dir for dashboard portal
-    _ext_lib_src="$SCRIPT_DIR/../resources/dev/extensions-library/services"
-    if [[ -d "$_ext_lib_src" ]]; then
+    # Copy extensions library to data dir for dashboard portal.
+    # Source resolution: dev installs (running from a checkout) find it via
+    # $SCRIPT_DIR/../resources/. Bootstrap installs (curl-piped) get the
+    # templates bundled inside the install dir by get-dream-server.sh under
+    # extensions-library-bundle/. Without one of these paths, dashboard-api's
+    # /api/extensions/{id}/install endpoint returns 503 "Extensions library is
+    # unavailable" and the dashboard's Extensions page is non-functional.
+    _ext_lib_src=""
+    for _candidate in \
+        "$SCRIPT_DIR/../resources/dev/extensions-library/services" \
+        "$INSTALL_DIR/extensions-library-bundle/services"
+    do
+        if [[ -d "$_candidate" ]]; then _ext_lib_src="$_candidate"; break; fi
+    done
+    if [[ -n "$_ext_lib_src" ]]; then
         mkdir -p "$INSTALL_DIR/data/extensions-library"
         cp -r "$_ext_lib_src/." "$INSTALL_DIR/data/extensions-library/"
-        ai_ok "Extensions library copied to data/extensions-library/"
+        ai_ok "Extensions library copied to data/extensions-library/ (from $_ext_lib_src)"
+    else
+        ai_warn "Extensions library not found; dashboard Extensions page will return 503 until populated"
     fi
 
     # Select tier-appropriate OpenClaw config
