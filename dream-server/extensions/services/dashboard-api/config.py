@@ -298,7 +298,18 @@ EXTENSION_CATALOG = load_extension_catalog()
 
 # --- Host Agent ---
 
-def _detect_container_default_gateway() -> str:
+def _running_inside_container() -> bool:
+    """Best-effort check for Docker/Podman/containerd runtime context."""
+    if Path("/.dockerenv").exists():
+        return True
+    try:
+        cgroup = Path("/proc/1/cgroup").read_text(encoding="utf-8").lower()
+    except OSError:
+        return False
+    return any(marker in cgroup for marker in ("docker", "containerd", "kubepods", "podman"))
+
+
+def _detect_container_default_gateway(route_path: str = "/proc/net/route") -> str:
     """Return this container's default-gateway IP, or empty on failure.
 
     Reads /proc/net/route directly so the container image doesn't need
@@ -315,17 +326,25 @@ def _detect_container_default_gateway() -> str:
     Docker's default DOCKER-ISOLATION-STAGE-2 iptables rules.
     """
     try:
-        with open("/proc/net/route", "r", encoding="utf-8") as f:
+        with open(route_path, "r", encoding="utf-8") as f:
             for line in f.readlines()[1:]:
                 fields = line.strip().split()
                 # destination == 0.0.0.0 AND flags has RTF_GATEWAY (0x2)
-                if len(fields) >= 4 and fields[1] == "00000000":
-                    gw_hex = fields[2]
-                    # Little-endian: 0100A8C0 → 192.168.0.1
-                    return ".".join(
-                        str(int(gw_hex[i:i+2], 16)) for i in (6, 4, 2, 0)
-                    )
-    except (OSError, ValueError):
+                if len(fields) < 4 or fields[1] != "00000000":
+                    continue
+                gw_hex = fields[2]
+                try:
+                    flags = int(fields[3], 16)
+                    gateway_raw = int(gw_hex, 16)
+                except ValueError:
+                    continue
+                if not (flags & 0x2) or gateway_raw == 0 or len(gw_hex) != 8:
+                    continue
+                # Little-endian: 0100A8C0 -> 192.168.0.1
+                return ".".join(
+                    str(int(gw_hex[i:i + 2], 16)) for i in (6, 4, 2, 0)
+                )
+    except OSError:
         pass
     return ""
 
@@ -344,10 +363,11 @@ def _resolve_agent_host() -> str:
     explicit = os.environ.get("DREAM_AGENT_HOST", "").strip()
     if explicit:
         return explicit
-    gw = _detect_container_default_gateway()
-    if gw:
-        logger.info("Resolved DREAM_AGENT_HOST=%s via /proc/net/route", gw)
-        return gw
+    if _running_inside_container():
+        gw = _detect_container_default_gateway()
+        if gw:
+            logger.info("Resolved DREAM_AGENT_HOST=%s via /proc/net/route", gw)
+            return gw
     logger.warning(
         "Could not detect container default gateway; falling back to "
         "host.docker.internal. If host-agent calls time out, set "

@@ -3554,8 +3554,7 @@ def main():
     #   not the primary control. With a 64-char hex key (256 bits of entropy),
     #   brute-force is infeasible; LAN exposure is bounded by key custody.
     #   Operators on hostile LANs can restrict via DREAM_AGENT_BIND=<ip> in .env.
-    bind_addr = env.get("DREAM_AGENT_BIND", "")
-    bind_from_env = bool(bind_addr)
+    bind_addr = env.get("DREAM_AGENT_BIND", "").strip()
     if not bind_addr:
         if platform.system() in ("Darwin", "Windows"):
             bind_addr = "127.0.0.1"
