@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
 """DreamServer Host Agent — manages extension containers from the host."""
 
+# PEP 604 union syntax (e.g. `threading.Thread | None`) is evaluated at runtime
+# in non-stringified annotations, which crashes on Python 3.9 — the version
+# Apple ships as /usr/bin/python3 on macOS 14.x. The LaunchAgent fails at
+# import with `TypeError: unsupported operand type(s) for |: 'type' and
+# 'NoneType'`, leaving Dream Server's macOS install with no host agent.
+# `from __future__ import annotations` makes ALL annotations lazy strings,
+# so PEP 604 syntax parses on Python 3.7+. The host-agent doesn't use
+# typing.get_type_hints() at runtime, so lazy annotations are safe here.
+from __future__ import annotations
+
 import argparse
 import atexit
 import collections
