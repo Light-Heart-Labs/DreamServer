@@ -215,7 +215,7 @@ _clone_err=$(git clone --depth 1 --filter=blob:none --sparse "$REPO_URL" "$TEMP_
 echo "$_clone_err" | tail -1
 
 cd "$TEMP_DIR/repo"
-git sparse-checkout set dream-server 2>/dev/null || {
+git sparse-checkout set dream-server resources/dev/extensions-library 2>/dev/null || {
     # Fallback: full clone if sparse checkout fails
     cd "$DREAM_BOOTSTRAP_ROOT"
     rm -rf "$TEMP_DIR/repo"
@@ -268,9 +268,13 @@ success "Cloned to $INSTALL_DIR"
 # on every install. Bundle the templates inside the install dir so the
 # installer can find them deterministically regardless of where it's invoked.
 if [[ -d "$TEMP_DIR/repo/resources/dev/extensions-library" ]]; then
-    cp -r "$TEMP_DIR/repo/resources/dev/extensions-library" "$INSTALL_DIR/extensions-library-bundle" \
-        && success "Bundled extensions-library templates" \
-        || warn "Failed to bundle extensions-library — Extensions page may 503"
+    if rm -rf "$INSTALL_DIR/extensions-library-bundle" \
+        && mkdir -p "$INSTALL_DIR/extensions-library-bundle" \
+        && cp -R "$TEMP_DIR/repo/resources/dev/extensions-library/." "$INSTALL_DIR/extensions-library-bundle/"; then
+        success "Bundled extensions-library templates"
+    else
+        warn "Failed to bundle extensions-library — Extensions page may 503"
+    fi
 else
     warn "resources/dev/extensions-library not in clone — Extensions page will 503"
 fi
