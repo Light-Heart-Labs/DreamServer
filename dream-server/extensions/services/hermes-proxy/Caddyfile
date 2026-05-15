@@ -90,7 +90,11 @@
 
 		@denied status 401 403
 		handle_response @denied {
-			redir /auth/required 303
+			# The leading `*` is intentional. Without an explicit matcher,
+			# Caddy parses `/auth/required` as a path matcher and `303` as
+			# the redirect target, so unauthenticated `/` requests fall
+			# through to Hermes instead of being bounced to the invite page.
+			redir * /auth/required 303
 		}
 	}
 
