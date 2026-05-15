@@ -575,8 +575,15 @@ if ($dryRun) {
                 if ($currentBackend -eq "nvidia" -and -not $script:gpuPassthroughFailed) {
                     $gpuOverlay = Join-Path $svcDir.FullName "compose.nvidia.yaml"
                     if (Test-Path $gpuOverlay) {
-                        $relOverlay = $gpuOverlay.Substring($installDir.Length + 1) -replace "\\", "/"
-                        $composeFlags += @("-f", $relOverlay)
+                        $useGpuOverlay = $true
+                        if ($svcName -eq "whisper" -and $gpuInfo.DriverMajor -lt 575) {
+                            $useGpuOverlay = $false
+                            Write-AIWarn "Whisper CUDA image requires a newer NVIDIA driver than $($gpuInfo.DriverVersion); using CPU Whisper."
+                        }
+                        if ($useGpuOverlay) {
+                            $relOverlay = $gpuOverlay.Substring($installDir.Length + 1) -replace "\\", "/"
+                            $composeFlags += @("-f", $relOverlay)
+                        }
                     }
                 }
             }
