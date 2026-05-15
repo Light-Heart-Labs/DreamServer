@@ -207,6 +207,11 @@ services:
       # phase 06; an unconfigured dev box without the secret will fail
       # magic-link redemption loudly rather than mint unsignable cookies.
       - DREAM_SESSION_SECRET=${DREAM_SESSION_SECRET:-}
+      # Device/public URL inputs used by magic-link generation. Keep these
+      # aligned with dream-proxy and dream-mdns so invite QR codes point at
+      # the actual LAN-facing auth/chat hosts for the unit.
+      - DREAM_DEVICE_NAME=${DREAM_DEVICE_NAME:-dream}
+      - DREAM_PUBLIC_URL=${DREAM_PUBLIC_URL:-}
       # Cookie Domain scope. Set to <device>.local (no leading dot) so
       # cookies are shared across chat / auth / hermes / dashboard
       # subdomains routed by the dream-proxy. Empty = host-only (only
