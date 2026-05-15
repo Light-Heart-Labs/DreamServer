@@ -184,6 +184,7 @@ services:
       - DREAM_INSTALL_DIR=/dream-server
       - DREAM_DATA_DIR=/data
       - DREAM_EXTENSIONS_LIBRARY_DIR=/data/extensions-library
+      - DREAM_AGENT_HOST=${DREAM_AGENT_HOST:-}
       - DREAM_AGENT_PORT=${DREAM_AGENT_PORT:-7710}
       - GPU_BACKEND=${GPU_BACKEND:-nvidia}
       - GPU_COUNT=${GPU_COUNT:-1}
