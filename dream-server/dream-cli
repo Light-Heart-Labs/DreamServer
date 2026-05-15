@@ -447,8 +447,12 @@ resolve_service() {
 # Regenerate .compose-flags after enable/disable
 _regenerate_compose_flags() {
     if [[ -x "$INSTALL_DIR/scripts/resolve-compose-stack.sh" ]]; then
+        # --gpu-count gates the multigpu-{backend}.yml overlay; without it,
+        # toggling any extension would silently strip multi-GPU plumbing
+        # from the persisted cache.
         "$INSTALL_DIR/scripts/resolve-compose-stack.sh" \
             --script-dir "$INSTALL_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}" \
+            --gpu-count "${GPU_COUNT:-1}" \
             > "$INSTALL_DIR/.compose-flags" 2>/dev/null || rm -f "$INSTALL_DIR/.compose-flags"
     else
         rm -f "$INSTALL_DIR/.compose-flags"
@@ -536,8 +540,25 @@ get_compose_flags() {
         local cached
         cached=$(< "$INSTALL_DIR/.compose-flags")
         if [[ "$cached" == -f\ * ]]; then
-            echo "$cached"
-            return
+            # Validate that every referenced compose file still exists.
+            # Protects against renames across upgrades (e.g. multigpu.yml →
+            # multigpu-nvidia.yml) where the cache would otherwise hand docker
+            # compose a path that no longer resolves.
+            local stale=0 prev="" tok
+            for tok in $cached; do
+                if [[ "$prev" == "-f" ]]; then
+                    if [[ "$tok" = /* ]]; then
+                        [[ -f "$tok" ]] || { stale=1; break; }
+                    else
+                        [[ -f "$INSTALL_DIR/$tok" ]] || { stale=1; break; }
+                    fi
+                fi
+                prev="$tok"
+            done
+            if [[ "$stale" == "0" ]]; then
+                echo "$cached"
+                return
+            fi
         fi
         # Stale or corrupt — remove and fall through to dynamic resolution
         rm -f "$INSTALL_DIR/.compose-flags"
@@ -545,9 +566,12 @@ get_compose_flags() {
     # Fallback: resolve dynamically
     local base_flags
     if [[ -x "$INSTALL_DIR/scripts/resolve-compose-stack.sh" ]]; then
-        # Resolver handles base + GPU overlay + extension compose files
+        # Resolver handles base + GPU overlay + extension compose files.
+        # --gpu-count gates the multigpu-{backend}.yml overlay — without it,
+        # this fallback path resolves to a single-GPU stack on multi-GPU hosts.
         base_flags=$("$INSTALL_DIR/scripts/resolve-compose-stack.sh" \
-            --script-dir "$INSTALL_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}")
+            --script-dir "$INSTALL_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}" \
+            --gpu-count "${GPU_COUNT:-1}")
         echo "$base_flags"
     elif [[ -f "$INSTALL_DIR/docker-compose.base.yml" ]]; then
         base_flags="-f docker-compose.base.yml"
@@ -2995,18 +3019,119 @@ _gpu_status() {
         fi
 
     elif [[ "${GPU_BACKEND:-}" == "amd" ]]; then
-        echo "  AMD GPU(s):"
+        printf "  %-4s %-22s %-22s  %-7s  %-7s  %s\n" \
+            "#" "Name" "VRAM Used/Total" "Util" "Temp" "Power"
+        printf "  %-4s %-22s %-22s  %-7s  %-7s  %s\n" \
+            "─" "──────────────────────" "──────────────────────" "───────" "───────" "─────"
+        local _amd_idx=0 _amd_total_u=0 _amd_total_t=0 _amd_util_sum=0 _amd_max_temp=0 _amd_pw_sum=0
         for card_dir in /sys/class/drm/card*/device; do
             [[ -f "$card_dir/vendor" ]] || continue
+            local vendor
             vendor=$(cat "$card_dir/vendor" 2>/dev/null)
             [[ "$vendor" == "0x1002" ]] || continue
+            local name vram_total vram_used busy temp_c pw_w
             name=$(cat "$card_dir/product_name" 2>/dev/null || echo "AMD Radeon")
+            [[ -z "$name" || "$name" == "(null)" ]] && name="AMD Radeon"
             vram_total=$(cat "$card_dir/mem_info_vram_total" 2>/dev/null || echo "0")
             vram_used=$(cat "$card_dir/mem_info_vram_used" 2>/dev/null || echo "0")
             busy=$(cat "$card_dir/gpu_busy_percent" 2>/dev/null || echo "0")
-            card=$(basename "$(dirname "$card_dir")")
-            echo "  $card  $name  $(awk "BEGIN{printf \"%.1f / %.1f GB\", $vram_used/1073741824, $vram_total/1073741824}")  ${busy}%"
+
+            # Temperature: find junction sensor via hwmon labels
+            temp_c="N/A"
+            for hwmon_dir in "$card_dir"/hwmon/hwmon*; do
+                [[ -d "$hwmon_dir" ]] || continue
+                for label_file in "$hwmon_dir"/temp*_label; do
+                    [[ -f "$label_file" ]] || continue
+                    local label_val
+                    label_val=$(cat "$label_file" 2>/dev/null)
+                    if [[ "$label_val" == "junction" || "$label_val" == "edge" ]]; then
+                        local input_file="${label_file/_label/_input}"
+                        if [[ -f "$input_file" ]]; then
+                            local millic
+                            millic=$(cat "$input_file" 2>/dev/null) || millic=0
+                            temp_c=$((millic / 1000))
+                            break 2
+                        fi
+                    fi
+                done
+                # Fallback: try temp1_input if no labels found
+                if [[ "$temp_c" == "N/A" && -f "$hwmon_dir/temp1_input" ]]; then
+                    local millic
+                    millic=$(cat "$hwmon_dir/temp1_input" 2>/dev/null) || millic=0
+                    temp_c=$((millic / 1000))
+                fi
+            done
+
+            # Power: try power1_average then power1_input (microwatts)
+            pw_w="N/A"
+            for hwmon_dir in "$card_dir"/hwmon/hwmon*; do
+                [[ -d "$hwmon_dir" ]] || continue
+                local pw_uw=0
+                if [[ -f "$hwmon_dir/power1_average" ]]; then
+                    pw_uw=$(cat "$hwmon_dir/power1_average" 2>/dev/null) || pw_uw=0
+                fi
+                if [[ ! "$pw_uw" =~ ^[0-9]+$ || "$pw_uw" -eq 0 ]] && [[ -f "$hwmon_dir/power1_input" ]]; then
+                    pw_uw=$(cat "$hwmon_dir/power1_input" 2>/dev/null) || pw_uw=0
+                fi
+                if [[ "$pw_uw" =~ ^[0-9]+$ && "$pw_uw" -gt 0 ]]; then
+                    pw_w=$((pw_uw / 1000000))
+                    break
+                fi
+            done
+
+            local vram_str
+            vram_str=$(awk "BEGIN{printf \"%.1f / %.1f GB\", $vram_used/1073741824, $vram_total/1073741824}")
+            local temp_str pw_str
+            [[ "$temp_c" != "N/A" ]] && temp_str="${temp_c}°C" || temp_str="N/A"
+            [[ "$pw_w" != "N/A" ]] && pw_str="${pw_w}W" || pw_str="N/A"
+
+            printf "  %-4s %-22s %-22s  %3s%%     %-7s %s\n" \
+                "$_amd_idx" "${name:0:22}" "$vram_str" "$busy" "$temp_str" "$pw_str"
+
+            _amd_total_u=$((vram_used + _amd_total_u))
+            _amd_total_t=$((vram_total + _amd_total_t))
+            _amd_util_sum=$((busy + _amd_util_sum))
+            [[ "$temp_c" != "N/A" && "$temp_c" -gt "$_amd_max_temp" ]] && _amd_max_temp=$temp_c
+            [[ "$pw_w" != "N/A" ]] && _amd_pw_sum=$((_amd_pw_sum + pw_w))
+            _amd_idx=$((_amd_idx + 1))
         done
+
+        if [[ $_amd_idx -gt 1 ]]; then
+            printf "                         ──────────────────────\n"
+            local vram_str
+            vram_str=$(awk "BEGIN{printf \"%.1f / %.1f GB\", $_amd_total_u/1073741824, $_amd_total_t/1073741824}")
+            printf "  %-4s %-22s %-22s  %3d%%     %3d°C   %dW\n" \
+                "Σ" "" "$vram_str" $((_amd_util_sum / _amd_idx)) "$_amd_max_temp" "$_amd_pw_sum"
+        fi
+
+        echo ""
+
+        # Assignment summary (same logic as NVIDIA, but map UUIDs via topology JSON)
+        local assignment_b64="${GPU_ASSIGNMENT_JSON_B64:-}"
+        if [[ -n "$assignment_b64" ]] && command -v jq &>/dev/null; then
+            assignment_b64=$(echo "$assignment_b64" | tr -d '\r' | tr -d '[:space:]')
+            local assignment_json
+            assignment_json=$(echo "$assignment_b64" | base64 -d 2>/dev/null) || assignment_json=""
+            if [[ -n "$assignment_json" ]]; then
+                local topo_file="$INSTALL_DIR/config/gpu-topology.json"
+                echo "  GPU Assignments:"
+                echo "$assignment_json" | jq -r '.gpu_assignment.services | to_entries[] | [.key, (.value.gpus | join(","))] | @tsv' \
+                | while IFS=$'\t' read -r svc gpus; do
+                    local labels=""
+                    while IFS= read -r uuid; do
+                        [[ -z "$uuid" ]] && continue
+                        local idx=""
+                        # Look up UUID in topology JSON for index
+                        if [[ -f "$topo_file" ]]; then
+                            idx=$(jq -r --arg u "$uuid" '.gpus[] | select(.uuid == $u) | .index' "$topo_file" 2>/dev/null)
+                        fi
+                        labels="${labels:+$labels, }${idx:+GPU${idx}}"
+                    done < <(echo "$gpus" | tr ',' '\n')
+                    printf "    %-20s %s\n" "$svc" "${labels:-$gpus}"
+                done
+                echo ""
+            fi
+        fi
     elif [[ "${GPU_BACKEND:-}" == "apple" ]]; then
         local _chip _total_mem_gb _gpu_cores
         _chip="$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo 'Apple Silicon')"
@@ -3040,20 +3165,9 @@ _gpu_topology() {
     echo -e "${BLUE}━━━ GPU Topology ━━━${NC}"
     echo ""
 
-    if [[ "${GPU_BACKEND:-}" == "amd" ]]; then
-        echo "  AMD multi-GPU topology detection not yet supported."
-        echo "  Use 'dream gpu status' to see per-card utilization."
-        return
-    fi
-
     if [[ "${GPU_BACKEND:-}" == "apple" ]]; then
         echo "  Single integrated GPU (Apple Silicon, unified memory) — no multi-GPU topology to display."
         return 0
-    fi
-
-    if ! command -v nvidia-smi &>/dev/null; then
-        warn "nvidia-smi not found — topology unavailable"
-        return
     fi
 
     if ! command -v jq &>/dev/null; then
@@ -3061,7 +3175,21 @@ _gpu_topology() {
         return
     fi
 
-    local topo_lib="$SCRIPT_DIR/installers/lib/nvidia-topo.sh"
+    local backend="${GPU_BACKEND:-nvidia}"
+    local topo_lib topo_detect_fn
+
+    if [[ "$backend" == "amd" ]]; then
+        topo_lib="$SCRIPT_DIR/installers/lib/amd-topo.sh"
+        topo_detect_fn="detect_amd_topo"
+    else
+        topo_lib="$SCRIPT_DIR/installers/lib/nvidia-topo.sh"
+        topo_detect_fn="detect_nvidia_topo"
+        if ! command -v nvidia-smi &>/dev/null; then
+            warn "nvidia-smi not found — topology unavailable"
+            return
+        fi
+    fi
+
     if [[ ! -f "$topo_lib" ]]; then
         warn "Topology library not found: $topo_lib"
         return
@@ -3075,18 +3203,25 @@ _gpu_topology() {
     else
         [[ "$force" -eq 1 && -f "$topo_file" ]] && log "Re-detecting topology (--force)..."
         . "$topo_lib"
-        topo_json=$(detect_nvidia_topo 2>&1) || { warn "Failed to detect GPU topology"; return; }
+        topo_json=$($topo_detect_fn 2>&1) || { warn "Failed to detect GPU topology"; return; }
         echo "$topo_json" > "$topo_file"
         chmod 644 "$topo_file"
         log "Topology saved to $topo_file"
     fi
 
-    local gpu_count driver mig_enabled
+    local gpu_count driver
     gpu_count=$(echo "$topo_json" | jq -r '.gpu_count // 0')
     driver=$(echo "$topo_json" | jq -r '.driver_version // "unknown"')
-    mig_enabled=$(echo "$topo_json" | jq -r '.mig_enabled // false')
 
-    echo "  GPUs: ${gpu_count}    Driver: ${driver}    MIG: ${mig_enabled}"
+    if [[ "$backend" == "amd" ]]; then
+        local vendor_label
+        vendor_label=$(echo "$topo_json" | jq -r '.vendor // "amd"')
+        echo "  GPUs: ${gpu_count}    Driver: ROCm ${driver}    Backend: ${vendor_label}"
+    else
+        local mig_enabled
+        mig_enabled=$(echo "$topo_json" | jq -r '.mig_enabled // false')
+        echo "  GPUs: ${gpu_count}    Driver: ${driver}    MIG: ${mig_enabled}"
+    fi
     echo ""
 
     # Build a fixed-width link_type matrix from the JSON links array
@@ -3112,6 +3247,20 @@ _gpu_topology() {
     local numa_nodes
     numa_nodes=$(echo "$topo_json" | jq -r '.numa.nodes // 1')
     echo "  NUMA nodes: ${numa_nodes}"
+
+    # AMD-specific: show gfx versions and memory types
+    if [[ "$backend" == "amd" ]]; then
+        local has_gfx
+        has_gfx=$(echo "$topo_json" | jq -r '[.gpus[].gfx_version // empty] | length')
+        if [[ "$has_gfx" -gt 0 ]]; then
+            echo ""
+            echo "  GPU Details:"
+            echo "$topo_json" | jq -r '
+                .gpus[] |
+                "    GPU\(.index): \(.name) — gfx\(.gfx_version // "?") \(.memory_type // "discrete") \(.memory_gb)GB renderD\(.render_node // "?")"
+            ' 2>/dev/null
+        fi
+    fi
 }
 
 _gpu_assignment() {
@@ -3147,8 +3296,14 @@ _gpu_assignment() {
     echo ""
 
     # Build UUID → index map for readable display
-    local uuid_map=""
-    if command -v nvidia-smi &>/dev/null; then
+    local uuid_map="" backend="${GPU_BACKEND:-nvidia}"
+    if [[ "$backend" == "amd" ]]; then
+        # For AMD, use topology JSON which has index + uuid per GPU
+        local topo_file="$INSTALL_DIR/config/gpu-topology.json"
+        if [[ -f "$topo_file" ]] && command -v jq &>/dev/null; then
+            uuid_map=$(jq -r '.gpus[] | "\(.index), \(.uuid)"' "$topo_file" 2>/dev/null) || uuid_map=""
+        fi
+    elif command -v nvidia-smi &>/dev/null; then
         uuid_map=$(nvidia-smi --query-gpu=index,uuid --format=csv,noheader,nounits 2>/dev/null) || uuid_map=""
     fi
 
@@ -3202,7 +3357,19 @@ _gpu_validate() {
     # Check 1: GPU_COUNT matches actual
     local env_count="${GPU_COUNT:-1}"
     local actual_count=1
-    if command -v nvidia-smi &>/dev/null; then
+    local backend="${GPU_BACKEND:-nvidia}"
+
+    if [[ "$backend" == "amd" ]]; then
+        # Count AMD GPUs via sysfs vendor ID
+        actual_count=0
+        for card_dir in /sys/class/drm/card*/device; do
+            [[ -d "$card_dir" ]] || continue
+            local vendor
+            vendor=$(cat "$card_dir/vendor" 2>/dev/null) || continue
+            [[ "$vendor" == "0x1002" ]] && ((actual_count++)) || true
+        done
+        [[ "$actual_count" -eq 0 ]] && actual_count=1
+    elif command -v nvidia-smi &>/dev/null; then
         actual_count=$(nvidia-smi --list-gpus 2>/dev/null | wc -l | tr -d ' ' || true)
         actual_count="${actual_count:-0}"
     fi
@@ -3227,9 +3394,16 @@ _gpu_validate() {
         local assignment_json
         if assignment_json=$(echo "$assignment_b64" | base64 -d 2>/dev/null); then
             local live_uuids=""
-            if command -v nvidia-smi &>/dev/null; then
+            if [[ "$backend" == "amd" ]]; then
+                # For AMD, rebuild UUID list from topology JSON or sysfs
+                local topo_file="$INSTALL_DIR/config/gpu-topology.json"
+                if [[ -f "$topo_file" ]]; then
+                    live_uuids=$(jq -r '.gpus[].uuid' "$topo_file" 2>/dev/null | tr -d ' ' || true)
+                fi
+            elif command -v nvidia-smi &>/dev/null; then
                 live_uuids=$(nvidia-smi --query-gpu=uuid --format=csv,noheader,nounits 2>/dev/null | tr -d ' ' || true)
             fi
+            live_uuids="${live_uuids:-}"
             local missing=0
             while IFS= read -r uuid; do
                 [[ -z "$uuid" ]] && continue
@@ -3270,6 +3444,18 @@ _gpu_validate() {
     echo "  Result: ${pass} check(s) passed, ${fail} failed"
 }
 
+# Helper: write AMD-specific env vars from topology JSON for manual assignment
+_gpu_reassign_write_amd_env() {
+    local topo_json="$1" indices_csv="$2"
+    _env_set "LLAMA_SERVER_GPU_INDICES" "$indices_csv"
+    _env_set "ROCR_VISIBLE_DEVICES" "$indices_csv"
+    local video_gid render_gid
+    video_gid=$(getent group video 2>/dev/null | cut -d: -f3) || video_gid="44"
+    render_gid=$(getent group render 2>/dev/null | cut -d: -f3) || render_gid="992"
+    _env_set "VIDEO_GID" "$video_gid"
+    _env_set "RENDER_GID" "$render_gid"
+}
+
 _gpu_reassign() {
     local auto_mode=0 dry_run=0 manual_mode=0
     while [[ $# -gt 0 ]]; do
@@ -3292,17 +3478,26 @@ _gpu_reassign() {
         return 1
     fi
 
-    if ! command -v nvidia-smi &>/dev/null; then
-        warn "GPU reassign is only supported for NVIDIA. Use 'dream gpu status' for AMD."
-        return 1
-    fi
-
     if ! command -v jq &>/dev/null; then
         warn "jq not found — required for GPU reassignment"
         return 1
     fi
 
-    local topo_lib="$SCRIPT_DIR/installers/lib/nvidia-topo.sh"
+    local backend="${GPU_BACKEND:-nvidia}"
+    local topo_lib topo_detect_fn
+
+    if [[ "$backend" == "amd" ]]; then
+        topo_lib="$SCRIPT_DIR/installers/lib/amd-topo.sh"
+        topo_detect_fn="detect_amd_topo"
+    else
+        topo_lib="$SCRIPT_DIR/installers/lib/nvidia-topo.sh"
+        topo_detect_fn="detect_nvidia_topo"
+        if ! command -v nvidia-smi &>/dev/null; then
+            warn "nvidia-smi not found — GPU reassignment unavailable"
+            return
+        fi
+    fi
+
     local assign_script="$SCRIPT_DIR/scripts/assign_gpus.py"
 
     [[ -f "$topo_lib" ]] || { warn "Topology library not found: $topo_lib"; return 1; }
@@ -3313,7 +3508,7 @@ _gpu_reassign() {
 
     log "Detecting GPU topology..."
     local topo_json
-    topo_json=$(detect_nvidia_topo 2>&1) || error "Failed to detect GPU topology"
+    topo_json=$($topo_detect_fn) || error "Failed to detect GPU topology"
 
     # Persist topology for the dashboard API
     mkdir -p "$INSTALL_DIR/config"
@@ -3347,19 +3542,25 @@ _gpu_reassign() {
     if [[ "$manual_mode" -eq 1 ]]; then
         echo ""
         echo "  Available GPUs:"
-        local gpu_list_smi
-        gpu_list_smi=$(nvidia-smi --query-gpu=index,name,memory.total \
-            --format=csv,noheader,nounits 2>/dev/null) || { warn "nvidia-smi failed"; return; }
-        local gpu_indices=()
-        while IFS= read -r gline; do
-            [[ -z "$gline" ]] && continue
-            local idx gname gmem
-            idx=$(echo "$gline"   | awk -F', ' '{gsub(/ /,"",$1); print $1}')
-            gname=$(echo "$gline" | awk -F', ' '{gsub(/^ +/,"",$2); print $2}')
-            gmem=$(echo "$gline"  | awk -F', ' '{gsub(/ /,"",$3); printf "%.0f GB", $3/1024}')
-            echo "    GPU${idx}: ${gname} (${gmem})"
-            gpu_indices+=("$idx")
-        done <<<"$gpu_list_smi"
+
+        if [[ "$backend" == "amd" ]]; then
+            # List AMD GPUs from topology JSON
+            echo "$topo_json" | jq -r '.gpus[] |
+                "    GPU\(.index): \(.name) (\(.memory_gb) GB \(.memory_type // "discrete"))"
+            ' 2>/dev/null
+        else
+            local gpu_list_smi
+            gpu_list_smi=$(nvidia-smi --query-gpu=index,name,memory.total \
+                --format=csv,noheader,nounits 2>/dev/null) || { warn "nvidia-smi failed"; return; }
+            while IFS= read -r gline; do
+                [[ -z "$gline" ]] && continue
+                local idx gname gmem
+                idx=$(echo "$gline"   | awk -F', ' '{gsub(/ /,"",$1); print $1}')
+                gname=$(echo "$gline" | awk -F', ' '{gsub(/^ +/,"",$2); print $2}')
+                gmem=$(echo "$gline"  | awk -F', ' '{gsub(/ /,"",$3); printf "%.0f GB", $3/1024}')
+                echo "    GPU${idx}: ${gname} (${gmem})"
+            done <<<"$gpu_list_smi"
+        fi
         echo ""
 
         local _manual_llama _manual_whisper _manual_comfyui
@@ -3372,7 +3573,11 @@ _gpu_reassign() {
 
         # Build UUID lists from indices
         local uuid_map
-        uuid_map=$(nvidia-smi --query-gpu=index,uuid --format=csv,noheader,nounits 2>/dev/null)
+        if [[ "$backend" == "amd" ]]; then
+            uuid_map=$(echo "$topo_json" | jq -r '.gpus[] | "\(.index), \(.uuid)"' 2>/dev/null)
+        else
+            uuid_map=$(nvidia-smi --query-gpu=index,uuid --format=csv,noheader,nounits 2>/dev/null)
+        fi
 
         _get_uuid() {
             echo "$uuid_map" | awk -F', ' -v i="$1" '{gsub(/ /,"",$1); if($1==i){gsub(/ /,"",$2); print $2; exit}}'
@@ -3419,6 +3624,11 @@ _gpu_reassign() {
         _env_set "LLAMA_ARG_SPLIT_MODE" "$split_mode_m"
         [[ -n "$whisper_uuid_m" ]]   && _env_set "WHISPER_GPU_UUID"  "$whisper_uuid_m"
         [[ -n "$comfyui_uuid_m" ]]   && _env_set "COMFYUI_GPU_UUID"  "$comfyui_uuid_m"
+
+        # AMD-specific: write render node and ROCR env vars
+        if [[ "$backend" == "amd" ]]; then
+            _gpu_reassign_write_amd_env "$topo_json" "$_manual_llama"
+        fi
 
         success "Manual GPU assignment saved"
         echo ""
@@ -3496,6 +3706,48 @@ _gpu_reassign() {
     [[ -n "$comfyui_uuid" ]]    && _env_set "COMFYUI_GPU_UUID" "$comfyui_uuid"
     [[ -n "$embeddings_uuid" ]] && _env_set "EMBEDDINGS_GPU_UUID" "$embeddings_uuid"
     _env_set "GPU_ASSIGNMENT_JSON_B64" "$assignment_b64"
+
+    # AMD-specific: write render node, ROCR_VISIBLE_DEVICES, gfx overrides
+    if [[ "$backend" == "amd" ]]; then
+        # Extract llama GPU indices from assignment by matching UUIDs to topology
+        local llama_idx_csv=""
+        while IFS= read -r _uuid; do
+            [[ -z "$_uuid" ]] && continue
+            local _idx
+            _idx=$(echo "$topo_json" | jq -r --arg u "$_uuid" '.gpus[] | select(.uuid == $u) | .index')
+            llama_idx_csv="${llama_idx_csv:+$llama_idx_csv,}${_idx}"
+        done < <(echo "$assignment_json" | jq -r '.gpu_assignment.services.llama_server.gpus[]' 2>/dev/null)
+        [[ -n "$llama_idx_csv" ]] && _env_set "LLAMA_SERVER_GPU_INDICES" "$llama_idx_csv"
+        _env_set "ROCR_VISIBLE_DEVICES" "$llama_idx_csv"
+
+        # Write GPU index for auxiliary services (whisper, comfyui, embeddings)
+        _amd_svc_env() {
+            local svc_prefix="$1" svc_uuid="$2"
+            [[ -z "$svc_uuid" ]] && return
+            local _si
+            _si=$(echo "$topo_json" | jq -r --arg u "$svc_uuid" '.gpus[] | select(.uuid == $u) | .index')
+            [[ -n "$_si" && "$_si" != "null" ]] && _env_set "${svc_prefix}_GPU_INDEX" "$_si"
+        }
+        _amd_svc_env "WHISPER" "$whisper_uuid"
+        _amd_svc_env "COMFYUI" "$comfyui_uuid"
+        _amd_svc_env "EMBEDDINGS" "$embeddings_uuid"
+
+        # Detect and persist GID values for AMD container group_add
+        local video_gid render_gid
+        video_gid=$(getent group video 2>/dev/null | cut -d: -f3) || video_gid="44"
+        render_gid=$(getent group render 2>/dev/null | cut -d: -f3) || render_gid="992"
+        _env_set "VIDEO_GID" "$video_gid"
+        _env_set "RENDER_GID" "$render_gid"
+
+        # Check mixed gfx — set global HSA_OVERRIDE_GFX_VERSION if all llama GPUs share one
+        local unique_gfx
+        unique_gfx=$(echo "$topo_json" | jq -r '[.gpus[].gfx_version] | unique | length')
+        if [[ "$unique_gfx" -eq 1 ]]; then
+            local gfx_ver
+            gfx_ver=$(echo "$topo_json" | jq -r '.gpus[0].gfx_version')
+            [[ -n "$gfx_ver" && "$gfx_ver" != "null" ]] && _env_set "HSA_OVERRIDE_GFX_VERSION" "$gfx_ver"
+        fi
+    fi
 
     success "GPU assignment updated (strategy: ${strategy})"
     echo ""

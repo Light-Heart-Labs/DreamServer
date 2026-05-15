@@ -513,17 +513,21 @@ cmd_update() {
     snap_dir=$(snapshot_pre_update "$timestamp")
 
     # Read GPU config from .env for compose resolution
-    local _update_gpu_backend _update_tier
+    local _update_gpu_backend _update_tier _update_gpu_count
     _update_gpu_backend=$(grep '^GPU_BACKEND=' "${INSTALL_DIR}/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
     _update_tier=$(grep '^TIER=' "${INSTALL_DIR}/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+    _update_gpu_count=$(grep '^GPU_COUNT=' "${INSTALL_DIR}/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
 
     # Resolve compose flags once — used in restart and rollback paths.
+    # --gpu-count gates the multigpu-{backend}.yml overlay; without it,
+    # restarts after update would silently drop multi-GPU plumbing.
     local compose_flags=""
     if [[ -x "${INSTALL_DIR}/scripts/resolve-compose-stack.sh" ]]; then
         compose_flags=$(bash "${INSTALL_DIR}/scripts/resolve-compose-stack.sh" \
             --script-dir "$INSTALL_DIR" \
             --tier "${_update_tier:-1}" \
-            --gpu-backend "${_update_gpu_backend:-nvidia}" | tail -1)
+            --gpu-backend "${_update_gpu_backend:-nvidia}" \
+            --gpu-count "${_update_gpu_count:-1}" | tail -1)
     fi
     if [[ -n "${compose_flags}" ]]; then
         local all_exist=true

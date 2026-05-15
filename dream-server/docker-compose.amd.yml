@@ -23,7 +23,7 @@ services:
       - "0.0.0.0"
       - --no-tray
       - --llamacpp
-      - rocm
+      - auto
       - --llamacpp-args
       - "--metrics --host 0.0.0.0 -fa on -b 2048 -ub 256"
       - --extra-models-dir
@@ -42,11 +42,25 @@ services:
       - "${VIDEO_GID:-44}"
       - "${RENDER_GID:-992}"
     environment:
-      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-11.5.1}
+      # Empty default — Phase 06 sets HSA_OVERRIDE_GFX_VERSION=11.5.1 only when
+      # the detected gfx target is gfx1151 (Strix Halo, not in ROCm's native
+      # support list). On gfx942/MI300X, gfx90a/MI250, gfx1100/RX 7900 and
+      # other natively-supported parts, this stays empty and HSA reports the
+      # real ISA. A non-empty default here would crash those hosts with
+      # HSA_STATUS_ERROR_INVALID_ISA at model-load.
+      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-}
       - HSA_XNACK=${HSA_XNACK:-1}
       - ROCBLAS_USE_HIPBLASLT=${ROCBLAS_USE_HIPBLASLT:-1}
-      - LEMONADE_LLAMACPP_BACKEND=rocm
-      - LEMONADE_LLAMACPP_ROCM_BIN=/opt/llama-custom/llama-server
+      # Lemonade's backend selector accepts auto|vulkan|cpu only; "rocm" is no
+      # longer a valid value. Setting auto + LEMONADE_LLAMACPP_ROCM_BIN points
+      # Lemonade at the custom ROCm-built llama-server binary while keeping the
+      # field schema-valid.
+      - LEMONADE_LLAMACPP_BACKEND=auto
+      # Custom binary at /opt/llama-custom is gfx1151-only (Strix Halo patches +
+      # AMDGPU_TARGET=gfx1151 at build time). Phase 06 sets this env var only
+      # when the detected gfx target is gfx1151; on any other AMD architecture
+      # it stays unset and Lemonade uses its bundled ROCm-aware binary.
+      - LEMONADE_LLAMACPP_ROCM_BIN=${LEMONADE_LLAMACPP_ROCM_BIN:-}
       - LEMONADE_CTX_SIZE=${CTX_SIZE:-131072}
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://127.0.0.1:8080/api/v1/health"]

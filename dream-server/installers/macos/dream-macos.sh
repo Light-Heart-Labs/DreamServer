@@ -118,10 +118,14 @@ get_compose_flags() {
     # extensions in data/user-extensions/ are discovered when the .compose-flags
     # cache is missing or stale. Mirrors dream-cli's get_compose_flags fallback.
     if [[ -x "${INSTALL_DIR}/scripts/resolve-compose-stack.sh" ]]; then
+        # Pass --gpu-count for parity with the Linux paths even though there's
+        # currently no docker-compose.multigpu-apple.yml — keeps the contract
+        # uniform across all resolver call sites.
         "${INSTALL_DIR}/scripts/resolve-compose-stack.sh" \
             --script-dir "$INSTALL_DIR" \
             --tier "${TIER:-1}" \
-            --gpu-backend "${GPU_BACKEND:-apple}"
+            --gpu-backend "${GPU_BACKEND:-apple}" \
+            --gpu-count "${GPU_COUNT:-1}"
         return
     fi
     # Last resort: resolver script missing — emit base + macos overlay

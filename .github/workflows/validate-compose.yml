@@ -6,11 +6,17 @@ on:
     paths:
       - "dream-server/docker-compose*.yml"
       - "dream-server/installers/**/*compose*.yml"
+      - "dream-server/extensions/services/**/compose*.yaml"
+      - "dream-server/scripts/resolve-compose-stack.sh"
+      - ".github/workflows/validate-compose.yml"
   pull_request:
     branches: [main]
     paths:
       - "dream-server/docker-compose*.yml"
       - "dream-server/installers/**/*compose*.yml"
+      - "dream-server/extensions/services/**/compose*.yaml"
+      - "dream-server/scripts/resolve-compose-stack.sh"
+      - ".github/workflows/validate-compose.yml"
 
 permissions:
   contents: read
@@ -63,3 +69,78 @@ jobs:
 
           echo ""
           echo "All installer compose overlays validated successfully."
+
+      - name: Validate GPU overlay stacks (base + backend)
+        env:
+          WEBUI_SECRET: ci-placeholder
+          SEARXNG_SECRET: ci-placeholder
+          N8N_USER: ci@example.com
+          N8N_PASS: ci-placeholder
+          LITELLM_KEY: ci-placeholder
+          OPENCLAW_TOKEN: ci-placeholder
+        working-directory: dream-server
+        run: |
+          set -e
+          failed=0
+          for overlay in docker-compose.nvidia.yml docker-compose.amd.yml docker-compose.apple.yml docker-compose.cpu.yml; do
+            if [ ! -f "$overlay" ]; then
+              echo "SKIP: $overlay not present"
+              continue
+            fi
+            echo "Validating base + $overlay"
+            if ! docker compose -f docker-compose.base.yml -f "$overlay" config --quiet; then
+              echo "  FAILED: base + $overlay"
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+      - name: Validate multi-GPU overlay stacks
+        env:
+          WEBUI_SECRET: ci-placeholder
+          SEARXNG_SECRET: ci-placeholder
+          N8N_USER: ci@example.com
+          N8N_PASS: ci-placeholder
+          LITELLM_KEY: ci-placeholder
+          OPENCLAW_TOKEN: ci-placeholder
+          GPU_COUNT: "2"
+          LLAMA_SERVER_GPU_INDICES: "0,1"
+          LLAMA_SERVER_GPU_UUIDS: "GPU-ci-a,GPU-ci-b"
+          LLAMA_ARG_SPLIT_MODE: "layer"
+          LLAMA_ARG_TENSOR_SPLIT: ""
+        working-directory: dream-server
+        run: |
+          set -e
+          failed=0
+          # NVIDIA multi-GPU
+          if [ -f docker-compose.multigpu-nvidia.yml ]; then
+            echo "Validating base + nvidia + multigpu-nvidia"
+            docker compose -f docker-compose.base.yml \
+                           -f docker-compose.nvidia.yml \
+                           -f docker-compose.multigpu-nvidia.yml \
+                           config --quiet || failed=1
+          fi
+          # AMD multi-GPU
+          if [ -f docker-compose.multigpu-amd.yml ]; then
+            echo "Validating base + amd + multigpu-amd"
+            docker compose -f docker-compose.base.yml \
+                           -f docker-compose.amd.yml \
+                           -f docker-compose.multigpu-amd.yml \
+                           config --quiet || failed=1
+          fi
+          exit "$failed"
+
+      - name: Validate resolver output for AMD multi-GPU
+        working-directory: dream-server
+        run: |
+          set -e
+          flags=$(bash scripts/resolve-compose-stack.sh \
+            --script-dir "$PWD" \
+            --tier "3" \
+            --gpu-backend amd \
+            --gpu-count 2)
+          echo "Resolver produced: $flags"
+          case "$flags" in
+            *docker-compose.multigpu-amd.yml*) echo "OK: multigpu-amd overlay resolved" ;;
+            *) echo "FAIL: resolver did not include docker-compose.multigpu-amd.yml"; exit 1 ;;
+          esac

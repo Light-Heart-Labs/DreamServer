@@ -60,6 +60,7 @@ DATA_DIR: Path = Path()
 AGENT_API_KEY: str = ""
 GPU_BACKEND: str = "nvidia"
 TIER: str = "1"
+GPU_COUNT: str = "1"
 CORE_SERVICE_IDS: set = set()
 # Always-on services defined in docker-compose.base.yml — never stoppable via API.
 # Distinct from CORE_SERVICE_IDS (which is the allowlist of known service IDs).
@@ -174,9 +175,11 @@ def resolve_compose_flags() -> list:
     script = INSTALL_DIR / "scripts" / "resolve-compose-stack.sh"
     if not script.exists():
         raise RuntimeError(f"resolve-compose-stack.sh not found at {script}")
+    # --gpu-count gates the multigpu-{backend}.yml overlay; without it,
+    # the host agent would resolve a single-GPU stack on multi-GPU hosts.
     result = subprocess.run(
         ["bash", _to_bash_path(script), "--script-dir", _to_bash_path(INSTALL_DIR),
-         "--tier", TIER, "--gpu-backend", GPU_BACKEND],
+         "--tier", TIER, "--gpu-backend", GPU_BACKEND, "--gpu-count", GPU_COUNT],
         capture_output=True, text=True, check=True,
         cwd=str(INSTALL_DIR), timeout=30,
     )
@@ -3494,7 +3497,7 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 
 
 def main():
-    global INSTALL_DIR, DATA_DIR, AGENT_API_KEY, GPU_BACKEND, TIER, CORE_SERVICE_IDS
+    global INSTALL_DIR, DATA_DIR, AGENT_API_KEY, GPU_BACKEND, TIER, GPU_COUNT, CORE_SERVICE_IDS
     global USER_EXTENSIONS_DIR, EXTENSIONS_DIR, DREAM_VERSION
 
     parser = argparse.ArgumentParser(description="DreamServer Host Agent")
@@ -3526,6 +3529,7 @@ def main():
         sys.exit(1)
     GPU_BACKEND = env.get("GPU_BACKEND", "nvidia")
     TIER = env.get("TIER", "1")
+    GPU_COUNT = env.get("GPU_COUNT", "1")
 
     DATA_DIR = Path(env.get("DREAM_DATA_DIR", str(INSTALL_DIR / "data")))
     USER_EXTENSIONS_DIR = Path(env.get(

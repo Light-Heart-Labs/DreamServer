@@ -19,8 +19,11 @@ sr_resolve_ports
 # Resolve compose flags for accurate status checks
 COMPOSE_FLAGS=""
 if [[ -x "$SCRIPT_DIR/scripts/resolve-compose-stack.sh" ]]; then
+    # --gpu-count gates the multigpu-{backend}.yml overlay; without it,
+    # preflight validates the wrong stack on multi-GPU machines.
     COMPOSE_FLAGS=$("$SCRIPT_DIR/scripts/resolve-compose-stack.sh" \
-        --script-dir "$SCRIPT_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}")
+        --script-dir "$SCRIPT_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}" \
+        --gpu-count "${GPU_COUNT:-1}")
 fi
 
 # Colors

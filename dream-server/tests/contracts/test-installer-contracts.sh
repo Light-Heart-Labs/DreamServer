@@ -97,6 +97,47 @@ for svc in qdrant embeddings; do
     || { echo "[FAIL] ENABLE_RAG opt-out missing sync for '$svc' in $features_phase"; exit 1; }
 done
 
+echo "[contract] every resolve-compose-stack.sh invocation passes --gpu-count"
+# The resolver's --gpu-count flag gates the multigpu-{backend}.yml overlay.
+# A caller that omits it silently resolves to a single-GPU stack on multi-GPU
+# hardware. 11-services.sh persists its result into .compose-flags, so the
+# bug propagates to every subsequent dream-cli invocation.
+#
+# Strategy: pair each line invoking the resolver with the next 3 lines (to
+# catch backslash-continued invocations) and assert that segment contains
+# --gpu-count. Existence guards like [[ -x ... ]] are excluded — they don't
+# launch the script.
+_resolver_callers=(
+  "dream-cli"
+  "dream-update.sh"
+  "bin/dream-host-agent.py"
+  "scripts/dream-preflight.sh"
+  "scripts/validate.sh"
+  "installers/lib/compose-select.sh"
+  "installers/macos/dream-macos.sh"
+  "installers/phases/03-features.sh"
+  "installers/phases/11-services.sh"
+)
+for f in "${_resolver_callers[@]}"; do
+  test -f "$f" || { echo "[FAIL] missing resolver caller: $f"; exit 1; }
+  # Match lines that actually launch the script: $(...resolve-compose-stack.sh...
+  # or "...resolve-compose-stack.sh" \  or bash ...resolve-compose-stack.sh...
+  # Skip lines whose 'resolve-compose-stack.sh' is a [[ -x|-f ]] existence test.
+  while IFS=: read -r lineno line; do
+    # Skip existence guards ([[ -x ... ]], [[ -f ... ]]) and comments/docstrings.
+    [[ "$line" =~ \[\[[[:space:]]+-[xfre][[:space:]] ]] && continue
+    [[ "$line" =~ ^[[:space:]]*\# ]] && continue
+    [[ "$line" =~ ^[[:space:]]*(\"|\') ]] && continue
+    end=$((lineno + 8))
+    segment=$(sed -n "${lineno},${end}p" "$f")
+    if ! grep -q -- "--gpu-count" <<<"$segment"; then
+      echo "[FAIL] $f:$lineno invokes resolver without --gpu-count nearby"
+      exit 1
+    fi
+  done < <(grep -nE 'resolve-compose-stack\.sh' "$f" || true)
+done
+unset _resolver_callers
+
 echo "[contract] Token Spy dashboard ships offline chart assets"
 test -f extensions/services/token-spy/dashboard_charts.js || { echo "[FAIL] missing extensions/services/token-spy/dashboard_charts.js"; exit 1; }
 grep -q '/dashboard-assets/charts.js' extensions/services/token-spy/main.py || \
@@ -117,5 +158,91 @@ grep -q 'data/config/setup-complete.json' installers/macos/install-macos.sh \
   || { echo "[FAIL] macOS installer does not write data/config/setup-complete.json"; exit 1; }
 grep -q 'data\\\\config\\\\setup-complete.json\|setup-complete.json' installers/windows/install-windows.ps1 \
   || { echo "[FAIL] Windows installer does not write setup-complete.json"; exit 1; }
+
+# --- classify-hardware: shared device_id disambiguation ---
+echo "[contract] classify-hardware shared device_id"
+_classify() {
+  bash scripts/classify-hardware.sh --device-id "$1" --gpu-name "$2" --gpu-vendor "${3:-amd}" --vram-mb "${4:-0}" 2>/dev/null
+}
+_classify_id()   { _classify "$@" | jq -r '.id'; }
+_classify_tier() { _classify "$@" | jq -r '.recommended.tier'; }
+_classify_bw()   { _classify "$@" | jq -r '.bandwidth_gbps'; }
+
+# --- 0x744c: XTX / XT / GRE (same die, different SKUs) ---
+
+# Happy path: device_id + name → exact match
+[[ "$(_classify_id 0x744c "AMD Radeon RX 7900 XTX" amd 24576)" == "rx_7900_xtx" ]] \
+  || { echo "[FAIL] XTX with name"; exit 1; }
+[[ "$(_classify_id 0x744c "AMD Radeon RX 7900 XT" amd 20480)" == "rx_7900_xt" ]] \
+  || { echo "[FAIL] XT with name"; exit 1; }
+[[ "$(_classify_id 0x744c "AMD Radeon RX 7900 GRE" amd 16384)" == "rx_7900_gre" ]] \
+  || { echo "[FAIL] GRE with name"; exit 1; }
+
+# Substring safety: "RX 7900 XT" is a substring of "RX 7900 XTX"
+# XT name must NOT match XTX entry (longest pattern wins)
+[[ "$(_classify_id 0x744c "AMD Radeon RX 7900 XT" amd 20480)" != "rx_7900_xtx" ]] \
+  || { echo "[FAIL] XT matched XTX (substring collision)"; exit 1; }
+# XTX name must NOT match XT entry
+[[ "$(_classify_id 0x744c "AMD Radeon RX 7900 XTX" amd 24576)" != "rx_7900_xt" ]] \
+  || { echo "[FAIL] XTX matched XT"; exit 1; }
+
+# Tier correctness: GRE is T2, the others are T3
+[[ "$(_classify_tier 0x744c "AMD Radeon RX 7900 XTX" amd 24576)" == "T3" ]] \
+  || { echo "[FAIL] XTX tier"; exit 1; }
+[[ "$(_classify_tier 0x744c "AMD Radeon RX 7900 GRE" amd 16384)" == "T2" ]] \
+  || { echo "[FAIL] GRE tier"; exit 1; }
+
+# Bandwidth correctness: each SKU has a different value
+[[ "$(_classify_bw 0x744c "AMD Radeon RX 7900 XTX" amd 24576)" == "960" ]] \
+  || { echo "[FAIL] XTX bandwidth"; exit 1; }
+[[ "$(_classify_bw 0x744c "AMD Radeon RX 7900 XT" amd 20480)" == "800" ]] \
+  || { echo "[FAIL] XT bandwidth"; exit 1; }
+[[ "$(_classify_bw 0x744c "AMD Radeon RX 7900 GRE" amd 16384)" == "576" ]] \
+  || { echo "[FAIL] GRE bandwidth"; exit 1; }
+
+# Empty name: VRAM tiebreaker picks closest match
+[[ "$(_classify_id 0x744c "" amd 24576)" == "rx_7900_xtx" ]] \
+  || { echo "[FAIL] empty name + 24GB → XTX"; exit 1; }
+[[ "$(_classify_id 0x744c "" amd 20480)" == "rx_7900_xt" ]] \
+  || { echo "[FAIL] empty name + 20GB → XT"; exit 1; }
+[[ "$(_classify_id 0x744c "" amd 16384)" == "rx_7900_gre" ]] \
+  || { echo "[FAIL] empty name + 16GB → GRE"; exit 1; }
+
+# Empty name + zero VRAM: picks smallest card (under-provision is safe,
+# over-provision would crash the model loader)
+[[ "$(_classify_id 0x744c "" amd 0)" == "rx_7900_gre" ]] \
+  || { echo "[FAIL] empty name + 0 VRAM → should be GRE (smallest)"; exit 1; }
+
+# Empty name + close-but-not-exact VRAM: picks nearest
+# 22000 MB is closer to XT (20480, diff=1520) than XTX (24576, diff=2576)
+[[ "$(_classify_id 0x744c "" amd 22000)" == "rx_7900_xt" ]] \
+  || { echo "[FAIL] empty name + 22GB → should be XT (nearest)"; exit 1; }
+# 18000 MB is closer to GRE (16384, diff=1616) than XT (20480, diff=2480)
+[[ "$(_classify_id 0x744c "" amd 18000)" == "rx_7900_gre" ]] \
+  || { echo "[FAIL] empty name + 18GB → should be GRE (nearest)"; exit 1; }
+
+# --- 0x7480: RX 7800 XT / RX 7700 XT (second shared device_id pair) ---
+
+[[ "$(_classify_id 0x7480 "AMD Radeon RX 7800 XT" amd 16384)" == "rx_7800_xt" ]] \
+  || { echo "[FAIL] 7800 XT with name"; exit 1; }
+[[ "$(_classify_id 0x7480 "AMD Radeon RX 7700 XT" amd 12288)" == "rx_7700_xt" ]] \
+  || { echo "[FAIL] 7700 XT with name"; exit 1; }
+[[ "$(_classify_id 0x7480 "" amd 16384)" == "rx_7800_xt" ]] \
+  || { echo "[FAIL] 0x7480 empty name + 16GB → 7800 XT"; exit 1; }
+[[ "$(_classify_id 0x7480 "" amd 12288)" == "rx_7700_xt" ]] \
+  || { echo "[FAIL] 0x7480 empty name + 12GB → 7700 XT"; exit 1; }
+
+# --- Name-only match (no device_id) ---
+
+[[ "$(_classify_id "" "RYZEN AI MAX+ 395" amd 0)" == "strix_halo_395" ]] \
+  || { echo "[FAIL] Strix Halo name-only match"; exit 1; }
+[[ "$(_classify_id "" "RX 9070 XT" amd 16384)" == "rx_9070_xt" ]] \
+  || { echo "[FAIL] RX 9070 XT name-only match"; exit 1; }
+
+# --- No match → heuristic fallback (should not crash) ---
+
+result=$(_classify_id "0xFFFF" "Unknown GPU" amd 8192)
+[[ -n "$result" && "$result" != "null" ]] \
+  || { echo "[FAIL] unknown GPU crashed"; exit 1; }
 
 echo "[PASS] installer contracts"

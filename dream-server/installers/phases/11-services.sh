@@ -81,8 +81,13 @@ else
     # Phase 03 may have disabled services (e.g., ComfyUI on Tier 0) after
     # COMPOSE_FLAGS was first set in Phase 02, making the cached value stale.
     if [[ -x "$INSTALL_DIR/scripts/resolve-compose-stack.sh" ]]; then
+        # --gpu-count is load-bearing: the resolver only adds the multigpu-{backend}.yml
+        # overlay when count > 1. Without it, the refreshed value (which we cache
+        # to .compose-flags below) would persistently drop multi-GPU overlays
+        # for the rest of the install AND every subsequent dream-cli invocation.
         _refreshed_flags=$("$INSTALL_DIR/scripts/resolve-compose-stack.sh" \
-            --script-dir "$INSTALL_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}" 2>/dev/null) || true
+            --script-dir "$INSTALL_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}" \
+            --gpu-count "${GPU_COUNT:-1}" 2>/dev/null) || true
         if [[ -n "$_refreshed_flags" ]]; then
             COMPOSE_FLAGS="$_refreshed_flags"
             log "Compose flags refreshed from install directory"

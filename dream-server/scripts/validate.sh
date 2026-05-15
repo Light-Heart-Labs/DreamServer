@@ -32,8 +32,11 @@ WEBUI_HEALTH="${WEBUI_HEALTH:-${SERVICE_HEALTH[open-webui]:-/}}"
 # Resolve compose flags to match actual stack
 COMPOSE_FLAGS=""
 if [[ -x "$PROJECT_DIR/scripts/resolve-compose-stack.sh" ]]; then
+    # --gpu-count gates the multigpu-{backend}.yml overlay; without it,
+    # validation runs against the wrong stack on multi-GPU machines.
     COMPOSE_FLAGS=$("$PROJECT_DIR/scripts/resolve-compose-stack.sh" \
-        --script-dir "$PROJECT_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}")
+        --script-dir "$PROJECT_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}" \
+        --gpu-count "${GPU_COUNT:-1}")
 fi
 
 echo ""

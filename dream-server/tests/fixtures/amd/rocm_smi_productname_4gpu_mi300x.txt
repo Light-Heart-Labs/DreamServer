@@ -1,0 +1,42 @@
+
+
+============================ ROCm System Management Interface ============================
+====================================== Product Info ======================================
+GPU[0]		: Card Series: 		AMD Instinct MI300X VF
+GPU[0]		: Card Model: 		0x74b5
+GPU[0]		: Card Vendor: 		Advanced Micro Devices, Inc. [AMD/ATI]
+GPU[0]		: Card SKU: 		M3000108
+GPU[0]		: Subsystem ID: 	0x74a1
+GPU[0]		: Device Rev: 		0x00
+GPU[0]		: Node ID: 		4
+GPU[0]		: GUID: 		5656
+GPU[0]		: GFX Version: 		gfx942
+GPU[1]		: Card Series: 		AMD Instinct MI300X VF
+GPU[1]		: Card Model: 		0x74b5
+GPU[1]		: Card Vendor: 		Advanced Micro Devices, Inc. [AMD/ATI]
+GPU[1]		: Card SKU: 		M3000108
+GPU[1]		: Subsystem ID: 	0x74a1
+GPU[1]		: Device Rev: 		0x00
+GPU[1]		: Node ID: 		5
+GPU[1]		: GUID: 		30617
+GPU[1]		: GFX Version: 		gfx942
+GPU[2]		: Card Series: 		AMD Instinct MI300X VF
+GPU[2]		: Card Model: 		0x74b5
+GPU[2]		: Card Vendor: 		Advanced Micro Devices, Inc. [AMD/ATI]
+GPU[2]		: Card SKU: 		M3000108
+GPU[2]		: Subsystem ID: 	0x74a1
+GPU[2]		: Device Rev: 		0x00
+GPU[2]		: Node ID: 		6
+GPU[2]		: GUID: 		54554
+GPU[2]		: GFX Version: 		gfx942
+GPU[3]		: Card Series: 		AMD Instinct MI300X VF
+GPU[3]		: Card Model: 		0x74b5
+GPU[3]		: Card Vendor: 		Advanced Micro Devices, Inc. [AMD/ATI]
+GPU[3]		: Card SKU: 		M3000108
+GPU[3]		: Subsystem ID: 	0x74a1
+GPU[3]		: Device Rev: 		0x00
+GPU[3]		: Node ID: 		7
+GPU[3]		: GUID: 		46235
+GPU[3]		: GFX Version: 		gfx942
+==========================================================================================
+================================== End of ROCm SMI Log ===================================

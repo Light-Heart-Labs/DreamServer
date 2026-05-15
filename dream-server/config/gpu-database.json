@@ -68,6 +68,166 @@
       }
     },
     {
+      "id": "rx_7900_xtx",
+      "match": {
+        "device_ids": ["0x744c"],
+        "name_patterns": ["RX 7900 XTX", "Navi 31"]
+      },
+      "specs": {
+        "label": "AMD Radeon RX 7900 XTX",
+        "vendor": "amd",
+        "architecture": "rdna-3",
+        "memory_type": "discrete",
+        "memory_mb": 24576,
+        "memory_source": "vram",
+        "bandwidth_gbps": 960
+      },
+      "recommended": {
+        "backend": "amd",
+        "tier": "T3"
+      }
+    },
+    {
+      "id": "rx_7900_xt",
+      "match": {
+        "device_ids": ["0x744c"],
+        "name_patterns": ["RX 7900 XT"]
+      },
+      "specs": {
+        "label": "AMD Radeon RX 7900 XT",
+        "vendor": "amd",
+        "architecture": "rdna-3",
+        "memory_type": "discrete",
+        "memory_mb": 20480,
+        "memory_source": "vram",
+        "bandwidth_gbps": 800
+      },
+      "recommended": {
+        "backend": "amd",
+        "tier": "T3"
+      }
+    },
+    {
+      "id": "rx_7900_gre",
+      "match": {
+        "device_ids": ["0x744c"],
+        "name_patterns": ["RX 7900 GRE"]
+      },
+      "specs": {
+        "label": "AMD Radeon RX 7900 GRE",
+        "vendor": "amd",
+        "architecture": "rdna-3",
+        "memory_type": "discrete",
+        "memory_mb": 16384,
+        "memory_source": "vram",
+        "bandwidth_gbps": 576
+      },
+      "recommended": {
+        "backend": "amd",
+        "tier": "T2"
+      }
+    },
+    {
+      "id": "rx_7800_xt",
+      "match": {
+        "device_ids": ["0x7480"],
+        "name_patterns": ["RX 7800 XT", "Navi 32"]
+      },
+      "specs": {
+        "label": "AMD Radeon RX 7800 XT",
+        "vendor": "amd",
+        "architecture": "rdna-3",
+        "memory_type": "discrete",
+        "memory_mb": 16384,
+        "memory_source": "vram",
+        "bandwidth_gbps": 624
+      },
+      "recommended": {
+        "backend": "amd",
+        "tier": "T2"
+      }
+    },
+    {
+      "id": "rx_7700_xt",
+      "match": {
+        "device_ids": ["0x7480"],
+        "name_patterns": ["RX 7700 XT"]
+      },
+      "specs": {
+        "label": "AMD Radeon RX 7700 XT",
+        "vendor": "amd",
+        "architecture": "rdna-3",
+        "memory_type": "discrete",
+        "memory_mb": 12288,
+        "memory_source": "vram",
+        "bandwidth_gbps": 432
+      },
+      "recommended": {
+        "backend": "amd",
+        "tier": "T2"
+      }
+    },
+    {
+      "id": "rx_7600",
+      "match": {
+        "device_ids": [],
+        "name_patterns": ["RX 7600"]
+      },
+      "specs": {
+        "label": "AMD Radeon RX 7600",
+        "vendor": "amd",
+        "architecture": "rdna-3",
+        "memory_type": "discrete",
+        "memory_mb": 8192,
+        "memory_source": "vram",
+        "bandwidth_gbps": 288
+      },
+      "recommended": {
+        "backend": "amd",
+        "tier": "T1"
+      }
+    },
+    {
+      "id": "rx_9070_xt",
+      "match": {
+        "device_ids": [],
+        "name_patterns": ["RX 9070 XT", "Navi 48"]
+      },
+      "specs": {
+        "label": "AMD Radeon RX 9070 XT",
+        "vendor": "amd",
+        "architecture": "rdna-4",
+        "memory_type": "discrete",
+        "memory_mb": 16384,
+        "memory_source": "vram",
+        "bandwidth_gbps": 624
+      },
+      "recommended": {
+        "backend": "amd",
+        "tier": "T2"
+      }
+    },
+    {
+      "id": "rx_9070",
+      "match": {
+        "device_ids": [],
+        "name_patterns": ["RX 9070"]
+      },
+      "specs": {
+        "label": "AMD Radeon RX 9070",
+        "vendor": "amd",
+        "architecture": "rdna-4",
+        "memory_type": "discrete",
+        "memory_mb": 16384,
+        "memory_source": "vram",
+        "bandwidth_gbps": 488
+      },
+      "recommended": {
+        "backend": "amd",
+        "tier": "T2"
+      }
+    },
+    {
       "id": "strix_halo_385",
       "match": {
         "device_ids": ["0x1586"],

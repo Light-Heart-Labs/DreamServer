@@ -134,8 +134,10 @@ if not resolved:
     resolved = [primary]
 
 # Multi-GPU overlay if we have more than 1 GPU.
-if gpu_count > 1 and (script_dir / "docker-compose.multigpu.yml").exists():
-    resolved.append("docker-compose.multigpu.yml")
+if gpu_count > 1:
+    multigpu_file = f"docker-compose.multigpu-{gpu_backend}.yml"
+    if (script_dir / multigpu_file).exists():
+        resolved.append(multigpu_file)
 
 # PyYAML is a hard requirement — extensions and overlays are YAML and must be
 # parsed for the compose security scan. Silent fallback used to hide install
@@ -417,7 +419,7 @@ if ext_dir.exists():
 
             # Multi-GPU overlay if we have more than 1 GPU
             if gpu_count > 1:
-                multi_gpu_overlay = service_dir / "compose.multigpu.yaml"
+                multi_gpu_overlay = service_dir / f"compose.multigpu-{gpu_backend}.yaml"
                 if multi_gpu_overlay.exists():
                     resolved.append(str(multi_gpu_overlay.relative_to(script_dir)))
 

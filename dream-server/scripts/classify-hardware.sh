@@ -83,6 +83,8 @@ OVERLAY_MAP = {
 
 # --- Pass 1: Match known_gpus by device_id then name_patterns ---
 selected = None
+best_name_len = 0          # longest matching pattern wins (prevents "XT" matching "XTX")
+best_id_vram_diff = None   # closest VRAM wins for device_id-only fallback
 combined_name = f"{gpu_name} {cpu_name}".strip().lower()
 
 for entry in db.get("known_gpus", []):
@@ -94,20 +96,30 @@ for entry in db.get("known_gpus", []):
 
     # Try name_patterns match (case-insensitive substring against gpu_name + cpu_name)
     patterns = match.get("name_patterns", [])
-    name_matched = any(p.lower() in combined_name for p in patterns) if combined_name and patterns else False
+    matched_patterns = [p for p in patterns if p.lower() in combined_name] if combined_name and patterns else []
+    name_matched = len(matched_patterns) > 0
+    match_len = max((len(p) for p in matched_patterns), default=0)
 
     if id_matched and name_matched:
-        # Best match: both device_id and name match
-        selected = entry
-        break
-    elif id_matched and not selected:
-        # Device ID matched but name didn't — remember as fallback
-        selected = entry
-        # Keep looking for a better match with same device_id
-        continue
+        # Both match — prefer longest pattern to avoid "XT" matching "XTX"
+        if match_len > best_name_len:
+            selected = entry
+            best_name_len = match_len
+    elif id_matched and best_name_len == 0:
+        # Device ID matched but name didn't — use VRAM proximity as tiebreaker
+        entry_vram = entry.get("specs", {}).get("memory_mb", 0)
+        if vram_mb > 0:
+            diff = abs(entry_vram - vram_mb)
+        else:
+            # No VRAM info: prefer smallest card (under-provision is safe,
+            # over-provision crashes the model loader)
+            diff = entry_vram if entry_vram > 0 else float("inf")
+        if best_id_vram_diff is None or diff < best_id_vram_diff:
+            selected = entry
+            best_id_vram_diff = diff
     elif name_matched and not selected:
         selected = entry
-        break
+        best_name_len = match_len
 
 # --- Pass 2: Heuristic fallback (threshold-based, top-down) ---
 if not selected:

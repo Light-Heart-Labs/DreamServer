@@ -15,3 +15,8 @@ docker-entrypoint* text eol=lf
 *.ps1 text eol=crlf
 *.psm1 text eol=crlf
 *.psd1 text eol=crlf
+
+# Captured tool-output fixtures preserve real upstream formatting
+# (column padding, trailing whitespace from rocm-smi/amd-smi/etc).
+# Don't let `git diff --check` flag intentional whitespace as an error.
+dream-server/tests/fixtures/amd/*.txt -whitespace
