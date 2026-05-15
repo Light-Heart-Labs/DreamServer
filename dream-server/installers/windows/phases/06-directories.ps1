@@ -185,8 +185,14 @@ if ($enableOpenClaw) {
         $_ocSrcProfile = Join-Path (Join-Path $installDir "config\openclaw") $openClawConfig
         $_ocDstProfile = Join-Path (Join-Path $installDir "config\openclaw") "openclaw.json"
         if (Test-Path $_ocSrcProfile) {
-            Copy-Item -Path $_ocSrcProfile -Destination $_ocDstProfile -Force
-            Write-AISuccess "Installed OpenClaw profile: $openClawConfig -> openclaw.json"
+            $_ocSrcResolved = (Resolve-Path $_ocSrcProfile).Path
+            $_ocDstResolved = [System.IO.Path]::GetFullPath($_ocDstProfile)
+            if ($_ocSrcResolved -ieq $_ocDstResolved) {
+                Write-AISuccess "OpenClaw profile already installed: $openClawConfig"
+            } else {
+                Copy-Item -Path $_ocSrcProfile -Destination $_ocDstProfile -Force
+                Write-AISuccess "Installed OpenClaw profile: $openClawConfig -> openclaw.json"
+            }
         } else {
             Write-AIError "Missing OpenClaw config $openClawConfig and no fallback present in repo. This is a packaging bug; please re-clone or report."
             exit 1
