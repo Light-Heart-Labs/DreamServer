@@ -255,6 +255,8 @@ function New-DreamEnv {
 # 127.0.0.1 = localhost only (secure default)
 # 0.0.0.0   = accessible from LAN (install with -Lan or set manually)
 BIND_ADDRESS=$(Get-EnvOrNew "BIND_ADDRESS" "$(if ($EnableLan) { "0.0.0.0" } else { "127.0.0.1" })")
+# Docker Desktop containers reach loopback-only host services through this name.
+DREAM_AGENT_HOST=$(Get-EnvOrNew "DREAM_AGENT_HOST" "host.docker.internal")
 
 #=== LLM Backend Mode ===
 DREAM_MODE=$DreamMode

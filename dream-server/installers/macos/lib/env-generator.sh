@@ -139,6 +139,11 @@ generate_dream_env() {
         if [[ -z "$(read_env_value "$env_path" "DREAM_AGENT_KEY")" ]]; then
             upsert_env_value "$env_path" "DREAM_AGENT_KEY" "$(new_secure_hex 32)"
         fi
+        # Dashboard API runs in Docker; host-agent stays loopback-only on
+        # Docker Desktop and is reachable from containers via this hostname.
+        if [[ -z "$(read_env_value "$env_path" "DREAM_AGENT_HOST")" ]]; then
+            upsert_env_value "$env_path" "DREAM_AGENT_HOST" "host.docker.internal"
+        fi
         # Upsert DREAMFORGE_PULL_POLICY=build on existing Apple Silicon
         # installs so the dreamforge upstream amd64-only image isn't pulled
         # under Rosetta 2 — same logic as the fresh-install branch below.
@@ -258,6 +263,8 @@ generate_dream_env() {
 # macOS has no --lan flag; operators opt in by setting BIND_ADDRESS=0.0.0.0
 # manually. HOST_LAN_IP is only populated when that pre-existed at install time.
 HOST_LAN_IP=${host_lan_ip}
+# Docker Desktop containers reach loopback-only host services through this name.
+DREAM_AGENT_HOST=${DREAM_AGENT_HOST:-host.docker.internal}
 
 #=== LLM Backend Mode ===
 DREAM_MODE=local
