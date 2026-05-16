@@ -378,6 +378,7 @@ LLM_API_URL=$(if [[ "$GPU_BACKEND" == "amd" && "${DREAM_MODE:-local}" == "local"
 AMD_INFERENCE_RUNTIME=$(if [[ "$GPU_BACKEND" == "amd" && "${DREAM_MODE:-local}" == "local" ]]; then echo "lemonade"; else echo ""; fi)
 AMD_INFERENCE_BACKEND=$(if [[ "$GPU_BACKEND" == "amd" && "${DREAM_MODE:-local}" == "local" ]]; then echo "${BACKEND_LEMONADE_LINUX_BACKEND:-rocm}"; else echo ""; fi)
 AMD_INFERENCE_LOCATION=$(if [[ "$GPU_BACKEND" == "amd" && "${DREAM_MODE:-local}" == "local" ]]; then echo "container"; else echo ""; fi)
+AMD_INFERENCE_PORT=$(if [[ "$GPU_BACKEND" == "amd" && "${DREAM_MODE:-local}" == "local" ]]; then echo "${BACKEND_LEMONADE_API_PORT:-8080}"; else echo ""; fi)
 
 #=== Cloud API Keys ===
 ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}

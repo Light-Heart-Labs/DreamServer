@@ -79,6 +79,7 @@ function New-DreamEnv {
         [string]$AmdInferenceRuntime = "",
         [string]$AmdInferenceBackend = "",
         [string]$AmdInferenceLocation = "",
+        [string]$AmdInferencePort = "",
         [string]$LemonadeServerImage = "",
         # Mirror the install-time ENABLE_LANGFUSE toggle from phase 03 into
         # .env's LANGFUSE_ENABLED default. Re-install preserves whatever the
@@ -270,6 +271,7 @@ LLM_API_BASE_PATH=$llmApiBasePath
 AMD_INFERENCE_RUNTIME=$AmdInferenceRuntime
 AMD_INFERENCE_BACKEND=$AmdInferenceBackend
 AMD_INFERENCE_LOCATION=$AmdInferenceLocation
+AMD_INFERENCE_PORT=$AmdInferencePort
 
 #=== Cloud API Keys ===
 ANTHROPIC_API_KEY=$(Get-EnvOrNew "ANTHROPIC_API_KEY" "")

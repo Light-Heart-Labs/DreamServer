@@ -127,11 +127,13 @@ $_dreamMode = $(if ($cloudMode) { "cloud" } else { "local" })
 $_amdInferenceRuntime = ""
 $_amdInferenceBackend = ""
 $_amdInferenceLocation = ""
+$_amdInferencePort = ""
 $_lemonadeServerImage = ""
 if ($gpuInfo.Backend -eq "amd" -and -not $cloudMode) {
     $_amdInferenceRuntime = "lemonade"
     $_amdInferenceBackend = $(if ($amdLemonadeRuntime -and $amdLemonadeRuntime.windows_backend) { $amdLemonadeRuntime.windows_backend } else { "vulkan" })
     $_amdInferenceLocation = "host"
+    $_amdInferencePort = $(if ($amdLemonadeRuntime -and $amdLemonadeRuntime.api_port) { [string]$amdLemonadeRuntime.api_port } else { "8080" })
 }
 if ($amdLemonadeRuntime -and $amdLemonadeRuntime.container_image) {
     $_lemonadeServerImage = $amdLemonadeRuntime.container_image
@@ -146,6 +148,7 @@ $envResult = New-DreamEnv `
     -AmdInferenceRuntime $_amdInferenceRuntime `
     -AmdInferenceBackend $_amdInferenceBackend `
     -AmdInferenceLocation $_amdInferenceLocation `
+    -AmdInferencePort $_amdInferencePort `
     -LemonadeServerImage $_lemonadeServerImage `
     -EnableLangfuse $enableLangfuse `
     -EnableLan      $lanFlag

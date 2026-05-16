@@ -127,11 +127,24 @@ def _join_url(base_url: str, path: str) -> str:
     return f"{base}{suffix}"
 
 
-def _runtime_base_url(runtime: str, location: str) -> str:
+def _runtime_port() -> tuple[int, Optional[str]]:
+    raw = _clean_env("AMD_INFERENCE_PORT")
+    if not raw:
+        return 8080, None
+    try:
+        port = int(raw)
+    except ValueError:
+        return 8080, "amd_port_invalid"
+    if 1 <= port <= 65535:
+        return port, None
+    return 8080, "amd_port_invalid"
+
+
+def _runtime_base_url(runtime: str, location: str, port: int) -> str:
     if location == "host":
-        return "http://host.docker.internal:8080"
+        return f"http://host.docker.internal:{port}"
     if location == "container":
-        return "http://llama-server:8080"
+        return f"http://llama-server:{port}"
     return (
         _clean_env("OLLAMA_URL")
         or _clean_env("LLM_URL")
@@ -281,8 +294,12 @@ async def amd_runtime():
             warnings=warnings,
         )
 
+    port, port_warning = _runtime_port()
+    if port_warning:
+        warnings.append(port_warning)
+
     api_path = _runtime_api_path(runtime)
-    base_url = _runtime_base_url(runtime, location)
+    base_url = _runtime_base_url(runtime, location, port)
     api_base = _join_url(base_url, api_path)
     health_url = _join_url(base_url, _runtime_health_path(runtime, api_path))
     health, version, health_warning = await asyncio.to_thread(_probe_amd_health, health_url)

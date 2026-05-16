@@ -33,6 +33,7 @@ def test_amd_runtime_linux_container_lemonade(monkeypatch, test_client):
     monkeypatch.setenv("AMD_INFERENCE_RUNTIME", "lemonade")
     monkeypatch.setenv("AMD_INFERENCE_BACKEND", "rocm")
     monkeypatch.setenv("AMD_INFERENCE_LOCATION", "container")
+    monkeypatch.setenv("AMD_INFERENCE_PORT", "8080")
     monkeypatch.setenv("LLM_API_BASE_PATH", "/api/v1")
     _patch_probe(monkeypatch)
 
@@ -56,6 +57,7 @@ def test_amd_runtime_windows_host_lemonade(monkeypatch, test_client):
     monkeypatch.setenv("AMD_INFERENCE_RUNTIME", "lemonade")
     monkeypatch.setenv("AMD_INFERENCE_BACKEND", "vulkan")
     monkeypatch.setenv("AMD_INFERENCE_LOCATION", "host")
+    monkeypatch.setenv("AMD_INFERENCE_PORT", "8080")
     monkeypatch.setenv("LLM_API_BASE_PATH", "/api/v1")
     _patch_probe(monkeypatch, version="10.0.0")
 
@@ -77,6 +79,7 @@ def test_amd_runtime_windows_host_llama_server_fallback(monkeypatch, test_client
     monkeypatch.setenv("AMD_INFERENCE_RUNTIME", "llama-server")
     monkeypatch.setenv("AMD_INFERENCE_BACKEND", "vulkan")
     monkeypatch.setenv("AMD_INFERENCE_LOCATION", "host")
+    monkeypatch.setenv("AMD_INFERENCE_PORT", "8080")
     monkeypatch.setenv("LLM_API_BASE_PATH", "/v1")
     _patch_probe(monkeypatch)
 
@@ -98,6 +101,7 @@ def test_amd_runtime_health_unreachable(monkeypatch, test_client):
     monkeypatch.setenv("AMD_INFERENCE_RUNTIME", "lemonade")
     monkeypatch.setenv("AMD_INFERENCE_BACKEND", "rocm")
     monkeypatch.setenv("AMD_INFERENCE_LOCATION", "container")
+    monkeypatch.setenv("AMD_INFERENCE_PORT", "8080")
     monkeypatch.setenv("LLM_API_BASE_PATH", "/api/v1")
     _patch_probe(monkeypatch, health="unreachable", warning="health_unreachable")
 
@@ -108,3 +112,38 @@ def test_amd_runtime_health_unreachable(monkeypatch, test_client):
     assert payload["available"] is True
     assert payload["health"] == "unreachable"
     assert payload["warnings"] == ["health_unreachable"]
+
+
+def test_amd_runtime_uses_explicit_port(monkeypatch, test_client):
+    monkeypatch.setenv("GPU_BACKEND", "amd")
+    monkeypatch.setenv("AMD_INFERENCE_RUNTIME", "lemonade")
+    monkeypatch.setenv("AMD_INFERENCE_BACKEND", "rocm")
+    monkeypatch.setenv("AMD_INFERENCE_LOCATION", "container")
+    monkeypatch.setenv("AMD_INFERENCE_PORT", "18080")
+    monkeypatch.setenv("LLM_API_BASE_PATH", "/api/v1")
+    _patch_probe(monkeypatch)
+
+    response = test_client.get("/api/gpu/amd-runtime", headers=test_client.auth_headers)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["apiBase"] == "http://llama-server:18080/api/v1"
+    assert payload["healthUrl"] == "http://llama-server:18080/api/v1/health"
+    assert payload["warnings"] == []
+
+
+def test_amd_runtime_invalid_port_warns_and_falls_back(monkeypatch, test_client):
+    monkeypatch.setenv("GPU_BACKEND", "amd")
+    monkeypatch.setenv("AMD_INFERENCE_RUNTIME", "lemonade")
+    monkeypatch.setenv("AMD_INFERENCE_BACKEND", "rocm")
+    monkeypatch.setenv("AMD_INFERENCE_LOCATION", "container")
+    monkeypatch.setenv("AMD_INFERENCE_PORT", "not-a-port")
+    monkeypatch.setenv("LLM_API_BASE_PATH", "/api/v1")
+    _patch_probe(monkeypatch)
+
+    response = test_client.get("/api/gpu/amd-runtime", headers=test_client.auth_headers)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["apiBase"] == "http://llama-server:8080/api/v1"
+    assert "amd_port_invalid" in payload["warnings"]

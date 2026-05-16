@@ -490,6 +490,7 @@ if ($dryRun) {
                     $envContent = $envContent -replace "(?m)^AMD_INFERENCE_RUNTIME=.*$", "AMD_INFERENCE_RUNTIME=llama-server"
                     $envContent = $envContent -replace "(?m)^AMD_INFERENCE_BACKEND=.*$", "AMD_INFERENCE_BACKEND=vulkan"
                     $envContent = $envContent -replace "(?m)^AMD_INFERENCE_LOCATION=.*$", "AMD_INFERENCE_LOCATION=host"
+                    $envContent = $envContent -replace "(?m)^AMD_INFERENCE_PORT=.*$", "AMD_INFERENCE_PORT=8080"
                     [System.IO.File]::WriteAllText($envPath, $envContent, (New-Object System.Text.UTF8Encoding($false)))
                     Write-AISuccess "Patched .env for llama-server backend"
                 }

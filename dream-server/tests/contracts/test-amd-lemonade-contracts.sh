@@ -194,14 +194,14 @@ fi
 # 15. AMD runtime env contract exists and is passed to dashboard-api
 # ---------------------------------------------------------------------------
 echo "[contract] AMD runtime env contract"
-for key in AMD_INFERENCE_RUNTIME AMD_INFERENCE_BACKEND AMD_INFERENCE_LOCATION LEMONADE_SERVER_IMAGE; do
+for key in AMD_INFERENCE_RUNTIME AMD_INFERENCE_BACKEND AMD_INFERENCE_LOCATION AMD_INFERENCE_PORT LEMONADE_SERVER_IMAGE; do
     if grep -q "\"$key\"" .env.schema.json; then
         pass ".env.schema.json: $key documented"
     else
         fail ".env.schema.json: $key missing"
     fi
 done
-for key in AMD_INFERENCE_RUNTIME AMD_INFERENCE_BACKEND AMD_INFERENCE_LOCATION; do
+for key in AMD_INFERENCE_RUNTIME AMD_INFERENCE_BACKEND AMD_INFERENCE_LOCATION AMD_INFERENCE_PORT; do
     if grep -q "$key" docker-compose.amd.yml && grep -q "$key" installers/windows/docker-compose.windows-amd.yml; then
         pass "dashboard-api overlays pass $key"
     else
