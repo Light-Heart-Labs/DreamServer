@@ -144,12 +144,6 @@ generate_dream_env() {
         if [[ -z "$(read_env_value "$env_path" "DREAM_AGENT_HOST")" ]]; then
             upsert_env_value "$env_path" "DREAM_AGENT_HOST" "host.docker.internal"
         fi
-        # Upsert DREAMFORGE_PULL_POLICY=build on existing Apple Silicon
-        # installs so the dreamforge upstream amd64-only image isn't pulled
-        # under Rosetta 2 — same logic as the fresh-install branch below.
-        if [[ "$(uname -m)" == "arm64" ]] && [[ -z "$(read_env_value "$env_path" "DREAMFORGE_PULL_POLICY")" ]]; then
-            upsert_env_value "$env_path" "DREAMFORGE_PULL_POLICY" "build"
-        fi
         # Upsert SHIELD_API_KEY when missing (Privacy Shield cross-service auth)
         if [[ -z "$(read_env_value "$env_path" "SHIELD_API_KEY")" ]]; then
             upsert_env_value "$env_path" "SHIELD_API_KEY" "$(new_secure_hex 32)"
@@ -290,12 +284,6 @@ LLAMA_ARG_FLASH_ATTN=${LLAMA_ARG_FLASH_ATTN:-auto}
 LLAMA_ARG_CACHE_TYPE_K=${LLAMA_ARG_CACHE_TYPE_K:-f16}
 LLAMA_ARG_CACHE_TYPE_V=${LLAMA_ARG_CACHE_TYPE_V:-f16}
 # Optional MoE only. Example for 8-12GB VRAM: LLAMA_ARG_N_CPU_MOE=25
-$(if [[ "$(uname -m)" == "arm64" ]]; then
-    # Apple Silicon: dreamforge upstream image is linux/amd64 only.
-    # Build locally via Dockerfile.rust to get a native arm64 image
-    # instead of relying on Rosetta 2 emulation.
-    echo "DREAMFORGE_PULL_POLICY=build"
-fi)
 LLAMA_CPU_LIMIT=${detected_cpu_limit}
 LLAMA_CPU_RESERVATION=${detected_cpu_reservation}
 

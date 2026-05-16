@@ -40,7 +40,7 @@ else
     # Create directories
     dream_progress 38 "directories" "Creating directory structure"
     mkdir -p "$INSTALL_DIR"/{config,data,models}
-    mkdir -p "$INSTALL_DIR"/data/{open-webui,whisper,tts,n8n,qdrant,models,privacy-shield,dreamforge,ape,token-spy,hermes}
+    mkdir -p "$INSTALL_DIR"/data/{open-webui,whisper,tts,n8n,qdrant,models,privacy-shield,ape,token-spy,hermes}
     mkdir -p "$INSTALL_DIR"/data/hermes-proxy/{caddy-data,caddy-config}
     mkdir -p "$INSTALL_DIR"/data/langfuse/{postgres,clickhouse,redis,minio}
     mkdir -p "$INSTALL_DIR"/config/{n8n,litellm,openclaw,searxng}
@@ -109,6 +109,17 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
         ai_ok "Source files installed"
     else
         log "Running in-place (source == install dir), skipping file copy"
+    fi
+
+    # DreamForge was retired from the shipped stack after Hermes became the
+    # default agent surface. Existing installs may still contain the old
+    # bundled extension because the source copy above does not prune removed
+    # files. Delete only the retired service code so stale compose files cannot
+    # be picked up; preserve data/dreamforge for users who want to archive it.
+    _retired_dreamforge_dir="$INSTALL_DIR/extensions/services/dreamforge"
+    if [[ -d "$_retired_dreamforge_dir" ]]; then
+        rm -rf "$_retired_dreamforge_dir"
+        log "Removed retired DreamForge service files from extensions/services"
     fi
 
     # Copy extensions library to data dir for dashboard portal.
@@ -384,7 +395,6 @@ GPU_BACKEND=${GPU_BACKEND}
 N_GPU_LAYERS=${N_GPU_LAYERS:-99}
 $(if [[ -n "${LLAMA_SERVER_IMAGE:-}" ]]; then echo "LLAMA_SERVER_IMAGE=${LLAMA_SERVER_IMAGE}"; fi)
 $(if [[ -n "${LLAMA_SERVER_IMAGE_FALLBACK:-}" ]]; then echo "LLAMA_SERVER_IMAGE_FALLBACK=${LLAMA_SERVER_IMAGE_FALLBACK}"; fi)
-$(if [[ -n "${DREAMFORGE_PULL_POLICY:-}" ]]; then echo "DREAMFORGE_PULL_POLICY=${DREAMFORGE_PULL_POLICY}"; fi)
 #=== llama.cpp Runtime Tuning ===
 LLAMA_ARG_FLASH_ATTN=${LLAMA_ARG_FLASH_ATTN:-auto}
 LLAMA_ARG_CACHE_TYPE_K=${LLAMA_ARG_CACHE_TYPE_K:-f16}

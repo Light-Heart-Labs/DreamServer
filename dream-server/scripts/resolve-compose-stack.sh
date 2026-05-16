@@ -172,7 +172,7 @@ try:
     )
 except (OSError, ValueError):
     _CORE_SERVICE_IDS = {
-        "ape", "comfyui", "dashboard", "dashboard-api", "dreamforge",
+        "ape", "comfyui", "dashboard", "dashboard-api",
         "embeddings", "langfuse", "litellm", "llama-server", "n8n",
         "open-webui", "openclaw", "perplexica", "privacy-shield", "qdrant",
         "searxng", "token-spy", "tts", "whisper",

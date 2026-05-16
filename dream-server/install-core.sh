@@ -106,7 +106,6 @@ ENABLE_HERMES=true
 ENABLE_OPENCLAW=false
 OPENCLAW_EXPLICIT=false
 ENABLE_COMFYUI=true
-ENABLE_DREAMFORGE=true
 # Langfuse (LLM observability) defaults OFF on all tiers because its
 # clickhouse + postgres + minio stack adds ~500MB baseline memory that is
 # nontrivial even on Tier 3+ systems. Users opt in via --langfuse, --all,
@@ -143,8 +142,8 @@ Options:
     --no-openclaw     Disable OpenClaw
     --comfyui         Enable ComfyUI image generation
     --no-comfyui      Disable ComfyUI image generation (saves ~34GB)
-    --dreamforge      Enable DreamForge agent system (default)
-    --no-dreamforge   Disable DreamForge
+    --dreamforge      Deprecated no-op; DreamForge has been removed
+    --no-dreamforge   Deprecated no-op; DreamForge has been removed
     --langfuse        Enable Langfuse LLM observability (off by default)
     --no-langfuse     Explicitly disable Langfuse (for --all overrides)
     --all             Enable all optional services (including Langfuse)
@@ -196,16 +195,16 @@ while [[ $# -gt 0 ]]; do
         --no-openclaw) ENABLE_OPENCLAW=false; OPENCLAW_EXPLICIT=true; shift ;;
         --comfyui) ENABLE_COMFYUI=true; shift ;;
         --no-comfyui) ENABLE_COMFYUI=false; shift ;;
-        --dreamforge) ENABLE_DREAMFORGE=true; shift ;;
-        --no-dreamforge) ENABLE_DREAMFORGE=false; shift ;;
+        --dreamforge) warn "DreamForge has been removed; ignoring --dreamforge"; shift ;;
+        --no-dreamforge) warn "DreamForge has been removed; ignoring --no-dreamforge"; shift ;;
         --langfuse) ENABLE_LANGFUSE=true; shift ;;
         # NOTE: with --all, --no-langfuse must appear AFTER --all on the command
-        # line (flag processing is case-loop ordered, matching comfyui/dreamforge).
+        # line (flag processing is case-loop ordered, matching comfyui).
         --no-langfuse) ENABLE_LANGFUSE=false; shift ;;
         # --all enables Hermes (the new default agent) but NOT OpenClaw —
         # the deprecated agent is opt-in via --openclaw for the deprecation
         # release. Will be dropped entirely in the removal release.
-        --all) ENABLE_VOICE=true; ENABLE_WORKFLOWS=true; ENABLE_RAG=true; ENABLE_HERMES=true; ENABLE_OPENCLAW=false; ENABLE_COMFYUI=true; ENABLE_DREAMFORGE=true; ENABLE_LANGFUSE=true; shift ;;
+        --all) ENABLE_VOICE=true; ENABLE_WORKFLOWS=true; ENABLE_RAG=true; ENABLE_HERMES=true; ENABLE_OPENCLAW=false; ENABLE_COMFYUI=true; ENABLE_LANGFUSE=true; shift ;;
         --non-interactive) INTERACTIVE=false; shift ;;
         --offline) OFFLINE_MODE=true; shift ;;
         --lan) BIND_ADDRESS="0.0.0.0"; shift ;;

@@ -3,7 +3,6 @@
   "comfyui",
   "dashboard",
   "dashboard-api",
-  "dreamforge",
   "embeddings",
   "langfuse",
   "litellm",

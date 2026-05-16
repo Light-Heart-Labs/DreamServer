@@ -106,7 +106,6 @@ See [`docs/WINDOWS-QUICKSTART.md`](docs/WINDOWS-QUICKSTART.md) for details.
 | **OpenClaw** | Autonomous AI agent framework | 7860 | Optional |
 | **APE** | Agent Policy Engine for policy/audit controls | 7890 | Optional |
 | **OpenCode** | Browser IDE / coding assistant | 3003 | Optional host service |
-| **DreamForge** | Developer/build service extension | 3010 | Optional |
 | **Perplexica** | Deep research engine | 3004 | Optional |
 | **Brave Search** | Paid Brave Search API bridge | 8585 | Optional |
 | **n8n** | Workflow automation | 5678 | Optional |
