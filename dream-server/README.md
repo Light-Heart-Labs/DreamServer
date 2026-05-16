@@ -277,6 +277,8 @@ LLAMA_ARG_FLASH_ATTN=auto                  # auto, on, or off
 LLAMA_ARG_CACHE_TYPE_K=f16                 # f16 or q8_0
 LLAMA_ARG_CACHE_TYPE_V=f16                 # f16 or q8_0
 # LLAMA_ARG_N_CPU_MOE=25                   # Optional MoE-only CPU expert offload
+# LLAMA_ARG_SPEC_TYPE=draft-mtp            # Optional MTP speculative decoding
+# LLAMA_ARG_SPEC_DRAFT_N_MAX=3             # Optional MTP draft token cap
 ```
 
 ## dream-cli

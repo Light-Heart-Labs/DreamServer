@@ -3261,6 +3261,8 @@ def _launch_native_llama_server(env_path: Path, llama_bin: Path, llama_log: Path
         "LLAMA_ARG_CACHE_TYPE_K": "--cache-type-k",
         "LLAMA_ARG_CACHE_TYPE_V": "--cache-type-v",
         "LLAMA_ARG_N_CPU_MOE": "--n-cpu-moe",
+        "LLAMA_ARG_SPEC_TYPE": "--spec-type",
+        "LLAMA_ARG_SPEC_DRAFT_N_MAX": "--spec-draft-n-max",
     }
     for env_key, flag in optional_args.items():
         value = env.get(env_key, "").strip()
