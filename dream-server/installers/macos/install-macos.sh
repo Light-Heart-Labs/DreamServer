@@ -363,6 +363,31 @@ if ! $DISK_SUFFICIENT; then
 fi
 ai_ok "Disk space OK"
 
+# PyYAML — required by scripts/resolve-compose-stack.sh for the compose
+# security scan (it parses every extension/overlay manifest before letting
+# user composes through). Linux distros generally bundle python3-yaml with
+# the system python; macOS does not. Without PyYAML, every extension install
+# fails at compose resolution with a cryptic "ModuleNotFoundError: No module
+# named 'yaml'" returned through the dashboard-api as state=error.
+if command -v python3 >/dev/null 2>&1; then
+    if python3 -c 'import yaml' >/dev/null 2>&1; then
+        ai_ok "PyYAML available"
+    else
+        ai "Installing PyYAML (required by compose resolver)..."
+        if pip3 install --user --quiet --no-warn-script-location pyyaml 2>&1 | tee -a "$LOG_FILE" >/dev/null \
+           && python3 -c 'import yaml' >/dev/null 2>&1; then
+            ai_ok "PyYAML installed (pip3 --user)"
+        else
+            ai_err "Failed to install PyYAML for $(command -v python3)."
+            ai_err "Run manually: pip3 install --user pyyaml"
+            exit 1
+        fi
+    fi
+else
+    ai_err "python3 not available — required for compose resolver"
+    exit 1
+fi
+
 # Ollama conflict detection
 check_ollama_conflict
 if $OLLAMA_RUNNING; then
