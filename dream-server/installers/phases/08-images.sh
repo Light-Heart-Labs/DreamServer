@@ -51,7 +51,7 @@ if [[ "$ENABLE_HERMES" == "true" ]]; then
     # rationale + "How to bump the pin" in docs/HERMES.md. Hermes-proxy
     # is the auth gate (Caddy) and is pulled alongside Hermes.
     PULL_LIST+=("nousresearch/hermes-agent:sha-dd0923bb89ed2dd56f82cb63656a1323f6f42e6f|HERMES — default agent (Nous Research)")
-    PULL_LIST+=("caddy:2.8.4-alpine|HERMES PROXY — magic-link auth gate (Caddy)")
+    PULL_LIST+=("caddy:2.11.3-alpine|HERMES PROXY — magic-link auth gate (Caddy)")
 fi
 [[ "$ENABLE_OPENCLAW" == "true" ]] && PULL_LIST+=("ghcr.io/openclaw/openclaw:2026.3.8|OPENCLAW — agent framework")
 [[ "${ENABLE_EMBEDDINGS:-${ENABLE_RAG:-false}}" == "true" ]] && PULL_LIST+=("ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.1|TEI — embedding engine")
