@@ -24,9 +24,8 @@ bash setup.sh --teardown   # Stop all services
 
 ## Setup Guide
 
-**Video walkthrough & troubleshooting:**
-- [Setup video guide](https://drive.google.com/file/d/1SrBooRJwP24OTWXZH-TOlk4q6tK44DUR/view?usp=sharing)
-- [Presentation slides](https://docs.google.com/presentation/d/16TusAdo0-o3lOTeUwRaJa16foELvFSH4/edit?usp=sharing&ouid=109193555106212685513&rtpof=true&sd=true)
+- [Setup PDF](https://drive.google.com/file/d/1SrBooRJwP24OTWXZH-TOlk4q6tK44DUR/view?usp=sharing)
+- [Setup presentation slides](https://docs.google.com/presentation/d/16TusAdo0-o3lOTeUwRaJa16foELvFSH4/edit?usp=sharing&ouid=109193555106212685513&rtpof=true&sd=true)
 
 ## Quick Recovery (If Phase 9 Fails)
 
