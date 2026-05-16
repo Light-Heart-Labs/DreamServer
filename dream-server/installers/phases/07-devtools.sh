@@ -320,6 +320,38 @@ if [[ -f "$INSTALL_DIR/bin/dream-host-agent.py" ]]; then
                 fi
             fi
             # loginctl enable-linger no longer needed for host agent (system-mode unit)
+
+            # Open the firewall to dashboard-api → host-agent traffic.
+            # dashboard-api runs inside a compose container and reaches the
+            # host-agent at the Docker bridge gateway:7710. With UFW or
+            # firewalld in default-DROP, the INPUT chain blocks that flow
+            # and the dashboard reports "Host agent is offline" even though
+            # the agent itself is up. The preflight phase warns about this,
+            # but the warning is easy to miss in a long, successful install
+            # log; the rule is mechanical, scoped to RFC-1918 docker subnets
+            # only, and idempotent — apply it directly when we have sudo.
+            if command -v ufw >/dev/null 2>&1 && systemctl is-active --quiet ufw 2>/dev/null; then
+                if sudo ufw status 2>/dev/null | grep -qE '7710/tcp.*ALLOW.*172\.16\.0\.0/12'; then
+                    ai_ok "UFW already allows dream-host-agent (port 7710) from compose subnets"
+                elif sudo ufw allow from 172.16.0.0/12 to any port 7710 proto tcp comment 'dream-host-agent' 2>&1 | tee -a "$LOG_FILE" >/dev/null; then
+                    ai_ok "UFW: allowed dream-host-agent (port 7710) from 172.16.0.0/12 (docker bridge subnets)"
+                else
+                    ai_warn "UFW: failed to auto-add host-agent rule — run manually:"
+                    ai_warn "  sudo ufw allow from 172.16.0.0/12 to any port 7710 proto tcp comment 'dream-host-agent'"
+                fi
+            elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld 2>/dev/null; then
+                fw_rule='rule family="ipv4" source address="172.16.0.0/12" port protocol="tcp" port="7710" accept'
+                if sudo firewall-cmd --query-rich-rule="$fw_rule" >/dev/null 2>&1; then
+                    ai_ok "firewalld already allows dream-host-agent (port 7710) from compose subnets"
+                elif sudo firewall-cmd --permanent --add-rich-rule="$fw_rule" 2>&1 | tee -a "$LOG_FILE" >/dev/null \
+                  && sudo firewall-cmd --reload 2>&1 | tee -a "$LOG_FILE" >/dev/null; then
+                    ai_ok "firewalld: allowed dream-host-agent (port 7710) from 172.16.0.0/12"
+                else
+                    ai_warn "firewalld: failed to auto-add host-agent rule — run manually:"
+                    ai_warn "  sudo firewall-cmd --permanent --add-rich-rule='$fw_rule'"
+                    ai_warn "  sudo firewall-cmd --reload"
+                fi
+            fi
         else
             ai_warn "No systemd detected — dream host agent not auto-installed."
             ai_warn "  Start manually: dream agent start"
