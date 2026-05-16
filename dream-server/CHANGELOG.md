@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- Updated Dream Proxy and Hermes Proxy to `caddy:2.11.3-alpine`.
+
 ## [2.4.0] - 2026-03-24
 
 ### Added
