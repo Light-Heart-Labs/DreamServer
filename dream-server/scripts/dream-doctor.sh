@@ -300,15 +300,169 @@ fi
 
 "$PYTHON_CMD" - "$CAP_FILE" "$PREFLIGHT_FILE" "$REPORT_FILE" "$DOCKER_CLI" "$DOCKER_DAEMON" "$COMPOSE_CLI" "$DASHBOARD_HTTP" "$WEBUI_HTTP" "$_DASHBOARD_PORT" "$_WEBUI_PORT" "$EXT_DIAGNOSTICS" "$STT_MODEL_CACHED" "$STT_MODEL_NAME" "$STT_RECOVERY_HINT" "$DGX_SPARK_GPU" "$DGX_SPARK_GPU_NAME" "$DGX_SPARK_COMPUTE_CAP" "$LLAMA_CUDA_ARCHS" "$DGX_SPARK_CUDA_ARCH_STATUS" "$DGX_SPARK_CUDA_ARCH_MESSAGE" <<'PY'
 import json
+import os
 import pathlib
 import sys
 from datetime import datetime, timezone
+from urllib import error, request
 
 cap_file, preflight_file, report_file, docker_cli, docker_daemon, compose_cli, dashboard_http, webui_http, dashboard_port, webui_port, ext_diagnostics_json, stt_cached, stt_model_name, stt_recovery, dgx_spark_gpu, dgx_spark_gpu_name, dgx_spark_compute_cap, llama_cuda_archs, dgx_spark_arch_status, dgx_spark_arch_message = sys.argv[1:]
 
 cap = json.load(open(cap_file, "r", encoding="utf-8"))
 pre = json.load(open(preflight_file, "r", encoding="utf-8"))
 ext_diagnostics = json.loads(ext_diagnostics_json)
+
+def _clean_env(name, default=""):
+    return os.environ.get(name, default).strip()
+
+
+def _join_url(base_url, path):
+    base = base_url.rstrip("/")
+    suffix = path if path.startswith("/") else f"/{path}"
+    return f"{base}{suffix}"
+
+
+def _split_backends(raw):
+    backends = []
+    invalid = []
+    for item in (raw or "").split(","):
+        backend = item.strip().lower()
+        if not backend:
+            continue
+        if backend in {"rocm", "vulkan"}:
+            if backend not in backends:
+                backends.append(backend)
+        else:
+            invalid.append(backend)
+    return backends, invalid
+
+
+def _env_bool(name):
+    return _clean_env(name).lower() in {"1", "true", "yes", "on"}
+
+
+def _amd_health_url(runtime, location, port):
+    if location == "container":
+        host_port = _clean_env("OLLAMA_PORT", port)
+    else:
+        host_port = port
+    base = f"http://127.0.0.1:{host_port}"
+    if runtime == "lemonade":
+        api_path = _clean_env("LLM_API_BASE_PATH", "/api/v1") or "/api/v1"
+        return _join_url(base, _join_url(api_path, "health"))
+    return _join_url(base, "health")
+
+
+def _probe_health(url):
+    try:
+        with request.urlopen(url, timeout=2.0) as response:
+            status = getattr(response, "status", response.getcode())
+            body = response.read(4096).decode("utf-8", errors="replace")
+    except error.HTTPError as exc:
+        return "unhealthy", "unknown", f"health_http_{exc.code}"
+    except (error.URLError, TimeoutError, OSError):
+        return "unreachable", "unknown", "health_unreachable"
+
+    version = "unknown"
+    try:
+        payload = json.loads(body) if body else {}
+        if isinstance(payload, dict) and payload.get("version"):
+            version = str(payload["version"])
+    except json.JSONDecodeError:
+        pass
+    if 200 <= int(status) < 300:
+        return "reachable", version, None
+    return "unhealthy", version, f"health_http_{status}"
+
+
+def _amd_runtime_report():
+    gpu_backend = (_clean_env("GPU_BACKEND") or _clean_env("CAP_LLM_BACKEND")).lower()
+    amd_env_present = any(
+        _clean_env(name)
+        for name in (
+            "AMD_INFERENCE_RUNTIME",
+            "AMD_INFERENCE_BACKEND",
+            "AMD_INFERENCE_LOCATION",
+            "AMD_INFERENCE_SUPPORTED_BACKENDS",
+        )
+    )
+    if gpu_backend != "amd" and not amd_env_present:
+        return {
+            "available": False,
+            "reason": "not_amd",
+            "runtime": "none",
+            "location": "none",
+            "runtimeMode": "none",
+            "managedByDreamServer": False,
+            "selectedBackend": "none",
+            "supportedBackends": [],
+            "defaultBackend": "none",
+            "health": "not_checked",
+            "warnings": [],
+        }
+
+    warnings = []
+    runtime = _clean_env("AMD_INFERENCE_RUNTIME").lower()
+    selected_backend = _clean_env("AMD_INFERENCE_BACKEND").lower()
+    location = _clean_env("AMD_INFERENCE_LOCATION").lower()
+    runtime_mode = _clean_env("AMD_INFERENCE_RUNTIME_MODE").lower()
+    supported_backends, invalid_backends = _split_backends(_clean_env("AMD_INFERENCE_SUPPORTED_BACKENDS"))
+    managed_raw = _clean_env("AMD_INFERENCE_MANAGED").lower()
+    managed = _env_bool("AMD_INFERENCE_MANAGED")
+    port = _clean_env("AMD_INFERENCE_PORT", "8080") or "8080"
+
+    if invalid_backends:
+        warnings.append("amd_supported_backends_invalid")
+    if not runtime:
+        runtime = "none"
+        warnings.append("amd_runtime_env_missing")
+    if not selected_backend:
+        selected_backend = "unknown"
+        warnings.append("amd_backend_env_missing")
+    if not location:
+        location = "unknown"
+        warnings.append("amd_location_env_missing")
+    if not runtime_mode:
+        runtime_mode = "unknown"
+        warnings.append("amd_runtime_mode_env_missing")
+    if not managed_raw:
+        warnings.append("amd_managed_env_missing")
+    if not supported_backends:
+        warnings.append("amd_supported_backends_env_missing")
+    elif selected_backend not in {"unknown", "none"} and selected_backend not in supported_backends:
+        warnings.append("amd_selected_backend_not_supported")
+
+    if not port.isdigit() or not (1 <= int(port) <= 65535):
+        port = "8080"
+        warnings.append("amd_port_invalid")
+
+    health = "not_checked"
+    version = "unknown"
+    health_url = None
+    if runtime in {"lemonade", "llama-server"}:
+        health_url = _amd_health_url(runtime, location, port)
+        health, version, health_warning = _probe_health(health_url)
+        if health_warning:
+            warnings.append(health_warning)
+
+    return {
+        "available": runtime in {"lemonade", "llama-server"},
+        "reason": None if runtime in {"lemonade", "llama-server"} else "runtime_not_configured",
+        "runtime": runtime,
+        "location": location,
+        "runtimeMode": runtime_mode,
+        "managedByDreamServer": managed,
+        "selectedBackend": selected_backend,
+        "supportedBackends": supported_backends,
+        "defaultBackend": selected_backend if selected_backend else "none",
+        "healthUrl": health_url,
+        "health": health,
+        "version": version,
+        "warnings": warnings,
+    }
+
+
+amd_runtime = _amd_runtime_report()
 
 report = {
     "version": "1",
@@ -332,12 +486,13 @@ report = {
             "status": dgx_spark_arch_status,
             "message": dgx_spark_arch_message,
         },
+        "amd_runtime": amd_runtime,
     },
     "extensions": ext_diagnostics,
     "summary": {
         "preflight_blockers": pre.get("summary", {}).get("blockers", 0),
         "preflight_warnings": pre.get("summary", {}).get("warnings", 0),
-        "runtime_warnings": 1 if dgx_spark_arch_status == "warn" else 0,
+        "runtime_warnings": (1 if dgx_spark_arch_status == "warn" else 0) + len(amd_runtime.get("warnings", [])),
         "runtime_ready": (docker_daemon == "true" and compose_cli == "true"),
         "extensions_total": len(ext_diagnostics),
         "extensions_healthy": sum(1 for e in ext_diagnostics if e.get("health_status") == "healthy"),
@@ -376,6 +531,14 @@ if dgx_spark_arch_status == "warn":
         "DGX Spark / GB10 detected, but llama-server was not built with sm_121 support. "
         "Build llama.cpp with -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=121 or use a GB10-specific llama-server image."
     )
+
+for warning in amd_runtime.get("warnings", []):
+    if warning == "health_unreachable":
+        fix_hints.append("AMD inference runtime is configured but its health endpoint is unreachable. Start the runtime or run 'dream restart'.")
+    elif warning == "amd_supported_backends_env_missing":
+        fix_hints.append("AMD runtime capabilities are missing from .env. Re-run the installer or add AMD_INFERENCE_SUPPORTED_BACKENDS.")
+    elif warning == "amd_selected_backend_not_supported":
+        fix_hints.append("AMD_INFERENCE_BACKEND is not listed in AMD_INFERENCE_SUPPORTED_BACKENDS. Check the installer-generated .env.")
 
 # Extension-specific hints
 for ext in ext_diagnostics:
@@ -442,6 +605,16 @@ if dgx_check.get("status") == "warn":
     print(f"  DGX Spark:     warning - {dgx_check.get('message')}")
 elif dgx_check.get("status") == "pass":
     print("  DGX Spark:     llama-server includes sm_121 support")
+
+amd_runtime = data.get("runtime", {}).get("amd_runtime", {})
+if amd_runtime.get("available"):
+    print(
+        "  AMD Runtime:   "
+        f"{amd_runtime.get('runtime')} / {amd_runtime.get('selectedBackend')} / "
+        f"{amd_runtime.get('location')} / {amd_runtime.get('health')}"
+    )
+elif amd_runtime.get("reason") and amd_runtime.get("reason") != "not_amd":
+    print(f"  AMD Runtime:   {amd_runtime.get('reason')}")
 
 hints = data.get("autofix_hints") or []
 if hints:
