@@ -28,6 +28,13 @@ export default function Models() {
     }
   }, [downloadProgress.isDownloading, error])
 
+  useEffect(() => {
+    if (downloadProgress.completedDownload?.status === 'complete') {
+      setDownloadStarting(null)
+      refresh()
+    }
+  }, [downloadProgress.completedDownload, refresh])
+
   const handleDownload = async (modelId) => {
     setDownloadStarting(modelId)
     await downloadModel(modelId)

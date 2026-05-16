@@ -20,6 +20,7 @@ _spec.loader.exec_module(_mod)
 _check_lemonade_health = _mod._check_lemonade_health
 _send_lemonade_warmup = _mod._send_lemonade_warmup
 _write_lemonade_config = _mod._write_lemonade_config
+_patch_hermes_model_config = _mod._patch_hermes_model_config
 _compose_restart_llama_server = _mod._compose_restart_llama_server
 _launch_native_llama_server = _mod._launch_native_llama_server
 
@@ -158,6 +159,32 @@ class TestWriteLemonadeConfig:
         litellm_dir.mkdir(parents=True)
         _write_lemonade_config(tmp_path, "model.gguf")
         assert (litellm_dir / "lemonade.yaml").exists()
+
+
+class TestPatchHermesModelConfig:
+
+    def test_updates_model_default_only(self, tmp_path):
+        config = tmp_path / "config.yaml"
+        config.write_text(
+            "# example\n"
+            "model:\n"
+            "  default: \"old-model\"\n"
+            "  provider: \"custom\"\n"
+            "  base_url: \"http://llama-server:8080/v1\"\n"
+            "other:\n"
+            "  default: \"leave-me\"\n",
+            encoding="utf-8",
+        )
+
+        assert _patch_hermes_model_config(config, "new-model.gguf") is True
+
+        text = config.read_text(encoding="utf-8")
+        assert '  default: "new-model.gguf"' in text
+        assert '  provider: "custom"' in text
+        assert '  default: "leave-me"' in text
+
+    def test_missing_file_is_noop(self, tmp_path):
+        assert _patch_hermes_model_config(tmp_path / "missing.yaml", "model.gguf") is False
 
 
 class TestComposeRestartLlamaServer:
@@ -371,6 +398,45 @@ class TestModelActivateRollback:
         content = lemonade_yaml.read_text(encoding="utf-8")
         assert "api_key: sk-inline-from-env-file-67890" in content
         assert "api_key: sk-lemonade" not in content
+
+    def test_activation_patches_hermes_configs_and_restarts_hermes(self, tmp_path, monkeypatch):
+        install_dir, _env_path, _env_text, _models_ini, _ini_text, _yaml, _yaml_text = (
+            _write_model_activation_fixture(tmp_path)
+        )
+        hermes_live = install_dir / "data" / "hermes" / "config.yaml"
+        hermes_template = install_dir / "extensions" / "services" / "hermes" / "cli-config.yaml.template"
+        hermes_live.parent.mkdir(parents=True)
+        hermes_template.parent.mkdir(parents=True)
+        hermes_text = (
+            "model:\n"
+            "  default: \"old-model\"\n"
+            "  provider: \"custom\"\n"
+            "  base_url: \"http://llama-server:8080/v1\"\n"
+        )
+        hermes_live.write_text(hermes_text, encoding="utf-8")
+        hermes_template.write_text(hermes_text, encoding="utf-8")
+
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+        monkeypatch.delenv("DREAM_HOST_INSTALL_DIR", raising=False)
+        monkeypatch.setattr(_mod.time, "sleep", lambda _seconds: None)
+        monkeypatch.setattr(_mod, "_compose_restart_llama_server", lambda _env: None)
+
+        calls = []
+
+        def fake_run(cmd, **_kwargs):
+            calls.append(cmd)
+            stdout = '{"status": "ok"}' if cmd and cmd[0] == "curl" else ""
+            return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+        handler = _ResponseHandler()
+
+        _mod.AgentHandler._do_model_activate(handler, "target-model")
+
+        assert handler.response_code == 200
+        assert '  default: "new-model.gguf"' in hermes_live.read_text(encoding="utf-8")
+        assert '  default: "new-model.gguf"' in hermes_template.read_text(encoding="utf-8")
+        assert ["docker", "restart", "dream-hermes"] in calls
 
     def test_unexpected_failure_rolls_back_all_config_backups(self, tmp_path, monkeypatch):
         install_dir, env_path, env_text, models_ini, ini_text, lemonade_yaml, lemonade_text = (
