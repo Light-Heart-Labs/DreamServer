@@ -270,7 +270,7 @@ assert_eq "SELECTOR_GGUF_FILE" "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf" "$GGUF_FILE"
 assert_eq "SELECTOR_POLICY" "context-aware-largest-capable-general-v1+spark-aarch64-nv-ultra-a3b-v1" "$MODEL_RECOMMENDATION_POLICY"
 echo ""
 
-echo "Catalog selector (8GB NVIDIA qwen uses TurboQuant MoE profile):"
+echo "Catalog selector (8GB NVIDIA qwen uses upstream catalog fit):"
 _selector_env="$(python3 "$SCRIPT_DIR/scripts/select-model.py" \
     --catalog "$SCRIPT_DIR/config/model-library.json" \
     --backend nvidia \
@@ -284,16 +284,16 @@ _selector_env="$(python3 "$SCRIPT_DIR/scripts/select-model.py" \
     --env)"
 LLM_MODEL="" GGUF_FILE="" MAX_CONTEXT="" MODEL_RUNTIME_PROFILE="" LLAMA_ARG_N_CPU_MOE="" LLAMA_ARG_CACHE_TYPE_V="" LLAMA_ARG_CHECKPOINT_EVERY_N_TOKENS=""
 eval "$_selector_env"
-assert_eq "SELECTOR_LLM_MODEL" "qwen3.6-35b-a3b" "$LLM_MODEL"
-assert_eq "SELECTOR_GGUF_FILE" "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf" "$GGUF_FILE"
-assert_eq "SELECTOR_CONTEXT" "65536" "$MAX_CONTEXT"
-assert_eq "SELECTOR_RUNTIME_PROFILE" "nvidia-8gb-qwen36-35b-a3b-turboquant" "$MODEL_RUNTIME_PROFILE"
-assert_eq "SELECTOR_N_CPU_MOE" "30" "$LLAMA_ARG_N_CPU_MOE"
-assert_eq "SELECTOR_CACHE_V" "turbo3" "$LLAMA_ARG_CACHE_TYPE_V"
-assert_eq "SELECTOR_CHECKPOINTS" "-1" "$LLAMA_ARG_CHECKPOINT_EVERY_N_TOKENS"
+assert_eq "SELECTOR_LLM_MODEL" "qwen3.5-9b" "$LLM_MODEL"
+assert_eq "SELECTOR_GGUF_FILE" "Qwen3.5-9B-Q4_K_M.gguf" "$GGUF_FILE"
+assert_eq "SELECTOR_CONTEXT" "32768" "$MAX_CONTEXT"
+assert_eq "SELECTOR_RUNTIME_PROFILE" "" "$MODEL_RUNTIME_PROFILE"
+assert_eq "SELECTOR_N_CPU_MOE" "" "$LLAMA_ARG_N_CPU_MOE"
+assert_eq "SELECTOR_CACHE_V" "" "$LLAMA_ARG_CACHE_TYPE_V"
+assert_eq "SELECTOR_CHECKPOINTS" "" "$LLAMA_ARG_CHECKPOINT_EVERY_N_TOKENS"
 echo ""
 
-echo "Catalog selector (8GB NVIDIA gemma uses Gemma 26B MoE profile):"
+echo "Catalog selector (8GB NVIDIA gemma uses upstream catalog fit):"
 _selector_env="$(python3 "$SCRIPT_DIR/scripts/select-model.py" \
     --catalog "$SCRIPT_DIR/config/model-library.json" \
     --backend nvidia \
@@ -307,12 +307,12 @@ _selector_env="$(python3 "$SCRIPT_DIR/scripts/select-model.py" \
     --env)"
 LLM_MODEL="" GGUF_FILE="" MAX_CONTEXT="" MODEL_RUNTIME_PROFILE="" LLAMA_ARG_N_CPU_MOE="" LLAMA_ARG_CACHE_TYPE_V=""
 eval "$_selector_env"
-assert_eq "SELECTOR_LLM_MODEL" "gemma-4-26b-a4b-it" "$LLM_MODEL"
-assert_eq "SELECTOR_GGUF_FILE" "gemma-4-26B-A4B-it-Q4_K_M.gguf" "$GGUF_FILE"
+assert_eq "SELECTOR_LLM_MODEL" "gemma-4-e4b-it" "$LLM_MODEL"
+assert_eq "SELECTOR_GGUF_FILE" "gemma-4-E4B-it-Q4_K_M.gguf" "$GGUF_FILE"
 assert_eq "SELECTOR_CONTEXT" "32768" "$MAX_CONTEXT"
-assert_eq "SELECTOR_RUNTIME_PROFILE" "nvidia-8gb-gemma4-26b-a4b-moe-offload" "$MODEL_RUNTIME_PROFILE"
-assert_eq "SELECTOR_N_CPU_MOE" "23" "$LLAMA_ARG_N_CPU_MOE"
-assert_eq "SELECTOR_CACHE_V" "q8_0" "$LLAMA_ARG_CACHE_TYPE_V"
+assert_eq "SELECTOR_RUNTIME_PROFILE" "" "$MODEL_RUNTIME_PROFILE"
+assert_eq "SELECTOR_N_CPU_MOE" "" "$LLAMA_ARG_N_CPU_MOE"
+assert_eq "SELECTOR_CACHE_V" "" "$LLAMA_ARG_CACHE_TYPE_V"
 echo ""
 
 # --- Summary ---

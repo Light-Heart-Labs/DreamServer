@@ -205,6 +205,29 @@ def test_pre_download_ranker_accounts_for_long_context_kv_on_4gb_gpu(data_dir, t
     assert by_id["phi4-mini-q4"]["estimatedRequired"] > by_id["phi4-mini-q4"]["vramRequired"]
 
 
+def test_pre_download_ranker_falls_back_to_smallest_model_without_gpu_info(data_dir):
+    catalog = [
+        _model(),
+        {
+            "id": "qwen3.6-35b-a3b-ud-q4",
+            "name": "Qwen 3.6 35B-A3B",
+            "family": "qwen",
+            "gguf_file": "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+            "size_mb": 21110,
+            "vram_required_gb": 24,
+            "context_length": 131072,
+            "quantization": "UD-Q4_K_M",
+            "specialty": "Quality",
+            "description": "Large MoE model",
+            "llm_model_name": "qwen3.6-35b-a3b",
+        },
+    ]
+
+    ranked = rank_pre_download_models(catalog, None, profile="qwen", limit=2)
+
+    assert [model["id"] for model in ranked] == ["qwen3.5-9b-q4"]
+
+
 def test_pre_download_ranker_honors_gemma_profile(data_dir):
     catalog = [
         _model(),
