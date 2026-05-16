@@ -13,7 +13,9 @@
 #
 # Flow:
 #   1. Request arrives on :9120
-#   2. /health and /favicon.ico — always answered (so health checks work)
+#   2. /health, /healthz, and /favicon.ico — always answered (so health
+#      checks work; /healthz is the k8s-convention path that dream-fleet-test
+#      and other standard health checkers probe)
 #   3. /auth/* — static "you need an invite" assets (always served)
 #   4. Everything else: forward_auth to dashboard-api/api/auth/verify-session
 #      - 2xx → reverse-proxy to dream-hermes:9119
@@ -45,9 +47,13 @@
 	# these local handle blocks. Keep the literal order so health, favicon,
 	# and invite-help assets remain public, while every other path is gated.
 	route {
-		# Cheap health endpoint for Docker / dashboard probes. NEVER gates on
-		# the cookie — health checks are anonymous by design.
-		@health path /health
+		# Cheap health endpoints for Docker / dashboard / k8s probes. NEVER
+		# gate on the cookie — health checks are anonymous by design. Match
+		# both /health (Docker / our dashboard) and /healthz (k8s convention,
+		# what dream-fleet-test verify hits — anything monitoring at the
+		# standard k8s path was getting a 303 to /auth/required and being
+		# marked unhealthy).
+		@health path /health /healthz
 		handle @health {
 			respond "ok" 200
 		}
