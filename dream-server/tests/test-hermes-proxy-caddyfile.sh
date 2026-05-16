@@ -29,4 +29,14 @@ if grep -Eq '^[[:space:]]*redir[[:space:]]+/auth/required[[:space:]]+303([[:spac
     fail "Hermes proxy redirect is missing the wildcard matcher; Caddy parses the target as a path matcher"
 fi
 
+# Health matcher must cover BOTH /health and /healthz. The Docker healthcheck
+# uses /health; k8s and dream-fleet-test verify probes use /healthz. Anything
+# left out of the matcher falls through to forward_auth and gets bounced to
+# /auth/required (303) — health monitors then mark the proxy unhealthy.
+grep -Eq '^[[:space:]]*@health[[:space:]]+path([[:space:]]+/[A-Za-z]+)*[[:space:]]+/healthz([[:space:]]|$)' "$CADDYFILE" \
+    || fail "Hermes proxy @health matcher must include /healthz (k8s-convention health path)"
+grep -Eq '^[[:space:]]*@health[[:space:]]+path([[:space:]]+/[A-Za-z]+)*[[:space:]]+/health([[:space:]]|$)' "$CADDYFILE" \
+    || fail "Hermes proxy @health matcher must include /health (Docker healthcheck path)"
+
 echo "[PASS] Hermes proxy auth redirect uses explicit wildcard matcher"
+echo "[PASS] Hermes proxy /health and /healthz both anonymous"
