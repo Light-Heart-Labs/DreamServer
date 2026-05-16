@@ -30,7 +30,7 @@ _SETTINGS_APPLY_ALLOWED_SERVICES = frozenset({
     "llama-server", "open-webui", "litellm", "langfuse", "n8n",
     "openclaw", "opencode", "perplexica", "searxng", "qdrant",
     "tts", "whisper", "embeddings", "token-spy", "comfyui",
-    "ape", "privacy-shield", "dreamforge",
+    "ape", "privacy-shield",
 })
 _LLAMA_APPLY_KEYS = {
     "CTX_SIZE", "MAX_CONTEXT", "GGUF_FILE", "GGUF_URL", "GGUF_SHA256",

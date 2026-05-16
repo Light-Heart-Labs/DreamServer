@@ -150,7 +150,6 @@ See the [macOS Quickstart](dream-server/docs/MACOS-QUICKSTART.md) for details.
 - **n8n** — workflow automation with 400+ integrations (Slack, email, databases, APIs)
 - **APE** — Agent Policy Engine for auditing and governing autonomous tool calls
 - **OpenCode** — browser-based AI coding assistant wired to the local stack
-- **DreamForge** — developer/build service extension for Dream Server workflows
 - **Memory Shepherd** — host/systemd helper for agent memory lifecycle management
 
 ### Knowledge & Search

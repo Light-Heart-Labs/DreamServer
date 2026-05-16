@@ -578,7 +578,6 @@ else
     mkdir -p "${INSTALL_DIR}/data/qdrant"
     mkdir -p "${INSTALL_DIR}/data/models"
     mkdir -p "${INSTALL_DIR}/data/privacy-shield"
-    mkdir -p "${INSTALL_DIR}/data/dreamforge"
     mkdir -p "${INSTALL_DIR}/data/ape"
     mkdir -p "${INSTALL_DIR}/data/token-spy"
     mkdir -p "${INSTALL_DIR}/data/hermes"
@@ -612,6 +611,14 @@ else
         ai_ok "Source files installed"
     else
         ai "Running in-place, skipping file copy"
+    fi
+
+    # Retired from the shipped stack after Hermes became the default agent
+    # surface. Remove stale service files left behind by non-pruning upgrades,
+    # while preserving data/dreamforge for user-controlled archival.
+    if [[ -d "${INSTALL_DIR}/extensions/services/dreamforge" ]]; then
+        rm -rf "${INSTALL_DIR}/extensions/services/dreamforge"
+        log "Removed retired DreamForge service files from extensions/services"
     fi
 
     # Copy extensions library to data dir for dashboard portal.
@@ -1148,15 +1155,13 @@ else
 
     # ── Rebuild local-built images ─────────────────────────────────────
     # Mirrors phases/11-services.sh on Linux: local Dockerfiles (dashboard,
-    # dashboard-api, ape, token-spy, privacy-shield, and Apple-Silicon
-    # DreamForge builds) can drift from the baked images, so we always
+    # dashboard-api, ape, token-spy, and privacy-shield) can drift from the
+    # baked images, so we always
     # rebuild without cache before `up -d`.
     # ComfyUI has no Apple-Silicon variant (only amd/nvidia/multigpu); the
     # llama-server runs natively on macOS via Metal — neither is built here.
     ai "Rebuilding local-built images (no-cache)..."
     _macos_build_services=(dashboard dashboard-api ape token-spy privacy-shield)
-    _dreamforge_pull_policy="$(grep -m1 '^DREAMFORGE_PULL_POLICY=' "${INSTALL_DIR}/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'\''[:space:]' || true)"
-    [[ "$_dreamforge_pull_policy" == "build" ]] && _macos_build_services+=(dreamforge)
     declare -a _macos_build_pids _macos_build_names
     for _svc in "${_macos_build_services[@]}"; do
         docker compose "${COMPOSE_FLAGS[@]}" build --no-cache "$_svc" >> "$DS_LOG_FILE" 2>&1 &

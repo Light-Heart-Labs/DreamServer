@@ -62,8 +62,7 @@ $_dirs = @(
     (Join-Path $_dataDir "qdrant"),
     (Join-Path $_dataDir "models"),
     (Join-Path $_dataDir "comfyui"),
-    (Join-Path $_dataDir "perplexica"),
-    (Join-Path $_dataDir "dreamforge")
+    (Join-Path $_dataDir "perplexica")
 )
 foreach ($_d in $_dirs) {
     New-Item -ItemType Directory -Path $_d -Force | Out-Null
@@ -95,6 +94,15 @@ if ($sourceRoot -ne $installDir) {
 }
 
 # ── Copy dream.ps1 CLI + lib/ ─────────────────────────────────────────────────
+# Retired from the shipped stack after Hermes became the default agent surface.
+# Remove stale service files left behind by non-pruning upgrades, while
+# preserving data/dreamforge for user-controlled archival.
+$_retiredDreamForge = Join-Path $installDir "extensions\services\dreamforge"
+if (Test-Path $_retiredDreamForge) {
+    Remove-Item -LiteralPath $_retiredDreamForge -Recurse -Force
+    Write-AI "Removed retired DreamForge service files from extensions/services"
+}
+
 # Copies from the Windows installer directory to the install root so users
 # can manage Dream Server with: .\dream.ps1 status
 # $ScriptDir is set by install-windows.ps1 (installers/windows/) and is

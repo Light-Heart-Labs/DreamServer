@@ -450,20 +450,9 @@ MODELS_INI_EOF
     _build_count=0
     _build_services=(dashboard dashboard-api ape token-spy privacy-shield)
     [[ "$ENABLE_COMFYUI" == "true" ]] && _build_services+=(comfyui)
-    if [[ "${ENABLE_DREAMFORGE:-}" == "true" ]]; then
-        _dreamforge_image="${DREAMFORGE_IMAGE:-ghcr.io/light-heart-labs/dreamforge:v0.1.0}"
-        if ! $DOCKER_CMD image inspect "$_dreamforge_image" &>/dev/null; then
-            _build_services+=(dreamforge)
-        else
-            log "DreamForge image found locally — skipping source build"
-        fi
-    fi
     [[ "$GPU_BACKEND" == "amd" ]] && _build_services+=(llama-server)
     if [[ "$GPU_BACKEND" == "nvidia" && " ${_build_services[*]} " == *" comfyui "* ]]; then
         ai "ComfyUI is compiling from source for NVIDIA — this takes 25-40 minutes on first run."
-    fi
-    if [[ " ${_build_services[*]} " == *" dreamforge "* ]]; then
-        ai "DreamForge is compiling from Rust source — this takes 15-25 minutes on first run."
     fi
     _build_total=${#_build_services[@]}
     # Track builds that didn't produce a usable image so we don't abort the
@@ -556,8 +545,8 @@ except Exception:
 
     # Start everything. --no-build is intentional: the explicit build loop
     # above already produced (or failed-and-excluded) every buildable image,
-    # and we don't want compose-up silently re-invoking the slow ComfyUI /
-    # DreamForge builds on each retry. Up to 3 attempts with increasing wait
+    # and we don't want compose-up silently re-invoking the slow ComfyUI build
+    # on each retry. Up to 3 attempts with increasing wait
     # between retries — on AMD/Lemonade, the first boot builds a cached
     # llama-server binary which can take 3-5 min.
     for _attempt in 1 2 3; do

@@ -167,18 +167,10 @@ OPENCLAW_PROVIDER_NAME_DEFAULT="${BACKEND_PROVIDER_NAME:-local-llama}"
 OPENCLAW_PROVIDER_URL_DEFAULT="${BACKEND_PROVIDER_URL:-http://llama-server:8080/v1}"
 
 #-----------------------------------------------------------------------------
-# Host architecture-aware image selection
+# Host architecture detection
 #-----------------------------------------------------------------------------
-# Some upstream images are amd64-only (TEI, pre-2025 speaches releases). On
-# arm64 + nvidia hosts (DGX Spark / GH200) override the image pins so the
-# install works without qemu emulation. amd64 behaviour is unchanged. Each
-# var is set with := so a user-supplied value (env or .env) wins.
 HOST_ARCH=$(detect_host_arch)
 log "Host architecture: ${HOST_ARCH}"
-if [[ "$HOST_ARCH" == "arm64" ]]; then
-    # dreamforge upstream image is amd64-only — build locally on arm64.
-    : "${DREAMFORGE_PULL_POLICY:=build}"
-fi
 
 #-----------------------------------------------------------------------------
 # Secure Boot + NVIDIA auto-fix

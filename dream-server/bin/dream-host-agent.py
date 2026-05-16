@@ -73,7 +73,7 @@ _ALLOWED_CORE_RECREATE_IDS = frozenset({
     "llama-server", "open-webui", "litellm", "langfuse", "n8n",
     "openclaw", "opencode", "perplexica", "searxng", "qdrant",
     "tts", "whisper", "embeddings", "token-spy", "comfyui",
-    "ape", "privacy-shield", "dreamforge",
+    "ape", "privacy-shield",
 })
 
 
@@ -3052,7 +3052,7 @@ class AgentHandler(BaseHTTPRequestHandler):
                     _write_lemonade_config(INSTALL_DIR, gguf_file)
 
                 # Restart dependent services so they pick up the new model
-                for svc in ["dream-litellm", "dream-dreamforge"]:
+                for svc in ["dream-litellm"]:
                     subprocess.run(["docker", "restart", svc],
                                    capture_output=True, timeout=60)
                 committed = True  # system state is committed before the response write

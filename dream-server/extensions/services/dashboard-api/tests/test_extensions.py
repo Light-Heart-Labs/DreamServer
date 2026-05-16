@@ -3228,7 +3228,7 @@ class TestAssertNotCoreAllowsBuiltins:
     @pytest.mark.parametrize("service_id", [
         "n8n", "tts", "whisper", "comfyui", "litellm", "openclaw",
         "perplexica", "searxng", "privacy-shield", "token-spy", "qdrant",
-        "embeddings", "ape", "dreamforge", "langfuse", "opencode",
+        "embeddings", "ape", "langfuse", "opencode",
     ])
     def test_assert_not_core_allows_builtin_extension(self, service_id):
         """Built-in extensions are toggleable and must not be blocked."""

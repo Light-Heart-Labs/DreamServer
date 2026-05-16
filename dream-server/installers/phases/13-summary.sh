@@ -133,7 +133,6 @@ systemctl --user is-active opencode-web &>/dev/null && echo "  • OpenCode:    
 [[ "$ENABLE_VOICE" == "true" ]] && echo "  • TTS (Kokoro):  http://localhost:${SERVICE_PORTS[tts]:-8880}"
 [[ "$ENABLE_WORKFLOWS" == "true" ]] && echo "  • n8n:           http://localhost:${SERVICE_PORTS[n8n]:-5678}"
 [[ "$ENABLE_RAG" == "true" ]] && echo "  • Qdrant:        http://localhost:${SERVICE_PORTS[qdrant]:-6333}"
-[[ "${ENABLE_DREAMFORGE:-}" == "true" ]] && echo "  • DreamForge:    http://localhost:${SERVICE_PORTS[dreamforge]:-3010}"
 echo ""
 
 # Configuration summary

@@ -65,10 +65,6 @@ if $INTERACTIVE && ! $DRY_RUN; then
         echo
         if [[ $REPLY =~ ^[Nn]$ ]]; then ENABLE_COMFYUI=false; else ENABLE_COMFYUI=true; fi
 
-        read -p "  Enable DreamForge agent system? [Y/n] " -r < /dev/tty
-        echo
-        if [[ $REPLY =~ ^[Nn]$ ]]; then ENABLE_DREAMFORGE=false; else ENABLE_DREAMFORGE=true; fi
-
         read -p "  Enable Langfuse (LLM observability + telemetry, ~500MB)? [y/N] " -r < /dev/tty
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then ENABLE_LANGFUSE=true; else ENABLE_LANGFUSE=false; fi
@@ -146,35 +142,25 @@ if ! $DRY_RUN; then
     _sync_extension_compose "${ENABLE_HERMES:-}"     hermes-proxy  "Hermes proxy"  "Hermes agent not enabled"
     _sync_extension_compose "${ENABLE_OPENCLAW:-}"   openclaw   "OpenClaw"      "agent framework not enabled"
     _sync_extension_compose "${ENABLE_COMFYUI:-}"    comfyui    "ComfyUI"       "image generation not enabled"
-    _sync_extension_compose "${ENABLE_DREAMFORGE:-}" dreamforge "DreamForge"    "agent system not enabled"
     _sync_extension_compose "${ENABLE_LANGFUSE:-}"   langfuse   "Langfuse"      "LLM observability not enabled"
     _sync_extension_compose "${ENABLE_BRAVE_SEARCH:-false}" brave-search "Brave Search" "Brave Search API not enabled"
 
     # ── arm64 / aarch64 platform guard ──
-    # Two extensions in the current --all bundle ship amd64-only binaries
-    # inside their images and crash-loop on aarch64 (DGX Spark, ARM SBCs,
+    # One extension in the current --all bundle ships amd64-only binaries
+    # inside its image and crash-loops on aarch64 (DGX Spark, ARM SBCs,
     # etc.) with `exec /usr/local/bin/...: exec format error`:
     #
-    #   - dreamforge — upstream image has no arm64 variant. installers/lib
-    #     does set DREAMFORGE_PULL_POLICY=build to force a local Rust build,
-    #     but docker compose can still resolve to the registry image when
-    #     compose+buildkit version skew lets `pull_policy` be ignored.
     #   - embeddings (HF text-embeddings-inference) — upstream tag
     #     `cpu-1.9.1` is amd64-only. The compose file pins
     #     `platform: linux/amd64`, which works under Rosetta 2 on Apple
     #     Silicon but produces ENOEXEC on aarch64 Linux without QEMU.
     #
-    # Until both upstreams ship multi-arch images, exclude these from the
-    # compose stack on aarch64 hosts. The other 25 services run cleanly on
+    # Until upstream ships a multi-arch image, exclude this from the
+    # compose stack on aarch64 hosts. The other services run cleanly on
     # arm64 and the operator gets a clear "not available on aarch64" line
     # rather than hours of crash-loop forensics.
     _host_arch="${HOST_ARCH:-$(uname -m 2>/dev/null || echo unknown)}"
     if [[ "$_host_arch" == "arm64" || "$_host_arch" == "aarch64" ]]; then
-        if [[ "${ENABLE_DREAMFORGE:-true}" == "true" ]]; then
-            ai_warn "DreamForge: upstream image is amd64-only — disabled on aarch64. Re-enable with: dream enable dreamforge (after upstream ships arm64 multi-arch)."
-            _sync_extension_compose "false" dreamforge "DreamForge"        "amd64-only image, no arm64 multi-arch yet"
-            ENABLE_DREAMFORGE=false
-        fi
         if [[ "${ENABLE_EMBEDDINGS:-${ENABLE_RAG:-false}}" == "true" ]]; then
             ai_warn "Embeddings (TEI): upstream image is amd64-only — disabled on aarch64. Qdrant remains enabled; only the embeddings router is skipped."
             _sync_extension_compose "false" embeddings "Embeddings (TEI)"  "amd64-only image, no arm64 multi-arch yet"
