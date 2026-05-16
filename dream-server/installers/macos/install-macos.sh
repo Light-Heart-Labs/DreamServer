@@ -1485,7 +1485,7 @@ if [[ "$ENABLE_VOICE" == "true" ]]; then
     # macOS reassigns Whisper to 9100 if port 9000 is in use (AirPlay Receiver).
     WHISPER_PORT_RESOLVED="${WHISPER_PORT:-9000}"
     WHISPER_URL="http://127.0.0.1:${WHISPER_PORT_RESOLVED}"
-    STT_RECOVERY_CMD="curl --max-time 3600 -X POST ${WHISPER_URL}/v1/models/${STT_MODEL_ENCODED}"
+    STT_RECOVERY_CMD="curl --max-time 1800 -X POST ${WHISPER_URL}/v1/models/${STT_MODEL_ENCODED}"
 
     # Step 1: wait briefly for the models API to be ready (max 15s).
     _stt_api_ready=false
@@ -1505,8 +1505,13 @@ if [[ "$ENABLE_VOICE" == "true" ]]; then
         ai_ok "STT model already cached (${STT_MODEL})"
     else
         # Step 3: POST to trigger download.
+        # max-time 600s (10 min): bounded retry budget so a stuck
+        # huggingface_hub.snapshot_download (well-known on slow links and
+        # under bufferbloat) can't consume the entire install timeout. The
+        # next step verifies cache state via GET and prints the recovery
+        # command if the timeout was hit before completion.
         ai "Downloading STT model (${STT_MODEL})..."
-        curl -s --max-time 3600 -X POST "${WHISPER_URL}/v1/models/${STT_MODEL_ENCODED}" \
+        curl -s --max-time 600 -X POST "${WHISPER_URL}/v1/models/${STT_MODEL_ENCODED}" \
             >> "$DS_LOG_FILE" 2>&1 || true
 
         # Step 4: verify the model is actually cached.
