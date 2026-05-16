@@ -299,7 +299,7 @@ if [[ "$ENABLE_VOICE" == "true" ]]; then
         # command if the timeout was hit before completion.
         ai "Downloading STT model (${STT_MODEL})..."
         curl -s --max-time 600 -X POST "${WHISPER_URL}/v1/models/${STT_MODEL_ENCODED}" \
-            >> "$LOG_FILE" 2>&1
+            >> "$LOG_FILE" 2>&1 || true
 
         # Step 4: verify the model is actually cached. POST can return 200
         # even if the download partially fails, so this GET is the real test.
