@@ -360,6 +360,9 @@ function Start-NativeInferenceServer {
         if ($envVars["LLAMA_ARG_CACHE_TYPE_K"]) { $llamaArgs += @("--cache-type-k", $envVars["LLAMA_ARG_CACHE_TYPE_K"]) }
         if ($envVars["LLAMA_ARG_CACHE_TYPE_V"]) { $llamaArgs += @("--cache-type-v", $envVars["LLAMA_ARG_CACHE_TYPE_V"]) }
         if ($envVars["LLAMA_ARG_N_CPU_MOE"]) { $llamaArgs += @("--n-cpu-moe", $envVars["LLAMA_ARG_N_CPU_MOE"]) }
+        if ($envVars["LLAMA_PARALLEL"]) { $llamaArgs += @("--parallel", $envVars["LLAMA_PARALLEL"]) }
+        if ($envVars["LLAMA_ARG_CHECKPOINT_EVERY_N_TOKENS"]) { $llamaArgs += @("--checkpoint-every-n-tokens", $envVars["LLAMA_ARG_CHECKPOINT_EVERY_N_TOKENS"]) }
+        if ($envVars["LLAMA_ARG_NO_CACHE_PROMPT"] -and $envVars["LLAMA_ARG_NO_CACHE_PROMPT"] -notin @("0", "false", "off", "no")) { $llamaArgs += @("--no-cache-prompt") }
 
         $pidDir = Split-Path $script:INFERENCE_PID_FILE
         New-Item -ItemType Directory -Path $pidDir -Force | Out-Null
