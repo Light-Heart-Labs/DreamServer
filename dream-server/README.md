@@ -63,9 +63,11 @@ By default, Dream Server uses **bootstrap mode** for instant gratification:
 1. Starts immediately with a tiny 1.5B model (downloads in <1 minute)
 2. You can start chatting within **2 minutes** of running the installer
 3. The full model downloads in the background
-4. When ready, run `./scripts/upgrade-model.sh` to hot-swap to the full model
+4. Use the Dashboard **Models** page to download and load larger catalog models
 
 No more staring at download bars. Start playing immediately.
+
+Model download, switching, and manual GGUF notes: [docs/MODEL-MANAGEMENT.md](docs/MODEL-MANAGEMENT.md)
 
 To skip bootstrap and wait for the full model: `./install.sh --no-bootstrap`
 
@@ -314,6 +316,7 @@ dream preset load <name>  # Restore a saved preset
 ```
 
 Full mode-switching documentation: [docs/MODE-SWITCH.md](docs/MODE-SWITCH.md)
+Model download and manual GGUF documentation: [docs/MODEL-MANAGEMENT.md](docs/MODEL-MANAGEMENT.md)
 
 ## Showcase & Demos
 
@@ -409,6 +412,7 @@ dream mode status                        # Show current mode
 - [docs/README.md](docs/README.md) — **Full documentation index** (start here)
 - [QUICKSTART.md](QUICKSTART.md) — Detailed setup guide
 - [HEADLESS-SETUP.md](docs/HEADLESS-SETUP.md) — QR onboarding, first-boot setup, AP mode, mDNS, and local agent access
+- [MODEL-MANAGEMENT.md](docs/MODEL-MANAGEMENT.md) — Dashboard model downloads, switching, and manual GGUF use
 - [HARDWARE-GUIDE.md](docs/HARDWARE-GUIDE.md) — What to buy
 - [EXTENSIONS.md](docs/EXTENSIONS.md) — Add services, manifests, dashboard plugins
 - [INSTALLER-ARCHITECTURE.md](docs/INSTALLER-ARCHITECTURE.md) — Modding the installer
