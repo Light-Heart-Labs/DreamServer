@@ -118,4 +118,10 @@ grep -q 'data/config/setup-complete.json' installers/macos/install-macos.sh \
 grep -q 'data\\\\config\\\\setup-complete.json\|setup-complete.json' installers/windows/install-windows.ps1 \
   || { echo "[FAIL] Windows installer does not write setup-complete.json"; exit 1; }
 
+echo "[contract] macOS compose resolver installs PyYAML into checked python3"
+grep -q "python3 -c 'import yaml'" installers/macos/install-macos.sh \
+  || { echo "[FAIL] macOS installer does not verify PyYAML with python3"; exit 1; }
+grep -q 'python3 -m pip install --user .*pyyaml' installers/macos/install-macos.sh \
+  || { echo "[FAIL] macOS installer must install PyYAML via python3 -m pip, not a possibly unrelated pip3"; exit 1; }
+
 echo "[PASS] installer contracts"
