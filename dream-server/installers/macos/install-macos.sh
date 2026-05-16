@@ -374,12 +374,12 @@ if command -v python3 >/dev/null 2>&1; then
         ai_ok "PyYAML available"
     else
         ai "Installing PyYAML (required by compose resolver)..."
-        if pip3 install --user --quiet --no-warn-script-location pyyaml 2>&1 | tee -a "$LOG_FILE" >/dev/null \
+        if python3 -m pip install --user --quiet --no-warn-script-location pyyaml 2>&1 | tee -a "$LOG_FILE" >/dev/null \
            && python3 -c 'import yaml' >/dev/null 2>&1; then
-            ai_ok "PyYAML installed (pip3 --user)"
+            ai_ok "PyYAML installed (python3 -m pip --user)"
         else
             ai_err "Failed to install PyYAML for $(command -v python3)."
-            ai_err "Run manually: pip3 install --user pyyaml"
+            ai_err "Run manually: python3 -m pip install --user pyyaml"
             exit 1
         fi
     fi
