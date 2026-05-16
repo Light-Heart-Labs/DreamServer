@@ -1666,6 +1666,20 @@ if dgx_status == 'pass':
 elif dgx_status == 'warn':
     print(f"  {YELLOW}⚠{NC} DGX Spark llama-server CUDA arch: {dgx_message}")
 
+amd_runtime = runtime.get('amd_runtime', {})
+if amd_runtime.get('available'):
+    status = amd_runtime.get('health', 'unknown')
+    symbol = GREEN + '✓' + NC if status == 'reachable' else YELLOW + '⚠' + NC
+    print(
+        f"  {symbol} AMD runtime: "
+        f"{amd_runtime.get('runtime')} / {amd_runtime.get('selectedBackend')} / "
+        f"{amd_runtime.get('location')} / {status}"
+    )
+    for warning in amd_runtime.get('warnings', [])[:3]:
+        print(f"    {YELLOW}⚠{NC} {warning}")
+elif amd_runtime.get('reason') and amd_runtime.get('reason') != 'not_amd':
+    print(f"  {YELLOW}⚠{NC} AMD runtime: {amd_runtime.get('reason')}")
+
 print()
 
 # Preflight checks

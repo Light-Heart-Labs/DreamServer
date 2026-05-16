@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - AMD runtime diagnostics endpoint (`/api/gpu/amd-runtime`) reports Lemonade vs llama-server, host vs container, accelerator backend, and health from explicit installer state.
 - Explicit AMD inference env contract (`AMD_INFERENCE_RUNTIME`, `AMD_INFERENCE_BACKEND`, `AMD_INFERENCE_LOCATION`, `AMD_INFERENCE_PORT`) for Linux, Windows, and WSL/Docker Desktop installs.
+- AMD runtime capability metadata (`AMD_INFERENCE_SUPPORTED_BACKENDS`, `AMD_INFERENCE_RUNTIME_MODE`, `AMD_INFERENCE_MANAGED`) for dashboard diagnostics and `dream doctor`.
 
 ### Changed
 - Updated Dream Proxy and Hermes Proxy to `caddy:2.11.3-alpine`.

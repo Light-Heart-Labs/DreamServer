@@ -138,12 +138,16 @@ class AmdRuntimeStatus(BaseModel):
     reason: Optional[str] = None
     runtime: str = "none"
     location: str = "none"
+    runtimeMode: str = "unknown"
+    managedByDreamServer: bool = False
     selectedBackend: str = "none"
+    supportedBackends: list[str] = Field(default_factory=list)
+    defaultBackend: str = "none"
     apiBase: Optional[str] = None
     healthUrl: Optional[str] = None
     health: Optional[str] = None
     version: str = "unknown"
-    capabilities: Optional[list[str]] = None
+    capabilities: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
 

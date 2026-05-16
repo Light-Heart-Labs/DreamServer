@@ -140,6 +140,30 @@ def _runtime_port() -> tuple[int, Optional[str]]:
     return 8080, "amd_port_invalid"
 
 
+def _split_backend_list(raw: str) -> tuple[list[str], Optional[str]]:
+    if not raw:
+        return [], None
+
+    backends: list[str] = []
+    invalid: list[str] = []
+    for item in raw.split(","):
+        backend = item.strip().lower()
+        if not backend:
+            continue
+        if backend in {"rocm", "vulkan"}:
+            if backend not in backends:
+                backends.append(backend)
+        else:
+            invalid.append(backend)
+    if invalid:
+        return backends, "amd_supported_backends_invalid"
+    return backends, None
+
+
+def _env_bool(name: str) -> bool:
+    return _clean_env(name).lower() in {"1", "true", "yes", "on"}
+
+
 def _runtime_base_url(runtime: str, location: str, port: int) -> str:
     if location == "host":
         return f"http://host.docker.internal:{port}"
@@ -263,7 +287,12 @@ async def amd_runtime():
             reason="not_amd",
             runtime="none",
             location="none",
+            runtimeMode="none",
+            managedByDreamServer=False,
             selectedBackend="none",
+            supportedBackends=[],
+            defaultBackend="none",
+            capabilities=[],
             warnings=[],
         )
 
@@ -271,6 +300,14 @@ async def amd_runtime():
     runtime = _clean_env("AMD_INFERENCE_RUNTIME").lower()
     selected_backend = _clean_env("AMD_INFERENCE_BACKEND").lower()
     location = _clean_env("AMD_INFERENCE_LOCATION").lower()
+    runtime_mode = _clean_env("AMD_INFERENCE_RUNTIME_MODE").lower()
+    managed_raw = _clean_env("AMD_INFERENCE_MANAGED").lower()
+    managed_by_dream_server = _env_bool("AMD_INFERENCE_MANAGED")
+    supported_backends, supported_warning = _split_backend_list(
+        _clean_env("AMD_INFERENCE_SUPPORTED_BACKENDS")
+    )
+    if supported_warning:
+        warnings.append(supported_warning)
 
     if not runtime:
         legacy_backend = _clean_env("LLM_BACKEND").lower()
@@ -283,6 +320,15 @@ async def amd_runtime():
     if not location:
         location = "unknown"
         warnings.append("amd_location_env_missing")
+    if not runtime_mode:
+        runtime_mode = "unknown"
+        warnings.append("amd_runtime_mode_env_missing")
+    if not managed_raw:
+        warnings.append("amd_managed_env_missing")
+    if not supported_backends:
+        warnings.append("amd_supported_backends_env_missing")
+    elif selected_backend not in {"", "unknown", "none"} and selected_backend not in supported_backends:
+        warnings.append("amd_selected_backend_not_supported")
 
     if runtime not in {"lemonade", "llama-server"}:
         return AmdRuntimeStatus(
@@ -290,7 +336,12 @@ async def amd_runtime():
             reason="runtime_not_configured",
             runtime=runtime or "none",
             location=location,
+            runtimeMode=runtime_mode,
+            managedByDreamServer=managed_by_dream_server,
             selectedBackend=selected_backend,
+            supportedBackends=supported_backends,
+            defaultBackend=selected_backend or "none",
+            capabilities=supported_backends,
             warnings=warnings,
         )
 
@@ -306,21 +357,21 @@ async def amd_runtime():
     if health_warning:
         warnings.append(health_warning)
 
-    capabilities = []
-    if selected_backend in {"rocm", "vulkan"}:
-        capabilities.append(selected_backend)
-
     return AmdRuntimeStatus(
         available=True,
         reason=None,
         runtime=runtime,
         location=location,
+        runtimeMode=runtime_mode,
+        managedByDreamServer=managed_by_dream_server,
         selectedBackend=selected_backend,
+        supportedBackends=supported_backends,
+        defaultBackend=selected_backend or "none",
         apiBase=api_base,
         healthUrl=health_url,
         health=health,
         version=version,
-        capabilities=capabilities,
+        capabilities=supported_backends,
         warnings=warnings,
     )
 

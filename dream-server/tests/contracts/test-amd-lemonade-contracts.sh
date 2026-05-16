@@ -194,20 +194,34 @@ fi
 # 15. AMD runtime env contract exists and is passed to dashboard-api
 # ---------------------------------------------------------------------------
 echo "[contract] AMD runtime env contract"
-for key in AMD_INFERENCE_RUNTIME AMD_INFERENCE_BACKEND AMD_INFERENCE_LOCATION AMD_INFERENCE_PORT LEMONADE_SERVER_IMAGE; do
+for key in AMD_INFERENCE_RUNTIME AMD_INFERENCE_BACKEND AMD_INFERENCE_LOCATION AMD_INFERENCE_PORT AMD_INFERENCE_SUPPORTED_BACKENDS AMD_INFERENCE_RUNTIME_MODE AMD_INFERENCE_MANAGED LEMONADE_SERVER_IMAGE; do
     if grep -q "\"$key\"" .env.schema.json; then
         pass ".env.schema.json: $key documented"
     else
         fail ".env.schema.json: $key missing"
     fi
 done
-for key in AMD_INFERENCE_RUNTIME AMD_INFERENCE_BACKEND AMD_INFERENCE_LOCATION AMD_INFERENCE_PORT; do
+for key in AMD_INFERENCE_RUNTIME AMD_INFERENCE_BACKEND AMD_INFERENCE_LOCATION AMD_INFERENCE_PORT AMD_INFERENCE_SUPPORTED_BACKENDS AMD_INFERENCE_RUNTIME_MODE AMD_INFERENCE_MANAGED; do
     if grep -q "$key" docker-compose.amd.yml && grep -q "$key" installers/windows/docker-compose.windows-amd.yml; then
         pass "dashboard-api overlays pass $key"
     else
         fail "dashboard-api overlays must pass $key"
     fi
 done
+if grep -q 'AMD_INFERENCE_RUNTIME_MODE=.*linux-container' installers/phases/06-directories.sh \
+    && grep -q 'AMD_INFERENCE_SUPPORTED_BACKENDS=' installers/phases/06-directories.sh \
+    && grep -q 'AMD_INFERENCE_MANAGED=.*true' installers/phases/06-directories.sh; then
+    pass "Linux installer writes AMD capability metadata"
+else
+    fail "Linux installer must write AMD runtime mode, managed state, and supported backends"
+fi
+if grep -q 'windows-legacy-lemonade' installers/windows/phases/06-directories.ps1 \
+    && grep -q 'windows-llama-server-fallback' installers/windows/install-windows.ps1 \
+    && grep -q 'AMD_INFERENCE_SUPPORTED_BACKENDS' installers/windows/lib/env-generator.ps1; then
+    pass "Windows installer writes AMD capability metadata"
+else
+    fail "Windows installer must write legacy Lemonade and llama-server fallback capability metadata"
+fi
 
 # ---------------------------------------------------------------------------
 # 16. Windows backend contract helper parses explicit roots
