@@ -69,3 +69,10 @@ dream-server/.cache/
 archive/
 .claude/
 !.claude/commands/
+
+# Local p2p-gpu key artifact
+resources/p2p-gpu/Joy
+
+# Generated p2p-gpu access scripts (local instance-specific)
+dream-server/connect-tunnel.sh
+dream-server/connect-tunnel.ps1

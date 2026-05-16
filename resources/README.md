@@ -6,6 +6,14 @@ DreamServer is a local-first AI platform — voice agents, tool-calling LLMs, an
 
 ---
 
+## Deployment & Operations
+
+### [`p2p-gpu/`](p2p-gpu/) — Deploy on Peer-to-Peer GPU Marketplaces
+
+Deploy the full DreamServer stack on rented GPU instances from Vast.ai and other peer-to-peer compute marketplaces. One command, all 17+ services, any NVIDIA/AMD GPU or CPU-only instance. Handles 28 known provider quirks (root rejection, Docker socket permissions, toolkit setup, multi-GPU support, SSH tunneling). See [`p2p-gpu/README.md`](p2p-gpu/README.md) for setup guide.
+
+---
+
 ## What's Inside
 
 ### [`multi-agent/`](multi-agent/) — How We Ran a Self-Organizing AI Team
@@ -155,6 +163,8 @@ Old compose files, systemd units, and configs from earlier DreamServer iteration
 **Need capacity numbers?** → [`research/`](research/) — look for the capacity baseline and cluster benchmark docs
 
 **Want to see what's coming?** → [`dev/`](dev/) — pre-production builds you can test today
+
+**Deploying on rented GPUs?** → [`p2p-gpu/`](p2p-gpu/) — one-command setup for Vast.ai and other P2P GPU marketplaces
 
 ---
 

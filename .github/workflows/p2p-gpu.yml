@@ -1,0 +1,199 @@
+name: P2P GPU Checks
+# Maintainer note: This CI is scoped to resources/p2p-gpu/** paths only and
+# runs zero tests against core DreamServer. It exists because the toolkit is
+# ~4,500 lines of bash executed as root on rented GPU instances — syntax and
+# lint correctness matter more here than in typical resources/ add-ons.
+# The smoke tests use a mock Docker binary; no real containers are started.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "resources/p2p-gpu/**"
+      - ".github/workflows/p2p-gpu.yml"
+      - ".gitignore"
+  push:
+    branches: [main, master]
+    paths:
+      - "resources/p2p-gpu/**"
+      - ".github/workflows/p2p-gpu.yml"
+      - ".gitignore"
+
+permissions:
+  contents: read
+
+jobs:
+  p2p-gpu:
+    name: Lint and smoke test p2p-gpu
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Syntax check (bash -n)
+        run: |
+          set -euo pipefail
+          find resources/p2p-gpu -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
+
+      - name: ShellCheck
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y shellcheck python3-yaml
+          shfiles=$(find resources/p2p-gpu -type f -name '*.sh')
+          if ! echo "$shfiles" | xargs shellcheck \
+            --exclude=SC1090,SC1091,SC2034 \
+            --severity=warning \
+            --format=gcc; then
+            echo "ShellCheck warnings detected (non-fatal)"
+          fi
+          echo "$shfiles" | xargs shellcheck \
+            --exclude=SC1090,SC1091,SC2034 \
+            --severity=error
+
+      - name: Smoke test (--dry-run, --status, --fix)
+        run: |
+          set -euo pipefail
+
+          if getent passwd dream; then
+            echo "User dream already exists"
+          else
+            sudo useradd -m -s /bin/bash dream
+          fi
+          sudo mkdir -p /home/dream/dream-server/{config,data/models,extensions/services,logs,scripts}
+
+          sudo tee /home/dream/dream-server/.env >/dev/null <<'ENVEOF'
+          DASHBOARD_PORT=3001
+          DASHBOARD_API_PORT=3002
+          WEBUI_PORT=3000
+          PERPLEXICA_PORT=3004
+          TTS_PORT=8880
+          WHISPER_PORT=9000
+          ENVEOF
+
+          sudo tee /home/dream/dream-server/docker-compose.base.yml >/dev/null <<'COMPOSEEOF'
+          services:
+            dashboard:
+              image: alpine:3.20
+              ports:
+                - "127.0.0.1:3001:3001"
+            dashboard-api:
+              image: alpine:3.20
+              ports:
+                - "127.0.0.1:3002:3002"
+          COMPOSEEOF
+
+          sudo tee /home/dream/dream-server/dream-cli >/dev/null <<'CLIEOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          exit 0
+          CLIEOF
+          sudo chmod +x /home/dream/dream-server/dream-cli
+
+          cat >/tmp/docker-mock <<'DOCKEREOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          cmd="${1:-}"
+          if [[ $# -gt 0 ]]; then
+            shift
+          fi
+
+          case "$cmd" in
+            --version)
+              echo "Docker version 26.0.0, build mock"
+              exit 0
+              ;;
+            compose)
+              if [[ "${1:-}" == "version" ]]; then
+                echo "Docker Compose version v2.27.0"
+              fi
+              exit 0
+              ;;
+            info)
+              if [[ "${1:-}" == "--format" ]]; then
+                echo "4"
+              else
+                echo "NCPU: 4"
+              fi
+              exit 0
+              ;;
+            ps)
+              args="$*"
+              if [[ "$args" == *"--filter status=created"* ]]; then
+                exit 0
+              fi
+              if [[ "$args" == *"--format"* ]]; then
+                if [[ "$args" == *"table "* ]]; then
+                  printf 'NAMES\tSTATUS\tPORTS\n'
+                  printf 'dream-dashboard\tUp 2m\t0.0.0.0:3001->3001/tcp\n'
+                  printf 'dream-dashboard-api\tUp 2m\t0.0.0.0:3002->3002/tcp\n'
+                else
+                  echo "dream-dashboard"
+                  echo "dream-dashboard-api"
+                  echo "dream-open-webui"
+                fi
+              fi
+              exit 0
+              ;;
+            inspect)
+              if [[ "${1:-}" == "--format" ]]; then
+                fmt="${2:-}"
+                target="${3:-}"
+              else
+                fmt=""
+                target="${1:-}"
+              fi
+              case "$target" in
+                dream-dashboard|dream-dashboard-api|dream-open-webui|dream-webui|dream-llama-server)
+                  if [[ "$fmt" == *".State.Health.Status"* ]]; then
+                    echo "healthy"
+                  elif [[ "$fmt" == *".State.Status"* ]]; then
+                    echo "running"
+                  else
+                    echo "{}"
+                  fi
+                  ;;
+                dream-network)
+                  if [[ "$fmt" == *"com.docker.compose.network"* ]]; then
+                    echo "bridge"
+                  else
+                    echo "{}"
+                  fi
+                  ;;
+                *)
+                  if [[ "$fmt" == *".State.Health.Status"* ]]; then
+                    echo "healthy"
+                  elif [[ "$fmt" == *".State.Status"* ]]; then
+                    echo "running"
+                  else
+                    echo "{}"
+                  fi
+                  ;;
+              esac
+              exit 0
+              ;;
+            network)
+              exit 0
+              ;;
+            pull|restart|start|stop|rm)
+              exit 0
+              ;;
+            *)
+              exit 0
+              ;;
+          esac
+          DOCKEREOF
+          chmod +x /tmp/docker-mock
+          sudo mv /tmp/docker-mock /usr/local/bin/docker
+
+          sudo chown -R dream:dream /home/dream/dream-server
+
+          sudo bash resources/p2p-gpu/setup.sh --dry-run
+          sudo bash resources/p2p-gpu/setup.sh --status
+          sudo bash resources/p2p-gpu/setup.sh --fix
+
+      - name: NVML mismatch repair regression
+        run: |
+          set -euo pipefail
+          bash resources/p2p-gpu/tests/test-nvml-mismatch.sh
