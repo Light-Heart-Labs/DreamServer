@@ -18,6 +18,9 @@ services:
       - OLLAMA_URL=http://host.docker.internal:8080
       - LLM_BACKEND=${LLM_BACKEND:-lemonade}
       - LLM_API_BASE_PATH=${LLM_API_BASE_PATH:-/v1}
+      - AMD_INFERENCE_RUNTIME=${AMD_INFERENCE_RUNTIME:-}
+      - AMD_INFERENCE_BACKEND=${AMD_INFERENCE_BACKEND:-}
+      - AMD_INFERENCE_LOCATION=${AMD_INFERENCE_LOCATION:-host}
 
   open-webui:
     environment:
