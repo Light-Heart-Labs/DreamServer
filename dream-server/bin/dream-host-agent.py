@@ -2914,9 +2914,24 @@ class AgentHandler(BaseHTTPRequestHandler):
             env_backup = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
             ini_backup = models_ini.read_text(encoding="utf-8") if models_ini.exists() else ""
             lemonade_backup = lemonade_yaml.read_text(encoding="utf-8") if lemonade_yaml.exists() else None
+            # Hermes's live config dir is created by the container at first
+            # boot with UID 10000 / mode 0700, so the host-agent (running as
+            # the host user) cannot read or write data/hermes/config.yaml.
+            # That's expected — patching the model name there is a courtesy
+            # so the next Hermes restart picks up the new model. If we can't
+            # read it, skip the backup/patch and continue. bootstrap-upgrade.sh
+            # already treats this as non-fatal (line ~640) — mirror it here.
             for hermes_path in (hermes_live_config, hermes_template_config):
-                if hermes_path.exists():
-                    hermes_backups[hermes_path] = hermes_path.read_text(encoding="utf-8")
+                try:
+                    if hermes_path.exists():
+                        hermes_backups[hermes_path] = hermes_path.read_text(encoding="utf-8")
+                except PermissionError:
+                    logger.warning(
+                        "Hermes config %s not readable by host-agent (likely owned by "
+                        "container UID); skipping backup. Patch attempt will also skip; "
+                        "operator can `docker restart dream-hermes` to pick up the new model.",
+                        hermes_path,
+                    )
 
             # Update .env
             if env_path.exists():
@@ -3310,8 +3325,21 @@ def _patch_hermes_model_config(path: Path, model_name: str) -> bool:
     Hermes copies the template once into data/hermes/config.yaml and then uses
     the persisted copy as source of truth. Patch both when present so current
     and future Hermes starts request the model that Dream Server just loaded.
+
+    Non-fatal: the live config lives in a container-owned dir (UID 10000,
+    mode 0700) so the host-agent often can't read or write it. Treat any
+    permission error as a skip, not a failure.
     """
-    if not path.exists():
+    try:
+        if not path.exists():
+            return False
+    except PermissionError:
+        logger.warning(
+            "Hermes config %s not statable by host-agent (container-owned dir); "
+            "skipping patch. Operator can `docker restart dream-hermes` to pick "
+            "up the new model.",
+            path,
+        )
         return False
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
