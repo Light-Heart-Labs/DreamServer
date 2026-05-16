@@ -1,9 +1,12 @@
 """GPU router — per-GPU metrics, topology, and rolling history."""
 
 import asyncio
+import json
 import logging
 import os
 import time
+import urllib.error
+import urllib.request
 from collections import deque
 from datetime import datetime, timezone
 from typing import Optional
@@ -20,6 +23,7 @@ from gpu import (
     read_gpu_topology,
 )
 from models import GPUInfo, IndividualGPU, MultiGPUStatus
+from models import AmdRuntimeStatus
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +117,69 @@ def _build_aggregate(gpus: list[IndividualGPU], backend: str) -> GPUInfo:
     )
 
 
+def _clean_env(name: str) -> str:
+    return os.environ.get(name, "").strip()
+
+
+def _join_url(base_url: str, path: str) -> str:
+    base = base_url.rstrip("/")
+    suffix = path if path.startswith("/") else f"/{path}"
+    return f"{base}{suffix}"
+
+
+def _runtime_base_url(runtime: str, location: str) -> str:
+    if location == "host":
+        return "http://host.docker.internal:8080"
+    if location == "container":
+        return "http://llama-server:8080"
+    return (
+        _clean_env("OLLAMA_URL")
+        or _clean_env("LLM_URL")
+        or _clean_env("LLM_API_URL")
+        or "http://llama-server:8080"
+    )
+
+
+def _runtime_api_path(runtime: str) -> str:
+    configured = _clean_env("LLM_API_BASE_PATH")
+    if configured:
+        return configured
+    if runtime == "lemonade":
+        return "/api/v1"
+    return "/v1"
+
+
+def _runtime_health_path(runtime: str, api_path: str) -> str:
+    if runtime == "lemonade":
+        return _join_url(api_path, "health")
+    return "/health"
+
+
+def _probe_amd_health(health_url: str) -> tuple[str, str, Optional[str]]:
+    request = urllib.request.Request(health_url, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=2.0) as response:
+            status = getattr(response, "status", response.getcode())
+            body = response.read(4096).decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        return "unhealthy", "unknown", f"health_http_{exc.code}"
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        logger.debug("AMD runtime health probe failed for %s: %s", health_url, exc)
+        return "unreachable", "unknown", "health_unreachable"
+
+    version = "unknown"
+    try:
+        payload = json.loads(body) if body else {}
+        if isinstance(payload, dict) and payload.get("version"):
+            version = str(payload["version"])
+    except json.JSONDecodeError:
+        pass
+
+    if 200 <= int(status) < 300:
+        return "reachable", version, None
+    return "unhealthy", version, f"health_http_{status}"
+
+
 # ============================================================================
 # Endpoints
 # ============================================================================
@@ -166,6 +233,79 @@ async def gpu_topology():
     _topology_cache["expires"] = now + _GPU_TOPOLOGY_TTL
     _topology_cache["value"] = topo
     return topo
+
+
+@router.get(
+    "/api/gpu/amd-runtime",
+    response_model=AmdRuntimeStatus,
+    response_model_exclude_none=True,
+    dependencies=[Depends(verify_api_key)],
+)
+async def amd_runtime():
+    """AMD runtime contract and health from explicit installer-provided env."""
+    gpu_backend = _clean_env("GPU_BACKEND").lower() or "nvidia"
+    if gpu_backend != "amd":
+        return AmdRuntimeStatus(
+            available=False,
+            reason="not_amd",
+            runtime="none",
+            location="none",
+            selectedBackend="none",
+            warnings=[],
+        )
+
+    warnings: list[str] = []
+    runtime = _clean_env("AMD_INFERENCE_RUNTIME").lower()
+    selected_backend = _clean_env("AMD_INFERENCE_BACKEND").lower()
+    location = _clean_env("AMD_INFERENCE_LOCATION").lower()
+
+    if not runtime:
+        legacy_backend = _clean_env("LLM_BACKEND").lower()
+        if legacy_backend in {"lemonade", "llama-server"}:
+            runtime = legacy_backend
+            warnings.append("amd_runtime_env_missing")
+    if not selected_backend:
+        selected_backend = _clean_env("LEMONADE_LLAMACPP_BACKEND").lower() or "unknown"
+        warnings.append("amd_backend_env_missing")
+    if not location:
+        location = "unknown"
+        warnings.append("amd_location_env_missing")
+
+    if runtime not in {"lemonade", "llama-server"}:
+        return AmdRuntimeStatus(
+            available=False,
+            reason="runtime_not_configured",
+            runtime=runtime or "none",
+            location=location,
+            selectedBackend=selected_backend,
+            warnings=warnings,
+        )
+
+    api_path = _runtime_api_path(runtime)
+    base_url = _runtime_base_url(runtime, location)
+    api_base = _join_url(base_url, api_path)
+    health_url = _join_url(base_url, _runtime_health_path(runtime, api_path))
+    health, version, health_warning = await asyncio.to_thread(_probe_amd_health, health_url)
+    if health_warning:
+        warnings.append(health_warning)
+
+    capabilities = []
+    if selected_backend in {"rocm", "vulkan"}:
+        capabilities.append(selected_backend)
+
+    return AmdRuntimeStatus(
+        available=True,
+        reason=None,
+        runtime=runtime,
+        location=location,
+        selectedBackend=selected_backend,
+        apiBase=api_base,
+        healthUrl=health_url,
+        health=health,
+        version=version,
+        capabilities=capabilities,
+        warnings=warnings,
+    )
 
 
 @router.get("/api/gpu/history", dependencies=[Depends(verify_api_key)])

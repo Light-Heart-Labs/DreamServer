@@ -6,7 +6,8 @@
 # NVIDIA:           Docker Desktop handles GPU passthrough via WSL2.
 #                   docker-compose.base.yml + docker-compose.nvidia.yml used unchanged.
 #
-# AMD Strix Halo:   llama-server runs natively with Vulkan on Windows.
+# AMD Strix Halo:   Lemonade runs natively with Vulkan on Windows, with
+#                   llama-server.exe Vulkan fallback if Lemonade is unavailable.
 #                   Everything else runs in Docker. Containers reach the host
 #                   via host.docker.internal.
 #
@@ -66,6 +67,7 @@ $LibDir = Join-Path $ScriptDir "lib"
 . (Join-Path $LibDir "constants.ps1")
 . (Join-Path $LibDir "ui.ps1")
 . (Join-Path $LibDir "compose-diagnostics.ps1")
+. (Join-Path $LibDir "backend-contract.ps1")
 . (Join-Path $LibDir "tier-map.ps1")
 . (Join-Path $LibDir "detection.ps1")
 . (Join-Path $LibDir "env-generator.ps1")
@@ -174,6 +176,16 @@ Write-DreamBanner
 . (Join-Path $PhasesDir "03-features.ps1")
 . (Join-Path $PhasesDir "04-requirements.ps1")
 . (Join-Path $PhasesDir "05-docker.ps1")
+$amdLemonadeRuntime = $null
+if ($gpuInfo.Backend -eq "amd") {
+    $amdLemonadeRuntime = Get-DreamAmdLemonadeRuntime -RootPath $SourceRoot
+    $script:LEMONADE_VERSION = [string]$amdLemonadeRuntime.windows_version
+    $script:LEMONADE_MSI_FILE = [string]$amdLemonadeRuntime.windows_msi_file
+    $script:LEMONADE_MSI_URL = "https://github.com/lemonade-sdk/lemonade/releases/download/v$($script:LEMONADE_VERSION)/$($script:LEMONADE_MSI_FILE)"
+    $script:LEMONADE_EXE = Join-Path (Join-Path $script:LEMONADE_INSTALL_DIR "bin") ([string]$amdLemonadeRuntime.windows_executable)
+    $script:LEMONADE_PORT = [int]$amdLemonadeRuntime.api_port
+    $script:LEMONADE_HEALTH_URL = "http://localhost:$($script:LEMONADE_PORT)$($amdLemonadeRuntime.health_path)"
+}
 . (Join-Path $PhasesDir "06-directories.ps1")
 . (Join-Path $PhasesDir "07-devtools.ps1")
 
@@ -475,6 +487,9 @@ if ($dryRun) {
                     $envContent = Get-Content $envPath -Raw
                     $envContent = $envContent -replace "(?m)^LLM_BACKEND=.*$", "LLM_BACKEND=llama-server"
                     $envContent = $envContent -replace "(?m)^LLM_API_BASE_PATH=.*$", "LLM_API_BASE_PATH=/v1"
+                    $envContent = $envContent -replace "(?m)^AMD_INFERENCE_RUNTIME=.*$", "AMD_INFERENCE_RUNTIME=llama-server"
+                    $envContent = $envContent -replace "(?m)^AMD_INFERENCE_BACKEND=.*$", "AMD_INFERENCE_BACKEND=vulkan"
+                    $envContent = $envContent -replace "(?m)^AMD_INFERENCE_LOCATION=.*$", "AMD_INFERENCE_LOCATION=host"
                     [System.IO.File]::WriteAllText($envPath, $envContent, (New-Object System.Text.UTF8Encoding($false)))
                     Write-AISuccess "Patched .env for llama-server backend"
                 }

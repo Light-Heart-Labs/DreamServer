@@ -133,6 +133,20 @@ class MultiGPUStatus(BaseModel):
     aggregate: GPUInfo
 
 
+class AmdRuntimeStatus(BaseModel):
+    available: bool
+    reason: Optional[str] = None
+    runtime: str = "none"
+    location: str = "none"
+    selectedBackend: str = "none"
+    apiBase: Optional[str] = None
+    healthUrl: Optional[str] = None
+    health: Optional[str] = None
+    version: str = "unknown"
+    capabilities: Optional[list[str]] = None
+    warnings: list[str] = Field(default_factory=list)
+
+
 class ModelLibraryEntry(BaseModel):
     id: str
     name: str
