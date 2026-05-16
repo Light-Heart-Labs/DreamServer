@@ -142,6 +142,9 @@ dream model list
 dream model swap T3
 ```
 
+For Dashboard downloads, loading catalog models, and manual GGUF swaps, see
+[MODEL-MANAGEMENT.md](MODEL-MANAGEMENT.md).
+
 ---
 
 ## Architecture

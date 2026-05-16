@@ -30,6 +30,7 @@ Links from this directory use `../` for the repo root (e.g. `../README.md`, `../
 | [HARDWARE-GUIDE.md](HARDWARE-GUIDE.md) | Buyers | GPU buying advice, tier recommendations |
 | [HARDWARE-CLASSES.md](HARDWARE-CLASSES.md) | Developers | GPU-to-tier classification logic |
 | [SUPPORT-MATRIX.md](SUPPORT-MATRIX.md) | Operators | Platform/GPU support status |
+| [MODEL-MANAGEMENT.md](MODEL-MANAGEMENT.md) | Operators | Dashboard model downloads, switching, and manual GGUF workflows |
 | [CAPABILITY-PROFILE.md](CAPABILITY-PROFILE.md) | Developers | Machine capability profiling schema |
 | [MULTI-USER-SETUP.md](MULTI-USER-SETUP.md) | Operators | Expose and tune one install for multiple users |
 | [PROFILES.md](PROFILES.md) | Reference | Docker Compose profiles (historical reference) |

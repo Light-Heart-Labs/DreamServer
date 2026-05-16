@@ -121,7 +121,7 @@ GPU access: Windows driver → WSL2 → Docker Container Toolkit → llama-serve
 |------|-------|
 | Install directory | `%LOCALAPPDATA%\DreamServer` |
 | Config | `.env` file in install directory |
-| Models | Docker volume `dream-server_model-cache` |
+| Models | `%LOCALAPPDATA%\DreamServer\data\models\` |
 | Logs | `docker compose logs` |
 | Data | Docker volumes (auto-managed) |
 
