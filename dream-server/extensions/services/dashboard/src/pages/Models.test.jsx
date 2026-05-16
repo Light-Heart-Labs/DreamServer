@@ -1,5 +1,6 @@
 import { createElement } from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import Models from './Models'
 
 const useModelsMock = vi.fn()
@@ -52,6 +53,10 @@ function model(overrides = {}) {
   }
 }
 
+function renderModels() {
+  return render(createElement(MemoryRouter, null, createElement(Models)))
+}
+
 test('renders the model library layout from catalog fields only', () => {
   useModelsMock.mockReturnValue(baseState({
     currentModel: 'qwen3.5-9b-q4',
@@ -72,7 +77,7 @@ test('renders the model library layout from catalog fields only', () => {
     ],
   }))
 
-  render(createElement(Models))
+  renderModels()
 
   expect(screen.getByRole('button', { name: /model library/i })).toBeInTheDocument()
   expect(screen.getByText('VRAM')).toBeInTheDocument()
@@ -90,7 +95,7 @@ test('loaded models show active state without benchmark actions', () => {
     models: [model({ status: 'loaded' })],
   }))
 
-  render(createElement(Models))
+  renderModels()
 
   expect(screen.getByText('Active')).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /benchmark/i })).not.toBeInTheDocument()
@@ -103,7 +108,7 @@ test('runs downloaded models through the existing load action', () => {
     models: [model({ status: 'downloaded' })],
   }))
 
-  render(createElement(Models))
+  renderModels()
   fireEvent.click(screen.getByRole('button', { name: /^run$/i }))
 
   expect(loadModel).toHaveBeenCalledWith('qwen3.5-9b-q4')
@@ -128,9 +133,9 @@ test('filters models by search and category without changing catalog data', () =
     ],
   }))
 
-  render(createElement(Models))
+  renderModels()
 
-  fireEvent.click(screen.getByRole('button', { name: /code1/i }))
+  fireEvent.click(screen.getByTestId('model-category-code'))
 
   expect(screen.getByText('Qwen 3 Coder Next')).toBeInTheDocument()
   expect(screen.queryByText('Qwen 3.5 9B')).not.toBeInTheDocument()

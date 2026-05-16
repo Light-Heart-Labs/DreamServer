@@ -14,6 +14,7 @@ import {
   Search,
   Trash2,
 } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { useModels } from '../hooks/useModels'
 import { useDownloadProgress } from '../hooks/useDownloadProgress'
 
@@ -308,12 +309,12 @@ function CurrentModelPanel({ model, currentModel, gpu }) {
 
         <ModelSpeedVisual model={model} speed={speed} compact />
 
-        <a
-          href="/"
+        <Link
+          to="/"
           className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-white/[0.08] bg-black/20 px-3 text-xs font-semibold text-theme-text transition-colors hover:border-theme-accent/35 hover:bg-theme-accent/10"
         >
           Dashboard
-        </a>
+        </Link>
       </div>
     </section>
   )
@@ -366,6 +367,7 @@ function ModelsFilterPanel({
               <button
                 key={option.id}
                 type="button"
+                data-testid={`model-category-${option.id}`}
                 onClick={() => setCategoryFilter(option.id)}
                 className={`flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-xs transition-colors ${
                   categoryFilter === option.id
