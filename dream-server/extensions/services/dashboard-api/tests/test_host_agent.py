@@ -2586,3 +2586,168 @@ class TestModelDownloadCatalogUnavailable:
         assert handler.response_code == 403
         body = handler.parse_response()
         assert body["error"] == "Model not in library catalog"
+
+
+class TestModelDownloadFileIntegrity:
+
+    class _NoCancel:
+        def clear(self):
+            pass
+
+        def is_set(self):
+            return False
+
+        def wait(self, timeout=None):
+            return False
+
+    def _setup_env(self, tmp_path, monkeypatch, library_models=None):
+        install_dir = tmp_path / "install"
+        (install_dir / "config").mkdir(parents=True)
+        (install_dir / "data" / "models").mkdir(parents=True)
+        models = library_models or [{
+            "gguf_file": "test-model.gguf",
+            "gguf_url": "https://example.com/test-model.gguf",
+            "gguf_sha256": "",
+        }]
+        (install_dir / "config" / "model-library.json").write_text(
+            json.dumps({"models": models}),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+        monkeypatch.setattr(_mod, "AGENT_API_KEY", "test-key")
+        monkeypatch.setattr(_mod, "_model_download_thread", None)
+        monkeypatch.setattr(_mod, "_model_download_proc", None)
+        monkeypatch.setattr(_mod, "_model_download_cancel", self._NoCancel())
+        monkeypatch.setattr(
+            _mod.subprocess,
+            "run",
+            lambda cmd, *a, **kw: subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout="content-length: 123456\n",
+                stderr="",
+            ),
+        )
+        return install_dir
+
+    def _body(self):
+        return json.dumps({
+            "gguf_file": "test-model.gguf",
+            "gguf_url": "https://example.com/test-model.gguf",
+        }).encode("utf-8")
+
+    def _patch_curl_download(self, monkeypatch, payload: bytes):
+        outputs = []
+
+        class FakeProc:
+            def __init__(self, cmd, *args, **kwargs):
+                self.cmd = cmd
+                self.returncode = None
+                self.output = Path(cmd[cmd.index("-o") + 1])
+                outputs.append(self.output.name)
+
+            def wait(self, timeout=None):
+                self.output.parent.mkdir(parents=True, exist_ok=True)
+                self.output.write_bytes(payload)
+                self.returncode = 0
+                return 0
+
+            def kill(self):
+                self.returncode = -9
+
+        monkeypatch.setattr(_mod.subprocess, "Popen", FakeProc)
+        return outputs
+
+    def test_empty_existing_model_is_redownloaded(self, tmp_path, monkeypatch):
+        install_dir = self._setup_env(tmp_path, monkeypatch)
+        self._patch_curl_download(monkeypatch, b"valid gguf bytes")
+        model_path = install_dir / "data" / "models" / "test-model.gguf"
+        model_path.write_bytes(b"")
+
+        handler = _FakeHandler(self._body())
+        _mod.AgentHandler._handle_model_download(handler)
+
+        assert handler.response_code == 200
+        assert handler.parse_response()["status"] == "started"
+        _mod._model_download_thread.join(timeout=2)
+        assert not _mod._model_download_thread.is_alive()
+        assert model_path.read_bytes() == b"valid gguf bytes"
+        status = json.loads((install_dir / "data" / "model-download-status.json").read_text(encoding="utf-8"))
+        assert status["status"] == "complete"
+
+    def test_existing_model_clears_stale_downloading_status(self, tmp_path, monkeypatch):
+        install_dir = self._setup_env(tmp_path, monkeypatch)
+        model_path = install_dir / "data" / "models" / "test-model.gguf"
+        model_path.write_bytes(b"already here")
+        status_path = install_dir / "data" / "model-download-status.json"
+        status_path.write_text(
+            json.dumps({"status": "downloading", "model": "test-model.gguf"}),
+            encoding="utf-8",
+        )
+
+        handler = _FakeHandler(self._body())
+        _mod.AgentHandler._handle_model_download(handler)
+
+        assert handler.response_code == 200
+        assert handler.parse_response()["status"] == "already_downloaded"
+        status = json.loads(status_path.read_text(encoding="utf-8"))
+        assert status["status"] == "complete"
+        assert status["model"] == "test-model.gguf"
+
+    def test_empty_finished_download_is_failed_not_complete(self, tmp_path, monkeypatch):
+        install_dir = self._setup_env(tmp_path, monkeypatch)
+        self._patch_curl_download(monkeypatch, b"")
+
+        handler = _FakeHandler(self._body())
+        _mod.AgentHandler._handle_model_download(handler)
+
+        assert handler.response_code == 200
+        assert handler.parse_response()["status"] == "started"
+        _mod._model_download_thread.join(timeout=2)
+        assert not _mod._model_download_thread.is_alive()
+        status = json.loads((install_dir / "data" / "model-download-status.json").read_text(encoding="utf-8"))
+        assert status["status"] == "failed"
+        assert "missing or empty" in status["error"]
+
+    def test_split_download_skips_existing_non_empty_parts(self, tmp_path, monkeypatch):
+        parts = [
+            {
+                "file": "split-model-00001-of-00002.gguf",
+                "url": "https://example.com/split-model-00001-of-00002.gguf",
+                "sha256": "",
+            },
+            {
+                "file": "split-model-00002-of-00002.gguf",
+                "url": "https://example.com/split-model-00002-of-00002.gguf",
+                "sha256": "",
+            },
+        ]
+        install_dir = self._setup_env(
+            tmp_path,
+            monkeypatch,
+            library_models=[{
+                "gguf_file": "split-model-00001-of-00002.gguf",
+                "gguf_url": "",
+                "gguf_sha256": "",
+                "gguf_parts": parts,
+            }],
+        )
+        calls = self._patch_curl_download(monkeypatch, b"downloaded second part")
+        models_dir = install_dir / "data" / "models"
+        (models_dir / "split-model-00001-of-00002.gguf").write_bytes(b"existing first part")
+
+        handler = _FakeHandler(json.dumps({
+            "gguf_file": "split-model-00001-of-00002.gguf",
+            "gguf_parts": parts,
+        }).encode("utf-8"))
+        _mod.AgentHandler._handle_model_download(handler)
+
+        assert handler.response_code == 200
+        assert handler.parse_response()["status"] == "started"
+        _mod._model_download_thread.join(timeout=2)
+        assert not _mod._model_download_thread.is_alive()
+        assert calls == ["split-model-00002-of-00002.gguf.part"]
+        assert (models_dir / "split-model-00001-of-00002.gguf").read_bytes() == b"existing first part"
+        assert (models_dir / "split-model-00002-of-00002.gguf").read_bytes() == b"downloaded second part"
+        status = json.loads((install_dir / "data" / "model-download-status.json").read_text(encoding="utf-8"))
+        assert status["status"] == "complete"

@@ -454,6 +454,14 @@ def _write_progress(service_id: str, status: str, phase_label: str = "",
     os.replace(str(tmp_file), str(progress_file))
 
 
+def _model_file_ready(path: Path) -> bool:
+    """Return True only for a final GGUF file that exists and is non-empty."""
+    try:
+        return path.is_file() and path.stat().st_size > 0
+    except OSError:
+        return False
+
+
 def _read_progress_status(service_id: str) -> str | None:
     """Return the ``status`` field of the progress file, or None if absent/unreadable.
 
@@ -2582,11 +2590,25 @@ class AgentHandler(BaseHTTPRequestHandler):
             return
 
         models_dir = INSTALL_DIR / "data" / "models"
+        status_path = INSTALL_DIR / "data" / "model-download-status.json"
         # For split models, check ALL parts exist (not just the first)
-        all_downloaded = all((models_dir / fn).exists() for fn, _ in download_plan)
+        all_downloaded = all(_model_file_ready(models_dir / fn) for fn, _ in download_plan)
         if all_downloaded:
+            # A previous process can leave stale "downloading" status after the
+            # final file is already on disk. Normalize that here so the
+            # dashboard stops showing phantom progress.
+            _write_model_status(status_path, "complete", gguf_file, 0, 0)
             json_response(self, 200, {"status": "already_downloaded"})
             return
+        for fn, _ in download_plan:
+            target = models_dir / fn
+            if target.is_file() and not _model_file_ready(target):
+                target.unlink(missing_ok=True)
+        pending_download_plan = [
+            (idx, fn, url)
+            for idx, (fn, url) in enumerate(download_plan, 1)
+            if not _model_file_ready(models_dir / fn)
+        ]
 
         # Check for concurrent download
         with _model_download_lock:
@@ -2598,13 +2620,12 @@ class AgentHandler(BaseHTTPRequestHandler):
 
             def _download():
                 global _model_download_proc
-                status_path = INSTALL_DIR / "data" / "model-download-status.json"
                 try:
                     models_dir.mkdir(parents=True, exist_ok=True)
                     label = gguf_file if len(download_plan) == 1 else f"{gguf_file} ({len(download_plan)} parts)"
                     _write_model_status(status_path, "downloading", label, 0, 0)
 
-                    for part_idx, (part_file_name, part_url) in enumerate(download_plan, 1):
+                    for part_idx, part_file_name, part_url in pending_download_plan:
                         if _model_download_cancel.is_set():
                             break
                         part_target = models_dir / part_file_name
@@ -2656,6 +2677,7 @@ class AgentHandler(BaseHTTPRequestHandler):
                         # Download with retry. Use Popen (not run) so the process can
                         # be killed from the cancel handler or _poll_progress thread.
                         success = False
+                        last_error = ""
                         for attempt in range(1, 4):
                             if _model_download_cancel.is_set():
                                 break
@@ -2679,11 +2701,26 @@ class AgentHandler(BaseHTTPRequestHandler):
                             if _model_download_cancel.is_set():
                                 break
                             if proc.returncode == 0:
-                                _stop_progress.set()
-                                part_tmp.rename(part_target)
-                                success = True
-                                break
-                            _write_model_status(status_path, "downloading", part_label, 0, part_total, f"Retry {attempt}/3")
+                                try:
+                                    part_tmp.rename(part_target)
+                                except OSError as exc:
+                                    last_error = f"Download finished but final file could not be moved into place: {exc}"
+                                else:
+                                    if _model_file_ready(part_target):
+                                        success = True
+                                        break
+                                    last_error = "Download finished but model file is missing or empty"
+                                    part_target.unlink(missing_ok=True)
+                            else:
+                                last_error = f"curl exited with code {proc.returncode}"
+                            _write_model_status(
+                                status_path,
+                                "downloading",
+                                part_label,
+                                0,
+                                part_total,
+                                f"Retry {attempt}/3: {last_error}",
+                            )
 
                         _stop_progress.set()
                         progress_thread.join(timeout=3)
@@ -2696,7 +2733,14 @@ class AgentHandler(BaseHTTPRequestHandler):
 
                         if not success:
                             part_tmp.unlink(missing_ok=True)
-                            _write_model_status(status_path, "failed", part_label, 0, part_total, "Download failed after 3 attempts")
+                            _write_model_status(
+                                status_path,
+                                "failed",
+                                part_label,
+                                0,
+                                part_total,
+                                last_error or "Download failed after 3 attempts",
+                            )
                             return
 
                     # Verify SHA256 for every downloaded part. Catalog is the
@@ -2711,6 +2755,16 @@ class AgentHandler(BaseHTTPRequestHandler):
                     for part_idx, (part_file_name, _) in enumerate(download_plan, 1):
                         expected = expected_sha_by_file.get(part_file_name, "")
                         final_target = models_dir / part_file_name
+                        if not _model_file_ready(final_target):
+                            _write_model_status(
+                                status_path,
+                                "failed",
+                                part_file_name,
+                                0,
+                                0,
+                                "Download finished but model file is missing or empty",
+                            )
+                            return
                         if not expected:
                             logger.warning(
                                 "SHA256 verification skipped for %s: no checksum in model-library.json",
@@ -2830,12 +2884,15 @@ class AgentHandler(BaseHTTPRequestHandler):
         env_path = INSTALL_DIR / ".env"
         models_ini = INSTALL_DIR / "config" / "llama-server" / "models.ini"
         lemonade_yaml = INSTALL_DIR / "config" / "litellm" / "lemonade.yaml"
+        hermes_live_config = INSTALL_DIR / "data" / "hermes" / "config.yaml"
+        hermes_template_config = INSTALL_DIR / "extensions" / "services" / "hermes" / "cli-config.yaml.template"
 
         # Hoisted so the outer except's rollback can reference them safely.
         # None means the snapshot was not captured, so rollback must skip it.
         env_backup: str | None = None
         ini_backup: str | None = None
         lemonade_backup = None
+        hermes_backups: dict[Path, str] = {}
         committed = False
 
         def restore_backups():
@@ -2845,6 +2902,8 @@ class AgentHandler(BaseHTTPRequestHandler):
                 models_ini.write_text(ini_backup, encoding="utf-8")
             if lemonade_backup is not None:
                 lemonade_yaml.write_text(lemonade_backup, encoding="utf-8")
+            for hermes_path, hermes_text in hermes_backups.items():
+                hermes_path.write_text(hermes_text, encoding="utf-8")
 
         try:
             # Read current env BEFORE modification — needed for gpu_backend guard
@@ -2855,6 +2914,9 @@ class AgentHandler(BaseHTTPRequestHandler):
             env_backup = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
             ini_backup = models_ini.read_text(encoding="utf-8") if models_ini.exists() else ""
             lemonade_backup = lemonade_yaml.read_text(encoding="utf-8") if lemonade_yaml.exists() else None
+            for hermes_path in (hermes_live_config, hermes_template_config):
+                if hermes_path.exists():
+                    hermes_backups[hermes_path] = hermes_path.read_text(encoding="utf-8")
 
             # Update .env
             if env_path.exists():
@@ -2924,6 +2986,11 @@ class AgentHandler(BaseHTTPRequestHandler):
                     encoding="utf-8",
                 )
                 logger.info("Regenerated lemonade.yaml for model: extra.%s", gguf_file)
+
+            hermes_model_name = f"extra.{gguf_file}" if gpu_backend == "amd" else gguf_file
+            hermes_patched = False
+            for path in (hermes_live_config, hermes_template_config):
+                hermes_patched = _patch_hermes_model_config(path, hermes_model_name) or hermes_patched
 
             # Restart llama-server with the new model.
             # Three strategies depending on platform / agent location:
@@ -3052,7 +3119,10 @@ class AgentHandler(BaseHTTPRequestHandler):
                     _write_lemonade_config(INSTALL_DIR, gguf_file)
 
                 # Restart dependent services so they pick up the new model
-                for svc in ["dream-litellm"]:
+                dependent_services = ["dream-litellm"]
+                if hermes_patched:
+                    dependent_services.append("dream-hermes")
+                for svc in dependent_services:
                     subprocess.run(["docker", "restart", svc],
                                    capture_output=True, timeout=60)
                 committed = True  # system state is committed before the response write
@@ -3232,6 +3302,51 @@ def _write_lemonade_config(install_dir: Path, gguf_file: str):
     )
     config_path.write_text(content, encoding="utf-8")
     logger.info("Wrote lemonade.yaml for model: extra.%s", gguf_file)
+
+
+def _patch_hermes_model_config(path: Path, model_name: str) -> bool:
+    """Patch `model.default` in a Hermes config/template YAML file.
+
+    Hermes copies the template once into data/hermes/config.yaml and then uses
+    the persisted copy as source of truth. Patch both when present so current
+    and future Hermes starts request the model that Dream Server just loaded.
+    """
+    if not path.exists():
+        return False
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        logger.warning("Could not read Hermes config for model patch: %s", path)
+        return False
+
+    in_model_block = False
+    changed = False
+    new_lines = []
+    for line in lines:
+        if re.match(r"^model:\s*(?:#.*)?$", line):
+            in_model_block = True
+            new_lines.append(line)
+            continue
+        if in_model_block and line and not line.startswith((" ", "\t", "#")):
+            in_model_block = False
+        if in_model_block and re.match(r"^\s+default:\s*", line):
+            indent = line[:len(line) - len(line.lstrip())]
+            new_line = f'{indent}default: "{model_name}"'
+            new_lines.append(new_line)
+            changed = changed or new_line != line
+            continue
+        new_lines.append(line)
+
+    if not changed:
+        return False
+    try:
+        path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+        logger.info("Patched Hermes model.default in %s to %s", path, model_name)
+        return True
+    except OSError:
+        logger.warning("Could not write Hermes config model patch: %s", path)
+        return False
+
 
 def _launch_native_llama_server(env_path: Path, llama_bin: Path, llama_log: Path, pid_file: Path):
     """Launch the native (Metal) llama-server process and write its PID file.
@@ -3479,14 +3594,19 @@ def _write_model_status(path: Path, status: str, model: str, downloaded: int, to
     }
     if error:
         data["error"] = error
-    tmp = path.with_suffix(".tmp")
+    tmp = path.with_name(f"{path.name}.{threading.get_ident()}.tmp")
     try:
+        path.parent.mkdir(parents=True, exist_ok=True)
         tmp.write_text(json.dumps(data), encoding="utf-8")
-        tmp.rename(path)
+        os.replace(str(tmp), str(path))
     except OSError as e:
         # Don't crash the activate flow; surface to the journal so operators
         # can diagnose why progress stalled.
         logger.warning("Failed to write model status to %s: %s", path, e)
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
