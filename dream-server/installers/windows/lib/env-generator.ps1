@@ -76,6 +76,14 @@ function New-DreamEnv {
         [string]$GpuBackend = "nvidia",
         [string]$DreamMode = "local",
         [string]$LlamaServerImage = "",
+        [string]$AmdInferenceRuntime = "",
+        [string]$AmdInferenceBackend = "",
+        [string]$AmdInferenceLocation = "",
+        [string]$AmdInferencePort = "",
+        [string]$AmdInferenceSupportedBackends = "",
+        [string]$AmdInferenceRuntimeMode = "",
+        [string]$AmdInferenceManaged = "",
+        [string]$LemonadeServerImage = "",
         # Mirror the install-time ENABLE_LANGFUSE toggle from phase 03 into
         # .env's LANGFUSE_ENABLED default. Re-install preserves whatever the
         # user already had in .env (via Get-EnvOrNew), so manual
@@ -263,6 +271,13 @@ DREAM_MODE=$DreamMode
 LLM_BACKEND=$llmBackend
 LLM_API_URL=$llmApiUrl
 LLM_API_BASE_PATH=$llmApiBasePath
+AMD_INFERENCE_RUNTIME=$AmdInferenceRuntime
+AMD_INFERENCE_BACKEND=$AmdInferenceBackend
+AMD_INFERENCE_LOCATION=$AmdInferenceLocation
+AMD_INFERENCE_PORT=$AmdInferencePort
+AMD_INFERENCE_SUPPORTED_BACKENDS=$AmdInferenceSupportedBackends
+AMD_INFERENCE_RUNTIME_MODE=$AmdInferenceRuntimeMode
+AMD_INFERENCE_MANAGED=$AmdInferenceManaged
 
 #=== Cloud API Keys ===
 ANTHROPIC_API_KEY=$(Get-EnvOrNew "ANTHROPIC_API_KEY" "")
@@ -278,6 +293,7 @@ CTX_SIZE=$($TierConfig.MaxContext)
 GPU_BACKEND=$GpuBackend
 $(if ($LlamaServerImage) { "LLAMA_SERVER_IMAGE=$LlamaServerImage" } else { "#LLAMA_SERVER_IMAGE=ghcr.io/ggml-org/llama.cpp:server-cuda" })
 $(if ($llamaServerImageFallback) { "LLAMA_SERVER_IMAGE_FALLBACK=$llamaServerImageFallback" } else { "#LLAMA_SERVER_IMAGE_FALLBACK=ghcr.io/ggml-org/llama.cpp:server-cuda-b9014" })
+$(if ($LemonadeServerImage) { "LEMONADE_SERVER_IMAGE=$LemonadeServerImage" } else { "#LEMONADE_SERVER_IMAGE=ghcr.io/lemonade-sdk/lemonade-server:v10.2.0" })
 #=== llama.cpp Runtime Tuning ===
 LLAMA_ARG_FLASH_ATTN=$(Get-EnvOrNew "LLAMA_ARG_FLASH_ATTN" "auto")
 LLAMA_ARG_CACHE_TYPE_K=$(Get-EnvOrNew "LLAMA_ARG_CACHE_TYPE_K" "f16")

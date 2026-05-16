@@ -133,6 +133,24 @@ class MultiGPUStatus(BaseModel):
     aggregate: GPUInfo
 
 
+class AmdRuntimeStatus(BaseModel):
+    available: bool
+    reason: Optional[str] = None
+    runtime: str = "none"
+    location: str = "none"
+    runtimeMode: str = "unknown"
+    managedByDreamServer: bool = False
+    selectedBackend: str = "none"
+    supportedBackends: list[str] = Field(default_factory=list)
+    defaultBackend: str = "none"
+    apiBase: Optional[str] = None
+    healthUrl: Optional[str] = None
+    health: Optional[str] = None
+    version: str = "unknown"
+    capabilities: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class ModelLibraryEntry(BaseModel):
     id: str
     name: str
