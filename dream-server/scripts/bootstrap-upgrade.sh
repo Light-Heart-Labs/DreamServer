@@ -708,6 +708,8 @@ elif [[ -f "$INSTALL_DIR/data/.llama-server.pid" ]]; then
             _cache_type_k=$(grep '^LLAMA_ARG_CACHE_TYPE_K=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
             _cache_type_v=$(grep '^LLAMA_ARG_CACHE_TYPE_V=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
             _n_cpu_moe=$(grep '^LLAMA_ARG_N_CPU_MOE=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+            _spec_type=$(grep '^LLAMA_ARG_SPEC_TYPE=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
+            _spec_draft_n_max=$(grep '^LLAMA_ARG_SPEC_DRAFT_N_MAX=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "")
             _llama_args=(
                 --host "$_bind" --port 8080
                 --model "$_model_path"
@@ -720,6 +722,8 @@ elif [[ -f "$INSTALL_DIR/data/.llama-server.pid" ]]; then
             [[ -n "$_cache_type_k" ]] && _llama_args+=(--cache-type-k "$_cache_type_k")
             [[ -n "$_cache_type_v" ]] && _llama_args+=(--cache-type-v "$_cache_type_v")
             [[ -n "$_n_cpu_moe" ]] && _llama_args+=(--n-cpu-moe "$_n_cpu_moe")
+            [[ -n "$_spec_type" ]] && _llama_args+=(--spec-type "$_spec_type")
+            [[ -n "$_spec_draft_n_max" ]] && _llama_args+=(--spec-draft-n-max "$_spec_draft_n_max")
 
             # Relaunch with new model
             log "Starting native llama-server with ${_gguf_file}..."

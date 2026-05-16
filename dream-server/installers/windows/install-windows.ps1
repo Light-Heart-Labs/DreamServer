@@ -444,6 +444,8 @@ if ($dryRun) {
                 if ($_llamaEnv["LLAMA_ARG_CACHE_TYPE_K"]) { $llamaArgs += @("--cache-type-k", $_llamaEnv["LLAMA_ARG_CACHE_TYPE_K"]) }
                 if ($_llamaEnv["LLAMA_ARG_CACHE_TYPE_V"]) { $llamaArgs += @("--cache-type-v", $_llamaEnv["LLAMA_ARG_CACHE_TYPE_V"]) }
                 if ($_llamaEnv["LLAMA_ARG_N_CPU_MOE"]) { $llamaArgs += @("--n-cpu-moe", $_llamaEnv["LLAMA_ARG_N_CPU_MOE"]) }
+                if ($_llamaEnv["LLAMA_ARG_SPEC_TYPE"]) { $llamaArgs += @("--spec-type", $_llamaEnv["LLAMA_ARG_SPEC_TYPE"]) }
+                if ($_llamaEnv["LLAMA_ARG_SPEC_DRAFT_N_MAX"]) { $llamaArgs += @("--spec-draft-n-max", $_llamaEnv["LLAMA_ARG_SPEC_DRAFT_N_MAX"]) }
                 $pidDir = Split-Path $script:INFERENCE_PID_FILE
                 New-Item -ItemType Directory -Path $pidDir -Force | Out-Null
 
