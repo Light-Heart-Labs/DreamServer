@@ -1,9 +1,16 @@
 # P2P GPU Deploy — DreamServer on Peer-to-Peer GPU Marketplaces
 
-Deploy the full DreamServer AI stack on rented GPU instances from peer-to-peer
-compute marketplaces (Vast.ai).
+Production-hardened deployment of the full DreamServer AI stack on rented GPU instances from peer-to-peer compute marketplaces (Vast.ai tested; architecture is provider-agnostic).
 
-One command. All 17+ services. Any NVIDIA/AMD GPU or CPU-only instance.
+**One command. All 17+ services. Any NVIDIA/AMD GPU or CPU-only instance.**
+
+Automatically handles 28 known P2P GPU environment issues: root user rejection, Docker socket permissions, CPU limit overflow, /tmp permissions, NVIDIA toolkit setup, multi-GPU support, SSH tunneling, package manager locks, and more. Includes built-in recovery commands, health checks, and model auto-swap capabilities.
+
+## What It Solves
+
+**The Problem:** Deploying DreamServer on rented GPU instances is fragile. Root-only environments, non-standard filesystem permissions, held package locks, missing GPU drivers, and provider-specific quirks cause silent failures during setup.
+
+**The Solution:** `setup.sh` is a battle-tested orchestrator that detects and fixes 28 known issues automatically. It handles permission escalation, creates a non-root `dream` user, manages Docker group access, installs missing NVIDIA/AMD toolkits, applies POSIX ACLs for multi-container file sharing, and starts all 17+ services with health checks. If setup partially completes, recovery commands bring the stack back online without reinstall.
 
 ## Quick Start
 
@@ -11,12 +18,15 @@ One command. All 17+ services. Any NVIDIA/AMD GPU or CPU-only instance.
 # On your GPU instance (as root):
 bash setup.sh              # Full install (~10 min)
 bash setup.sh --status     # Health check
+bash setup.sh --info       # Show connection URLs and SSH tunnel commands
 bash setup.sh --teardown   # Stop all services
 ```
 
 ## Setup Guide
-https://drive.google.com/file/d/1SrBooRJwP24OTWXZH-TOlk4q6tK44DUR/view?usp=sharing
-https://docs.google.com/presentation/d/16TusAdo0-o3lOTeUwRaJa16foELvFSH4/edit?usp=sharing&ouid=109193555106212685513&rtpof=true&sd=true
+
+**Video walkthrough & troubleshooting:**
+- [Setup video guide](https://drive.google.com/file/d/1SrBooRJwP24OTWXZH-TOlk4q6tK44DUR/view?usp=sharing)
+- [Presentation slides](https://docs.google.com/presentation/d/16TusAdo0-o3lOTeUwRaJa16foELvFSH4/edit?usp=sharing&ouid=109193555106212685513&rtpof=true&sd=true)
 
 ## Quick Recovery (If Phase 9 Fails)
 
