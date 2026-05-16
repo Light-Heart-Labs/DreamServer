@@ -67,6 +67,64 @@ else
         ai_ok "Rewrote .env for CPU fallback"
     }
 
+    _phase11_allow_host_agent_firewall() {
+        local network_name="${1:-dream-network}"
+        local port="${DREAM_AGENT_PORT:-7710}"
+        local bind_addr="${DREAM_AGENT_BIND:-}"
+        local subnet fw_rule
+        local -a subnets=()
+
+        [[ "$(uname -s 2>/dev/null || echo unknown)" == "Linux" ]] || return 0
+        command -v systemctl >/dev/null 2>&1 || return 0
+        command -v sudo >/dev/null 2>&1 || return 0
+
+        if [[ -n "$bind_addr" && "$bind_addr" != "0.0.0.0" ]]; then
+            ai_warn "DREAM_AGENT_BIND=$bind_addr; skipping automatic host-agent firewall rule."
+            return 0
+        fi
+
+        while IFS= read -r subnet; do
+            [[ -n "$subnet" && "$subnet" != *:* ]] && subnets+=("$subnet")
+        done < <($DOCKER_CMD network inspect "$network_name" \
+            --format '{{range .IPAM.Config}}{{println .Subnet}}{{end}}' 2>/dev/null || true)
+
+        if [[ ${#subnets[@]} -eq 0 ]]; then
+            if command -v ufw >/dev/null 2>&1 && systemctl is-active --quiet ufw 2>/dev/null; then
+                ai_warn "UFW is active, but I could not detect the $network_name subnet for host-agent access."
+                ai_warn "If dashboard says host-agent is offline, inspect: docker network inspect $network_name"
+            elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld 2>/dev/null; then
+                ai_warn "firewalld is active, but I could not detect the $network_name subnet for host-agent access."
+                ai_warn "If dashboard says host-agent is offline, inspect: docker network inspect $network_name"
+            fi
+            return 0
+        fi
+
+        for subnet in "${subnets[@]}"; do
+            if command -v ufw >/dev/null 2>&1 && systemctl is-active --quiet ufw 2>/dev/null; then
+                if sudo ufw status 2>/dev/null | grep -F "${port}/tcp" | grep -F "$subnet" >/dev/null; then
+                    ai_ok "UFW already allows dream-host-agent (port $port) from $network_name subnet $subnet"
+                elif sudo ufw allow from "$subnet" to any port "$port" proto tcp comment 'dream-host-agent' 2>&1 | tee -a "$LOG_FILE" >/dev/null; then
+                    ai_ok "UFW: allowed dream-host-agent (port $port) from $network_name subnet $subnet"
+                else
+                    ai_warn "UFW: failed to auto-add host-agent rule - run manually:"
+                    ai_warn "  sudo ufw allow from $subnet to any port $port proto tcp comment 'dream-host-agent'"
+                fi
+            elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld 2>/dev/null; then
+                fw_rule="rule family=\"ipv4\" source address=\"$subnet\" port protocol=\"tcp\" port=\"$port\" accept"
+                if sudo firewall-cmd --query-rich-rule="$fw_rule" >/dev/null 2>&1; then
+                    ai_ok "firewalld already allows dream-host-agent (port $port) from $network_name subnet $subnet"
+                elif sudo firewall-cmd --permanent --add-rich-rule="$fw_rule" 2>&1 | tee -a "$LOG_FILE" >/dev/null \
+                  && sudo firewall-cmd --reload 2>&1 | tee -a "$LOG_FILE" >/dev/null; then
+                    ai_ok "firewalld: allowed dream-host-agent (port $port) from $network_name subnet $subnet"
+                else
+                    ai_warn "firewalld: failed to auto-add host-agent rule - run manually:"
+                    ai_warn "  sudo firewall-cmd --permanent --add-rich-rule='$fw_rule'"
+                    ai_warn "  sudo firewall-cmd --reload"
+                fi
+            fi
+        done
+    }
+
     if [[ "${GPU_BACKEND:-}" == "amd" ]] && ! amd_gpu_runtime_devices_available; then
         _amd_missing_devices="$(amd_gpu_missing_devices_csv)"
         if [[ "${GPU_BACKEND_FORCED:-false}" == "true" ]]; then
@@ -572,6 +630,12 @@ except Exception:
     $DOCKER_COMPOSE_CMD "${COMPOSE_FLAGS_ARR[@]}" up -d --remove-orphans --no-build >> "$LOG_FILE" 2>&1 || true
     # Step 3: catch any stragglers from the second pass
     $DOCKER_CMD start $($DOCKER_CMD ps -a --filter status=created -q) 2>/dev/null || true
+
+    # dashboard-api reaches the host agent from the compose network gateway.
+    # With default-DROP UFW/firewalld, the host INPUT chain can block that
+    # traffic. Add a scoped rule only after compose has created dream-network,
+    # so we allow the actual Docker subnet instead of a broad RFC1918 range.
+    _phase11_allow_host_agent_firewall dream-network
 
     if $compose_ok; then
         printf "\r  ${BGRN}✓${NC} %-60s\n" "All containers launched"

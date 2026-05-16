@@ -187,13 +187,10 @@ check_docker_desktop_sharing
 # never abort install.
 if command -v ufw >/dev/null 2>&1 && systemctl is-active --quiet ufw 2>/dev/null; then
     ai_warn "UFW is active. The dashboard host agent must be reachable from compose subnets."
-    ai_warn "After install, run:"
-    ai_warn "  sudo ufw allow from 172.16.0.0/12 to any port 7710 proto tcp comment 'dream-host-agent'"
+    ai_warn "The installer will auto-add a scoped rule for the actual dream-network subnet after compose starts."
 elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld 2>/dev/null; then
     ai_warn "firewalld is active. The dashboard host agent must be reachable from compose subnets."
-    ai_warn "After install, run:"
-    ai_warn "  sudo firewall-cmd --permanent --add-rich-rule='rule family=\"ipv4\" source address=\"172.16.0.0/12\" port protocol=\"tcp\" port=\"7710\" accept'"
-    ai_warn "  sudo firewall-cmd --reload"
+    ai_warn "The installer will auto-add a scoped rule for the actual dream-network subnet after compose starts."
 fi
 
 ai_ok "Pre-flight checks passed."
