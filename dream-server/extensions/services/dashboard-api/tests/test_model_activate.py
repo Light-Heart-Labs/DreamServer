@@ -186,6 +186,18 @@ class TestPatchHermesModelConfig:
     def test_missing_file_is_noop(self, tmp_path):
         assert _patch_hermes_model_config(tmp_path / "missing.yaml", "model.gguf") is False
 
+    def test_permission_denied_stat_is_noop(self, tmp_path, monkeypatch):
+        config = tmp_path / "config.yaml"
+        original_exists = Path.exists
+
+        def fake_exists(path):
+            if path == config:
+                raise PermissionError("container-owned")
+            return original_exists(path)
+
+        monkeypatch.setattr(Path, "exists", fake_exists)
+        assert _patch_hermes_model_config(config, "model.gguf") is False
+
 
 class TestComposeRestartLlamaServer:
 
@@ -437,6 +449,46 @@ class TestModelActivateRollback:
         assert '  default: "new-model.gguf"' in hermes_live.read_text(encoding="utf-8")
         assert '  default: "new-model.gguf"' in hermes_template.read_text(encoding="utf-8")
         assert ["docker", "restart", "dream-hermes"] in calls
+
+    def test_activation_skips_hermes_restart_when_live_config_unreadable(self, tmp_path, monkeypatch):
+        install_dir, _env_path, _env_text, _models_ini, _ini_text, _yaml, _yaml_text = (
+            _write_model_activation_fixture(tmp_path)
+        )
+        hermes_live = install_dir / "data" / "hermes" / "config.yaml"
+        hermes_template = install_dir / "extensions" / "services" / "hermes" / "cli-config.yaml.template"
+        hermes_live.parent.mkdir(parents=True)
+        hermes_template.parent.mkdir(parents=True)
+        hermes_live.write_text("model:\n  default: \"old-live\"\n", encoding="utf-8")
+        hermes_template.write_text("model:\n  default: \"old-template\"\n", encoding="utf-8")
+
+        original_exists = Path.exists
+
+        def fake_exists(path):
+            if path == hermes_live:
+                raise PermissionError("container-owned")
+            return original_exists(path)
+
+        monkeypatch.setattr(Path, "exists", fake_exists)
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+        monkeypatch.delenv("DREAM_HOST_INSTALL_DIR", raising=False)
+        monkeypatch.setattr(_mod.time, "sleep", lambda _seconds: None)
+        monkeypatch.setattr(_mod, "_compose_restart_llama_server", lambda _env: None)
+
+        calls = []
+
+        def fake_run(cmd, **_kwargs):
+            calls.append(cmd)
+            stdout = '{"status": "ok"}' if cmd and cmd[0] == "curl" else ""
+            return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+        handler = _ResponseHandler()
+
+        _mod.AgentHandler._do_model_activate(handler, "target-model")
+
+        assert handler.response_code == 200
+        assert '  default: "new-model.gguf"' in hermes_template.read_text(encoding="utf-8")
+        assert ["docker", "restart", "dream-hermes"] not in calls
 
     def test_unexpected_failure_rolls_back_all_config_backups(self, tmp_path, monkeypatch):
         install_dir, env_path, env_text, models_ini, ini_text, lemonade_yaml, lemonade_text = (
