@@ -17,6 +17,7 @@ bash scripts/check-release-claims.sh
 echo "[gate] contracts"
 bash tests/contracts/test-installer-contracts.sh
 bash tests/contracts/test-preflight-fixtures.sh
+bash tests/contracts/test-installer-hardening.sh
 
 echo "[gate] smoke"
 bash tests/smoke/linux-amd.sh

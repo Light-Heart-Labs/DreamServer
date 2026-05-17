@@ -181,6 +181,8 @@ if [[ "${GPU_BACKEND_FORCED_CPU:-false}" != "true" && $GPU_COUNT -eq 0 && "$GPU_
     fix_nvidia_secure_boot || true
 fi
 
+validate_nvidia_blackwell_open_modules
+
 # NVIDIA Driver Compatibility Check
 # llama-server (CUDA) requires driver >= 570
 if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "nvidia" ]]; then
@@ -192,6 +194,12 @@ if [[ $GPU_COUNT -gt 0 && "$GPU_BACKEND" == "nvidia" ]]; then
         log "NVIDIA driver: $DRIVER_VERSION"
         if [[ "$DRIVER_VERSION" -lt "$MIN_DRIVER_VERSION" ]]; then
             ai_bad "NVIDIA driver $DRIVER_VERSION is too old. llama-server (CUDA) requires driver >= $MIN_DRIVER_VERSION."
+            if nvidia_blackwell_hardware_detected; then
+                ai_bad "This is a Blackwell GPU, so install an NVIDIA open kernel module driver."
+                ai "  sudo apt install nvidia-open"
+                ai "  # or: sudo apt install nvidia-driver-${MIN_DRIVER_VERSION}-open"
+                error "Blackwell requires driver >= ${MIN_DRIVER_VERSION} with open kernel modules."
+            fi
             ai "Attempting to install a compatible driver..."
             if ! $DRY_RUN; then
                 if command -v ubuntu-drivers &> /dev/null; then

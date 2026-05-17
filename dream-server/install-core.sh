@@ -64,10 +64,14 @@ trap '' TSTP
 # Load libraries (pure functions, no side effects)
 #=============================================================================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "$(uname -s 2>/dev/null || true)" == "Linux" ]]; then
+    export DREAM_PYTHON_PREFER_SYSTEM="${DREAM_PYTHON_PREFER_SYSTEM:-1}"
+fi
 
 source "$SCRIPT_DIR/installers/lib/constants.sh"
 source "$SCRIPT_DIR/installers/lib/logging.sh"
 source "$SCRIPT_DIR/installers/lib/ui.sh"
+source "$SCRIPT_DIR/installers/lib/sudo.sh"
 source "$SCRIPT_DIR/installers/lib/detection.sh"
 source "$SCRIPT_DIR/installers/lib/host-arch.sh"
 source "$SCRIPT_DIR/installers/lib/tier-map.sh"
@@ -76,6 +80,7 @@ source "$SCRIPT_DIR/installers/lib/compose-select.sh"
 source "$SCRIPT_DIR/installers/lib/compose-failure-report.sh"
 source "$SCRIPT_DIR/installers/lib/readiness-summary.sh"
 source "$SCRIPT_DIR/installers/lib/packaging.sh"
+source "$SCRIPT_DIR/installers/lib/python-runtime.sh"
 source "$SCRIPT_DIR/installers/lib/progress.sh"
 if [[ -f "$SCRIPT_DIR/lib/service-registry.sh" ]]; then 
     source "$SCRIPT_DIR/lib/service-registry.sh" 
@@ -223,6 +228,10 @@ fi
 # Detect distro + package manager (after arg parsing so --help still shows
 # the correct VERSION before /etc/os-release overwrites it)
 detect_pkg_manager
+log "Installer run started: pid=$$, script=$0"
+ds_prepare_sudo "Dream Server installer setup"
+export DREAM_SR_AUTO_INSTALL_PYYAML=1
+ds_ensure_python_module yaml python3-pyyaml pyyaml PyYAML
 
 #=============================================================================
 # Splash
