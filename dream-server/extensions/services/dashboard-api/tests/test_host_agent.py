@@ -21,11 +21,44 @@ _spec.loader.exec_module(_mod)
 _parse_mem_value = _mod._parse_mem_value
 _iso_now = _mod._iso_now
 _to_bash_path = _mod._to_bash_path
+_resolve_agent_bind_addr = _mod._resolve_agent_bind_addr
 resolve_compose_flags = _mod.resolve_compose_flags
 validate_core_recreate_ids = _mod.validate_core_recreate_ids
 invalidate_compose_cache = _mod.invalidate_compose_cache
 _post_install_core_recreate = _mod._post_install_core_recreate
 _split_nmcli_terse = _mod._split_nmcli_terse
+
+
+class TestResolveAgentBindAddr:
+
+    def test_explicit_bind_wins(self):
+        assert _resolve_agent_bind_addr({"DREAM_AGENT_BIND": "0.0.0.0"}, "Linux") == "0.0.0.0"
+        assert _resolve_agent_bind_addr({"DREAM_AGENT_BIND": "192.168.1.10"}, "Linux") == "192.168.1.10"
+
+    def test_desktop_platforms_default_loopback(self, monkeypatch):
+        monkeypatch.setattr(_mod, "_detect_docker_network_gateway", lambda network: "172.18.0.1")
+        monkeypatch.setattr(_mod, "_detect_docker_bridge_gateway", lambda: "172.17.0.1")
+
+        assert _resolve_agent_bind_addr({}, "Windows") == "127.0.0.1"
+        assert _resolve_agent_bind_addr({}, "Darwin") == "127.0.0.1"
+
+    def test_linux_prefers_dream_network_gateway(self, monkeypatch):
+        monkeypatch.setattr(_mod, "_detect_docker_network_gateway", lambda network: "172.18.0.1")
+        monkeypatch.setattr(_mod, "_detect_docker_bridge_gateway", lambda: "172.17.0.1")
+
+        assert _resolve_agent_bind_addr({}, "Linux") == "172.18.0.1"
+
+    def test_linux_falls_back_to_bridge_gateway(self, monkeypatch):
+        monkeypatch.setattr(_mod, "_detect_docker_network_gateway", lambda network: "")
+        monkeypatch.setattr(_mod, "_detect_docker_bridge_gateway", lambda: "172.17.0.1")
+
+        assert _resolve_agent_bind_addr({}, "Linux") == "172.17.0.1"
+
+    def test_linux_falls_back_to_loopback(self, monkeypatch):
+        monkeypatch.setattr(_mod, "_detect_docker_network_gateway", lambda network: "")
+        monkeypatch.setattr(_mod, "_detect_docker_bridge_gateway", lambda: "")
+
+        assert _resolve_agent_bind_addr({}, "Linux") == "127.0.0.1"
 
 
 # --- _split_nmcli_terse — parser for nmcli -t (terse) output ---

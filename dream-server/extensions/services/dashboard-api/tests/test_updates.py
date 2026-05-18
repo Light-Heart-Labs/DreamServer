@@ -1,9 +1,12 @@
 """Tests for updates router endpoints."""
 
 import json
+import sys
 from unittest.mock import patch, MagicMock, AsyncMock
 
+import pytest
 import httpx
+from fastapi import HTTPException
 
 
 def test_get_version_requires_auth(test_client):
@@ -124,6 +127,23 @@ def test_trigger_update_no_script(test_client):
     assert resp.status_code == 501
 
 
+def test_update_command_windows_requires_usable_bash(monkeypatch, tmp_path):
+    """Windows update actions fail clearly when no usable Bash runtime exists."""
+    import routers.updates as updates_mod
+
+    script = tmp_path / "dream-update.sh"
+    script.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+
+    monkeypatch.setattr(updates_mod.os, "name", "nt")
+    monkeypatch.setattr(updates_mod, "_find_usable_bash", lambda: None)
+
+    with pytest.raises(HTTPException) as exc:
+        updates_mod._update_command(script, "check")
+
+    assert exc.value.status_code == 501
+    assert "usable Bash runtime" in exc.value.detail
+
+
 # ---------------------------------------------------------------------------
 # /api/releases/manifest — mocked httpx
 # ---------------------------------------------------------------------------
@@ -197,6 +217,30 @@ def test_releases_manifest_github_error_fallback(test_client, tmp_path, monkeypa
     assert len(data["releases"]) == 1
     assert data["releases"][0]["version"] == "1.2.3"
     assert "error" in data
+
+
+def test_releases_manifest_github_error_fallback_reads_json_version(test_client, tmp_path, monkeypatch):
+    """GET /api/releases/manifest reads JSON-formatted .version files."""
+    import routers.updates as updates_mod
+
+    install_dir = tmp_path / "dream-server"
+    install_dir.mkdir()
+    (install_dir / ".version").write_text(json.dumps({"version": "3.1.4"}))
+    monkeypatch.setattr(updates_mod, "INSTALL_DIR", str(install_dir))
+
+    async def mock_get(url, **kwargs):
+        raise httpx.HTTPError("connection failed")
+
+    mock_client = AsyncMock()
+    mock_client.get = mock_get
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("routers.updates.httpx.AsyncClient", return_value=mock_client):
+        resp = test_client.get("/api/releases/manifest", headers=test_client.auth_headers)
+
+    assert resp.status_code == 200
+    assert resp.json()["releases"][0]["version"] == "3.1.4"
 
 
 # ---------------------------------------------------------------------------
@@ -345,9 +389,14 @@ def test_trigger_update_invalid_action(test_client, tmp_path, monkeypatch):
     scripts_dir = tmp_path / "scripts"
     scripts_dir.mkdir()
     script = scripts_dir / "dream-update.sh"
-    script.write_text("#!/bin/bash\nexit 0")
+    script.write_text("import sys\nsys.exit(0)\n")
     script.chmod(0o755)
     monkeypatch.setattr(updates_mod, "INSTALL_DIR", str(install_dir))
+    monkeypatch.setattr(
+        updates_mod,
+        "_update_command",
+        lambda script_path, *args: [sys.executable, str(script_path), *args],
+    )
 
     resp = test_client.post(
         "/api/update",
@@ -372,9 +421,14 @@ def test_trigger_update_action_update(test_client, tmp_path, monkeypatch):
     scripts_dir = tmp_path / "scripts"
     scripts_dir.mkdir()
     script = scripts_dir / "dream-update.sh"
-    script.write_text("#!/bin/bash\nexit 0")
+    script.write_text("import sys\nsys.exit(0)\n")
     script.chmod(0o755)
     monkeypatch.setattr(updates_mod, "INSTALL_DIR", str(install_dir))
+    monkeypatch.setattr(
+        updates_mod,
+        "_update_command",
+        lambda script_path, *args: [sys.executable, str(script_path), *args],
+    )
 
     resp = test_client.post(
         "/api/update",
@@ -401,9 +455,14 @@ def test_trigger_update_action_check(test_client, tmp_path, monkeypatch):
     scripts_dir = tmp_path / "scripts"
     scripts_dir.mkdir()
     script = scripts_dir / "dream-update.sh"
-    script.write_text("#!/bin/bash\necho 'no updates'\nexit 0")
+    script.write_text("import sys\nprint('no updates')\nsys.exit(0)\n")
     script.chmod(0o755)
     monkeypatch.setattr(updates_mod, "INSTALL_DIR", str(install_dir))
+    monkeypatch.setattr(
+        updates_mod,
+        "_update_command",
+        lambda script_path, *args: [sys.executable, str(script_path), *args],
+    )
 
     resp = test_client.post(
         "/api/update",
@@ -431,9 +490,14 @@ def test_trigger_update_action_backup(test_client, tmp_path, monkeypatch):
     scripts_dir = tmp_path / "scripts"
     scripts_dir.mkdir()
     script = scripts_dir / "dream-update.sh"
-    script.write_text("#!/bin/bash\necho 'backup complete'\nexit 0")
+    script.write_text("import sys\nprint('backup complete')\nsys.exit(0)\n")
     script.chmod(0o755)
     monkeypatch.setattr(updates_mod, "INSTALL_DIR", str(install_dir))
+    monkeypatch.setattr(
+        updates_mod,
+        "_update_command",
+        lambda script_path, *args: [sys.executable, str(script_path), *args],
+    )
 
     resp = test_client.post(
         "/api/update",

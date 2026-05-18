@@ -631,6 +631,21 @@ except Exception:
     # Step 3: catch any stragglers from the second pass
     $DOCKER_CMD start $($DOCKER_CMD ps -a --filter status=created -q) 2>/dev/null || true
 
+    # If DREAM_AGENT_BIND is unset, the Linux host-agent binds to the Dream
+    # Docker network gateway once that network exists. Phase 07 may have
+    # started it before compose created dream-network, so restart it here to
+    # let the safer scoped bind take effect.
+    if [[ -z "${DREAM_AGENT_BIND:-}" ]] \
+      && [[ "$(uname -s 2>/dev/null || echo unknown)" == "Linux" ]] \
+      && command -v systemctl >/dev/null 2>&1 \
+      && sudo -n systemctl is-enabled dream-host-agent.service >/dev/null 2>&1; then
+        if sudo -n systemctl restart dream-host-agent.service 2>&1 | tee -a "$LOG_FILE" >/dev/null; then
+            ai_ok "Restarted dream-host-agent after dream-network creation"
+        else
+            ai_warn "dream-host-agent restart after network creation failed (non-fatal)"
+        fi
+    fi
+
     # dashboard-api reaches the host agent from the compose network gateway.
     # With default-DROP UFW/firewalld, the host INPUT chain can block that
     # traffic. Add a scoped rule only after compose has created dream-network,

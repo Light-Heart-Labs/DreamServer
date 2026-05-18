@@ -126,17 +126,17 @@ def load_core_service_ids(config_path: Path) -> set:
         return set(_FALLBACK_CORE_IDS)
 
 
-def _detect_docker_bridge_gateway() -> str:
-    """Detect the Docker bridge gateway IP for secure binding on Linux.
+def _detect_docker_network_gateway(network_name: str) -> str:
+    """Detect a Docker network gateway IP for scoped host-agent binding.
 
-    Returns the gateway IP (e.g. '172.17.0.1') or empty string on failure.
-    Containers reach this IP via the host-gateway extra_hosts mapping,
-    while LAN devices cannot (it's on a virtual bridge interface).
+    Returns the gateway IP (for example ``172.18.0.1``) or empty string on
+    failure. Containers on that Docker network can reach this address, while
+    LAN devices cannot route to it directly.
     """
     import ipaddress as _ipaddress
     try:
         result = subprocess.run(
-            ["docker", "network", "inspect", "bridge",
+            ["docker", "network", "inspect", network_name,
              "--format", "{{(index .IPAM.Config 0).Gateway}}"],
             capture_output=True, text=True, timeout=10,
         )
@@ -144,19 +144,48 @@ def _detect_docker_bridge_gateway() -> str:
             addr = result.stdout.strip()
             if addr:
                 _ipaddress.ip_address(addr)  # validate — Docker can return "<no value>"
-                logger.info("Detected Docker bridge gateway: %s", addr)
+                logger.info("Detected Docker network gateway for %s: %s", network_name, addr)
                 return addr
         else:
             logger.warning(
-                "Docker bridge gateway detection failed (exit %d): %s",
+                "Docker network gateway detection failed for %s (exit %d): %s",
+                network_name,
                 result.returncode,
                 result.stderr.strip() or "<no stderr>",
             )
     except ValueError:
-        logger.debug("Docker bridge returned non-IP value, ignoring")
+        logger.debug("Docker network %s returned non-IP gateway value, ignoring", network_name)
     except (subprocess.SubprocessError, OSError) as exc:
-        logger.warning("Docker bridge detection failed: %s", exc)
+        logger.warning("Docker network gateway detection failed for %s: %s", network_name, exc)
     return ""
+
+
+def _detect_docker_bridge_gateway() -> str:
+    """Detect Docker's default bridge gateway as a compatibility fallback."""
+    return _detect_docker_network_gateway("bridge")
+
+
+def _resolve_agent_bind_addr(env: dict, system_name: str | None = None) -> str:
+    """Resolve the host-agent bind address without exposing LAN by default."""
+    explicit = env.get("DREAM_AGENT_BIND", "").strip()
+    if explicit:
+        return explicit
+
+    system_name = system_name or platform.system()
+    if system_name in ("Darwin", "Windows"):
+        return "127.0.0.1"
+
+    if system_name == "Linux":
+        # Prefer Dream's actual compose network. The bridge fallback keeps
+        # older/partial installs reachable without binding the Docker
+        # management API to every LAN interface.
+        return (
+            _detect_docker_network_gateway("dream-network")
+            or _detect_docker_bridge_gateway()
+            or "127.0.0.1"
+        )
+
+    return "127.0.0.1"
 
 
 def invalidate_compose_cache() -> None:
@@ -3713,26 +3742,12 @@ def main():
         pid_path.write_text(str(os.getpid()), encoding="utf-8")
         atexit.register(lambda: pid_path.unlink(missing_ok=True))
 
-    # Determine bind address: env var override, or platform-aware default.
-    # macOS/Windows: 127.0.0.1 (Docker Desktop routes host.docker.internal to loopback)
-    # Linux: 0.0.0.0 — bind to all interfaces. Earlier versions bound to the
-    #   Docker bridge gateway (typically 172.17.0.1) to keep the agent off the
-    #   LAN, but that broke containers on custom networks like dream-network
-    #   (172.18.x.x) which can't route to 172.17.0.1 across Docker's default
-    #   bridge isolation. Reproduced on every fleet-test run as
-    #   `503 Host agent unreachable: <urlopen error timed out>` from
-    #   POST /api/models/{id}/download.
-    #   All endpoints already require Authorization: Bearer DREAM_AGENT_KEY,
-    #   which is the de-facto gate — the bind restriction was defense-in-depth,
-    #   not the primary control. With a 64-char hex key (256 bits of entropy),
-    #   brute-force is infeasible; LAN exposure is bounded by key custody.
-    #   Operators on hostile LANs can restrict via DREAM_AGENT_BIND=<ip> in .env.
-    bind_addr = env.get("DREAM_AGENT_BIND", "").strip()
-    if not bind_addr:
-        if platform.system() in ("Darwin", "Windows"):
-            bind_addr = "127.0.0.1"
-        else:
-            bind_addr = "0.0.0.0"
+    # Determine bind address: explicit env override, or a platform-aware safe
+    # default. Linux prefers the dream-network gateway so dashboard-api
+    # containers can reach the agent without exposing it to the LAN. The bridge
+    # gateway fallback keeps partial/older installs reachable until phase 11 can
+    # restart the service after dream-network exists.
+    bind_addr = _resolve_agent_bind_addr(env)
 
     server = ThreadedHTTPServer((bind_addr, port), AgentHandler)
     signal.signal(signal.SIGTERM, lambda *_: server.shutdown())

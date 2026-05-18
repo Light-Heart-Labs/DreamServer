@@ -3,7 +3,10 @@
 import asyncio
 import json
 import logging
+import os
 import re
+import shutil
+import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +29,12 @@ _GITHUB_HEADERS = {"Accept": "application/vnd.github.v3+json"}
 _VERSION_CACHE_TTL = 300.0
 _version_cache: dict[str, object] = {"expires_at": 0.0, "payload": None}
 _version_refresh_task: Optional[asyncio.Task] = None
+_usable_bash: Optional[str] | bool = None
+
+
+def _read_utf8(path: Path) -> str:
+    """Read repository text files consistently across Windows and Linux."""
+    return path.read_text(encoding="utf-8")
 
 
 def _read_current_version() -> str:
@@ -33,7 +42,7 @@ def _read_current_version() -> str:
     env_file = Path(INSTALL_DIR) / ".env"
     if env_file.exists():
         try:
-            for line in env_file.read_text().splitlines():
+            for line in _read_utf8(env_file).splitlines():
                 if line.startswith("DREAM_VERSION="):
                     return line.split("=", 1)[1].strip().strip("\"'")
         except OSError:
@@ -41,15 +50,19 @@ def _read_current_version() -> str:
     version_file = Path(INSTALL_DIR) / ".version"
     if version_file.exists():
         try:
-            raw = version_file.read_text().strip()
+            raw = _read_utf8(version_file).strip()
             if raw:
+                if raw.startswith("{"):
+                    data = json.loads(raw)
+                    if isinstance(data, dict) and data.get("version"):
+                        return str(data["version"])
                 return raw
-        except OSError:
+        except (OSError, json.JSONDecodeError, ValueError):
             pass
     manifest_file = Path(INSTALL_DIR) / "manifest.json"
     if manifest_file.exists():
         try:
-            data = json.loads(manifest_file.read_text())
+            data = json.loads(_read_utf8(manifest_file))
             version = (
                 data.get("release", {}).get("version")
                 or data.get("dream_version")
@@ -62,12 +75,62 @@ def _read_current_version() -> str:
     main_file = Path(__file__).resolve().parents[1] / "main.py"
     if main_file.exists():
         try:
-            match = re.search(r'version\s*=\s*"([^"]+)"', main_file.read_text())
+            match = re.search(r'version\s*=\s*"([^"]+)"', _read_utf8(main_file))
             if match:
                 return match.group(1)
         except OSError:
             pass
     return "0.0.0"
+
+
+def _find_usable_bash() -> Optional[str]:
+    """Return a Bash executable that can actually run scripts on this host."""
+    global _usable_bash
+    if isinstance(_usable_bash, str):
+        return _usable_bash
+    if _usable_bash is False:
+        return None
+
+    bash = shutil.which("bash")
+    if not bash:
+        _usable_bash = False
+        return None
+
+    try:
+        result = subprocess.run(
+            [bash, "-lc", "printf ok"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        _usable_bash = False
+        return None
+
+    if result.returncode == 0 and result.stdout == "ok":
+        _usable_bash = bash
+        return bash
+    _usable_bash = False
+    return None
+
+
+def _update_command(script_path: Path, *args: str) -> list[str]:
+    """Build a platform-aware command for dream-update.sh."""
+    if os.name != "nt":
+        return [str(script_path), *args]
+
+    bash = _find_usable_bash()
+    if bash:
+        return [bash, str(script_path), *args]
+
+    raise HTTPException(
+        status_code=501,
+        detail=(
+            "Update actions require a usable Bash runtime on Windows. "
+            "Run this action inside the Dream Server Linux container/WSL path "
+            "or install Git Bash and retry."
+        ),
+    )
 
 
 def _get_cached_release_payload(allow_stale: bool = False) -> Optional[dict]:
@@ -208,13 +271,13 @@ async def get_update_dry_run():
     version_file = install_path / ".version"
 
     if env_file.exists():
-        for line in env_file.read_text().splitlines():
+        for line in _read_utf8(env_file).splitlines():
             if line.startswith("DREAM_VERSION="):
                 current = line.split("=", 1)[1].strip()
                 break
     if current == "0.0.0" and version_file.exists():
         try:
-            raw = version_file.read_text().strip()
+            raw = _read_utf8(version_file).strip()
             parsed = json.loads(raw) if raw.startswith("{") else None
             current = (parsed or {}).get("version", raw) or raw or "0.0.0"
         except (json.JSONDecodeError, OSError):
@@ -246,7 +309,7 @@ async def get_update_dry_run():
     images: list[str] = []
     for compose_file in sorted(install_path.glob("docker-compose*.yml")):
         try:
-            for line in compose_file.read_text().splitlines():
+            for line in _read_utf8(compose_file).splitlines():
                 stripped = line.strip()
                 if stripped.startswith("image:"):
                     tag = stripped.split(":", 1)[1].strip()
@@ -258,7 +321,7 @@ async def get_update_dry_run():
     # ── .env keys relevant to the update path ────────────────────────────────
     env_snapshot: dict[str, str] = {}
     if env_file.exists():
-        for line in env_file.read_text().splitlines():
+        for line in _read_utf8(env_file).splitlines():
             line = line.strip()
             if not line or line.startswith("#") or "=" not in line:
                 continue
@@ -297,7 +360,7 @@ async def trigger_update(action: UpdateAction, background_tasks: BackgroundTasks
     if action.action == "check":
         try:
             proc = await asyncio.create_subprocess_exec(
-                str(script_path), "check",
+                *_update_command(script_path, "check"),
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
@@ -310,7 +373,7 @@ async def trigger_update(action: UpdateAction, background_tasks: BackgroundTasks
     elif action.action == "backup":
         try:
             proc = await asyncio.create_subprocess_exec(
-                str(script_path), "backup", f"dashboard-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
+                *_update_command(script_path, "backup", f"dashboard-{datetime.now().strftime('%Y%m%d-%H%M%S')}"),
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
@@ -321,10 +384,12 @@ async def trigger_update(action: UpdateAction, background_tasks: BackgroundTasks
             logger.exception("Backup failed")
             raise HTTPException(status_code=500, detail="Backup failed")
     elif action.action == "update":
+        command = _update_command(script_path, "update")
+
         async def run_update():
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    str(script_path), "update",
+                    *command,
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
                 )
                 await proc.communicate()

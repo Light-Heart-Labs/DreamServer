@@ -70,20 +70,23 @@ from settings import (
 # TTL Cache — avoids redundant subprocess/IO calls every poll cycle
 # ================================================================
 
+_CACHE_MISS = object()
+
+
 class TTLCache:
     """Simple in-memory cache with per-key TTL (seconds)."""
 
     def __init__(self):
         self._store: dict[str, tuple[float, object]] = {}
 
-    def get(self, key: str) -> object | None:
+    def get(self, key: str, default: object | None = None) -> object | None:
         entry = self._store.get(key)
         if entry is None:
-            return None
+            return default
         expires_at, value = entry
         if time.monotonic() > expires_at:
             del self._store[key]
-            return None
+            return default
         return value
 
     def set(self, key: str, value: object, ttl: float):
@@ -127,8 +130,12 @@ def _read_installed_version() -> str:
         try:
             raw = version_file.read_text().strip()
             if raw:
+                if raw.startswith("{"):
+                    data = json.loads(raw)
+                    if isinstance(data, dict) and data.get("version"):
+                        return str(data["version"])
                 return raw
-        except OSError:
+        except (OSError, json.JSONDecodeError, ValueError):
             pass
 
     manifest_file = install_root / "manifest.json"
@@ -569,7 +576,7 @@ async def _lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Dream Server Dashboard API",
-    version="2.0.0",
+    version="2.4.0",
     description="System status API for Dream Server Dashboard",
     lifespan=_lifespan,
 )
@@ -730,8 +737,8 @@ async def preflight_disk():
 @app.get("/gpu", response_model=Optional[GPUInfo])
 async def gpu(api_key: str = Depends(verify_api_key)):
     """Get GPU metrics (cached for a few seconds to avoid nvidia-smi spam)."""
-    cached = _cache.get("gpu_info")
-    if cached is not None:
+    cached = _cache.get("gpu_info", _CACHE_MISS)
+    if cached is not _CACHE_MISS:
         if not cached:
             raise HTTPException(status_code=503, detail="GPU not available")
         return cached

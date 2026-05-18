@@ -1,14 +1,30 @@
 """Tests for main.py — core endpoints and helper functions."""
 
+import json
 import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from main import get_allowed_origins, _build_api_status, _fallback_services, _serialize_services, TTLCache
+from main import (
+    TTLCache,
+    _build_api_status,
+    _fallback_services,
+    _read_installed_version,
+    _serialize_services,
+    get_allowed_origins,
+)
 
 
 # --- get_allowed_origins ---
+
+
+def test_read_installed_version_parses_json_version_file(tmp_path, monkeypatch):
+    version_file = tmp_path / ".version"
+    version_file.write_text(json.dumps({"version": "3.1.4"}), encoding="utf-8")
+    monkeypatch.setattr("main._resolve_install_root", lambda: tmp_path)
+
+    assert _read_installed_version() == "3.1.4"
 
 
 class TestGetAllowedOrigins:
