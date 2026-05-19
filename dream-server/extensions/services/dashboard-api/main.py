@@ -696,7 +696,9 @@ async def health():
 async def host_agent_diagnostics():
     """Report how dashboard-api resolves and reaches the host agent."""
     inside_container = await asyncio.to_thread(_running_inside_container)
-    default_gateway = await asyncio.to_thread(_detect_container_default_gateway)
+    default_gateway = None
+    if inside_container:
+        default_gateway = await asyncio.to_thread(_detect_container_default_gateway)
     probe = await asyncio.to_thread(_probe_host_agent_health)
     probe["last_success_at"] = _host_agent_probe_state["last_success_at"]
     probe["last_error"] = _host_agent_probe_state["last_error"]

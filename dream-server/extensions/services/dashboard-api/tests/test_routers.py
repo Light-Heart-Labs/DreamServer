@@ -83,6 +83,41 @@ def test_host_agent_diagnostics_success(test_client, monkeypatch):
     }
 
 
+def test_host_agent_diagnostics_omits_gateway_outside_container(test_client, monkeypatch):
+    """Host-side diagnostics should not report a host route as a container gateway."""
+    import main as main_mod
+
+    monkeypatch.setattr(main_mod, "AGENT_URL", "http://127.0.0.1:7710")
+    monkeypatch.setattr(main_mod, "AGENT_HOST", "127.0.0.1")
+    monkeypatch.setattr(main_mod, "AGENT_PORT", 7710)
+    monkeypatch.setattr(main_mod, "DREAM_AGENT_KEY", "")
+    monkeypatch.setattr(main_mod, "_running_inside_container", lambda: False)
+    monkeypatch.setattr(
+        main_mod,
+        "_detect_container_default_gateway",
+        lambda: (_ for _ in ()).throw(AssertionError("gateway detection should not run")),
+    )
+    monkeypatch.setattr(
+        main_mod,
+        "_probe_host_agent_health",
+        lambda: {
+            "available": False,
+            "status_code": None,
+            "response": None,
+            "error": "not checked",
+            "checked_at": "2026-01-01T00:00:00+00:00",
+        },
+    )
+    monkeypatch.setattr(main_mod, "_host_agent_probe_state", {"last_success_at": None, "last_error": None})
+
+    resp = test_client.get("/api/host-agent/diagnostics", headers=test_client.auth_headers)
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["container"]["inside_container"] is False
+    assert data["container"]["default_gateway"] is None
+
+
 def test_host_agent_diagnostics_failure_keeps_last_success(test_client, monkeypatch):
     """A failed probe reports the error without discarding last success."""
     import main as main_mod
