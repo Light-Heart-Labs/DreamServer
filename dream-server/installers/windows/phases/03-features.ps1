@@ -8,7 +8,7 @@
 # Reads:
 #   $voiceFlag, $workflowsFlag, $ragFlag, $recommendedFlag, $hermesFlag,
 #   $openClawFlag, $allFlag
-#   $comfyuiFlag, $noComfyuiFlag
+#   $noRecommendedFlag, $comfyuiFlag, $noHermesFlag, $noComfyuiFlag
 #   $nonInteractive  -- suppress menus (use flag defaults)
 #   $dryRun          -- skip prompts, log only
 #   $selectedTier    -- from phase 02, for tier-appropriate OpenClaw config
@@ -32,18 +32,20 @@
 Write-Phase -Phase 3 -Total 13 -Name "FEATURE SELECTION" -Estimate "interactive"
 
 # ── Defaults from CLI flags ────────────────────────────────────────────────────
-$enableVoice        = $voiceFlag -or $allFlag
-$enableWorkflows    = $workflowsFlag -or $allFlag
-$enableRag          = $ragFlag -or $allFlag
-$enableRecommended  = ($recommendedFlag -or $allFlag) -and (-not $noRecommendedFlag)
-$enableHermes       = ($hermesFlag -or $allFlag) -and (-not $noHermesFlag)
-$enableOpenClaw     = $openClawFlag
-$enableComfyui      = -not $noComfyuiFlag
-$enableDeepResearch = $allFlag
-$enablePrivacyShield = $allFlag
-$enableBraveSearch  = $false
-$enableDreamProxy   = $false
-$enableRemoteAccess = $false
+$enableVoice         = $voiceFlag -or $allFlag
+$enableWorkflows     = $workflowsFlag -or $allFlag
+$enableRag           = $ragFlag -or $allFlag
+$enableRecommended   = (-not $noRecommendedFlag) -and ($recommendedFlag -or $allFlag -or (-not $nonInteractive))
+if ($nonInteractive -and -not $noRecommendedFlag) { $enableRecommended = $true }
+$enableHermes        = (-not $noHermesFlag) -and ($hermesFlag -or $allFlag -or (-not $nonInteractive))
+if ($nonInteractive -and -not $noHermesFlag) { $enableHermes = $true }
+$enableOpenClaw      = $openClawFlag
+$enableComfyui       = -not $noComfyuiFlag
+$enableDeepResearch  = $true
+$enablePrivacyShield = $true
+$enableBraveSearch   = $false
+$enableDreamProxy    = $false
+$enableRemoteAccess  = $false
 # Langfuse defaults OFF on all tiers because its clickhouse + postgres + minio
 # stack adds ~500MB baseline memory. Opt in via -Langfuse, -All, the Custom
 # menu, or post-install `dream enable langfuse`. -NoLangfuse is honored as an
@@ -81,7 +83,7 @@ if (-not $nonInteractive -and -not $allFlag -and -not $dryRun) {
             $enableRag       = (Read-Host "  Enable RAG (Qdrant vector DB + embeddings)? [y/N]") -match "^[yY]"
             $enableRecommended = (Read-Host "  Enable recommended web/API support (LiteLLM + SearXNG + Token Spy)? [Y/n]") -notmatch "^[nN]"
             $enableHermes    = (Read-Host "  Enable Hermes Agent (default AI agent)? [Y/n]") -notmatch "^[nN]"
-            $enableOpenClaw  = (Read-Host "  Enable OpenClaw (DEPRECATED legacy agent)? [y/N]") -match "^[yY]"
+            $enableOpenClaw  = (Read-Host "  Enable OpenClaw (DEPRECATED; Hermes replaces it)? [y/N]") -match "^[yY]"
             $enableComfyui   = (Read-Host "  Enable image generation (ComfyUI + SDXL Lightning, ~6.5GB)? [y/N]") -match "^[yY]"
             $enableDeepResearch = (Read-Host "  Enable Perplexica deep research? [Y/n]") -notmatch "^[nN]"
             $enablePrivacyShield = (Read-Host "  Enable Privacy Shield PII protection? [Y/n]") -notmatch "^[nN]"
@@ -116,6 +118,14 @@ if (-not $nonInteractive -and -not $allFlag -and -not $dryRun) {
     }
 }
 
+if ($noHermesFlag) {
+    $enableHermes = $false
+}
+
+if ($noRecommendedFlag) {
+    $enableRecommended = $false
+}
+
 # Tier safety net: disable ComfyUI on Tier 0/1 or CLOUD in non-interactive mode.
 # Interactive mode has its own tier checks in the menu -- this catches -NonInteractive.
 if ($nonInteractive -and $enableComfyui -and ($selectedTier -eq "0" -or $selectedTier -eq "1")) {
@@ -127,6 +137,14 @@ if ($nonInteractive -and $enableComfyui -and ($selectedTier -eq "0" -or $selecte
 if ($enableComfyui -and $selectedTier -eq "CLOUD") {
     $enableComfyui = $false
     Write-AIWarn "ComfyUI disabled for CLOUD tier (requires local GPU for image generation)"
+}
+
+if ($enableHermes -and -not $cloudMode) {
+    $hermesContextSize = 131072
+    if ([int]$tierConfig.MaxContext -lt $hermesContextSize) {
+        Write-AIWarn "Hermes enabled: increasing llama context from $($tierConfig.MaxContext) to $hermesContextSize (128K)."
+        $tierConfig.MaxContext = $hermesContextSize
+    }
 }
 
 # ── Feature summary ───────────────────────────────────────────────────────────
