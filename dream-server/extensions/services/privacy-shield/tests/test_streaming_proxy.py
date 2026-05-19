@@ -131,6 +131,58 @@ class TestStreamingNotBuffered:
         )
 
 
+# ── 1b. Oversized-text cutover keeps ONE upstream iterator (#1268) ─────────
+#
+# When a textual body crosses SHIELD_RESTORE_MAX_BYTES mid-stream, body_iter()
+# stops PII-restoring and passes the rest through untouched. The bug: it used
+# to start a *fresh* raw_chunks() loop after the cutover, abandoning the
+# original aiter_raw() generator and trying to iterate the single-consumption
+# httpx response a second time — silently dropping/truncating the remainder of
+# a large text response. Fix: keep draining the SAME already-open iterator.
+
+class TestOversizedTextCutover:
+    def test_oversized_text_remainder_not_dropped(
+        self, client, install_upstream, monkeypatch
+    ):
+        # Tiny cap so a modest multi-chunk text body trips the cutover. No
+        # Content-Length header → declared_len == -1, so do_restore stays True
+        # and the size check happens mid-stream (the buggy code path).
+        monkeypatch.setattr(proxy, "RESTORE_MAX_BYTES", 16)
+
+        # Chunks straddle the 16-byte cap: the cap is crossed inside chunk 2,
+        # and chunks 3..5 are the post-cutover remainder that the old code
+        # dropped by re-iterating the consumed httpx response.
+        chunks = [
+            b"AAAAAAAAAA",          # 10 bytes  (seen=10, under cap)
+            b"BBBBBBBBBB",          # 10 bytes  (seen=20, crosses cap=16)
+            b"CCCCCCCCCCCCCCCCCCC",  # 19 bytes  remainder
+            b"DDDDDDDDDDDDDDDDDDD",  # 19 bytes  remainder
+            b"EEEEEEEEEEEEEEEEEEEE",  # 20 bytes  remainder (final)
+        ]
+        expected = b"".join(chunks)
+
+        install_upstream(
+            lambda r: _resp(
+                200, {"content-type": "text/plain"}, list(chunks)
+            )
+        )
+        with client.stream(
+            "POST", "/v1/chat/completions", headers=AUTH,
+            json={"messages": [{"role": "user", "content": "no pii here"}]},
+        ) as resp:
+            assert resp.status_code == 200
+            body = b"".join(resp.iter_bytes())
+
+        # Byte-for-byte: the post-cutover remainder (chunks 3-5) must NOT be
+        # dropped or truncated. There is no PII, so restore is identity and
+        # the proxied body must equal the upstream body exactly.
+        assert body == expected, (
+            "oversized-text remainder dropped/truncated — proxy re-iterated "
+            f"the single-consumption upstream stream: got {len(body)} bytes "
+            f"({body!r}), expected {len(expected)} ({expected!r})"
+        )
+
+
 # ── 2. PII token split across SSE chunk boundary round-trips ───────────────
 
 class TestSSEBoundaryScrub:

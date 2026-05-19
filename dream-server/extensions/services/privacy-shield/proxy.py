@@ -368,22 +368,31 @@ async def proxy(request: Request, path: str):
                 yield raw
 
     async def body_iter():
+        # One iterator for the whole response. httpx response streams are
+        # single-consumption, so the oversized-text cutover must keep draining
+        # *this same* generator (switching mode to raw passthrough and
+        # re-emitting the chunk that crossed the cap) rather than calling
+        # raw_chunks() a second time — re-iterating the httpx response would
+        # drop the remainder of a large text body.
+        chunks = raw_chunks()
         try:
             if do_restore:
                 # do_restore is only true when the body is uncompressed text,
                 # so raw bytes == decoded bytes here and stay byte-exact.
                 restorer = StreamRestorer(shield.detector, charset)
                 seen = 0
-                async for chunk in raw_chunks():
+                async for chunk in chunks:
                     seen += len(chunk)
                     if seen > RESTORE_MAX_BYTES:
                         # Exceeded cap mid-stream: stop restoring, flush what
                         # we held, then pass the rest through untouched.
+                        # Continue draining the SAME iterator — do NOT
+                        # re-iterate the upstream response.
                         tail = restorer.finalize()
                         if tail:
                             yield tail.encode(charset, "replace")
                         yield chunk
-                        async for rest in raw_chunks():
+                        async for rest in chunks:
                             yield rest
                         return
                     out = restorer.feed(chunk)
@@ -395,13 +404,14 @@ async def proxy(request: Request, path: str):
             else:
                 # Transparent byte-for-byte passthrough (compressed/binary):
                 # raw bytes preserve the original transport encoding.
-                async for chunk in raw_chunks():
+                async for chunk in chunks:
                     yield chunk
         except httpx.TimeoutException:
             logger.warning("Privacy shield upstream timeout mid-stream")
         except Exception as exc:  # noqa: BLE001 - sanitized below
             logger.error("Privacy shield stream error: %s", _sanitize_error(exc))
         finally:
+            await chunks.aclose()
             await cm.__aexit__(None, None, None)
 
     return StreamingResponse(
