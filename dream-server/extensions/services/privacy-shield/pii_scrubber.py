@@ -4,6 +4,7 @@ M3: API Privacy Shield - Core PII Scrubber
 Detects and replaces PII with tokens, restores on reverse.
 """
 
+import codecs
 import re
 import hashlib
 import secrets
@@ -113,6 +114,17 @@ class PIIDetector:
             restored = restored.replace(token, original)
         return restored
 
+    def max_token_len(self) -> int:
+        """Length of the longest active PII token (0 if none).
+
+        The streaming restorer uses this to bound the hold-back buffer so a
+        token straddling a chunk boundary is never emitted half-restored,
+        while the buffer can never grow without limit on hostile input.
+        """
+        if not self.pii_map:
+            return 0
+        return max(len(token) for token in self.pii_map)
+
     def get_stats(self) -> Dict:
         """Return statistics about detected PII."""
         return {
@@ -121,6 +133,87 @@ class PIIDetector:
                 token.split('_')[1] for token in self.pii_map.keys()
             ))
         }
+
+
+class StreamRestorer:
+    """Incremental, boundary-safe PII restore for streamed responses.
+
+    A PII token (e.g. ``<PII_email_a1b2c3d4e5f6>``) can be split across two
+    network chunks. Restoring each chunk independently would miss any token
+    that straddles the boundary. This holds back a minimal trailing slice
+    that could still be the start of an in-flight token, releasing (and
+    restoring) everything else immediately so streaming latency stays low.
+
+    It also owns an incremental decoder so a multi-byte character split
+    across chunks decodes correctly; undecodable bytes are replaced rather
+    than raising, so a mislabelled body degrades instead of killing the
+    whole stream.
+    """
+
+    # Every generated token starts with this sentinel. Nothing before the
+    # last occurrence of an *unterminated* sentinel needs to be held.
+    _PREFIX = "<PII_"
+    _SUFFIX = ">"
+
+    def __init__(self, detector: "PIIDetector", encoding: str = "utf-8"):
+        self._detector = detector
+        try:
+            self._decoder = codecs.getincrementaldecoder(encoding)(errors="replace")
+        except (LookupError, TypeError):
+            self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self._carry = ""
+
+    def _holdback_len(self, text: str) -> int:
+        """Number of trailing chars of *text* that must be withheld.
+
+        We must withhold the shortest suffix S such that S could still grow
+        into a complete token once more bytes arrive. Two cases:
+
+        * An unterminated full prefix ``<PII_`` is present with no closing
+          ``>`` after it -> hold from that prefix onward (a token is open).
+        * No full prefix, but the tail is itself a proper prefix of
+          ``<PII_`` (the sentinel was split) -> hold that partial prefix.
+
+        The hold-back is capped at ``max_token_len`` so adversarial input
+        that never closes a token cannot grow the buffer unbounded.
+        """
+        max_tok = self._detector.max_token_len()
+        if max_tok == 0 or not text:
+            return 0
+
+        idx = text.rfind(self._PREFIX)
+        if idx != -1 and text.find(self._SUFFIX, idx) == -1:
+            # Open, unterminated token starting at idx.
+            hold = len(text) - idx
+            return min(hold, max_tok)
+
+        # No open full prefix: only worry about a split sentinel at the end.
+        max_partial = min(len(self._PREFIX) - 1, len(text))
+        for n in range(max_partial, 0, -1):
+            if text[-n:] == self._PREFIX[:n]:
+                return n
+        return 0
+
+    def feed(self, chunk: bytes) -> str:
+        """Decode + restore a chunk; return text safe to emit now."""
+        text = self._carry + self._decoder.decode(chunk)
+        hold = self._holdback_len(text)
+        if hold:
+            releasable, self._carry = text[:-hold], text[-hold:]
+        else:
+            releasable, self._carry = text, ""
+        if not releasable:
+            return ""
+        return self._detector.restore(releasable)
+
+    def finalize(self) -> str:
+        """Flush the decoder and carry buffer at end of stream."""
+        tail = self._decoder.decode(b"", True)
+        remaining = self._carry + tail
+        self._carry = ""
+        if not remaining:
+            return ""
+        return self._detector.restore(remaining)
 
 
 class PrivacyShield:
