@@ -470,12 +470,18 @@ if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --f
     # so the operator does not discover this hours later via a 502.
     if [[ "$_gpu_backend" != "amd" ]] && [[ -n "$DOCKER_CMD" ]]; then
         _running_cmd=$($DOCKER_CMD inspect dream-llama-server --format '{{join .Config.Cmd " "}}' 2>/dev/null || echo "")
-        if [[ -n "$_running_cmd" ]] && ! [[ "$_running_cmd" == *"/models/${FULL_GGUF_FILE}"* ]]; then
+        if [[ -z "$_running_cmd" ]]; then
+            log "ERROR: could not inspect llama-server container command after recreate."
+            log "  Recover with: cd $INSTALL_DIR && docker compose \$(cat .compose-flags) up -d --force-recreate --no-deps llama-server"
+            write_status "failed"
+            fail "llama-server command inspection failed after force-recreate."
+        elif ! [[ "$_running_cmd" == *"/models/${FULL_GGUF_FILE}"* ]]; then
             log "ERROR: llama-server container started with stale --model arg."
             log "  expected /models/${FULL_GGUF_FILE}, got: $_running_cmd"
             log "  This means 'compose up -d --force-recreate' did not recreate the container."
             log "  Recover with: cd $INSTALL_DIR && docker compose \$(cat .compose-flags) up -d --force-recreate --no-deps llama-server"
-            _healthy=false
+            write_status "failed"
+            fail "llama-server container started with stale --model arg after force-recreate."
         fi
     fi
 
