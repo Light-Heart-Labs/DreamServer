@@ -284,7 +284,8 @@ def rank_models(catalog: list[dict[str, Any]], capacity_gb: float, profile: str,
 
 def arch_policy_model(catalog: list[dict[str, Any]], tier: str, profile: str,
                       host_arch: str, memory_type: str,
-                      installable_only: bool) -> tuple[dict[str, Any] | None, str | None]:
+                      installable_only: bool,
+                      selected_model: dict[str, Any] | None = None) -> tuple[dict[str, Any] | None, str | None]:
     """Return (model, policy_tag) for an architecture-specific override, or (None, None).
 
     Two routes both substitute coder-next → Qwen3.6-35B-A3B-UD on unified
@@ -305,8 +306,12 @@ def arch_policy_model(catalog: list[dict[str, Any]], tier: str, profile: str,
         normalize_key(tier) == "nv-ultra"
         and normalize_host_arch(host_arch) == "arm64"
     )
-    is_unified_memory = normalize_key(memory_type) == "unified"
-    if not (is_spark_aarch64 or is_unified_memory):
+    is_unified_coder_next = (
+        normalize_key(memory_type) == "unified"
+        and selected_model is not None
+        and is_spark_aarch64_excluded_model(selected_model)
+    )
+    if not (is_spark_aarch64 or is_unified_coder_next):
         return None, None
 
     for model in catalog:
@@ -402,9 +407,6 @@ def main() -> int:
     profile = effective_profile(normalize_profile(args.profile), args.backend, args.tier)
     capacity_gb, memory_label = usable_memory_gb(args.backend, args.memory_type, args.vram_mb, args.ram_gb)
     confidence = "high" if args.backend not in {"unknown", "none"} and capacity_gb > 0 else "medium"
-    arch_selected, arch_policy_tag = arch_policy_model(
-        catalog, args.tier, profile, args.host_arch, args.memory_type, args.installable_only,
-    )
     ranked = rank_models(
         catalog,
         capacity_gb,
@@ -415,6 +417,9 @@ def main() -> int:
         args.vram_mb,
         args.ram_gb,
         args.host_arch,
+    )
+    arch_selected, arch_policy_tag = arch_policy_model(
+        catalog, args.tier, profile, args.host_arch, args.memory_type, args.installable_only, ranked[0],
     )
     if arch_selected:
         selected = arch_selected

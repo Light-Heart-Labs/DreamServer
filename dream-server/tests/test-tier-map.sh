@@ -299,6 +299,66 @@ assert_eq "SELECTOR_GGUF_FILE" "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf" "$GGUF_FILE"
 assert_eq "SELECTOR_POLICY" "context-aware-largest-capable-general-v1+unified-memory-coder-next-a3b-v1" "$MODEL_RECOMMENDATION_POLICY"
 echo ""
 
+echo "Catalog selector (16GB Apple unified qwen keeps ranked fit):"
+_selector_env="$(python3 "$SCRIPT_DIR/scripts/select-model.py" \
+    --catalog "$SCRIPT_DIR/config/model-library.json" \
+    --backend metal \
+    --memory-type unified \
+    --vram-mb 0 \
+    --ram-gb 16 \
+    --profile qwen \
+    --tier 1 \
+    --host-arch arm64 \
+    --installable-only \
+    --env)"
+LLM_MODEL="" GGUF_FILE="" MODEL_RECOMMENDATION_SOURCE="" MODEL_RECOMMENDATION_POLICY=""
+load_selector_env "$_selector_env"
+assert_eq "SELECTOR_LLM_MODEL" "qwen3.5-9b" "$LLM_MODEL"
+assert_eq "SELECTOR_GGUF_FILE" "Qwen3.5-9B-Q4_K_M.gguf" "$GGUF_FILE"
+assert_eq "SELECTOR_SOURCE" "catalog_fit_pre_download" "$MODEL_RECOMMENDATION_SOURCE"
+assert_eq "SELECTOR_POLICY" "context-aware-largest-capable-general-v1" "$MODEL_RECOMMENDATION_POLICY"
+echo ""
+
+echo "Catalog selector (32GB Apple unified qwen keeps ranked fit):"
+_selector_env="$(python3 "$SCRIPT_DIR/scripts/select-model.py" \
+    --catalog "$SCRIPT_DIR/config/model-library.json" \
+    --backend metal \
+    --memory-type unified \
+    --vram-mb 0 \
+    --ram-gb 32 \
+    --profile qwen \
+    --tier 2 \
+    --host-arch arm64 \
+    --installable-only \
+    --env)"
+LLM_MODEL="" GGUF_FILE="" MODEL_RECOMMENDATION_SOURCE="" MODEL_RECOMMENDATION_POLICY=""
+load_selector_env "$_selector_env"
+assert_eq "SELECTOR_LLM_MODEL" "phi-4" "$LLM_MODEL"
+assert_eq "SELECTOR_GGUF_FILE" "phi-4-Q4_K_M.gguf" "$GGUF_FILE"
+assert_eq "SELECTOR_SOURCE" "catalog_fit_pre_download" "$MODEL_RECOMMENDATION_SOURCE"
+assert_eq "SELECTOR_POLICY" "context-aware-largest-capable-general-v1" "$MODEL_RECOMMENDATION_POLICY"
+echo ""
+
+echo "Catalog selector (amd unified SH_COMPACT uses ranked A3B without override):"
+_selector_env="$(python3 "$SCRIPT_DIR/scripts/select-model.py" \
+    --catalog "$SCRIPT_DIR/config/model-library.json" \
+    --backend amd \
+    --memory-type unified \
+    --vram-mb 0 \
+    --ram-gb 64 \
+    --profile qwen \
+    --tier SH_COMPACT \
+    --host-arch amd64 \
+    --installable-only \
+    --env)"
+LLM_MODEL="" GGUF_FILE="" MODEL_RECOMMENDATION_SOURCE="" MODEL_RECOMMENDATION_POLICY=""
+load_selector_env "$_selector_env"
+assert_eq "SELECTOR_LLM_MODEL" "qwen3.6-35b-a3b" "$LLM_MODEL"
+assert_eq "SELECTOR_GGUF_FILE" "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf" "$GGUF_FILE"
+assert_eq "SELECTOR_SOURCE" "catalog_fit_pre_download" "$MODEL_RECOMMENDATION_SOURCE"
+assert_eq "SELECTOR_POLICY" "context-aware-largest-capable-general-v1" "$MODEL_RECOMMENDATION_POLICY"
+echo ""
+
 echo "Catalog selector (8GB NVIDIA qwen uses upstream catalog fit):"
 _selector_env="$(python3 "$SCRIPT_DIR/scripts/select-model.py" \
     --catalog "$SCRIPT_DIR/config/model-library.json" \
