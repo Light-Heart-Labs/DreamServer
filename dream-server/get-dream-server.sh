@@ -95,7 +95,12 @@ for _v in /sys/class/drm/card*/device/vendor; do
     case "$(cat "$_v" 2>/dev/null)" in
         0x10de) # NVIDIA
             if command -v nvidia-smi &> /dev/null; then
-                _info=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -1)
+                # Capture all output then take the first line in-shell. Piping
+                # `... | head -1` SIGPIPEs nvidia-smi (~17% on multi-GPU hosts):
+                # head closes the pipe after line 1, nvidia-smi exits 141, and
+                # pipefail propagates the failure → `set -e` aborts the bootstrap.
+                _info=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null) || _info=""
+                _info=${_info%%$'\n'*}
                 [[ -n "$_info" ]] && success "NVIDIA GPU detected: $_info" && _gpu_found=true
             else
                 success "NVIDIA GPU detected (driver not yet installed — installer will handle it)"
