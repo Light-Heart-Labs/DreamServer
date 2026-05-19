@@ -212,6 +212,142 @@ def test_approve_unknown_token(make_client):
     assert g.json()["granted"] is False
 
 
+# ── Approval is a REAL one-shot retry bypass (issue #1269 remediation) ───────
+
+
+def test_approval_authorizes_exactly_one_retry_then_reescalates(make_client):
+    """Maintainer-requested end-to-end proof:
+
+    exhaust the window -> /verify returns require_approval + token
+    -> /approve(token) -> retry the SAME action -> exactly ONE allow
+    -> retry again with no new approval -> require_approval again.
+
+    Before the fix /approve only popped the token and wrote an audit
+    record; the retry fell back through the still-exhausted window and
+    returned require_approval forever (the approval never authorized
+    anything).
+    """
+    client, _ = make_client(policy_yaml=LOW_LIMIT_POLICY)
+    action = dict(tool="web_fetch", args={"url": "http://x"}, session="oneshot")
+
+    # 1) Exhaust the NetworkFetch 5min window (cap = 3).
+    for _ in range(3):
+        assert _verify(client, **action).json()["decision"] == "allow"
+
+    # 2) Window exhausted → require_approval + a token.
+    escalated = _verify(client, **action).json()
+    assert escalated["decision"] == "require_approval"
+    assert escalated["allowed"] is False
+    token = escalated["approval_token"]
+    assert token and token.startswith("appr_")
+
+    # 3) Human approves.
+    g = client.post("/approve", json={"approval_token": token,
+                                      "approver": "human@x"})
+    assert g.status_code == 200 and g.json()["granted"] is True
+
+    # 4) Retry the SAME action → exactly ONE allow (grant consumed).
+    retry = _verify(client, **action).json()
+    assert retry["decision"] == "allow", (
+        "approval did not authorize the retry — still blocked by the "
+        "exhausted window (the original bug)"
+    )
+    assert retry["allowed"] is True
+    assert "one-shot approval grant consumed" in retry["reason"]
+
+    # 5) Retry AGAIN with no fresh approval → re-escalates (strictly
+    #    one-shot: the grant was not a broad cap lift).
+    again = _verify(client, **action).json()
+    assert again["decision"] == "require_approval", (
+        "grant was not one-shot — a second retry slipped through without "
+        "a new approval"
+    )
+    assert again["allowed"] is False
+    assert again["approval_token"] and again["approval_token"] != token
+
+
+def test_grant_is_tightly_keyed_to_session_tool_intent_args(make_client):
+    """A grant for one action must not unlock a *different* action."""
+    client, _ = make_client(policy_yaml=LOW_LIMIT_POLICY)
+    a = dict(tool="web_fetch", args={"url": "http://a"}, session="tight")
+    for _ in range(3):
+        _verify(client, **a)
+    token = _verify(client, **a).json()["approval_token"]
+    assert client.post("/approve",
+                       json={"approval_token": token}).json()["granted"]
+
+    # Different args under the same session/tool: the grant must NOT apply.
+    other = dict(tool="web_fetch", args={"url": "http://DIFFERENT"},
+                 session="tight")
+    r_other = _verify(client, **other).json()
+    assert r_other["decision"] == "require_approval", (
+        "one-shot grant leaked to a different invocation (args not part "
+        "of the grant key)"
+    )
+
+    # The exact approved action still gets its single bypass.
+    r_same = _verify(client, **a).json()
+    assert r_same["decision"] == "allow"
+    assert r_same["allowed"] is True
+
+
+def test_one_shot_grant_survives_restart(make_client):
+    """A minted-but-unconsumed grant is persisted in state.json and is
+    honored by a brand-new process (restart between /approve and retry)."""
+    client, _ = make_client(policy_yaml=LOW_LIMIT_POLICY)
+    action = dict(tool="web_fetch", args={"url": "http://x"},
+                  session="grantpersist")
+    for _ in range(3):
+        _verify(client, **action)
+    token = _verify(client, **action).json()["approval_token"]
+    assert client.post("/approve",
+                       json={"approval_token": token}).json()["granted"]
+
+    # Restart: fresh app, state reloaded from disk (grant must survive).
+    client2, _ = make_client(policy_yaml=LOW_LIMIT_POLICY)
+    retry = _verify(client2, **action).json()
+    assert retry["decision"] == "allow", (
+        "one-shot grant lost across restart — not persisted in state.json"
+    )
+    # And it is still strictly one-shot after the restart.
+    again = _verify(client2, **action).json()
+    assert again["decision"] == "require_approval"
+
+
+def test_approval_bypass_works_for_hard_deny_tier(make_client):
+    """Approval also authorizes one retry past a hard-deny window: the
+    operator explicitly accepted the risk for this exact call once.
+
+    To get a token for a deny-tier action the require_approval tier must
+    fire first; here the 5min tier escalates (cap 3) while the hour tier
+    is the hard cap (cap 4). The 5th call (after the approved 4th) would
+    otherwise hard-deny on the hour tier."""
+    policy = """
+version: 1
+intents: {NetworkFetch: {mode: allow}}
+rate_limit: {requests_per_minute: 100000}
+windowed_limits:
+  enabled: true
+  intents:
+    NetworkFetch:
+      5min: {limit: 3, action: require_approval}
+      hour: {limit: 4, action: deny}
+circuit_breaker: {enabled: false}
+"""
+    client, _ = make_client(policy_yaml=policy)
+    action = dict(tool="web_fetch", args={"url": "http://x"}, session="hdb")
+    for _ in range(3):
+        assert _verify(client, **action).json()["decision"] == "allow"
+    token = _verify(client, **action).json()["approval_token"]
+    assert client.post("/approve",
+                       json={"approval_token": token}).json()["granted"]
+    # The approved retry is the 4th sample; the grant bypasses the window
+    # regardless of which tier would have blocked it.
+    retry = _verify(client, **action).json()
+    assert retry["decision"] == "allow"
+    assert retry["allowed"] is True
+
+
 HARD_WINS_POLICY = """
 version: 1
 intents:

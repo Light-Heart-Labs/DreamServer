@@ -53,6 +53,7 @@ escalation and deliberately does NOT raise so the agent framework can route
 the call to a human and retry via /approve.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -223,8 +224,17 @@ def load_policy() -> dict:
 #     "breaker":  { "decisions": [[epoch_ts, allowed_bool], ...],
 #                   "tripped_until": epoch_or_0 },
 #     "approvals": { "<token>": { ...verify-request snapshot... } },
+#     "grants":   { "<grant_key>": { ...one-shot bypass record... } },
 #     "warmup_until": epoch_or_0,
 #   }
+#
+# A "grant" is a one-shot windowed-limit bypass created when a human accepts a
+# require_approval escalation via POST /approve. It is keyed tightly to the
+# approved {session, tool, intent, args-hash} so it can only authorise a retry
+# of the *same* action. The next /verify whose classified action matches an
+# unconsumed grant consumes it (strictly one-shot — deleted on use) and is
+# allowed past the exhausted window exactly once; a subsequent retry with no
+# new approval escalates again. Grants survive a restart like approvals.
 #
 # Every public mutator goes through _STATE_LOCK so concurrent FastAPI worker
 # threads cannot interleave a read-modify-write. The save path also takes a
@@ -238,6 +248,7 @@ _state: dict[str, Any] = {
     "windows": {},
     "breaker": {"decisions": [], "tripped_until": 0.0},
     "approvals": {},
+    "grants": {},
     "warmup_until": 0.0,
 }
 
@@ -248,6 +259,7 @@ _state: dict[str, Any] = {
 _MAX_SAMPLES_PER_WINDOW = 20000
 _MAX_BREAKER_SAMPLES = 5000
 _MAX_PENDING_APPROVALS = 1000
+_MAX_PENDING_GRANTS = 1000
 
 
 def _empty_state() -> dict[str, Any]:
@@ -255,8 +267,27 @@ def _empty_state() -> dict[str, Any]:
         "windows": {},
         "breaker": {"decisions": [], "tripped_until": 0.0},
         "approvals": {},
+        "grants": {},
         "warmup_until": 0.0,
     }
+
+
+def _args_hash(args: dict) -> str:
+    """Stable short hash of the call args so a grant is tied to the exact
+    invocation that was approved, not just any call to the same tool."""
+    try:
+        canon = json.dumps(args or {}, sort_keys=True, separators=(",", ":"),
+                           default=str)
+    except Exception:  # pragma: no cover - non-serialisable args
+        canon = repr(args)
+    return hashlib.sha256(canon.encode("utf-8")).hexdigest()[:16]
+
+
+def _grant_key(session_id: Optional[str], tool_name: str, intent: str,
+               args_hash: str) -> str:
+    """Tight one-shot-grant key: scope + tool + intent + args fingerprint."""
+    scope = session_id or "_global"
+    return f"{scope}|{tool_name}|{intent}|{args_hash}"
 
 
 def _coerce_state(raw: Any) -> dict[str, Any]:
@@ -296,6 +327,11 @@ def _coerce_state(raw: Any) -> dict[str, Any]:
         for tok, rec in list(approvals.items())[:_MAX_PENDING_APPROVALS]:
             if isinstance(rec, dict):
                 state["approvals"][str(tok)] = rec
+    grants = raw.get("grants")
+    if isinstance(grants, dict):
+        for gkey, rec in list(grants.items())[:_MAX_PENDING_GRANTS]:
+            if isinstance(rec, dict):
+                state["grants"][str(gkey)] = rec
     wu = raw.get("warmup_until")
     if isinstance(wu, (int, float)):
         state["warmup_until"] = float(wu)
@@ -339,6 +375,17 @@ def _prune_state(now: float) -> None:
         )
         for tok, _ in items[:-_MAX_PENDING_APPROVALS]:
             _state["approvals"].pop(tok, None)
+
+    grants = _state.get("grants", {})
+    if len(grants) > _MAX_PENDING_GRANTS:
+        # Drop the oldest unconsumed grants by grant timestamp (backstop;
+        # grants are normally consumed on the very next matching /verify).
+        gitems = sorted(
+            grants.items(),
+            key=lambda kv: kv[1].get("granted_at", 0.0),
+        )
+        for gkey, _ in gitems[:-_MAX_PENDING_GRANTS]:
+            grants.pop(gkey, None)
 
 
 def load_state() -> None:
@@ -484,6 +531,42 @@ def check_windowed_limits(
                 continue
             tiers.setdefault(tier_name, []).append(now)
         return ("allow", "within windowed limits")
+
+
+def consume_grant(
+    session_id: Optional[str], tool_name: str, intent: str, args: dict,
+) -> Optional[dict[str, Any]]:
+    """Atomically consume a one-shot approval grant for this exact action.
+
+    Returns the consumed grant record (so the caller can audit it) or None if
+    no matching unconsumed grant exists. The grant is deleted on consumption —
+    it authorises exactly ONE retry past the exhausted window. A second retry
+    finds no grant and re-escalates to require_approval.
+    """
+    gkey = _grant_key(session_id, tool_name, intent, _args_hash(args))
+    with _STATE_LOCK:
+        grants = _state.setdefault("grants", {})
+        return grants.pop(gkey, None)
+
+
+def record_window_sample(
+    policy: dict, session_id: Optional[str], intent: str, now: float,
+) -> None:
+    """Record one window sample for (scope, intent) without re-evaluating the
+    caps. Used after a one-shot grant is consumed so the approved retry is
+    still counted (it is not a free call) and the audit trail stays accurate.
+    """
+    cfg = _intent_window_config(policy, intent)
+    if not cfg:
+        return
+    scope = session_id or "_global"
+    key = f"{scope}|{intent}"
+    with _STATE_LOCK:
+        tiers = _state["windows"].setdefault(key, {})
+        for tier_name in WINDOW_TIERS:
+            if _tier_spec(cfg.get(tier_name)) is None:
+                continue
+            tiers.setdefault(tier_name, []).append(now)
 
 
 # ── Circuit breaker ─────────────────────────────────────────────────────────
@@ -632,6 +715,7 @@ _decision_counts = {
     "windowed_denied": 0,
     "circuit_broken": 0,
     "approvals_granted": 0,
+    "grants_consumed": 0,
 }
 
 
@@ -766,10 +850,31 @@ async def verify(req: VerifyRequest, request: Request, api_key: str = Depends(ve
 
     # 4) Windowed multi-tier caps — only consulted for policy-allowed calls so
     #    an explicit policy deny is never softened to require_approval.
+    grant_used: Optional[dict[str, Any]] = None
     if allowed and not warming:
         w_decision, w_reason = check_windowed_limits(
             policy, req.session_id, intent, now)
-        if w_decision == "deny":
+        if w_decision != "allow":
+            # The window is exhausted. Before escalating again, check for a
+            # one-shot bypass grant minted by a prior /approve for THIS exact
+            # {session, tool, intent, args}. If present, consume it (strictly
+            # one-shot) and allow this single retry past the window. A second
+            # retry finds no grant and re-escalates — no broad cap lift.
+            grant_used = consume_grant(
+                req.session_id, req.tool_name, intent, req.args)
+        if grant_used is not None:
+            allowed = True
+            decision = "allow"
+            reason = (
+                "one-shot approval grant consumed (approved by "
+                f"{grant_used.get('approver') or 'unknown'}); "
+                f"original escalation: {w_reason}"
+            )
+            # Count the approved retry against the window so the bypass is a
+            # single extra sample, not a free call that resets nothing.
+            record_window_sample(policy, req.session_id, intent, now)
+            _decision_counts["grants_consumed"] += 1
+        elif w_decision == "deny":
             allowed = False
             decision = "deny"
             reason = w_reason
@@ -787,6 +892,9 @@ async def verify(req: VerifyRequest, request: Request, api_key: str = Depends(ve
                 "tool_name": req.tool_name,
                 "intent": intent,
                 "args_keys": list(req.args.keys()),
+                # Args fingerprint so the grant minted on /approve is tied to
+                # this exact invocation, not any call to the same tool.
+                "args_hash": _args_hash(req.args),
                 "session": req.session_id,
                 "agent": req.agent_id,
                 "reason": reason,
@@ -817,6 +925,12 @@ async def verify(req: VerifyRequest, request: Request, api_key: str = Depends(ve
     }
     if approval_token:
         entry["approval_token"] = approval_token
+    if grant_used is not None:
+        # Mark the approved allow so the audit trail shows it bypassed an
+        # exhausted window via a consumed one-shot grant.
+        entry["grant_consumed"] = True
+        entry["approval_decision_id"] = grant_used.get("decision_id")
+        entry["approver"] = grant_used.get("approver")
     write_audit(entry)
     save_state()
     logger.info("%s tool=%s intent=%s decision=%s allowed=%s reason=%s",
@@ -838,16 +952,37 @@ async def approve(req: ApproveRequest, request: Request,
                   api_key: str = Depends(verify_api_key)):
     """Grant a pending human-approval decision issued by /verify.
 
-    Consumes the one-shot approval token. The caller is expected to retry the
-    original tool call after a successful grant; the retry passes through the
-    normal windowed-limit evaluation again (the grant does not permanently
-    lift the cap, it authorises one escalated attempt).
+    Consumes the one-shot approval token AND mints a one-shot windowed-limit
+    bypass grant keyed tightly to the approved {session, tool, intent, args}.
+    The caller retries the original tool call; the very next /verify that
+    classifies to the same action consumes the grant and is allowed past the
+    exhausted window exactly once (the grant does not permanently lift the
+    cap). A second retry with no fresh approval finds no grant and
+    re-escalates to require_approval.
     """
     with _STATE_LOCK:
         rec = _state["approvals"].pop(req.approval_token, None)
-    if rec is None:
-        return ApproveResponse(granted=False,
-                               reason="unknown or already-consumed approval token")
+        if rec is None:
+            return ApproveResponse(
+                granted=False,
+                reason="unknown or already-consumed approval token")
+        # Persist a one-shot bypass tightly keyed to the approved action.
+        gkey = _grant_key(
+            rec.get("session"),
+            rec.get("tool_name", ""),
+            rec.get("intent", ""),
+            rec.get("args_hash", _args_hash({})),
+        )
+        _state.setdefault("grants", {})[gkey] = {
+            "tool_name": rec.get("tool_name"),
+            "intent": rec.get("intent"),
+            "session": rec.get("session"),
+            "agent": rec.get("agent"),
+            "args_hash": rec.get("args_hash"),
+            "approver": req.approver,
+            "decision_id": rec.get("decision_id"),
+            "granted_at": time.time(),
+        }
     _decision_counts["approvals_granted"] += 1
     entry = {
         "id": rec.get("decision_id"),
@@ -863,7 +998,8 @@ async def approve(req: ApproveRequest, request: Request,
     }
     write_audit(entry)
     save_state()
-    logger.info("approval granted token=%s tool=%s approver=%s",
+    logger.info("approval granted token=%s tool=%s approver=%s "
+                "(one-shot grant minted)",
                 req.approval_token[:12] + "...", rec.get("tool_name"),
                 req.approver)
     return ApproveResponse(granted=True, reason="approval granted",
@@ -921,12 +1057,14 @@ async def policy(api_key: str = Depends(verify_api_key)):
 async def metrics(api_key: str = Depends(verify_api_key)):
     with _STATE_LOCK:
         pending = len(_state["approvals"])
+        pending_grants = len(_state.get("grants", {}))
         breaker_open = bool(
             _state["breaker"].get("tripped_until", 0.0) > time.time()
         )
     return {"decisions": _decision_counts,
             "total": sum(_decision_counts.values()),
             "pending_approvals": pending,
+            "pending_grants": pending_grants,
             "circuit_breaker_open": breaker_open}
 
 
