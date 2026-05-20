@@ -36,6 +36,19 @@ assert_grep() {
     fi
 }
 
+assert_not_grep() {
+    local file="$1"
+    local pattern="$2"
+    local label="$3"
+
+    [[ -f "$file" ]] || fail "missing $file"
+    if grep -Eq -- "$pattern" "$file"; then
+        fail "$label"
+    else
+        pass "$label"
+    fi
+}
+
 echo "=== Installer context parity ==="
 
 echo ""
@@ -92,6 +105,8 @@ assert_grep "installers/phases/11-services.sh" '--context-length "\$_hermes_cont
     "Linux Hermes patcher receives context length"
 assert_grep "installers/macos/install-macos.sh" '--context-length "\$MAX_CONTEXT"' \
     "macOS Hermes patcher receives context length"
+assert_not_grep "installers/macos/install-macos.sh" '\$LOG_FILE' \
+    "macOS installer uses DS_LOG_FILE, not undefined LOG_FILE"
 assert_grep "installers/windows/install-windows.ps1" 'Update-HermesConfigFile.*ContextLength \(\[int\]\$tierConfig\.MaxContext\)' \
     "Windows Hermes patcher receives context length"
 
