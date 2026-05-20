@@ -121,10 +121,27 @@ else
             DREAM_MODE=$(grep -m1 '^DREAM_MODE=' "$INSTALL_DIR/.env" | cut -d= -f2-)
             [[ -z "${LITELLM_KEY:-}" ]] && LITELLM_KEY=$(grep -m1 '^LITELLM_KEY=' "$INSTALL_DIR/.env" | cut -d= -f2-)
         fi
-        # Route through LiteLLM on AMD/Lemonade, direct to llama-server otherwise
+        # Route through LiteLLM on AMD/Lemonade, direct to llama-server otherwise.
+        #
+        # The Lemonade branch hits LiteLLM at :4000. LiteLLM is NOT auth-disabled
+        # on this install — its container env carries LITELLM_MASTER_KEY from
+        # .env (phase 06 wires it; the docker-compose for LiteLLM honors it),
+        # and any request without a matching Authorization header gets 401.
+        # OpenCode previously sent `apiKey: "no-key"` here (comment claimed
+        # auth was removed for local installs — never was), and every chat
+        # completion came back 401. The user-visible symptom is OpenCode
+        # showing "no connected db" because its provider probe to /v1/models
+        # fails auth before it can populate the model selector. Verified on
+        # strix-halo + spark + mac-mini + m5-mbp 2026-05-20:
+        #   $ curl -sSI http://127.0.0.1:4000/v1/models   → 401
+        #   $ curl -sSI -H "Authorization: Bearer $LITELLM_KEY" ... → 200
+        #
+        # Use LITELLM_KEY (read above at line 122) on the lemonade branch.
+        # The llama-server-direct branch keeps "no-key" — llama.cpp's OpenAI-
+        # compat server doesn't validate the key.
         if [[ "${DREAM_MODE:-local}" == "lemonade" ]]; then
             _opencode_url="http://127.0.0.1:4000/v1"
-            _opencode_key="no-key"  # LiteLLM auth removed for local-only installs
+            _opencode_key="${LITELLM_KEY:-no-key}"
         else
             _opencode_url="http://127.0.0.1:${OLLAMA_PORT:-8080}/v1"
             _opencode_key="no-key"
