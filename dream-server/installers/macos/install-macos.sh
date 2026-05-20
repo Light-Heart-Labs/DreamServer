@@ -392,7 +392,7 @@ if command -v python3 >/dev/null 2>&1; then
         ai_ok "PyYAML available"
     else
         ai "Installing PyYAML (required by compose resolver)..."
-        if python3 -m pip install --user --quiet --no-warn-script-location pyyaml 2>&1 | tee -a "$LOG_FILE" >/dev/null \
+        if python3 -m pip install --user --quiet --no-warn-script-location pyyaml 2>&1 | tee -a "$DS_LOG_FILE" >/dev/null \
            && python3 -c 'import yaml' >/dev/null 2>&1; then
             ai_ok "PyYAML installed (python3 -m pip --user)"
         else
@@ -525,7 +525,7 @@ if [[ "${DREAM_DISABLE_CATALOG_MODEL_SELECTOR:-false}" != "true" && "$SELECTED_T
                 --tier "$SELECTED_TIER" \
                 --host-arch "$(uname -m 2>/dev/null || echo unknown)" \
                 --installable-only \
-                --env 2>>"$LOG_FILE" || true)"
+                --env 2>>"$DS_LOG_FILE" || true)"
             if [[ -n "$_selector_env" ]]; then
                 load_model_selector_env_from_output <<< "$_selector_env"
                 ai "Model selector: ${MODEL_RECOMMENDATION_REASON:-$LLM_MODEL}"
@@ -916,14 +916,14 @@ else
                 python3 "$_hermes_patcher" "$_hermes_tpl" \
                     --model "$GGUF_FILE" \
                     --base-url "$_hermes_base_url" \
-                    --context-length "$MAX_CONTEXT" >>"$LOG_FILE" 2>&1 || \
+                    --context-length "$MAX_CONTEXT" >>"$DS_LOG_FILE" 2>&1 || \
                     ai_warn "Hermes template patch failed — hand-edit ${_hermes_tpl} if prompts hang."
                 _hermes_live="${INSTALL_DIR}/data/hermes/config.yaml"
                 if [[ -f "$_hermes_live" ]]; then
                     python3 "$_hermes_patcher" "$_hermes_live" \
                         --model "$GGUF_FILE" \
                         --base-url "$_hermes_base_url" \
-                        --context-length "$MAX_CONTEXT" >>"$LOG_FILE" 2>&1 || \
+                        --context-length "$MAX_CONTEXT" >>"$DS_LOG_FILE" 2>&1 || \
                         ai_warn "Hermes live config patch failed — hand-edit ${_hermes_live} and restart Hermes if prompts hang."
                 fi
             else
