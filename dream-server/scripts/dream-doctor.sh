@@ -238,12 +238,26 @@ collect_extension_diagnostics() {
             if [[ "$container_state" == "running" ]]; then
                 local port="${SERVICE_PORTS[$sid]:-0}"
                 local health="${SERVICE_HEALTH[$sid]:-}"
-                if [[ "$port" != "0" && -n "$health" ]]; then
-                    if curl -sf --max-time 5 "http://127.0.0.1:${port}${health}" >/dev/null 2>&1; then
-                        health_status="healthy"
-                    else
-                        health_status="unhealthy"
-                        issues+=("health_check_failed")
+                local health_type="${SERVICE_HEALTH_TYPES[$sid]:-http}"
+                if [[ "$health_type" == "none" ]]; then
+                    health_status="not_applicable"
+                elif [[ "$health_type" == "tcp" ]]; then
+                    if [[ "$port" != "0" ]]; then
+                        if timeout 5 bash -c "echo >/dev/tcp/127.0.0.1/$port" >/dev/null 2>&1; then
+                            health_status="healthy"
+                        else
+                            health_status="unhealthy"
+                            issues+=("health_check_failed")
+                        fi
+                    fi
+                else
+                    if [[ "$port" != "0" && -n "$health" ]]; then
+                        if curl -sf --max-time 5 "http://127.0.0.1:${port}${health}" >/dev/null 2>&1; then
+                            health_status="healthy"
+                        else
+                            health_status="unhealthy"
+                            issues+=("health_check_failed")
+                        fi
                     fi
                 fi
             else

@@ -37,7 +37,35 @@
             "required": ["host_network"]
           },
           "then": {},
-          "else": { "required": ["port", "health"] }
+          "else": {
+            "allOf": [
+              {
+                "if": {
+                  "properties": { "health_type": { "const": "tcp" } },
+                  "required": ["health_type"]
+                },
+                "then": { "required": ["port"] }
+              },
+              {
+                "if": {
+                  "properties": { "health_type": { "const": "none" } },
+                  "required": ["health_type"]
+                },
+                "then": {}
+              },
+              {
+                "if": {
+                  "properties": { "health_type": { "const": "http" } },
+                  "required": ["health_type"]
+                },
+                "then": { "required": ["port", "health"] }
+              },
+              {
+                "if": { "not": { "required": ["health_type"] } },
+                "then": { "required": ["port", "health"] }
+              }
+            ]
+          }
         }
       ],
       "properties": {
@@ -66,11 +94,12 @@
           "type": "boolean",
           "description": "True for Docker network_mode: host services that do not declare Docker-mapped ports or HTTP health paths."
         },
-        "health": {
+        "health_type": {
           "type": "string",
-          "minLength": 0,
-          "description": "HTTP health path. Use an empty string for non-HTTP or one-shot services whose readiness is represented by container state/startup_check."
+          "enum": ["http", "tcp", "none"],
+          "default": "http"
         },
+        "health": { "type": "string", "minLength": 1 },
         "health_timeout": {
           "type": "integer",
           "minimum": 1,
