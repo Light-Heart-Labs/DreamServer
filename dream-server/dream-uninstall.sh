@@ -147,8 +147,8 @@ systemctl --user daemon-reload 2>/dev/null || true
 #     `dream-uninstall` currently has no path that catches this.
 #
 # Two passes: SIGTERM first (let the process flush state), then SIGKILL for
-# anything still alive after 2s. Patterns are anchored to the install dir's
-# `.opencode/bin/opencode` and `bin/llama-server` so we don't touch unrelated
+# anything still alive after 2s. Patterns are scoped to the per-user OpenCode
+# binary path and this install's `bin/llama-server` so we don't touch unrelated
 # `opencode` or `llama-server` binaries the user may have elsewhere.
 log_info "Reaping any orphan host-managed processes..."
 _dream_uninstall_orphan_pids=()
@@ -157,10 +157,10 @@ if command -v pgrep >/dev/null 2>&1; then
     while IFS= read -r _pid; do
         [[ -n "$_pid" ]] && _dream_uninstall_orphan_pids+=("$_pid")
     done < <(pgrep -f '\.opencode/bin/opencode (web|serve)' 2>/dev/null || true)
-    # macOS-native llama-server: only matches the dream-server-shipped binary
+    # macOS-native llama-server: only matches this install's shipped binary
     while IFS= read -r _pid; do
         [[ -n "$_pid" ]] && _dream_uninstall_orphan_pids+=("$_pid")
-    done < <(pgrep -f "$HOME/dream-server/bin/llama-server" 2>/dev/null || true)
+    done < <(pgrep -f "$INSTALL_DIR/bin/llama-server" 2>/dev/null || true)
 fi
 if (( ${#_dream_uninstall_orphan_pids[@]} > 0 )); then
     log_info "  Sending SIGTERM to ${#_dream_uninstall_orphan_pids[@]} orphan PID(s): ${_dream_uninstall_orphan_pids[*]}"
