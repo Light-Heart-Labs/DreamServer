@@ -68,11 +68,11 @@ Working alongside Qdrant is the **Embeddings** service. This is the translator t
 
 For anyone who wants to generate images from text descriptions, there's **ComfyUI**. It's a sophisticated visual interface for image generation using SDXL Lightning — and once it's set up, your chat interface can send image generation requests to it automatically. You type "generate an image of a sun setting over a mountain lake," and a few seconds later you have one. Entirely local. No subscription to Midjourney or DALL-E required.
 
-**OpenClaw** is the autonomous agent. Here's how to think about the difference between the chat interface and an autonomous agent. In the chat, you ask one question at a time and the AI responds. In OpenClaw, you give the AI a goal — "research this topic, find the three best sources, write me a summary, and save it to a file" — and it figures out the steps on its own, uses tools, browses the web, takes actions, and comes back to you when the task is done. It's the difference between asking someone a question and delegating a project.
+**Hermes Agent** is the default autonomous agent. Here's how to think about the difference between the chat interface and an autonomous agent. In the chat, you ask one question at a time and the AI responds. In Hermes, you give the AI a goal — "research this topic, find the three best sources, write me a summary, and save it to a file" — and it figures out the steps on its own, uses tools, browses the web, takes actions, and comes back to you when the task is done. It is reached through the Hermes auth proxy rather than a direct public port. OpenClaw is still available for older workflows, but it is deprecated and no longer the default path.
 
 And finally there's the **Dashboard**. This is the control room. You open it in your browser and you can see at a glance which services are running, which ones have issues, how hard the GPU is working, how much memory is in use, and the health of the whole system. It's calm and clear and makes the whole operation feel manageable even if you're not technical.
 
-That's the team. Somewhere between thirteen and sixteen people depending on which optional services you've turned on. And they all work together, all day, without you having to think about any of it.
+That's the team. The exact roster depends on which optional services you've turned on; the current product tree has two dozen bundled service manifests, plus a few host helpers for native inference and developer tools. They all work together, all day, without you having to think about any of it.
 
 ---
 

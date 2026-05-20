@@ -19,7 +19,7 @@ Within `dream-server/`:
 - **`installers/lib/`** — pure function libraries (constants, logging, UI, GPU detection, tier mapping, packaging, compose selection)
 - **`installers/phases/`** — 13 sequential install steps (`01-preflight` through `13-summary`), each sourced by install-core
 - **`installers/macos/`**, **`installers/windows/`** — platform-specific installer variants
-- **`extensions/services/`** — 17 service extensions, each a directory with `manifest.yaml` + optional `compose.yaml` and GPU overlays
+- **`extensions/services/`** — 24 bundled service manifests, each a directory with `manifest.yaml` + optional `compose.yaml` and GPU overlays
 - **`extensions/library/`** — optional extension catalog, templates, workflows, and manifest schema used by the dashboard Extensions page
 - **`docker-compose.base.yml`** — core service definitions; `docker-compose.{amd,nvidia,apple}.yml` are GPU overlays
 - **`dream-cli`** — main CLI tool (~45K lines Bash) for managing the stack
@@ -38,10 +38,10 @@ All commands run from `dream-server/` directory unless noted.
 
 ```bash
 make lint          # Shell syntax check (bash -n) + Python compile check
-make test          # Tier map tests + installer contract tests + preflight fixtures
+make test          # Unit/contract tests: tier map, installer, AMD/Lemonade, overlays, secrets, etc.
 make smoke         # Platform smoke tests (linux-amd, linux-nvidia, wsl, macos)
 make simulate      # Installer simulation harness
-make gate          # Full pre-release: lint + test + smoke + simulate
+make gate          # Full pre-release: lint + test + BATS + smoke + simulate
 make doctor        # Run diagnostic report
 ```
 

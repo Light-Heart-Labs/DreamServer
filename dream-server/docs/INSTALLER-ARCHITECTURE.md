@@ -1,7 +1,9 @@
 # Installer Architecture
 
-The Dream Server installer is modular — 6 libraries and 13 phases, each in its own file.
-This guide is your map to understanding, using, and customizing the installer.
+The Dream Server installer is modular — 19 installer library modules, the
+shared service registry, and 13 ordered phases. This guide is the map for
+understanding, changing, and reviewing install behavior without missing a
+parallel Linux/macOS/Windows or upgrade-time writer.
 
 ## Directory Tree
 
@@ -11,9 +13,22 @@ installers/
     constants.sh              #   Colors, paths, VERSION, timezone detection
     logging.sh                #   log(), success(), warn(), error(), install_elapsed()
     ui.sh                     #   CRT theme: typing effects, spinners, boot splash, lore
+    sudo.sh                   #   privilege escalation helpers
     detection.sh              #   GPU detection, capability profiles, backend contracts, secure boot fix
+    host-arch.sh              #   host architecture detection and normalization
     tier-map.sh               #   resolve_tier_config() — tier → model/GGUF/context
+    docker-images.sh          #   image pull/build planning
     compose-select.sh         #   resolve_compose_config() — compose overlay files + flags
+    compose-failure-report.sh #   useful diagnostics when compose fails
+    readiness-summary.sh      #   post-start readiness output
+    packaging.sh              #   package-manager abstraction helpers
+    python-runtime.sh         #   python/python3 discovery and bootstrap
+    progress.sh               #   phase progress reporting
+    amd-topo.sh               #   AMD topology helpers
+    background-tasks.sh       #   async task helpers
+    bootstrap-model.sh        #   bootstrap model selection helpers
+    nvidia-topo.sh            #   NVIDIA topology helpers
+    path-utils.sh             #   portable path helpers
   phases/                     # Sequential install steps — execute on source
     01-preflight.sh           #   Root/OS/tools checks, existing installation check
     02-detection.sh           #   Hardware detection → tier assignment → compose config
@@ -29,6 +44,7 @@ installers/
     12-health.sh              #   Verify services responding, configure Perplexica, pre-download STT
     13-summary.sh             #   URLs, desktop shortcut, sidebar pin, summary JSON
 install-core.sh               # Orchestrator: trap → source libs → parse args → source phases
+lib/service-registry.sh       # Shared service manifest/port registry loaded by installer + CLI
 ```
 
 ## How It Works
@@ -43,10 +59,10 @@ self-contained install step that runs its logic the moment `source` evaluates it
 Phases rely on the functions defined by `lib/` and on global variables set by
 earlier phases (e.g., phase 04 checks the GPU tier assigned by phase 02).
 
-**The orchestrator is thin.** `install-core.sh` (~150 lines) does exactly three things:
-set up interrupt traps, source the 6 libraries, parse CLI arguments, then source the
-13 phases in order. All files share one global bash namespace — everything is sourced,
-not exec'd.
+**The orchestrator is thin.** `install-core.sh` sets up interrupt traps, sources
+the library modules and `lib/service-registry.sh`, parses CLI arguments, then
+sources the 13 phases in order. All files share one global bash namespace —
+everything is sourced, not exec'd.
 
 ## File Header Convention
 
@@ -95,6 +111,26 @@ Common customizations and exactly where to make them:
 | **Add a service health check** | `phases/12-health.sh` | Add a new `check_service()` call for your service |
 | **Change minimum requirements** | `phases/04-requirements.sh` | Adjust RAM/disk/VRAM thresholds per tier |
 
+## Generated Config Writers
+
+When a bug involves generated config, check every writer before calling the fix
+done. This is the most common way install-time surprises survive a patch.
+
+| Config surface | Linux writer | macOS writer | Windows writer | Upgrade/runtime writer |
+|----------------|--------------|--------------|----------------|------------------------|
+| `.env` and core ports/secrets | `phases/06-directories.sh` | `installers/macos/lib/env-generator.sh` | `installers/windows/lib/env-generator.ps1` | `dream config`, `dream update`, installer re-runs |
+| OpenCode config | `phases/07-devtools.sh` | `installers/macos/install-macos.sh` | `installers/windows/lib/opencode-config.ps1` | `scripts/update-windows-opencode-config.ps1`, `scripts/bootstrap-upgrade.sh` |
+| LiteLLM Lemonade config | `phases/06-directories.sh` | n/a | n/a | `scripts/bootstrap-upgrade.sh`, `bin/dream-host-agent.py` |
+| Perplexica config | `phases/12-health.sh`, `phases/13-summary.sh` | `installers/macos/lib/env-generator.sh`, `installers/macos/install-macos.sh` | `installers/windows/lib/env-generator.ps1`, `installers/windows/install-windows.ps1` | `scripts/bootstrap-upgrade.sh`, `scripts/repair/repair-perplexica.sh` |
+| Hermes config | `phases/11-services.sh`, `scripts/patch-hermes-config.py` | `installers/macos/install-macos.sh` | `installers/windows/phases/06-directories.ps1` | `scripts/bootstrap-upgrade.sh`, `bin/dream-host-agent.py` |
+
+Recent examples: OpenCode on Linux Lemonade mode must use `LITELLM_KEY` because
+LiteLLM enforces auth, while direct llama-server paths keep `no-key`; Lemonade
+`lemonade.yaml` must preserve `extra_body.chat_template_kwargs.enable_thinking:
+false` in install, bootstrap upgrade, and host-agent model activation paths;
+Perplexica's persisted `defaultChatModel` must be refreshed after bootstrap
+hot-swap.
+
 ## Cross-Platform Architecture
 
 What's shared vs platform-specific across the installer:
@@ -104,9 +140,10 @@ What's shared vs platform-specific across the installer:
 | Colors, version, paths | `lib/constants.sh` | — |
 | Logging | `lib/logging.sh` | — |
 | CRT UI / spinners | `lib/ui.sh` | — |
-| GPU detection | `lib/detection.sh` | Backend contract JSONs (`config/backends/`) |
+| GPU detection | `lib/detection.sh`, topology helpers | Backend contract JSONs (`config/backends/`) |
 | Tier → model mapping | `lib/tier-map.sh` | — |
 | Compose selection | `lib/compose-select.sh` | Per-backend compose overlays |
+| Package management | `lib/packaging.sh`, `lib/python-runtime.sh` | apt/dnf/pacman/zypper/brew/PowerShell equivalents |
 | Pre-flight checks | `phases/01-preflight.sh` | — |
 | Docker setup | `phases/05-docker.sh` | NVIDIA Container Toolkit vs ROCm |
 | AMD system tuning | — | `phases/10-amd-tuning.sh` (AMD only) |

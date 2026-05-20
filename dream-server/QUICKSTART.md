@@ -31,7 +31,8 @@ see [MACOS-QUICKSTART.md](docs/MACOS-QUICKSTART.md),
 - Windows 10/11
 - Docker Desktop with WSL2 backend enabled and running
 - NVIDIA GPU or AMD Strix Halo recommended
-- PowerShell launched as Administrator for install
+- A normal user PowerShell session. Do not run the installer as Administrator
+  unless you deliberately want admin-owned files under your user profile.
 
 ## Install
 

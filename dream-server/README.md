@@ -249,8 +249,13 @@ Full guide: [docs/EXTENSIONS.md](docs/EXTENSIONS.md)
 
 ### Installer Architecture
 
-The installer is modular — 6 libraries and 13 phases, each in its own file.
-Want to add a hardware tier, swap the theme, or skip a phase? Edit one file.
+The installer is modular — 19 library modules, a shared service registry, and
+13 ordered phases. The architecture doc also maps the generated config writers
+that have to stay in sync across Linux, macOS, Windows, bootstrap upgrades, and
+host-agent model activation.
+Want to add a hardware tier, swap the theme, or skip a phase? Start with the
+module that owns that behavior, then check the generated-config writer map
+before shipping.
 
 ```
 installers/lib/       # Pure function libraries (colors, GPU detection, tier mapping)

@@ -19,8 +19,9 @@ M1 mode configures Dream Server for fully air-gapped operation:
 # Offline with specific tier
 ./install.sh --offline --tier 2 --voice --rag
 
-# Offline + bootstrap (fastest start)
-./install.sh --offline --bootstrap --all
+# Offline + bootstrap fast-start is the default when applicable.
+# Use --no-bootstrap only when you want to wait for the full model before launch.
+./install.sh --offline --all --no-bootstrap
 ```
 
 ## What's Included in Offline Mode
@@ -33,7 +34,8 @@ M1 mode configures Dream Server for fully air-gapped operation:
 | Kokoro TTS | ✅ | `--voice` flag |
 | Qdrant (RAG) | ✅ | `--rag` flag |
 | n8n workflows | ⚠️ | Local execution, but many integrations need internet |
-| OpenClaw | ✅ | With local memory_search |
+| Hermes Agent | ✅ | Default agent path; local LLM only |
+| OpenClaw | ⚠️ | Deprecated; only if explicitly enabled with `--openclaw` |
 
 ## What's Disabled
 
@@ -55,8 +57,7 @@ curl http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "local", "messages": [{"role": "user", "content": "Hello"}]}'
 
-# Test memory search (OpenClaw)
-# Should use local GGUF embeddings
+# Test local embeddings/RAG if enabled.
 ```
 
 ### Full Air-Gap Procedure
@@ -76,9 +77,6 @@ If you need to reconnect for updates:
 # Download model updates
 docker compose pull
 
-# Update OpenClaw (if installed)
-openclaw update
-
 # Disconnect again for air-gapped operation
 ```
 
@@ -88,7 +86,7 @@ Offline mode pre-downloads:
 - **LLM** — Based on your tier selection
 - **GGUF embeddings** — `nomic-embed-text-v1.5.Q4_K_M.gguf` (~300MB)
 - **Whisper** — If `--voice` enabled
-- **Piper voices** — If `--voice` enabled
+- **Kokoro TTS image/data** — If `--voice` enabled and selected before disconnecting
 
 ## Replacing Web Search
 
@@ -103,9 +101,12 @@ curl -X POST http://localhost:6333/collections/knowledge/points \
   -d '{...your documents...}'
 ```
 
-### Option 2: Configure OpenClaw for Local RAG
+### Option 2: Configure Legacy OpenClaw for Local RAG
 
 In `config/openclaw/openclaw-m1.yaml`:
+
+This applies only to installs that explicitly keep the deprecated OpenClaw path
+enabled with `--openclaw`. New installs use Hermes by default.
 
 ```yaml
 # Already configured by --offline flag
@@ -163,7 +164,7 @@ dream-server/
 ├── .env                       # Updated with offline settings
 ├── config/
 │   └── openclaw/
-│       └── openclaw-m1.yaml   # OpenClaw offline config
+│       └── openclaw-m1.yaml   # Legacy OpenClaw offline config, if enabled
 ├── models/
 │   └── embeddings/
 │       └── nomic-embed-text-v1.5.Q4_K_M.gguf

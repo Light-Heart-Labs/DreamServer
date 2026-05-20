@@ -4,9 +4,9 @@
 
 Dream Server is fully supported on Windows 10 2004+ and Windows 11 (NVIDIA and AMD). The installer detects your GPU, selects the right model, downloads it, starts all Docker services, and creates a Desktop shortcut.
 
-**Prerequisites:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) with WSL2 backend enabled. NVIDIA GPU recommended (CPU-only works with smaller models). 4GB+ RAM minimum, 16GB+ recommended.
+**Prerequisites:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) with WSL2 backend enabled. NVIDIA GPU or AMD Strix Halo recommended (CPU-only works with smaller models). 4GB+ RAM minimum, 16GB+ recommended.
 
-Open **PowerShell as Administrator** and run:
+Open a normal **PowerShell** session and run:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
@@ -20,6 +20,10 @@ The installer will:
 - Download the AI model for your hardware (~1.5GB bootstrap, full model in background)
 - Start all Docker services
 - Run health checks and create a Desktop shortcut
+
+Do not run as Administrator for the normal install. The Windows preflight warns
+about this because user-level paths such as `.opencode`, `.env`, and `data/`
+can become admin-owned and awkward to manage afterward.
 
 **First-run time:** 10-30 minutes depending on download speed. Bootstrap mode starts chatting in under 2 minutes while the full model downloads in background.
 
@@ -116,7 +120,11 @@ Windows Host
   └── WSL2 Ubuntu (file system, networking)
 ```
 
-GPU access: Windows driver → WSL2 → Docker Container Toolkit → llama-server
+NVIDIA GPU access: Windows driver → WSL2 → Docker Container Toolkit → llama-server
+
+AMD Strix Halo local inference runs through the Windows host accelerated path
+selected by the installer; Docker services reach it through
+`host.docker.internal`.
 
 ---
 
@@ -124,9 +132,9 @@ GPU access: Windows driver → WSL2 → Docker Container Toolkit → llama-serve
 
 | What | Where |
 |------|-------|
-| Install directory | `%LOCALAPPDATA%\DreamServer` |
+| Install directory | `$env:USERPROFILE\dream-server` by default; override with `DREAM_HOME` |
 | Config | `.env` file in install directory |
-| Models | `%LOCALAPPDATA%\DreamServer\data\models\` |
+| Models | `$env:USERPROFILE\dream-server\data\models\` |
 | Logs | `docker compose logs` |
 | Data | Docker volumes (auto-managed) |
 
@@ -135,7 +143,7 @@ GPU access: Windows driver → WSL2 → Docker Container Toolkit → llama-serve
 ## Updating
 
 ```powershell
-cd $env:LOCALAPPDATA\DreamServer
+cd $env:USERPROFILE\dream-server
 # Get latest
 git pull
 # Update containers
@@ -155,4 +163,4 @@ docker compose up -d
 
 ---
 
-*Last updated: 2026-04-16*
+*Last updated: 2026-05-20*

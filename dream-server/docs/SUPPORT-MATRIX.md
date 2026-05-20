@@ -1,6 +1,6 @@
 # Dream Server Support Matrix
 
-Last updated: 2026-05-15
+Last updated: 2026-05-20
 
 ## What Works Today
 
@@ -71,7 +71,7 @@ Last updated: 2026-05-15
 
 ## Next Milestones
 
-1. Add CI smoke matrix for Linux NVIDIA/AMD and WSL logic checks.
+1. Keep expanding the existing `matrix-smoke.yml` coverage with more real distro and GPU fixtures.
 2. Expand macOS test coverage across M1/M2/M3/M4 variants and RAM tiers.
 3. Promote macOS from Tier B to Tier A after broader real-hardware validation.
 4. Validate Intel Arc B580 (Battlemage 12 GB) on the `ARC` tier.

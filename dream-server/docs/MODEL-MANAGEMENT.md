@@ -28,9 +28,12 @@ curl http://localhost:11434/v1/models
 On macOS native Metal and Windows native/Lemonade installs, use
 `http://localhost:8080/v1/models` unless you changed the port.
 
-Downstream apps that talk to `llama-server` or LiteLLM pick up the active model
-through those services. Examples include Open WebUI, Perplexica, Token Spy, and
-OpenAI-compatible SDK clients configured against Dream Server.
+Downstream apps that talk directly to `llama-server` or LiteLLM pick up the
+active model through those services. Examples include Open WebUI, Token Spy,
+OpenCode, and OpenAI-compatible SDK clients configured against Dream Server.
+Perplexica also stores a persisted `defaultChatModel`; installer first boot and
+bootstrap hot-swap update it automatically, but after a manual model change you
+should verify Perplexica settings or run `scripts/repair/repair-perplexica.sh`.
 
 Hermes Agent keeps its own model name in `data/hermes/config.yaml`. If Hermes is
 enabled after a model switch, verify the `model.default` line:
@@ -54,7 +57,7 @@ Default model directory:
 On Windows installs:
 
 ```powershell
-%LOCALAPPDATA%\DreamServer\data\models\
+$env:USERPROFILE\dream-server\data\models\
 ```
 
 Each model is normally a single `.gguf` file:
@@ -155,7 +158,30 @@ Also keep `auxiliary.compression.context_length` at the same value and use
 `compression.threshold: 0.50`; older absolute-token thresholds can leave Hermes
 waiting too long to compact.
 
-5. Restart the affected services.
+5. For AMD/Lemonade installs, verify `config/litellm/lemonade.yaml`.
+
+Each local model alias should use the `extra.<GGUF_FILE>` form and should keep
+Qwen3 thinking disabled for clients that do not pass that flag themselves:
+
+```yaml
+extra_body:
+  chat_template_kwargs:
+    enable_thinking: false
+```
+
+6. If Perplexica is enabled, reseed or verify its model setting.
+
+```bash
+LLM_MODEL="$(grep -E '^LLM_MODEL=' .env | tail -n1 | cut -d= -f2 | tr -d '"')"
+PERPLEXICA_PORT="$(grep -E '^PERPLEXICA_PORT=' .env | tail -n1 | cut -d= -f2 | tr -d '"')"
+scripts/repair/repair-perplexica.sh "http://127.0.0.1:${PERPLEXICA_PORT:-3004}" "$LLM_MODEL"
+```
+
+Bootstrap hot-swap handles this automatically. Manual GGUF edits and some
+operator-driven switches should still be verified because Perplexica stores its
+own app settings in its volume.
+
+7. Restart the affected services.
 
 ```bash
 dream restart llama-server

@@ -1,6 +1,9 @@
 # Windows WSL2 GPU Guide for Dream Server
 
-Complete guide for running Dream Server on Windows with WSL2 and GPU acceleration.
+Complete guide for running Dream Server on Windows with WSL2 and NVIDIA GPU
+passthrough. AMD Strix Halo installs also use Docker Desktop + WSL2 for the
+service stack, but local inference runs through the Windows host accelerated
+path selected by `install.ps1`.
 
 ## Quick Verification
 
@@ -75,8 +78,9 @@ Download latest drivers from https://www.nvidia.com/drivers
 ### Step 4: Run Dream Server Installer
 
 ```powershell
-# Download and run
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.1.0/install.ps1" -OutFile install.ps1
+git clone https://github.com/Light-Heart-Labs/DreamServer.git
+cd DreamServer
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\install.ps1
 ```
 
@@ -185,14 +189,10 @@ wsl --shutdown
 .\install.ps1 : File cannot be loaded because running scripts is disabled on this system.
 ```
 
-**Fix (temporary, per-session):**
-```powershell
-powershell -ExecutionPolicy Bypass -File install.ps1
-```
+**Fix (temporary, per-session):** run the installer through a one-shot bypass:
 
-**Or use the batch wrapper:**
-```batch
-install-windows.bat
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 ---
@@ -271,7 +271,7 @@ Get-Content "$env:LOCALAPPDATA\Packages\CanonicalGroupLimited.UbuntuonWindows_79
 
 If you've verified the checklist and still have issues:
 
-1. Run diagnostics: `.\install.ps1 -Diagnose`
+1. After install, run diagnostics: `cd $env:USERPROFILE\dream-server; .\dream.ps1 report`
 2. Check WSL2 GPU issues: https://github.com/microsoft/WSL/issues?q=label%3Agpu
 3. Dream Server Discord: https://discord.gg/clawd
 

@@ -137,7 +137,7 @@ Environment variables (set in `.env`):
 | `DELETE` | `/api/extensions/{service_id}` | Yes | Uninstall a disabled extension (removes its directory from user-extensions) |
 | `POST` | `/api/extensions/{service_id}/logs` | Yes | Fetch container logs via the host agent (last 100 lines) |
 
-Core services cannot be installed, enabled, disabled, or uninstalled via these endpoints (returns 403). The catalog endpoint also reports whether the [host agent](../../docs/HOST-AGENT-API.md) is available (`agent_available` field).
+Core services cannot be installed, enabled, disabled, or uninstalled via these endpoints (returns 403). The catalog endpoint also reports whether the [host agent](../../../docs/HOST-AGENT-API.md) is available (`agent_available` field).
 
 ## Authentication
 

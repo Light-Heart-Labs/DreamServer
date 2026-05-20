@@ -8,11 +8,16 @@
 
 | Problem | Quick Fix |
 |---------|-----------|
-| "Windows won't run the installer" | Right-click → "Run as administrator" |
-| "PowerShell won't run scripts" | Use `install-windows.bat` instead |
+| "Windows won't run the installer" | Open a normal PowerShell in the cloned repo and run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` |
+| "PowerShell won't run scripts" | Use the per-session execution policy bypass below |
 | "Docker not found" | Install Docker Desktop first |
 | "GPU not detected" | Update NVIDIA drivers |
 | "Installation hangs" | Check internet connection, wait 30 min for model download |
+
+Do not use "Run as administrator" for the Dream Server installer unless you
+are intentionally accepting admin-owned files under your user profile. The
+Windows preflight warns because `.opencode`, `.env`, and `data/` should normally
+belong to your regular account.
 
 ---
 
@@ -147,24 +152,21 @@ Attach `report.json` to GitHub issues or Discord support threads after review.
 
 ### Step 5: Run Dream Server Installer
 
-1. Create a folder for Dream Server (example: `C:\DreamServer`)
-2. Open PowerShell in that folder:
-   - Hold Shift + Right-click in the folder → "Open PowerShell window here"
+1. Open a normal PowerShell window.
+2. Clone the repository and enter it.
 3. Run these commands:
    ```powershell
-   Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.1.0/install.ps1" -OutFile install.ps1
-   ```
-4. Then run:
-   ```powershell
+   git clone https://github.com/Light-Heart-Labs/DreamServer.git
+   cd DreamServer
+   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
    .\install.ps1
    ```
 
 **If PowerShell gives an error about execution policy:**
-- Use the batch file method instead:
+- Run the same installer through a one-shot bypass:
   ```powershell
-  Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.1.0/install-windows.bat" -OutFile install-windows.bat
+  powershell -ExecutionPolicy Bypass -File .\install.ps1
   ```
-- Then double-click `install-windows.bat` (or right-click → Run as administrator)
 
 ### Step 6: Wait for Model Download
 
@@ -192,13 +194,19 @@ You should see the Open WebUI interface. Start chatting!
 
 ## Common Problems & Solutions
 
-### Problem: "The installer says I need administrator privileges"
+### Problem: "The installer warns that I am Administrator"
 
-**Solution:**
-1. Find `install-windows.bat` or `install.ps1` in your folder
-2. Right-click on it
-3. Select "Run as administrator"
-4. Click "Yes" if Windows asks for permission
+**Solution:** Close that terminal and re-open a normal PowerShell window. Then
+run:
+
+```powershell
+cd path\to\DreamServer
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\install.ps1
+```
+
+Continuing as Administrator can leave user-level files owned by the elevated
+account and make later updates harder.
 
 ### Problem: "PowerShell says running scripts is disabled"
 
@@ -207,12 +215,7 @@ You should see the Open WebUI interface. Start chatting!
 File cannot be loaded because running scripts is disabled on this system.
 ```
 
-**Solution (easiest):**
-Use the batch file instead of PowerShell:
-1. Double-click `install-windows.bat`
-2. Or right-click → "Run as administrator"
-
-**Solution (alternative):**
+**Solution:**
 Run PowerShell with bypass policy:
 ```powershell
 powershell -ExecutionPolicy Bypass -File install.ps1
@@ -500,7 +503,7 @@ docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi
 
 ### 6. Check Dream Server Services
 ```powershell
-cd C:\DreamServer  # or wherever you installed
+cd $env:USERPROFILE\dream-server
 docker compose ps
 ```
 ✅ Should show llama-server, webui, and other services as "Up"
@@ -520,7 +523,8 @@ curl http://localhost:8080/v1/models
 Please run the diagnostic command and share the output:
 
 ```powershell
-.\install.ps1 -Diagnose
+cd $env:USERPROFILE\dream-server
+.\dream.ps1 report
 ```
 
 Also share output from:
@@ -538,7 +542,7 @@ docker info
 
 - Windows version (from `winver`)
 - GPU model (from `nvidia-smi`)
-- Output of diagnostic command
+- The generated support report, after reviewing it for secrets
 - What step you're stuck on
 - Exact error message (copy/paste)
 

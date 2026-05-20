@@ -38,7 +38,7 @@ If you can't run native uvicorn for some reason, `docker cp <file> dream-dashboa
 
 ## What We Care About Right Now
 
-We have 20+ contributors and the number keeps growing. These are the areas where your work hits hardest — and where PRs get merged fastest.
+We have a broad contributor base and the number keeps growing. These are the areas where your work hits hardest — and where PRs get merged fastest.
 
 ### 1. Runs on anything
 
@@ -99,20 +99,20 @@ Where to help:
 Don't make us find bugs you could have caught. Run this:
 
 ```bash
-make gate    # lint + test + smoke + simulate
+make gate    # lint + test + BATS + smoke + simulate
 ```
 
 Or if you just want a quick check:
 
 ```bash
 make lint    # shell syntax + Python compile
-make test    # tier map + installer contracts
+make test    # unit + installer + AMD/Lemonade + overlay/secret contract tests
 make smoke   # platform smoke tests
 ```
 
 Touched the frontend? Make sure it builds:
 ```bash
-cd dashboard && npm install && npm run lint && npm run build
+cd extensions/services/dashboard && npm install && npm run lint && npm run build
 ```
 
 ## What Gets Merged Fast

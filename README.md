@@ -290,7 +290,7 @@ dream disable my-service    # Disable it
 dream list                  # See everything
 ```
 
-The installer itself is modular — 6 libraries and 13 phases, each in its own file. Want to add a hardware tier, swap a default model, or skip a phase? Edit one file.
+The installer itself is modular — 19 library modules, a shared service registry, and 13 ordered phases. Want to add a hardware tier, swap a default model, or skip a phase? Start with the installer architecture map so you update the Linux, macOS, Windows, upgrade, and host-agent writers together.
 
 [Full extension guide](dream-server/docs/EXTENSIONS.md) | [Installer architecture](dream-server/docs/INSTALLER-ARCHITECTURE.md)
 
@@ -347,7 +347,10 @@ Other tools get you part of the way. Dream Server gets you the whole way.
 | | |
 |---|---|
 | [Quickstart](dream-server/QUICKSTART.md) | Step-by-step install guide with troubleshooting |
+| [Docs Index](dream-server/docs/README.md) | Maintained map for operators, contributors, and reviewers |
 | [Headless Setup](dream-server/docs/HEADLESS-SETUP.md) | QR onboarding, first-boot setup, AP mode, mDNS, and local agent access |
+| [Support Matrix](dream-server/docs/SUPPORT-MATRIX.md) | Current platform and GPU support status |
+| [Model Management](dream-server/docs/MODEL-MANAGEMENT.md) | Dashboard model downloads, switching, and manual GGUF workflows |
 | [Hardware Guide](dream-server/docs/HARDWARE-GUIDE.md) | What to buy, tier recommendations |
 | [FAQ](dream-server/FAQ.md) | Common questions and configuration |
 | [Extensions](dream-server/docs/EXTENSIONS.md) | How to add custom services |

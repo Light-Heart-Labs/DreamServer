@@ -8,32 +8,36 @@ For adding or authoring extensions, see [EXTENSIONS.md](../docs/EXTENSIONS.md) a
 
 | Service ID      | Name                     | Category    | Default port | GPU backends   | Description |
 |-----------------|--------------------------|------------|-------------|----------------|-------------|
-| llama-server    | llama-server (LLM)       | core       | 8080        | amd, nvidia    | Main LLM inference API (Ollama-compatible). |
-| open-webui      | Open WebUI (Chat)        | core       | 3000        | amd, nvidia    | Chat UI; talks to llama-server. |
-| dashboard       | Dashboard (Control Center) | core     | 3001        | amd, nvidia    | Control center and status. |
-| dashboard-api   | Dashboard API            | core       | 3002        | amd, nvidia    | Backend API for the dashboard. |
-| litellm         | LiteLLM (API Gateway)   | recommended | 4000       | amd, nvidia    | Unified API gateway for multiple backends. |
-| searxng         | SearXNG (Web Search)     | recommended | 8888      | amd, nvidia    | Metasearch for web. |
-| token-spy       | Token Spy (Usage Monitor) | recommended | 3005     | amd, nvidia    | Token and usage monitoring. |
-| n8n             | n8n (Workflows)          | optional   | 5678        | amd, nvidia    | Workflow automation. |
-| qdrant          | Qdrant (Vector DB)       | optional   | 6333        | amd, nvidia    | Vector store for RAG. |
-| whisper         | Whisper (STT)            | optional   | 9000        | amd, nvidia    | Speech-to-text. |
-| tts             | Kokoro (TTS)             | optional   | 8880        | amd, nvidia    | Text-to-speech. |
-| comfyui         | ComfyUI (Image Gen)      | optional   | 8188        | amd, nvidia    | Image generation (SDXL Lightning). |
-| hermes          | Hermes Agent             | recommended | 9119       | amd, nvidia    | Generalist self-improving agent (Nous Research) — chat, tools, persistent memory, scheduled tasks. **Default agent as of 2026-05-12.** |
-| hermes-proxy    | Hermes Agent (auth gate) | recommended | 9120       | amd, nvidia    | Caddy auth-proxy in front of Hermes; gates access on a redeemed magic-link `dream-session` cookie. |
-| openclaw        | OpenClaw (Agents) **(deprecated)** | optional   | 7860        | amd, nvidia    | Agent with tools. **DEPRECATED** — removal planned in the next release. Use `hermes` instead. See [MIGRATION-OPENCLAW-TO-HERMES.md](../docs/MIGRATION-OPENCLAW-TO-HERMES.md). |
-| perplexica      | Perplexica (Deep Research) | optional | 3004        | amd, nvidia    | Deep research UI. |
-| embeddings      | TEI (Embeddings)        | optional   | 8090        | amd, nvidia    | Text embeddings for RAG. |
-| privacy-shield  | Privacy Shield           | optional   | 8085        | amd, nvidia    | PII detection and protection. |
-| opencode        | OpenCode (IDE)           | optional   | 3003        | amd, nvidia    | In-browser IDE integration. |
-| langfuse        | Langfuse (LLM Observability) | optional | 3006      | amd, nvidia    | LLM tracing, evaluations, and prompt management. |
+| llama-server    | llama-server (LLM)       | core       | 8080        | amd, nvidia    | Main OpenAI-compatible LLM inference API. Linux Docker host exposure defaults to `OLLAMA_PORT=11434`; native macOS/Windows paths use host `8080`. |
+| open-webui      | Open WebUI (Chat)        | core       | 3000        | amd, nvidia    | Chat UI; talks to llama-server or LiteLLM. |
+| dashboard       | Dashboard (Control Center) | core     | 3001        | amd, nvidia    | Operator control center, model management, service health, and setup UI. |
+| dashboard-api   | Dashboard API            | core       | 3002        | amd, nvidia    | FastAPI backend for dashboard, host-agent integration, setup, models, and health. |
+| litellm         | LiteLLM (API Gateway)   | recommended | 4000       | all            | Unified OpenAI-compatible API gateway for local/cloud/hybrid and Lemonade paths. |
+| searxng         | SearXNG (Web Search)     | recommended | 8888      | all            | Privacy-respecting metasearch for web research. |
+| token-spy       | Token Spy (Usage Monitor) | recommended | 3005     | all            | Token and usage monitoring for local/proxied traffic. |
+| hermes          | Hermes Agent             | recommended | internal 9119 | all          | Default generalist agent (Nous Research) with tools, memory, and skills. Not host-bound directly. |
+| hermes-proxy    | Hermes Auth Proxy        | recommended | 9120       | all            | Magic-link-gated Caddy proxy in front of Hermes. |
+| ape             | APE (Agent Policy Engine) | optional  | 7890        | all            | Policy/audit layer for autonomous agent tool calls. |
+| brave-search    | Brave Search (Paid API)  | optional   | 8585        | all            | Optional Brave Search API bridge. Requires `BRAVE_SEARCH_API_KEY`. |
+| comfyui         | ComfyUI (Image Gen)      | optional   | 8188        | amd, nvidia    | Image generation UI and API. |
+| dream-proxy     | Dream Server (Web)       | optional   | 80          | all            | LAN/mDNS web entry with host-based routing for chat, dashboard, API, and Hermes proxy. |
+| embeddings      | TEI (Embeddings)         | optional   | 8090        | all            | Text embeddings service for RAG. |
+| langfuse        | Langfuse (LLM Observability) | optional | 3006      | all            | LLM tracing, evaluations, and prompt management. |
+| n8n             | n8n (Workflows)          | optional   | 5678        | all            | Workflow automation. |
+| openclaw        | OpenClaw (Agents) **(deprecated)** | optional | 7860 | all | Legacy agent framework. **DEPRECATED** — removal planned in the next release. Use `hermes` instead. See [MIGRATION-OPENCLAW-TO-HERMES.md](../docs/MIGRATION-OPENCLAW-TO-HERMES.md). |
+| opencode        | OpenCode (IDE)           | optional   | 3003        | all            | Host-managed browser IDE / coding assistant wired to local inference. |
+| perplexica      | Perplexica (Deep Research) | optional | 3004        | all            | Deep research UI backed by SearXNG and local inference. |
+| privacy-shield  | Privacy Shield           | optional   | 8085        | all            | PII detection and protection proxy. |
+| qdrant          | Qdrant (Vector DB)       | optional   | 6333 / 6334 | all           | Vector store for RAG. |
+| tailscale       | Tailscale (Remote Access) | optional  | host network | all           | Optional tailnet access for remote/private networks. |
+| tts             | Kokoro (TTS)             | optional   | 8880        | all            | Text-to-speech. |
+| whisper         | Whisper (STT)            | optional   | 9000        | all            | Speech-to-text. |
 
 ## Categories
 
 - **core** — Always part of the base stack (llama-server, open-webui, dashboard, dashboard-api).
 - **recommended** — Enabled by default in the installer; can be disabled (litellm, searxng, token-spy, hermes, hermes-proxy).
-- **optional** — User opts in during install or later (n8n, qdrant, whisper, tts, comfyui, perplexica, embeddings, privacy-shield, opencode). `openclaw` is also in this category but is **deprecated** as of 2026-05-12.
+- **optional** — User opts in during install or later (APE, Brave Search, ComfyUI, dream-proxy, embeddings, Langfuse, n8n, OpenCode, Perplexica, Privacy Shield, Qdrant, Tailscale, TTS, Whisper). `openclaw` is also in this category but is **deprecated** as of 2026-05-12.
 
 ## Ports and .env
 
@@ -59,6 +63,9 @@ extensions/services/
   dashboard/manifest.yaml
   dashboard-api/manifest.yaml
   n8n/manifest.yaml
+  ape/manifest.yaml
+  brave-search/manifest.yaml
+  dream-proxy/manifest.yaml
   qdrant/manifest.yaml
   whisper/manifest.yaml
   tts/manifest.yaml
@@ -74,6 +81,7 @@ extensions/services/
   privacy-shield/manifest.yaml
   opencode/manifest.yaml
   langfuse/manifest.yaml
+  tailscale/manifest.yaml
 ```
 
 Each directory typically also has a `compose.yaml` (and optional overlay like `compose.nvidia.yaml`). The resolver `scripts/resolve-compose-stack.sh` builds the full compose command from enabled extensions and the selected GPU backend.

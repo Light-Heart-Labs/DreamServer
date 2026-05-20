@@ -1,13 +1,55 @@
 # Dream Server Documentation Index
 
-Links from this directory use `../` for the repo root (e.g. `../README.md`, `../QUICKSTART.md`) and bare filenames for other docs in this directory (e.g. `EXTENSIONS.md`, `TROUBLESHOOTING.md`). **FAQ:** `../FAQ.md` is the installation and usage FAQ at repo root; `FAQ.md` in this directory is the hardware and requirements FAQ.
+This is the maintained map for operators, contributors, and reviewers. Links from
+this directory use `../` for the `dream-server/` product root and bare filenames
+for other docs in this directory. The GitHub landing README lives two levels up
+at [`../../README.md`](../../README.md).
+
+**FAQ:** `../FAQ.md` is the installation and usage FAQ at the product root;
+`FAQ.md` in this directory is the hardware and requirements FAQ.
+
+## Start Here By Job
+
+| I want to... | Read this first | Then use |
+|--------------|-----------------|----------|
+| Install the default path | [../QUICKSTART.md](../QUICKSTART.md) | [SUPPORT-MATRIX.md](SUPPORT-MATRIX.md), [POST-INSTALL-CHECKLIST.md](POST-INSTALL-CHECKLIST.md) |
+| Install on Windows | [WINDOWS-QUICKSTART.md](WINDOWS-QUICKSTART.md) | [WINDOWS-INSTALL-WALKTHROUGH.md](WINDOWS-INSTALL-WALKTHROUGH.md), [WINDOWS-WSL2-GPU-GUIDE.md](WINDOWS-WSL2-GPU-GUIDE.md) |
+| Install on Apple Silicon | [MACOS-QUICKSTART.md](MACOS-QUICKSTART.md) | [MODEL-MANAGEMENT.md](MODEL-MANAGEMENT.md), [TROUBLESHOOTING.md](TROUBLESHOOTING.md) |
+| Debug a broken install | [DREAM-DOCTOR.md](DREAM-DOCTOR.md) | [INSTALL-TROUBLESHOOTING.md](INSTALL-TROUBLESHOOTING.md), [SUPPORT-BUNDLE.md](SUPPORT-BUNDLE.md) |
+| Change installer behavior | [INSTALLER-ARCHITECTURE.md](INSTALLER-ARCHITECTURE.md) | [BACKEND-CONTRACT.md](BACKEND-CONTRACT.md), [PREFLIGHT-ENGINE.md](PREFLIGHT-ENGINE.md) |
+| Change model routing | [MODEL-MANAGEMENT.md](MODEL-MANAGEMENT.md) | [MODE-SWITCH.md](MODE-SWITCH.md), [BACKEND-CONTRACT.md](BACKEND-CONTRACT.md) |
+| Add or harden a service | [EXTENSIONS.md](EXTENSIONS.md) | [../extensions/CATALOG.md](../extensions/CATALOG.md), [../extensions/schema/README.md](../extensions/schema/README.md) |
+| Review a PR | [../CONTRIBUTING.md](../CONTRIBUTING.md) | [TESTING.md](TESTING.md), [PLATFORM-TRUTH-TABLE.md](PLATFORM-TRUTH-TABLE.md) |
+
+## Current Truths
+
+- The golden paths are Linux NVIDIA, Windows with Docker Desktop + WSL2 for
+  NVIDIA/AMD, and Apple Silicon. Linux AMD Strix Halo is actively supported;
+  Intel Arc is present but still experimental.
+- The default agent path is Hermes Agent plus `hermes-proxy`. OpenClaw remains
+  available for compatibility, but it is deprecated and no longer enabled by
+  default.
+- Linux Docker installs expose llama-server on host `OLLAMA_PORT=11434` by
+  default while containers use `llama-server:8080`. macOS native Metal and
+  Windows native/Lemonade paths use host port `8080` unless overridden.
+- Windows installs should run from a normal user PowerShell, not Administrator.
+  The default install directory is `$env:USERPROFILE\dream-server` unless
+  `DREAM_HOME` is set.
+- Bundled service truth lives in `extensions/services/*/manifest.yaml`.
+  Core host-facing port defaults are tracked in `config/ports.json`; per-service
+  manifest defaults live with each service. The dashboard extension library
+  catalog is generated into `config/extensions-catalog.json`.
+- Generated runtime config has several writers. If you change `.env`,
+  OpenCode, Perplexica, Hermes, or LiteLLM/Lemonade behavior, update the Linux,
+  macOS, Windows, bootstrap-upgrade, and host-agent paths together.
 
 ## Getting Started
 
 | Doc | Audience | Description |
 |-----|----------|-------------|
 | [HOW-DREAM-SERVER-WORKS.md](HOW-DREAM-SERVER-WORKS.md) | **Everyone** | **The friendly guide — what Dream Server is, why it exists, how every piece fits together, and how to make it your own. No technical background required.** |
-| [../README.md](../README.md) | Everyone | Project overview, quickstart, architecture |
+| [../../README.md](../../README.md) | Everyone | GitHub landing page and public project overview |
+| [../README.md](../README.md) | Everyone | Product README, quickstart, architecture, and operator overview |
 | [../QUICKSTART.md](../QUICKSTART.md) | Operators | Step-by-step first install |
 | [HEADLESS-SETUP.md](HEADLESS-SETUP.md) | Operators / hardware builders | Hardware-neutral QR onboarding, first-boot setup, AP mode, mDNS, and local-agent access map |
 | [../EDGE-QUICKSTART.md](../EDGE-QUICKSTART.md) | Operators | Edge devices (planned — do not follow yet; use cloud mode for CPU-only today) |
@@ -18,10 +60,12 @@ Links from this directory use `../` for the repo root (e.g. `../README.md`, `../
 | Doc | Audience | Description |
 |-----|----------|-------------|
 | [EXTENSIONS.md](EXTENSIONS.md) | Builders | Add Docker services, manifests, dashboard plugins |
+| [../extensions/CATALOG.md](../extensions/CATALOG.md) | Builders / reviewers | Current bundled service manifest catalog |
 | [INSTALLER-ARCHITECTURE.md](INSTALLER-ARCHITECTURE.md) | Modders | Installer module map, mod recipes, header convention |
 | [INTEGRATION-GUIDE.md](INTEGRATION-GUIDE.md) | Developers | Connect apps via OpenAI SDK, LangChain, n8n |
 | [BACKEND-CONTRACT.md](BACKEND-CONTRACT.md) | Developers | Backend runtime contract JSON schema |
-| [OPENCLAW-INTEGRATION.md](OPENCLAW-INTEGRATION.md) | Developers | OpenClaw agent framework setup |
+| [HERMES.md](HERMES.md) | Developers / operators | Default Hermes Agent packaging, security posture, and operations |
+| [OPENCLAW-INTEGRATION.md](OPENCLAW-INTEGRATION.md) | Developers | Deprecated OpenClaw setup and migration reference |
 
 ## Hardware & Configuration
 
@@ -46,6 +90,7 @@ Links from this directory use `../` for the repo root (e.g. `../README.md`, `../
 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Operators | Common issues and fixes |
 | [INSTALL-TROUBLESHOOTING.md](INSTALL-TROUBLESHOOTING.md) | Operators | Installer-specific issues |
 | [DREAM-DOCTOR.md](DREAM-DOCTOR.md) | Operators | Diagnostic tool usage |
+| [SUPPORT-BUNDLE.md](SUPPORT-BUNDLE.md) | Operators | What to collect before asking for help |
 | [PREFLIGHT-ENGINE.md](PREFLIGHT-ENGINE.md) | Developers | Preflight validation system |
 
 ## macOS

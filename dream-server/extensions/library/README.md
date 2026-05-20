@@ -32,7 +32,7 @@ Each extension is a self-contained directory with a `manifest.yaml` (service met
 
 | Service | Description | GPU |
 |---------|------------|-----|
-| [`comfyui/`](services/comfyui/) | ComfyUI — node-based Stable Diffusion workflows | AMD, NVIDIA |
+| [`comfyui/`](../services/comfyui/) | ComfyUI — node-based Stable Diffusion workflows | AMD, NVIDIA |
 | [`fooocus/`](services/fooocus/) | Fooocus — simplified Stable Diffusion (Midjourney-like UX) | NVIDIA |
 | [`invokeai/`](services/invokeai/) | InvokeAI — professional Stable Diffusion with canvas | AMD, NVIDIA |
 | [`forge/`](services/forge/) | Forge / A1111 — Stable Diffusion WebUI with optimizations | NVIDIA |

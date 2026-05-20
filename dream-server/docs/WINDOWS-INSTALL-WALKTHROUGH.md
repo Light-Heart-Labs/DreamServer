@@ -1,6 +1,7 @@
 # Dream Server Windows Installation Walkthrough
 
-Step-by-step guide for installing Dream Server on Windows 10/11 with WSL2, Docker Desktop, and NVIDIA GPU support.
+Step-by-step guide for installing Dream Server on Windows 10/11 with WSL2,
+Docker Desktop, and NVIDIA or AMD GPU support.
 
 ---
 
@@ -9,7 +10,7 @@ Step-by-step guide for installing Dream Server on Windows 10/11 with WSL2, Docke
 | Requirement | Minimum | Recommended |
 |-------------|---------|-------------|
 | Windows | 10 version 2004+ (build 19041) | Windows 11 |
-| GPU | NVIDIA with 8GB VRAM | RTX 3060 12GB+ or RTX 4090 |
+| GPU | NVIDIA with 8GB VRAM or AMD Strix Halo | RTX 3060 12GB+, RTX 4090, or Ryzen AI MAX+ |
 | RAM | 16GB | 32GB+ |
 | Disk | 100GB free SSD | 200GB+ NVMe |
 | WSL2 | Enabled | Latest kernel |
@@ -37,7 +38,9 @@ wsl --status
 
 ---
 
-## Step 2: Install NVIDIA Drivers
+## Step 2: Install GPU Drivers
+
+For NVIDIA:
 
 1. Download latest drivers: https://www.nvidia.com/drivers
 2. Install on Windows (do NOT install in WSL2)
@@ -48,6 +51,10 @@ wsl --status
    ```
 
 **Note:** Windows drivers automatically provide GPU access to WSL2. No separate WSL driver needed.
+
+For AMD Strix Halo, install the current AMD Windows graphics/compute driver
+from AMD. The Dream Server installer selects the Windows host accelerated path
+and falls back when Lemonade is unavailable.
 
 ---
 
@@ -60,10 +67,12 @@ wsl --status
 5. Go to Settings → Resources → WSL Integration
 6. Enable integration for **Ubuntu**
 
-**Verify GPU in Docker:**
+**Verify NVIDIA GPU in Docker:**
 ```powershell
 docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi
 ```
+
+Skip this NVIDIA CUDA container check on AMD systems.
 
 ---
 
@@ -72,35 +81,36 @@ docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi
 Open **PowerShell** (not as admin) and run:
 
 ```powershell
-# Download installer
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/v2.1.0/install.ps1" -OutFile install.ps1
-
-# Run installer
+git clone https://github.com/Light-Heart-Labs/DreamServer.git
+cd DreamServer
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\install.ps1
 ```
 
 The installer will:
 - Detect your GPU and pick the right model tier
-- Check prerequisites (WSL2, Docker, NVIDIA)
-- Create installation directory at `%LOCALAPPDATA%\DreamServer`
+- Check prerequisites (WSL2, Docker, NVIDIA/AMD runtime path)
+- Create the installation directory at `$env:USERPROFILE\dream-server`
 - Download and start all services
 
-**First run takes 10-30 minutes** (downloads ~20GB model).
+**First run takes 10-30 minutes** depending on download speed. Bootstrap mode
+starts a small model first, then downloads and hot-swaps the full model in the
+background.
 
 ### Installer Options
 
 ```powershell
-# Quick start with small model (upgrades later)
-.\install.ps1 -Bootstrap
-
 # Specific tier with voice
 .\install.ps1 -Tier 2 -Voice
 
 # Full stack with everything
 .\install.ps1 -All
 
-# Just check system compatibility
-.\install.ps1 -Diagnose
+# Simulate installer planning without making changes
+.\install.ps1 -DryRun
+
+# Wait for the full model instead of using bootstrap fast-start
+.\install.ps1 -NoBootstrap
 ```
 
 ---
@@ -111,7 +121,7 @@ The installer will:
 
 ```powershell
 # In PowerShell
-cd $env:LOCALAPPDATA\DreamServer
+cd $env:USERPROFILE\dream-server
 docker compose ps
 ```
 
@@ -137,8 +147,8 @@ Visit: **http://localhost:3000**
 ## Step 6: Run Diagnostics
 
 ```powershell
-# Full system check
-.\install.ps1 -Diagnose
+cd $env:USERPROFILE\dream-server
+.\dream.ps1 report
 ```
 
 This verifies:
@@ -167,7 +177,7 @@ Then restart Docker Desktop.
 **Fix:** Ensure Docker Desktop WSL2 backend is enabled. Restart Docker Desktop after enabling.
 
 ### "Port 3000 already in use"
-**Fix:** Edit `%LOCALAPPDATA%\DreamServer\.env`:
+**Fix:** Edit `$env:USERPROFILE\dream-server\.env`:
 ```
 WEBUI_PORT=3001
 ```
@@ -185,10 +195,10 @@ Then: `docker compose up -d`
 | Stop Dream Server | `docker compose down` |
 | Start Dream Server | `docker compose up -d` |
 | View logs | `docker compose logs -f` |
-| Update | `docker compose pull && docker compose up -d` |
+| Update | `.\dream.ps1 update` |
 | Enable voice | Add `-Voice` flag or edit `.env` |
 | Enable workflows | Add `-Workflows` flag |
-| Full test suite | `.\scripts\test-stack.ps1` |
+| Support report | `.\dream.ps1 report` |
 
 ---
 
@@ -204,13 +214,13 @@ Then: `docker compose up -d`
 
 ```powershell
 # Stop and remove containers
-cd $env:LOCALAPPDATA\DreamServer
+cd $env:USERPROFILE\dream-server
 docker compose down -v
 
 # Remove installation directory
-Remove-Item -Recurse -Force $env:LOCALAPPDATA\DreamServer
+Remove-Item -Recurse -Force "$env:USERPROFILE\dream-server"
 ```
 
 ---
 
-*Last updated: 2026-02-13*
+*Last updated: 2026-05-20*

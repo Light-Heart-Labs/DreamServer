@@ -37,6 +37,13 @@ Environment variables (set in `.env`):
 
 > **SearXNG URL:** Perplexica connects to SearXNG internally at `http://searxng:8080`. This is fixed in `compose.yaml` and does not need to be changed.
 
+> **Model name:** Perplexica stores its own `defaultChatModel` in its app
+> settings volume. The installer seeds it on first boot, and the bootstrap
+> hot-swap updates it after the full model is ready. After a manual GGUF or
+> tier switch, verify Perplexica Settings or run
+> `scripts/repair/repair-perplexica.sh <perplexica-url> <model-name>` from the
+> installed `dream-server` directory.
+
 ## Architecture
 
 ```
