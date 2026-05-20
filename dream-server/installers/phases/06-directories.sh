@@ -648,6 +648,17 @@ ENV_EOF
         else
             _active_gguf="$GGUF_FILE"
         fi
+        # Pass chat_template_kwargs.enable_thinking=false to Lemonade so Qwen3
+        # thinking-mode is OFF by default for every client. Perplexica and any
+        # other consumer that doesn't manually `/no_think` its prompts would
+        # otherwise hang for many minutes per request — the model emits a
+        # <think>...</think> block that, on a long synthesis prompt, can run
+        # past the client timeout before any visible token reaches the UI.
+        # This kwarg is a Qwen3-specific switch and is safely ignored by
+        # non-Qwen3 chat templates, so it's safe to bake into the default
+        # lemonade config regardless of which model the install resolves to.
+        # bootstrap-upgrade.sh mirrors this when it regenerates the file
+        # after a hot-swap.
         cat > "$INSTALL_DIR/config/litellm/lemonade.yaml" << LITELLM_EOF
 model_list:
   - model_name: default
@@ -655,12 +666,18 @@ model_list:
       model: openai/extra.${_active_gguf}
       api_base: http://llama-server:8080/api/v1
       api_key: ${LITELLM_LEMONADE_API_KEY}
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
 
   - model_name: "*"
     litellm_params:
       model: openai/extra.${_active_gguf}
       api_base: http://llama-server:8080/api/v1
       api_key: ${LITELLM_LEMONADE_API_KEY}
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
 
 litellm_settings:
   drop_params: true

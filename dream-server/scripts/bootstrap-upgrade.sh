@@ -521,6 +521,22 @@ if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --f
             # itself ignores the value).
             LITELLM_LEMONADE_API_KEY=$(grep '^LITELLM_LEMONADE_API_KEY=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d '"\047\r')
             : "${LITELLM_LEMONADE_API_KEY:=sk-lemonade}"
+            # extra_body.chat_template_kwargs.enable_thinking=false is what
+            # un-blocks Perplexica + any other client that doesn't manually
+            # prepend `/no_think` to its prompts. Qwen3 thinking models
+            # (qwen3-coder-next, Qwen3.6-35B-A3B, Qwen3-30B-A3B) emit a
+            # <think>...</think> reasoning block before the answer, which on
+            # Strix Halo with a long Perplexica synthesis prompt can run for
+            # minutes — the user sees the GPU spin up but no tokens reach the
+            # UI until the close-think tag fires. Passing
+            # `chat_template_kwargs: {enable_thinking: false}` to llama.cpp /
+            # Lemonade hits the Qwen3 chat template's enable_thinking switch
+            # and skips the reasoning block entirely.
+            #
+            # Verified 2026-05-20 on Strix Halo (AMD/Lemonade): same prompt
+            # went from "hangs indefinitely" to 1.8s end-to-end with this
+            # one block added. The kwarg is a Qwen3-specific switch and is
+            # safely ignored by non-Qwen3 chat templates.
             cat > "$INSTALL_DIR/config/litellm/lemonade.yaml" << LITELLM_UPGRADE_EOF
 model_list:
   - model_name: default
@@ -528,12 +544,18 @@ model_list:
       model: openai/extra.${FULL_GGUF_FILE}
       api_base: http://llama-server:8080/api/v1
       api_key: ${LITELLM_LEMONADE_API_KEY}
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
 
   - model_name: "*"
     litellm_params:
       model: openai/extra.${FULL_GGUF_FILE}
       api_base: http://llama-server:8080/api/v1
       api_key: ${LITELLM_LEMONADE_API_KEY}
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
 
 litellm_settings:
   drop_params: true
