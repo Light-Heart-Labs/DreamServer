@@ -24,10 +24,30 @@ grep -qF 'up -d --force-recreate --no-deps llama-server' <<<"$active_code" \
     || fail "llama.cpp hot-swap must force-recreate llama-server without deps"
 pass "llama.cpp hot-swap uses force-recreate/no-deps"
 
+llama_recreate_block="$(awk '
+    /force-recreate to pick up new GGUF_FILE/ { in_block=1 }
+    in_block { print }
+    in_block && /up -d --force-recreate --no-deps llama-server/ { exit }
+' "$TARGET" | grep -v '^[[:space:]]*#')"
+
+grep -qF 'env -u GGUF_FILE -u LLM_MODEL -u MAX_CONTEXT -u CTX_SIZE' <<<"$llama_recreate_block" \
+    || fail "llama-server recreate must strip model vars so .env wins compose interpolation"
+pass "llama-server recreate strips model env before compose"
+
 if grep -qE '\bstop[[:space:]]+llama-server\b' <<<"$active_code"; then
     fail "llama.cpp hot-swap must not stop llama-server before compose up"
 fi
 pass "llama.cpp hot-swap does not use stop + up"
+
+openclaw_recreate_block="$(awk '
+    /Recreating OpenClaw to pick up model change/ { in_block=1 }
+    in_block { print }
+    in_block && /up -d --force-recreate openclaw/ { exit }
+' "$TARGET" | grep -v '^[[:space:]]*#')"
+
+grep -qF 'env -u GGUF_FILE -u LLM_MODEL -u MAX_CONTEXT -u CTX_SIZE' <<<"$openclaw_recreate_block" \
+    || fail "OpenClaw recreate must strip model vars so .env wins compose interpolation"
+pass "OpenClaw recreate strips model env before compose"
 
 grep -qF 'inspect dream-llama-server --format' <<<"$active_code" \
     || fail "hot-swap must inspect the recreated container command"
@@ -38,7 +58,7 @@ pass "hot-swap asserts the running command uses the full GGUF"
 stale_block="$(awk '
     /llama-server container started with stale --model arg/ { in_block=1 }
     in_block { print }
-    in_block && /fi[[:space:]]*$/ { exit }
+    in_block && /fail "llama-server container started with stale --model arg after force-recreate."/ { exit }
 ' "$TARGET" | grep -v '^[[:space:]]*#')"
 
 grep -qF 'write_status "failed"' <<<"$stale_block" \
