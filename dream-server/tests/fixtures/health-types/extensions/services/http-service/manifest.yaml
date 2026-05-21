@@ -3,7 +3,7 @@ schema_version: dream.services.v1
 service:
   id: http-service
   name: HTTP Fixture
-  container_name: ""
+  container_name: dream-http-service
   port: 18081
   external_port_default: 18081
   health: /

@@ -35,6 +35,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [[ -f "$SCRIPT_DIR/lib/service-registry.sh" ]]; then 
     . "$SCRIPT_DIR/lib/service-registry.sh" 
     if [[ -n "${DREAM_EXTENSIONS_DIR:-}" ]]; then
+        # shellcheck disable=SC2034  # consumed by sr_load in service-registry.sh
         EXTENSIONS_DIR="$DREAM_EXTENSIONS_DIR"
     fi
     sr_load 
@@ -163,7 +164,7 @@ test_service() {
     local timeout="${SERVICE_HEALTH_TIMEOUTS[$sid]:-$TIMEOUT}"
 
     if [[ "$health_type" == "none" ]]; then
-        result_set "$sid" "n/a"
+        result_set "$sid" "not_applicable"
         return 0
     fi
 
@@ -180,11 +181,7 @@ test_service() {
     # Check container state first (if docker available)
     local container_state
     container_state=$(check_container_state "$sid")
-    # If the container exists but is not running, treat as a failure.
-    # If the container is not found (e.g. test fixtures run without Docker
-    # containers), allow the network-based checks to proceed so host-bound
-    # fixtures still pass.
-    if [[ -n "$container_state" && "$container_state" != "running" && "$container_state" != "not_found" ]]; then
+    if [[ -n "$container_state" && "$container_state" != "running" ]]; then
         result_set "$sid" "fail"
         ANY_FAIL=true
         return 1
@@ -257,7 +254,7 @@ check_service() {
     local sid="$1"
     local name="${SERVICE_NAMES[$sid]:-$sid}"
     if test_service "$sid" 2>/dev/null; then
-        if [[ "$(result_get "$sid")" == "n/a" ]]; then
+        if [[ "$(result_get "$sid")" == "not_applicable" ]]; then
             log "  ${CYAN}~${NC} $name - skipped (no health check)"
             return 0
         fi
@@ -335,7 +332,7 @@ if [[ "${HEALTH_CHECK_LIB_ONLY:-}" != "1" ]]; then
 
             if [[ "$status" == "ok" ]]; then
                 if [[ "$health_type" == "none" ]]; then
-                    result_set "$sid" "n/a"
+                    result_set "$sid" "not_applicable"
                     log "  ${CYAN}~${NC} $name - skipped (no health check)"
                 else
                     result_set "$sid" "ok"
@@ -397,7 +394,7 @@ if [[ "${HEALTH_CHECK_LIB_ONLY:-}" != "1" ]]; then
 
             if [[ "$status" == "ok" ]]; then
                 if [[ "$health_type" == "none" ]]; then
-                    result_set "$sid" "n/a"
+                    result_set "$sid" "not_applicable"
                     log "  ${CYAN}~${NC} $name - skipped (no health check)"
                 else
                     result_set "$sid" "ok"

@@ -151,6 +151,9 @@ PY
                 HEALTH_CHECK_LIB_ONLY=1 \
                 bash -c '
 source "$ROOT_DIR/scripts/health-check.sh"
+# Fixtures run without real Docker containers. Stub the container-state
+# check so the network probe is the actual signal under test.
+check_container_state() { echo "running"; }
 set +e
 test_service "http-service" >/dev/null 2>&1
 http_status=$(result_get "http-service")
@@ -161,8 +164,8 @@ none_status=$(result_get "none-service")
 printf "%s,%s,%s" "$http_status" "$tcp_status" "$none_status"
 '
             )
-            if [[ "$fixture_statuses" == "ok,ok,n/a" ]]; then
-                pass "health_type fixtures report http ok, tcp ok, none n/a"
+            if [[ "$fixture_statuses" == "ok,ok,not_applicable" ]]; then
+                pass "health_type fixtures report http ok, tcp ok, none not_applicable"
             else
                 fail "health_type fixture statuses incorrect" "$fixture_statuses"
             fi
