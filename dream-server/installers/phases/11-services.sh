@@ -523,16 +523,33 @@ MODELS_INI_EOF
             if [[ "${GPU_BACKEND:-}" == "amd" ]]; then
                 _hermes_model="extra.$GGUF_FILE"
             fi
-            # base_url stays at the compose-bridge name for Linux installs.
-            # On Linux there's a sibling llama-server container; on macOS
-            # the install-macos.sh path handles the host.docker.internal swap.
+            # base_url: on AMD/Lemonade hosts, route Hermes through litellm
+            # instead of direct-to-Lemonade. Lemonade is strict about model
+            # names and rejects concurrent connections that show up during a
+            # multi-step agent loop (web_search → reason → tool result →
+            # reason …), which results in APIConnectionError mid-tool-loop.
+            # litellm's "*" wildcard model_list normalises the model name and
+            # adds upstream retry logic. On non-AMD Linux installs there's a
+            # sibling llama-server container that takes any model name; on
+            # macOS install-macos.sh handles the host.docker.internal swap.
+            _hermes_base_url=""
+            _hermes_api_key=""
+            if [[ "${GPU_BACKEND:-}" == "amd" ]]; then
+                _hermes_base_url="http://litellm:4000/v1"
+                _hermes_api_key="${LITELLM_KEY:-}"
+            fi
             _hermes_context="${MAX_CONTEXT:-131072}"
             _hermes_patcher="$INSTALL_DIR/scripts/patch-hermes-config.py"
             _python_cmd="$(ds_detect_python_cmd 2>/dev/null || command -v python3 2>/dev/null || command -v python 2>/dev/null || true)"
             if [[ -n "$_python_cmd" && -f "$_hermes_patcher" ]]; then
-                "$_python_cmd" "$_hermes_patcher" "$_hermes_tpl" \
-                    --model "$_hermes_model" \
-                    --context-length "$_hermes_context" >>"$LOG_FILE" 2>&1 || \
+                _hermes_patcher_args=("$_hermes_tpl" --model "$_hermes_model" --context-length "$_hermes_context")
+                if [[ -n "$_hermes_base_url" ]]; then
+                    _hermes_patcher_args+=(--base-url "$_hermes_base_url")
+                fi
+                if [[ -n "$_hermes_api_key" ]]; then
+                    _hermes_patcher_args+=(--api-key "$_hermes_api_key")
+                fi
+                "$_python_cmd" "$_hermes_patcher" "${_hermes_patcher_args[@]}" >>"$LOG_FILE" 2>&1 || \
                     warn "Hermes config patcher failed for $_hermes_tpl"
             else
                 sed -i.bak \

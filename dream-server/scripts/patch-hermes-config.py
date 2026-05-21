@@ -59,7 +59,7 @@ def _set_key(lines: list[str], block: tuple[int, int], key: str, value: str, ind
     return block[0], block[1] + 1
 
 
-def _ensure_model(lines: list[str], model: str | None, base_url: str | None, context_length: int | None) -> None:
+def _ensure_model(lines: list[str], model: str | None, base_url: str | None, context_length: int | None, api_key: str | None = None) -> None:
     block = _top_level_block(lines, "model")
     if block is None:
         insert = ["model:"]
@@ -68,6 +68,8 @@ def _ensure_model(lines: list[str], model: str | None, base_url: str | None, con
         if base_url:
             insert.append('  provider: "custom"')
             insert.append(f'  base_url: "{base_url}"')
+        if api_key:
+            insert.append(f'  api_key: "{api_key}"')
         if context_length:
             insert.append(f"  context_length: {context_length}")
         lines[:0] = insert + [""]
@@ -77,6 +79,8 @@ def _ensure_model(lines: list[str], model: str | None, base_url: str | None, con
         block = _set_key(lines, block, "default", f'"{model}"', 2)
     if base_url:
         block = _set_key(lines, block, "base_url", f'"{base_url}"', 2)
+    if api_key:
+        block = _set_key(lines, block, "api_key", f'"{api_key}"', 2)
     if context_length:
         _set_key(lines, block, "context_length", str(context_length), 2)
 
@@ -131,12 +135,12 @@ def _ensure_compression(lines: list[str]) -> None:
     _set_key(lines, block, "protect_last_n", "20", 2)
 
 
-def patch_config(path: Path, model: str | None, base_url: str | None, context_length: int | None) -> bool:
+def patch_config(path: Path, model: str | None, base_url: str | None, context_length: int | None, api_key: str | None = None) -> bool:
     original = path.read_text(encoding="utf-8")
     trailing_newline = original.endswith("\n")
     lines = original.splitlines()
 
-    _ensure_model(lines, model, base_url, context_length)
+    _ensure_model(lines, model, base_url, context_length, api_key)
     _ensure_auxiliary(lines, context_length)
     _ensure_compression(lines)
 
@@ -154,12 +158,13 @@ def main() -> int:
     parser.add_argument("path", type=Path)
     parser.add_argument("--model")
     parser.add_argument("--base-url")
+    parser.add_argument("--api-key", help="Bearer token Hermes uses to call the LLM (needed when routing through litellm)")
     parser.add_argument("--context-length", type=int)
     args = parser.parse_args()
 
     if not args.path.exists():
         return 0
-    changed = patch_config(args.path, args.model, args.base_url, args.context_length)
+    changed = patch_config(args.path, args.model, args.base_url, args.context_length, args.api_key)
     print("changed" if changed else "unchanged")
     return 0
 
