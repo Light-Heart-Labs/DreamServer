@@ -243,7 +243,7 @@ collect_extension_diagnostics() {
                     health_status="not_applicable"
                 elif [[ "$health_type" == "tcp" ]]; then
                     if [[ "$port" != "0" ]]; then
-                        if timeout 5 bash -c "echo >/dev/tcp/127.0.0.1/$port" >/dev/null 2>&1; then
+                        if timeout 5 bash -c "cat < /dev/null > /dev/tcp/127.0.0.1/$port" >/dev/null 2>&1; then
                             health_status="healthy"
                         else
                             health_status="unhealthy"

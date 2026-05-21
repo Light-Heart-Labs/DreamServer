@@ -412,6 +412,11 @@ async def check_service_health(
         return _service_status_from_config(service_id, config, "healthy")
 
     if config.get("host_network") and int(config.get("port") or 0) <= 0:
+        # A host-network service can legitimately declare health_type: none
+        # (e.g. a CLI daemon with no listening port). Honor that before the
+        # tailscale special case so future manifests don't need a code change.
+        if config.get("health_type") == "none":
+            return _service_status_from_config(service_id, config, "not_applicable")
         if service_id == "tailscale":
             return await _check_tailscale_health(service_id, config)
         return _service_status_from_config(service_id, config, "not_deployed")
