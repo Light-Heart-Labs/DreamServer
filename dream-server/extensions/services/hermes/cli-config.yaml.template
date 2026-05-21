@@ -63,13 +63,40 @@ auxiliary:
     context_length: 131072
 
 # =============================================================================
-# Terminal backend — where tool calls execute
+# Agent — tool scoping for the consumer-facing Dream Talk surface
+# =============================================================================
+# Upstream PR #18197 (merged) added `agent.disabled_toolsets` as a strict
+# subtraction applied after every other toolset-resolution path. Removing a
+# toolset here removes its tools from the schema the model sees — which is
+# the only reliable fix for wrong-tool selection (upstream RFC #26524 reports
+# Qwen variants jumping 20%->100% reliability when offending tools are
+# removed from the schema, vs ignored prompt-only "use X never Y" guidance).
+#
+# We disable:
+#   * terminal — the model kept reaching for it on weather/news queries and
+#     hanging for 5 min on dead curl commands instead of using web_search.
+#   * browser  — full headless-browser toolset; Dream Talk is mobile chat,
+#     not interactive browsing, so we never want browser_console / navigate.
+agent:
+  disabled_toolsets:
+    - terminal
+    - browser
+
+# =============================================================================
+# Terminal backend — where tool calls execute (when terminal is enabled)
 # =============================================================================
 # Hermes can run tools in a few different sandboxes. For Dream Server we keep
 # it local-to-the-container: no SSH out, no Modal/Daytona, no Docker-in-Docker.
 # The container IS the sandbox.
+#
+# `timeout` caps per-command duration (default upstream: 180s). We set 30s
+# so even if `terminal` gets re-enabled via env override or a future toolset
+# change, a wedged command can't hang the chat for 5 minutes. Pair with the
+# env var TERMINAL_MAX_FOREGROUND_TIMEOUT=30 in compose.yaml as a hard
+# ceiling the model can't override with a per-call timeout arg.
 terminal:
   backend: "local"
+  timeout: 30
 
 # =============================================================================
 # Messaging gateways — none enabled by default in Dream Server
