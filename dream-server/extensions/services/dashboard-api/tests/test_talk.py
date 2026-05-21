@@ -206,6 +206,171 @@ def test_talk_message_stream_validates_input(talk_client):
     assert resp.status_code == 413
 
 
+def test_talk_message_stream_emits_keepalive_during_silent_bridge(talk_client, monkeypatch):
+    """If the bridge goes silent for longer than the keepalive interval (e.g.
+    while llama-server is doing 30-60s of prompt processing with no events),
+    the endpoint must emit ``: keepalive`` SSE comment frames. Without them
+    iOS Safari and intermediate proxies close idle streams and the SPA
+    stalls on a "thinking" spinner that will never resolve."""
+    import asyncio as _asyncio
+    monkeypatch.setattr("routers.talk._KEEPALIVE_INTERVAL", 0.05)
+
+    async def slow_stream(session_key, text):
+        yield {"type": "session", "session_id": "sid-kp"}
+        # Simulate a real prompt-processing gap. With keepalive at 50ms,
+        # this 200ms gap must produce >= 2 keepalive comments.
+        await _asyncio.sleep(0.2)
+        yield {"type": "delta", "text": "ok"}
+        yield {"type": "complete", "session_id": "sid-kp", "text": "ok", "status": "ok", "warning": None}
+
+    monkeypatch.setattr("hermes_bridge.stream_prompt", slow_stream)
+
+    resp = talk_client.post("/api/talk/message/stream", json={"text": "hi"})
+    assert resp.status_code == 200
+    raw = resp.content.decode("utf-8")
+    assert ": keepalive" in raw, "expected at least one keepalive comment frame in body"
+    assert raw.count(": keepalive") >= 2, f"expected >=2 keepalive frames, got {raw.count(': keepalive')}"
+    # And the real frames still come through.
+    frames = _parse_sse_frames(resp.content)
+    types = [f["type"] for f in frames]
+    assert "complete" in types and types[-1] == "done"
+
+
+def test_talk_message_stream_cancels_upstream_on_client_disconnect(talk_client, monkeypatch):
+    """If the client drops the connection mid-stream, the endpoint must stop
+    pulling from the bridge so a slow upstream (llama-server slot) is freed
+    instead of held for a response nobody will read.
+
+    This is a unit-level test of the generator itself — we drive it directly
+    so we can assert the bridge iterator gets ``aclose()``-style cancellation
+    when ``request.is_disconnected()`` returns True.
+    """
+    import asyncio as _asyncio
+    monkeypatch.setattr("routers.talk._KEEPALIVE_INTERVAL", 0.02)
+
+    bridge_started = _asyncio.Event()
+    bridge_cancelled = _asyncio.Event()
+
+    async def hanging_stream(session_key, text):
+        yield {"type": "session", "session_id": "sid-cancel"}
+        bridge_started.set()
+        try:
+            # Hang until the consumer cancels us.
+            await _asyncio.sleep(60)
+            yield {"type": "complete", "session_id": "sid-cancel", "text": "never", "status": "ok", "warning": None}
+        except _asyncio.CancelledError:
+            bridge_cancelled.set()
+            raise
+
+    monkeypatch.setattr("hermes_bridge.stream_prompt", hanging_stream)
+
+    # Build a stub Request that reports disconnected after the first poll.
+    class StubRequest:
+        def __init__(self):
+            self.polls = 0
+
+        async def is_disconnected(self):
+            self.polls += 1
+            # Stay connected once so the session frame can flush, then drop.
+            return self.polls > 1
+
+    from routers.talk import _stream_hermes_sse
+
+    async def drive():
+        gen = _stream_hermes_sse("k", "hi", StubRequest())
+        collected = []
+        # Iterate the SSE generator; the consumer side is what FastAPI does.
+        async for chunk in gen:
+            collected.append(chunk)
+            if len(collected) > 10:
+                break
+        return collected
+
+    chunks = _asyncio.new_event_loop().run_until_complete(drive())
+    body = b"".join(chunks).decode("utf-8")
+    # The session frame should have made it out.
+    assert '"type":"session"' in body
+    # The generator must have exited via the disconnect path, emitting `done`.
+    assert '"type":"done"' in body
+    # And the upstream bridge task must have been cancelled (no hang).
+    assert bridge_started.is_set()
+    assert bridge_cancelled.is_set()
+
+
+def test_hermes_bridge_serializes_concurrent_submits_per_session(monkeypatch):
+    """Two concurrent stream_prompt calls with the same session_key must run
+    sequentially, not pile up on llama-server slots. Two calls with DIFFERENT
+    session_keys are allowed to overlap (different phones don't block each
+    other)."""
+    import asyncio as _asyncio
+    import hermes_bridge
+
+    hermes_bridge._SUBMIT_LOCKS.clear()
+
+    enter_log: list[str] = []
+    exit_log: list[str] = []
+
+    # Stub out the upstream so we don't need a real Hermes — the lock is what
+    # we're exercising. We patch the inner pieces stream_prompt calls.
+    async def fake_connect_ws(_session):
+        class FakeWS:
+            async def send_str(self, _): pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): pass
+        return FakeWS()
+
+    async def fake_create(_ws, *, timeout=30):
+        return "sid-fake"
+
+    monkeypatch.setattr("hermes_bridge._connect_ws", fake_connect_ws)
+    monkeypatch.setattr("hermes_bridge._create_session_on_ws", fake_create)
+
+    async def fake_recv(_ws, _timeout):
+        # Sleep so the test observes ordering, then return a message.complete.
+        await _asyncio.sleep(0.1)
+        return {
+            "method": "event",
+            "params": {
+                "type": "message.complete",
+                "session_id": "sid-fake",
+                "payload": {"text": "done", "status": "ok"},
+            },
+        }
+    monkeypatch.setattr("hermes_bridge._recv_json", fake_recv)
+
+    async def drive(key, tag):
+        enter_log.append(tag)
+        async for ev in hermes_bridge.stream_prompt(key, "x"):
+            if ev["type"] == "complete":
+                break
+        exit_log.append(tag)
+
+    async def main():
+        # Two concurrent same-key callers — must serialize.
+        await _asyncio.gather(drive("k1", "A"), drive("k1", "B"))
+        return list(enter_log), list(exit_log)
+
+    enter, exit_ = _asyncio.new_event_loop().run_until_complete(main())
+    # Both got past their initial enter print before any awaited stream
+    # work — that part isn't blocked. The interesting assertion is that
+    # B's exit fires AFTER A's exit (B waited for the lock).
+    assert enter == ["A", "B"]
+    assert exit_ == ["A", "B"], f"expected serialized exits A then B, got {exit_}"
+
+    # Now confirm different keys are NOT blocked by each other: kick off two
+    # with different keys; both finish near-simultaneously.
+    enter_log.clear()
+    exit_log.clear()
+    hermes_bridge._SUBMIT_LOCKS.clear()
+
+    async def main2():
+        await _asyncio.gather(drive("phoneA", "A"), drive("phoneB", "B"))
+
+    _asyncio.new_event_loop().run_until_complete(main2())
+    # Both complete; the order can be either A→B or B→A but both must finish.
+    assert set(exit_log) == {"A", "B"}
+
+
 def test_talk_message_stream_sets_unbuffered_headers(talk_client, monkeypatch):
     """nginx upstream needs ``X-Accel-Buffering: no`` + ``Cache-Control: no-cache``
     so each SSE frame is forwarded immediately. Regression guard for the SSE

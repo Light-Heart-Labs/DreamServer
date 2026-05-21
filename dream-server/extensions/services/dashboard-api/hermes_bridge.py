@@ -132,6 +132,25 @@ async def _create_session_on_ws(ws: aiohttp.ClientWebSocketResponse, *, timeout:
         return session_id
 
 
+_SUBMIT_LOCKS: dict[str, asyncio.Lock] = {}
+_SUBMIT_LOCKS_GUARD = asyncio.Lock()
+
+
+async def _submit_lock(session_key: str) -> asyncio.Lock:
+    """Per-session-key mutex so two prompts from the same phone don't pile
+    up on llama-server slots. Each call to stream_prompt holds the lock for
+    the whole bridge round-trip; subsequent same-key submits wait until the
+    previous one finishes (or the client disconnects, which cancels the
+    bridge and releases the lock).
+    """
+    async with _SUBMIT_LOCKS_GUARD:
+        lock = _SUBMIT_LOCKS.get(session_key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _SUBMIT_LOCKS[session_key] = lock
+        return lock
+
+
 async def stream_prompt(session_key: str, text: str) -> AsyncIterator[dict[str, Any]]:
     """Submit a prompt to Hermes and yield delta events as they stream back.
 
@@ -142,74 +161,79 @@ async def stream_prompt(session_key: str, text: str) -> AsyncIterator[dict[str, 
 
     On error, raises HermesUnavailable / HermesBridgeError; no partial yield.
 
-    The session_key argument is currently advisory — Hermes per-WS event scoping
-    means we can't safely persist a session across submit calls (see module
-    docstring), so each call creates a fresh Hermes session. Cross-call
-    conversational memory is provided by Hermes's own agent memory layer.
+    The session_key argument is currently advisory for Hermes session reuse
+    (Hermes scopes events per-WS, so we can't safely persist a session across
+    submit calls — see module docstring), but it IS used to serialize concurrent
+    submits from the same phone. Two messages from the same cookie can't
+    overlap; the second waits for the first to finish or be cancelled.
+    Conversational memory across calls is provided by Hermes's own agent
+    memory layer, not by session_id reuse.
     """
     timeout_seconds = _request_timeout()
     timeout = aiohttp.ClientTimeout(total=timeout_seconds + 20)
 
-    async with aiohttp.ClientSession(timeout=timeout) as http_session:
-        ws = await _connect_ws(http_session)
-        async with ws:
-            session_id = await _create_session_on_ws(ws, timeout=30)
-            yield {"type": "session", "session_id": session_id}
+    lock = await _submit_lock(session_key)
+    async with lock:
+        async with aiohttp.ClientSession(timeout=timeout) as http_session:
+            ws = await _connect_ws(http_session)
+            async with ws:
+                session_id = await _create_session_on_ws(ws, timeout=30)
+                yield {"type": "session", "session_id": session_id}
 
-            request_id = "dream-talk-prompt"
-            await ws.send_str(json.dumps({
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "method": "prompt.submit",
-                "params": {"session_id": session_id, "text": text},
-            }))
+                request_id = "dream-talk-prompt"
+                await ws.send_str(json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "method": "prompt.submit",
+                    "params": {"session_id": session_id, "text": text},
+                }))
 
-            chunks: list[str] = []
-            while True:
-                frame = await _recv_json(ws, timeout_seconds)
+                chunks: list[str] = []
+                while True:
+                    frame = await _recv_json(ws, timeout_seconds)
 
-                # Reply to our prompt.submit RPC — informational; events still follow.
-                if frame.get("id") == request_id:
-                    if frame.get("error"):
-                        err = frame["error"]
-                        message = err.get("message") if isinstance(err, dict) else str(err)
-                        raise HermesBridgeError(message or "Hermes prompt failed")
-                    continue
+                    # Reply to our prompt.submit RPC — informational; events still follow.
+                    if frame.get("id") == request_id:
+                        if frame.get("error"):
+                            err = frame["error"]
+                            message = err.get("message") if isinstance(err, dict) else str(err)
+                            raise HermesBridgeError(message or "Hermes prompt failed")
+                        continue
 
-                if frame.get("method") != "event":
-                    continue
-                event = frame.get("params") or {}
-                if not isinstance(event, dict):
-                    continue
-                if event.get("session_id") and event.get("session_id") != session_id:
-                    # Stray event from a sibling session — ignore.
-                    continue
+                    if frame.get("method") != "event":
+                        continue
+                    event = frame.get("params") or {}
+                    if not isinstance(event, dict):
+                        continue
+                    if event.get("session_id") and event.get("session_id") != session_id:
+                        # Stray event from a sibling session — ignore.
+                        continue
 
-                payload = event.get("payload") or {}
-                if not isinstance(payload, dict):
-                    payload = {}
+                    payload = event.get("payload") or {}
+                    if not isinstance(payload, dict):
+                        payload = {}
 
-                event_type = event.get("type")
-                if event_type == "message.delta":
-                    chunk = payload.get("text")
-                    if isinstance(chunk, str) and chunk:
-                        chunks.append(chunk)
-                        yield {"type": "delta", "text": chunk}
-                elif event_type == "message.complete":
-                    final_text = payload.get("text")
-                    if not isinstance(final_text, str) or not final_text.strip():
-                        final_text = "".join(chunks)
-                    yield {
-                        "type": "complete",
-                        "session_id": session_id,
-                        "text": final_text.strip(),
-                        "status": str(payload.get("status") or "ok"),
-                        "warning": payload.get("warning") if isinstance(payload.get("warning"), str) else None,
-                    }
-                    return
-                elif event_type == "error":
-                    message = payload.get("message") if isinstance(payload.get("message"), str) else "Hermes reported an error"
-                    raise HermesBridgeError(message)
+                    event_type = event.get("type")
+                    if event_type == "message.delta":
+                        chunk = payload.get("text")
+                        if isinstance(chunk, str) and chunk:
+                            chunks.append(chunk)
+                            yield {"type": "delta", "text": chunk}
+                    elif event_type == "message.complete":
+                        final_text = payload.get("text")
+                        if not isinstance(final_text, str) or not final_text.strip():
+                            final_text = "".join(chunks)
+                        yield {
+                            "type": "complete",
+                            "session_id": session_id,
+                            "text": final_text.strip(),
+                            "status": str(payload.get("status") or "ok"),
+                            "warning": payload.get("warning") if isinstance(payload.get("warning"), str) else None,
+                        }
+                        return
+                    elif event_type == "error":
+                        message = payload.get("message") if isinstance(payload.get("message"), str) else "Hermes reported an error"
+                        raise HermesBridgeError(message)
 
 
 async def submit_prompt(session_key: str, text: str) -> HermesReply:

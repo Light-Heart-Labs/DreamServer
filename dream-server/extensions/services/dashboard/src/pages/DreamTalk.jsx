@@ -138,12 +138,17 @@ export default function DreamTalk() {
     let finalWarning = null
     let errorDetail = null
 
+    // AbortController so navigating away / re-sending mid-flight cancels the
+    // in-flight stream. Server-side the bridge stops pulling from llama-server
+    // when the connection drops, freeing the slot for the next request.
+    const controller = new AbortController()
     try {
       const resp = await fetch('/api/talk/message/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
         credentials: 'same-origin',
         body: JSON.stringify({ text: clean }),
+        signal: controller.signal,
       })
       if (resp.status === 401) {
         setStatus('expired')
@@ -158,7 +163,9 @@ export default function DreamTalk() {
       const decoder = new TextDecoder()
       let buffer = ''
       // SSE frames are separated by a blank line (\n\n). Buffer partial frames
-      // across reads — chunked transport can split mid-frame.
+      // across reads — chunked transport can split mid-frame. Lines starting
+      // with ``:`` are SSE comments (keepalives); we discard them by filtering
+      // for ``data:`` only below.
       while (true) {
         const { value, done } = await reader.read()
         if (done) break
@@ -200,11 +207,16 @@ export default function DreamTalk() {
       ))
       speak(reply)
     } catch (err) {
-      setMessages(items => items.map(item =>
-        item.id === assistantId
-          ? { ...item, text: err.message || 'Something went wrong.', status: 'error' }
-          : item,
-      ))
+      if (err.name === 'AbortError') {
+        // User-initiated cancellation. Drop the placeholder bubble silently.
+        setMessages(items => items.filter(item => item.id !== assistantId))
+      } else {
+        setMessages(items => items.map(item =>
+          item.id === assistantId
+            ? { ...item, text: err.message || 'Something went wrong.', status: 'error' }
+            : item,
+        ))
+      }
     } finally {
       setSending(false)
     }

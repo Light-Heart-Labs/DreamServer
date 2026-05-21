@@ -138,16 +138,69 @@ def _sse_event(event_type: str, data: dict[str, Any]) -> bytes:
     return f"data: {json.dumps(payload, separators=(',', ':'))}\n\n".encode("utf-8")
 
 
-async def _stream_hermes_sse(session_key: str, text: str):
+# SSE comment frame — clients ignore lines starting with ``:``. Used as a
+# keepalive so iOS Safari and intermediate proxies don't close the connection
+# while llama-server is doing 30-60s of prompt processing with no real frames.
+_SSE_KEEPALIVE = b": keepalive\n\n"
+
+# Emit a keepalive frame this often during silent gaps (in seconds).
+_KEEPALIVE_INTERVAL = 5.0
+
+
+async def _stream_hermes_sse(session_key: str, text: str, request: Request):
     """SSE generator wrapping the bridge's stream_prompt.
 
-    Yields one ``data:`` line per bridge event, terminated by ``\\n\\n``.
-    A final ``done`` frame is always emitted, so the client knows the stream
-    closed cleanly even after an error. Errors map to a ``status`` frame
-    with the same shape the JSON endpoint would return.
+    Yields one ``data:`` line per bridge event, terminated by ``\\n\\n``. A
+    final ``done`` frame is always emitted, so the client knows the stream
+    closed cleanly even after an error. Errors map to an ``error`` frame.
+
+    Two ongoing-availability mechanisms:
+
+    1. **Keepalive** — emit a ``: keepalive`` SSE comment every
+       ``_KEEPALIVE_INTERVAL`` seconds while the bridge is silent (e.g.
+       during the 30-60s cold prompt processing of the system prompt). Without
+       this, iOS Safari and some intermediate proxies close idle streams,
+       leaving the SPA stuck on a stalled "thinking" spinner.
+    2. **Disconnect cancellation** — if the client's HTTP connection drops
+       mid-request (phone screen locked, tab closed, retry), stop pulling
+       from the bridge so we don't keep an upstream llama-server slot busy
+       for a response nobody will ever read.
     """
+    bridge_iter = hermes_bridge.stream_prompt(session_key, text).__aiter__()
+    pending: asyncio.Task | None = None
     try:
-        async for event in hermes_bridge.stream_prompt(session_key, text):
+        while True:
+            if pending is None:
+                pending = asyncio.create_task(bridge_iter.__anext__())
+            try:
+                done_set, _ = await asyncio.wait({pending}, timeout=_KEEPALIVE_INTERVAL)
+            except asyncio.CancelledError:
+                pending.cancel()
+                raise
+            if not done_set:
+                # No bridge event in the keepalive window; check disconnect
+                # before sending more bytes, then emit a keepalive comment.
+                if await request.is_disconnected():
+                    pending.cancel()
+                    return
+                yield _SSE_KEEPALIVE
+                continue
+            # The bridge yielded something — pending is in done_set.
+            try:
+                event = pending.result()
+            except StopAsyncIteration:
+                pending = None
+                break
+            except hermes_bridge.HermesUnavailable as exc:
+                yield _sse_event("error", {"status_code": 503, "detail": str(exc)})
+                pending = None
+                break
+            except (hermes_bridge.HermesBridgeError, asyncio.TimeoutError) as exc:
+                yield _sse_event("error", {"status_code": 502, "detail": str(exc) or "Hermes did not finish the response."})
+                pending = None
+                break
+            pending = None  # ready for next iteration
+
             et = event.get("type")
             if et == "session":
                 yield _sse_event("session", {"session_id": event.get("session_id", "")})
@@ -160,11 +213,12 @@ async def _stream_hermes_sse(session_key: str, text: str):
                     "status": event.get("status") or "ok",
                     "warning": event.get("warning"),
                 })
-    except hermes_bridge.HermesUnavailable as exc:
-        yield _sse_event("error", {"status_code": 503, "detail": str(exc)})
-    except (hermes_bridge.HermesBridgeError, asyncio.TimeoutError) as exc:
-        yield _sse_event("error", {"status_code": 502, "detail": str(exc) or "Hermes did not finish the response."})
-    yield _sse_event("done", {})
+    finally:
+        if pending is not None and not pending.done():
+            pending.cancel()
+        # Always emit a terminal frame so the client's stream-consumer loop
+        # exits cleanly, even on disconnect or error.
+        yield _sse_event("done", {})
 
 
 @router.get("/api/talk/status")
@@ -256,7 +310,7 @@ async def talk_message_stream(payload: dict[str, Any], request: Request) -> Stre
         "Connection": "keep-alive",
     }
     return StreamingResponse(
-        _stream_hermes_sse(session_key, text),
+        _stream_hermes_sse(session_key, text, request),
         media_type="text/event-stream",
         headers=headers,
     )
