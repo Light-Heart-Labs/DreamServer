@@ -47,7 +47,25 @@ def test_env_schema_allows_scrape_cap_override() -> None:
     assert property_schema["minimum"] == 1000
 
 
+def test_compose_restores_image_command() -> None:
+    # Setting `entrypoint:` in compose drops the upstream image's CMD
+    # (`node server.js`). The override must restate it or the patched
+    # entrypoint exits 0 with no app process, restart-looping.
+    compose = COMPOSE.read_text(encoding="utf-8")
+    assert 'command: ["node", "server.js"]' in compose
+
+
+def test_entrypoint_falls_back_to_node_server_when_no_args() -> None:
+    # Belt-and-suspenders: even if a future compose change drops `command:`,
+    # the entrypoint should still launch the app instead of exiting 0.
+    script = ENTRYPOINT.read_text(encoding="utf-8")
+    assert 'if [ "$#" -eq 0 ]' in script
+    assert "set -- node server.js" in script
+
+
 if __name__ == "__main__":
     test_compose_uses_dreamserver_entrypoint()
     test_entrypoint_patches_scrape_url_result_content()
     test_env_schema_allows_scrape_cap_override()
+    test_compose_restores_image_command()
+    test_entrypoint_falls_back_to_node_server_when_no_args()

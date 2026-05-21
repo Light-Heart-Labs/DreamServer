@@ -89,4 +89,11 @@ NODE
 
 patch_scrape_url
 
+# When compose overrides `entrypoint:`, Docker drops the image's CMD
+# (`node server.js`), so $@ arrives empty. Fall back to the image's default
+# command so the upstream docker-entrypoint.sh has something to exec.
+if [ "$#" -eq 0 ]; then
+    set -- node server.js
+fi
+
 exec docker-entrypoint.sh "$@"
