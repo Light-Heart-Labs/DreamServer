@@ -71,6 +71,14 @@ cd ~/DreamServer/dream-server
 tests/fleet-multi-distro.sh --pull
 ```
 
+The Docker and Incus distro runners take a shared host lock by default:
+`/tmp/dream-fleet-heavy.lock`, or `DREAM_FLEET_HOST_LOCK` when set. The
+`/dream-fleet-test` harness uses the same lock when launching heavy tower2
+install work, so distro-lab dry-runs do not compete with full fleet installs
+for Docker/build I/O on the same host. Use `--lock-timeout SECONDS` when a CI
+or automation should fail instead of waiting, and reserve `--no-host-lock` for
+local debugging when you know no full fleet install is running.
+
 Run a focused subset while debugging:
 
 ```bash

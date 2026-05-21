@@ -67,6 +67,9 @@ ORDER=(ubuntu2404 ubuntu2204 debian12 mint213 fedora41 rocky9 arch manjaro cachy
 PULL=false
 RUN_DRY_RUN=true
 KEEP_WORK=false
+HOST_LOCK=true
+LOCK_FILE="${DREAM_FLEET_HOST_LOCK:-/tmp/dream-fleet-heavy.lock}"
+LOCK_TIMEOUT="${DREAM_FLEET_HOST_LOCK_TIMEOUT_SECONDS:-}"
 TARGETS=()
 
 usage() {
@@ -79,6 +82,11 @@ Options:
   --pull          Pull/refresh distro images before running.
   --no-dry-run    Skip install-core.sh --dry-run inside each distro.
   --keep-work     Keep temporary host work directory for debugging.
+  --lock-file P    Host lock path for coordinating with full fleet runs.
+                  Default: DREAM_FLEET_HOST_LOCK or /tmp/dream-fleet-heavy.lock.
+  --lock-timeout N Seconds to wait for the host lock before failing.
+                  Default: wait indefinitely.
+  --no-host-lock  Do not take the shared host lock.
   --list          List supported distro IDs and images.
   -h, --help      Show this help.
 
@@ -101,6 +109,33 @@ normalize_distro() {
     printf '%s\n' "${ALIASES[$distro]:-$distro}"
 }
 
+acquire_host_lock() {
+    if [[ "$HOST_LOCK" != "true" ]]; then
+        return 0
+    fi
+
+    if ! command -v flock >/dev/null 2>&1; then
+        echo "WARN: flock is unavailable; running without host-level contention guard." >&2
+        return 0
+    fi
+
+    local lock_dir
+    lock_dir="$(dirname "$LOCK_FILE")"
+    mkdir -p "$lock_dir"
+
+    exec 9>"$LOCK_FILE"
+    echo "Acquiring fleet host lock: $LOCK_FILE"
+    if [[ -n "$LOCK_TIMEOUT" ]]; then
+        if ! flock -w "$LOCK_TIMEOUT" 9; then
+            echo "ERROR: timed out waiting for fleet host lock: $LOCK_FILE" >&2
+            exit 1
+        fi
+    else
+        flock 9
+    fi
+    echo "Acquired fleet host lock: $LOCK_FILE"
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --pull)
@@ -113,6 +148,18 @@ while [[ $# -gt 0 ]]; do
             ;;
         --keep-work)
             KEEP_WORK=true
+            shift
+            ;;
+        --lock-file)
+            LOCK_FILE="${2:?missing value for --lock-file}"
+            shift 2
+            ;;
+        --lock-timeout)
+            LOCK_TIMEOUT="${2:?missing value for --lock-timeout}"
+            shift 2
+            ;;
+        --no-host-lock)
+            HOST_LOCK=false
             shift
             ;;
         --list)
@@ -155,6 +202,8 @@ if ! docker info >/dev/null 2>&1; then
     echo "ERROR: docker daemon is not reachable." >&2
     exit 1
 fi
+
+acquire_host_lock
 
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/dream-fleet-distro.XXXXXX")"
 cleanup() {

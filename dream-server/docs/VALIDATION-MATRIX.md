@@ -78,7 +78,9 @@ Linux Mint and Fedora hit transient I/O contention while tower2 was also doing
 a heavy fleet install, then passed cleanly on solo retry. The Incus VM matrix
 validated 5/5 VMs: Ubuntu 24.04, Fedora 42, Rocky 9, Arch current, and
 openSUSE Tumbleweed, each booting real systemd + Docker and running the
-installer dry-run cleanly.
+installer dry-run cleanly. The tower2 distro runners now use a shared host
+lock with the fleet harness so full fleet installs and distro-lab Docker/Incus
+work do not run heavy build surfaces against the same host at the same time.
 
 Earlier 2026-05-21 distro-lab work also surfaced infrastructure and
 product-relevant issues: tower2 needed Incus bridge/firewall allowance, and

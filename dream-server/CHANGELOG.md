@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- Fleet distro lab Docker and Incus runners now take a shared host lock so
+  tower2 distro dry-runs do not contend with heavy full-fleet install/build
+  work on the same host.
+
 ## [2.5.0] - 2026-05-21
 
 ### Added

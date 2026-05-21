@@ -12,6 +12,9 @@ MEMORY="4GiB"
 WAIT_TIMEOUT="600"
 KEEP_VMS=false
 RUN_INSTALLER_DRY_RUN=true
+HOST_LOCK=true
+LOCK_FILE="${DREAM_FLEET_HOST_LOCK:-/tmp/dream-fleet-heavy.lock}"
+LOCK_TIMEOUT="${DREAM_FLEET_HOST_LOCK_TIMEOUT_SECONDS:-}"
 WORK_DIR=""
 
 declare -a CREATED_VMS=()
@@ -87,6 +90,11 @@ Options:
   --cpu N                   vCPUs per VM (default: 2)
   --memory SIZE             Memory per VM (default: 4GiB)
   --timeout SECONDS         Wait timeout for VM agent readiness (default: 600)
+  --lock-file PATH          Host lock path for coordinating with full fleet runs
+                            (default: DREAM_FLEET_HOST_LOCK or /tmp/dream-fleet-heavy.lock)
+  --lock-timeout SECONDS    Seconds to wait for the host lock before failing
+                            (default: wait indefinitely)
+  --no-host-lock            Do not take the shared host lock
   -h, --help                Show this help
 
 Default matrix:
@@ -116,6 +124,32 @@ canonical_lane() {
         return 0
     fi
     return 1
+}
+
+acquire_host_lock() {
+    if [[ "$HOST_LOCK" != "true" ]]; then
+        return 0
+    fi
+
+    if ! command -v flock >/dev/null 2>&1; then
+        log "WARN: flock is unavailable; running without host-level contention guard."
+        return 0
+    fi
+
+    local lock_dir
+    lock_dir="$(dirname "$LOCK_FILE")"
+    mkdir -p "$lock_dir"
+
+    exec 9>"$LOCK_FILE"
+    log "Acquiring fleet host lock: $LOCK_FILE"
+    if [[ -n "$LOCK_TIMEOUT" ]]; then
+        if ! flock -w "$LOCK_TIMEOUT" 9; then
+            fail "Timed out waiting for fleet host lock: $LOCK_FILE"
+        fi
+    else
+        flock 9
+    fi
+    log "Acquired fleet host lock: $LOCK_FILE"
 }
 
 cleanup() {
@@ -168,6 +202,18 @@ while (($# > 0)); do
             WAIT_TIMEOUT="${2:?missing value for --timeout}"
             shift 2
             ;;
+        --lock-file)
+            LOCK_FILE="${2:?missing value for --lock-file}"
+            shift 2
+            ;;
+        --lock-timeout)
+            LOCK_TIMEOUT="${2:?missing value for --lock-timeout}"
+            shift 2
+            ;;
+        --no-host-lock)
+            HOST_LOCK=false
+            shift
+            ;;
         -h|--help)
             usage
             exit 0
@@ -189,6 +235,8 @@ fi
 
 command -v incus >/dev/null 2>&1 || fail "incus command not found"
 incus info >/dev/null 2>&1 || fail "incus is not initialized or this user cannot access it"
+
+acquire_host_lock
 
 WORK_DIR="$(mktemp -d)"
 PAYLOAD="$WORK_DIR/dream-server-src.tgz"
