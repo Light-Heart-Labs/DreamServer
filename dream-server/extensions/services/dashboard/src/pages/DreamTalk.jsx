@@ -33,7 +33,7 @@ const MARKDOWN_COMPONENTS = {
 const welcomeMessage = {
   id: 'welcome',
   role: 'assistant',
-  text: "Hey, I'm Dream — your local AI buddy, running entirely on your own hardware. Nothing leaves this box.\n\nTry me: ask anything, draft an email, run some code, plan a trip, or just chat. Or hit the mic and talk to me.",
+  text: "Hey, I'm Dream. Your local AI assistant living inside this machine. How can I help today?",
   status: 'done',
 }
 
@@ -77,6 +77,27 @@ export default function DreamTalk() {
   const recorderRef = useRef(null)
   const recordingChunksRef = useRef([])
   const streamControllerRef = useRef(null)
+  // Track the currently-playing TTS state so we can shut down whatever
+  // is in flight before starting the next reply's audio.
+  const activeSpeechRef = useRef(null)
+  // One persistent Audio element reused across all replies. iOS Safari's
+  // audio session model is single-element-per-page; if we create a new
+  // Audio() per turn (the obvious React-y pattern), the OS audio router
+  // throws "Load failed: a session is busy" because the previous Audio
+  // hasn't fully released the session by the time the new one tries to
+  // claim it. Reusing one element + swapping its src is the canonical
+  // way to do back-to-back audio playback on iOS — also a perf win
+  // because the browser doesn't have to reinitialise its audio
+  // pipeline between turns.
+  const audioElementRef = useRef(null)
+  const getSharedAudio = useCallback(() => {
+    if (!audioElementRef.current) {
+      const el = new Audio()
+      el.preload = 'auto'
+      audioElementRef.current = el
+    }
+    return audioElementRef.current
+  }, [])
 
   const liveMicSupported = useMemo(() => {
     return Boolean(
@@ -133,8 +154,39 @@ export default function DreamTalk() {
     }
   }, [])
 
+  // Stop whatever speech is in flight before a new turn begins. With the
+  // shared-Audio-element pattern we DON'T tear down the audio element
+  // itself (that's what was triggering "session busy" on iOS) — we just
+  // pause it, cancel any in-flight stream, and clean up the previous
+  // ObjectURL. The same element keeps its hold on the audio session
+  // across turns, so the next play() lands without contention.
+  const stopActiveSpeech = useCallback(() => {
+    const prev = activeSpeechRef.current
+    activeSpeechRef.current = null
+    if (!prev) return
+    try { prev.reader?.cancel() } catch { /* already closed */ }
+    try {
+      if (prev.mediaSource && prev.mediaSource.readyState === 'open') {
+        prev.mediaSource.endOfStream()
+      }
+    } catch { /* already closed */ }
+    try {
+      // Pause the SHARED audio element (don't destroy it). The next
+      // speak() will set a new src and call play() on the same element.
+      const el = audioElementRef.current
+      if (el && !el.paused) el.pause()
+    } catch { /* ignore */ }
+    if (prev.objectUrl) {
+      try { URL.revokeObjectURL(prev.objectUrl) } catch { /* ignore */ }
+    }
+  }, [])
+
   const speak = useCallback(async (text) => {
     if (!spokenReplies || !voiceState.tts || !text.trim()) return
+    // ALWAYS stop the previous Audio/MediaSource before starting a new
+    // one. Even if the previous one is still buffering chunks, the user
+    // has clearly moved on (a new reply text has arrived).
+    stopActiveSpeech()
     try {
       const body = new FormData()
       body.set('text', text)
@@ -149,24 +201,52 @@ export default function DreamTalk() {
       // from the dashboard-api's streaming /api/talk/speak. Time-to-first-
       // audio drops from "wait for the whole reply to synthesise"
       // (~5-15s on a multi-sentence reply) to "wait for the first chunk
-      // out of Kokoro" (~500ms-1s). Compared to the previous behaviour
-      // the user hears the assistant nearly immediately after text
-      // completes streaming.
+      // out of Kokoro" (~500ms-1s).
       //
-      // Browser support note: MediaSource for audio/mpeg is universal in
-      // modern browsers (97%+ as of 2026). Older browsers transparently
-      // fall through to the Blob path below — no per-user setup, no
-      // codec configuration, no permission prompts in either path.
-      const canStream =
+      // Browser support: MediaSource for audio/mpeg is universal in modern
+      // browsers (97%+ as of 2026). Older browsers transparently fall
+      // through to the Blob path below — no per-user setup, no codec
+      // configuration, no permission prompts in either path.
+      // Detect iOS Safari (incl. iPad masquerading as desktop). MediaSource
+      // for audio/mpeg on iOS has long-standing state-leak bugs — works for
+      // the first few turns, then the audio session gets stuck and
+      // subsequent speak() calls silently fail to produce sound even with
+      // proper cleanup. Fall back to the Blob path on iOS — slower
+      // time-to-first-audio (~1-4s for typical replies) but rock-solid
+      // because it uses the same `<audio src>` path the browser has had
+      // since iOS 5.
+      const ua = globalThis.navigator?.userAgent || ''
+      const isIOS = /iPad|iPhone|iPod/.test(ua) ||
+        // iPad on iPadOS 13+ identifies as Mac; distinguish by touch.
+        (/Mac/.test(ua) && globalThis.navigator?.maxTouchPoints > 1)
+      const isSafari = /^((?!chrome|android|crios|fxios|edgios).)*safari/i.test(ua)
+      const useMediaSource =
+        !(isIOS || (isSafari && /Mobile/i.test(ua))) &&
         typeof globalThis.MediaSource !== 'undefined' &&
         globalThis.MediaSource.isTypeSupported?.('audio/mpeg')
+
+      const canStream = useMediaSource
 
       if (canStream) {
         const ms = new globalThis.MediaSource()
         const url = URL.createObjectURL(ms)
-        const audio = new Audio(url)
-        audio.addEventListener('ended', () => URL.revokeObjectURL(url), { once: true })
-        audio.addEventListener('error', () => URL.revokeObjectURL(url), { once: true })
+        const audio = getSharedAudio()
+        audio.src = url
+        // Track this session BEFORE awaiting anything async so a fast
+        // follow-up speak() call can tear it down even if we're still
+        // in the sourceopen wait below.
+        const reader = resp.body.getReader()
+        const session = { audio, mediaSource: ms, objectUrl: url, reader, cancelled: false }
+        activeSpeechRef.current = session
+        const cleanup = () => {
+          if (activeSpeechRef.current === session) activeSpeechRef.current = null
+          URL.revokeObjectURL(url)
+        }
+        // Use once-listeners so this turn's handlers don't fire for the
+        // next turn's audio on the same shared element.
+        audio.addEventListener('ended', cleanup, { once: true })
+        audio.addEventListener('error', cleanup, { once: true })
+
         // sourceopen fires once the MediaSource is attached to the
         // <audio> element. We can only call addSourceBuffer / appendBuffer
         // after that, so gate the streaming loop on the event.
@@ -174,18 +254,19 @@ export default function DreamTalk() {
           ms.addEventListener('sourceopen', resolve, { once: true })
           ms.addEventListener('error', reject, { once: true })
         })
+        if (session.cancelled || activeSpeechRef.current !== session) return
         const sb = ms.addSourceBuffer('audio/mpeg')
-        // Start playback as soon as the audio element has at least one
-        // sample buffered. Some browsers require this `play()` to land
-        // before the user gesture is consumed; the calling code is
-        // already inside a user-initiated flow (the prior chat submit),
-        // so autoplay is allowed.
-        audio.play().catch(() => {})
-        const reader = resp.body.getReader()
+
+        // Pump chunks in. Defer audio.play() until AFTER the first
+        // chunk is buffered — iOS Safari silently rejects play() on
+        // an empty source. Calling it once data is present makes
+        // playback land reliably across iOS / Android / desktop.
+        let started = false
         try {
           while (true) {
             const { value, done } = await reader.read()
             if (done) break
+            if (session.cancelled || activeSpeechRef.current !== session) break
             // appendBuffer is async — wait for the previous chunk to
             // commit before pushing the next one. Without this the
             // browser throws InvalidStateError when buffers overlap.
@@ -194,6 +275,22 @@ export default function DreamTalk() {
               sb.addEventListener('error', reject, { once: true })
               sb.appendBuffer(value)
             })
+            if (!started) {
+              started = true
+              // play() returns a Promise on modern browsers. If iOS
+              // rejects it (e.g. autoplay policy hasn't been satisfied
+              // yet), surface that to the catch-all so it logs to the
+              // console rather than failing silently — at least the
+              // operator can spot the autoplay-permission case.
+              audio.play().catch(err => {
+                if (err?.name === 'NotAllowedError') {
+                  // Autoplay blocked. The speaker toggle in the chat
+                  // header is the user-gesture that should grant it,
+                  // but if iOS Low Power Mode is on it may persist.
+                  console.warn('[dream-talk] audio.play() blocked by browser policy:', err.message)
+                }
+              })
+            }
           }
           if (ms.readyState === 'open') ms.endOfStream()
         } catch {
@@ -204,21 +301,31 @@ export default function DreamTalk() {
         return
       }
 
-      // Fallback for browsers without MediaSource support for audio/mpeg.
-      // Same behaviour as the pre-streaming path: collect the whole body
-      // into a Blob, then play. The dashboard-api is still streaming on
-      // the network — we just wait until it's all here before starting
-      // playback. Strictly no worse than today.
+      // Fallback for iOS Safari + browsers without MediaSource for
+      // audio/mpeg. Collect the whole body into a Blob, then play.
+      // Uses the same shared Audio element as the streaming branch —
+      // this is what avoids the "Load failed: a session is busy" error
+      // iOS throws when each turn creates a new Audio element while
+      // the previous one is still releasing its audio session.
+      // The dashboard-api is still streaming on the network — we just
+      // wait until it's all here before starting playback.
       const blob = await resp.blob()
       const url = URL.createObjectURL(blob)
-      const audio = new Audio(url)
-      audio.addEventListener('ended', () => URL.revokeObjectURL(url), { once: true })
-      audio.addEventListener('error', () => URL.revokeObjectURL(url), { once: true })
+      const audio = getSharedAudio()
+      audio.src = url
+      const session = { audio, mediaSource: null, objectUrl: url, reader: null }
+      activeSpeechRef.current = session
+      const cleanup = () => {
+        if (activeSpeechRef.current === session) activeSpeechRef.current = null
+        URL.revokeObjectURL(url)
+      }
+      audio.addEventListener('ended', cleanup, { once: true })
+      audio.addEventListener('error', cleanup, { once: true })
       await audio.play()
     } catch {
       // Audio playback is an enhancement; never interrupt text chat for it.
     }
-  }, [spokenReplies, voiceState.tts])
+  }, [spokenReplies, voiceState.tts, stopActiveSpeech])
 
   const sendText = useCallback(async (text, { transcriptId = null, attachment = null } = {}) => {
     const clean = text.trim()
