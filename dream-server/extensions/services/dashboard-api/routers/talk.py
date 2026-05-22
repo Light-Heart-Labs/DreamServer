@@ -70,20 +70,40 @@ def _vision_model_name() -> str:
     return os.environ.get("DREAM_TALK_VISION_MODEL", "user.Qwen3.6-35B-A3B-Vision")
 
 
-def _vision_backend_url() -> str:
-    """Where to send multimodal requests. Defaults to Lemonade direct
-    (``http://llama-server:8080``) — NOT litellm — because litellm's
+def _vision_backend_base_url() -> str:
+    """OpenAI-compatible base URL for multimodal requests.
+
+    Defaults to Lemonade / llama-server direct (``http://llama-server:8080/v1``)
+    — NOT litellm — because litellm's
     ``model_name: '*'`` wildcard normalises our ``user.*`` model id down to
     whatever llama-server has currently loaded, which silently downgrades
     image queries to the text-only model. Lemonade routes by exact model
     id and auto-swaps to the vision variant on first multimodal call.
 
-    Operators can override with ``DREAM_TALK_VISION_URL`` for hosts where
-    vision lives somewhere else (e.g. a dedicated VL server).
+    ``DREAM_TALK_VISION_URL`` accepts either a host root
+    (``http://host:8080``) or a full OpenAI-compatible base
+    (``http://host:8080/v1`` / ``http://host:8080/api/v1``). Normalising here
+    keeps Linux container, Windows host, llama-server, and Lemonade paths from
+    accidentally becoming ``/v1/v1`` or ``/api/v1/v1``.
     """
-    return (os.environ.get("DREAM_TALK_VISION_URL")
-            or os.environ.get("LLM_API_URL")
-            or "http://llama-server:8080").rstrip("/")
+    raw = (
+        os.environ.get("DREAM_TALK_VISION_URL")
+        or os.environ.get("LLM_API_URL")
+        or "http://llama-server:8080"
+    ).rstrip("/")
+    if raw.endswith("/v1") or raw.endswith("/api/v1"):
+        return raw
+
+    base_path = (os.environ.get("LLM_API_BASE_PATH") or "/v1").strip()
+    if not base_path:
+        base_path = "/v1"
+    if not base_path.startswith("/"):
+        base_path = f"/{base_path}"
+    return f"{raw}{base_path.rstrip('/')}"
+
+
+def _vision_chat_completions_url() -> str:
+    return f"{_vision_backend_base_url()}/chat/completions"
 
 
 def _vision_backend_key() -> str:
@@ -128,7 +148,7 @@ async def _stream_vision_chat(image_bytes: bytes, content_type: str, prompt_text
         async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream(
                 "POST",
-                f"{_vision_backend_url()}/v1/chat/completions",
+                _vision_chat_completions_url(),
                 headers=headers,
                 json=payload,
             ) as resp:

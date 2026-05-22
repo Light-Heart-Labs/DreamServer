@@ -25,6 +25,11 @@ services:
       - AMD_INFERENCE_SUPPORTED_BACKENDS=${AMD_INFERENCE_SUPPORTED_BACKENDS:-}
       - AMD_INFERENCE_RUNTIME_MODE=${AMD_INFERENCE_RUNTIME_MODE:-unknown}
       - AMD_INFERENCE_MANAGED=${AMD_INFERENCE_MANAGED:-false}
+      # The base compose default points Dream Talk image attachments at the
+      # in-network llama-server service. On Windows AMD, inference runs on the
+      # host instead, so route vision calls through host.docker.internal using
+      # the same API path selected by the installer.
+      - DREAM_TALK_VISION_URL=${DREAM_TALK_VISION_URL:-http://host.docker.internal:${AMD_INFERENCE_PORT:-8080}${LLM_API_BASE_PATH:-/v1}}
 
   open-webui:
     environment:

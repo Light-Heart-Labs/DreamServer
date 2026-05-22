@@ -239,11 +239,11 @@ services:
       # Dream Talk's image-attachment endpoint calls the vision backend
       # directly (bypassing litellm because litellm's wildcard model
       # routing collapses our model id down to whatever's loaded).
-      # Defaults point at the Lemonade/llama-server service on the
-      # internal docker network — no auth needed there. Operators with
+      # Defaults point at the Lemonade/llama-server OpenAI-compatible base URL
+      # on the internal docker network — no auth needed there. Operators with
       # an external vision server set DREAM_TALK_VISION_URL +
       # DREAM_TALK_VISION_KEY.
-      - DREAM_TALK_VISION_URL=${DREAM_TALK_VISION_URL:-http://llama-server:8080}
+      - DREAM_TALK_VISION_URL=${DREAM_TALK_VISION_URL:-http://llama-server:8080${LLM_API_BASE_PATH:-/v1}}
       - DREAM_TALK_VISION_KEY=${DREAM_TALK_VISION_KEY:-}
       # Model id of the vision-capable variant. Defaults to the user.*
       # name we register on AMD install (Qwen3.6-35B-A3B + mmproj-F16).

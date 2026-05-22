@@ -13,6 +13,9 @@ for f in \
   test -f "$f" || { echo "[FAIL] missing $f"; exit 1; }
 done
 
+grep -q 'DREAM_TALK_VISION_URL=.*host.docker.internal' installers/windows/docker-compose.windows-amd.yml \
+  || { echo "[FAIL] Windows AMD overlay must route Dream Talk vision calls to the host runtime"; exit 1; }
+
 if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
   echo "[SKIP] docker compose unavailable"
   exit 0
@@ -39,6 +42,8 @@ grep -q 'http://host.docker.internal:8080/api/v1/health' <<<"$rendered" \
   || { echo "[FAIL] Lemonade readiness probe must use native Windows port 8080"; exit 1; }
 grep -q 'http://host.docker.internal:8080/health' <<<"$rendered" \
   || { echo "[FAIL] llama-server readiness probe must use native Windows port 8080"; exit 1; }
+grep -q 'DREAM_TALK_VISION_URL: http://host.docker.internal:8080/api/v1' <<<"$rendered" \
+  || { echo "[FAIL] Dream Talk vision URL must use the Windows AMD host runtime API path"; exit 1; }
 if grep -q 'host.docker.internal:11434' <<<"$rendered"; then
   echo "[FAIL] Windows AMD local overlay must not inherit OLLAMA_PORT=11434"
   exit 1

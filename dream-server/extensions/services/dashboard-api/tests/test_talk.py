@@ -910,6 +910,37 @@ def test_talk_attachment_image_too_large_returns_413(talk_client):
     assert resp.status_code == 413
 
 
+def test_talk_vision_url_defaults_to_openai_v1(monkeypatch):
+    """A root inference URL should be normalized to an OpenAI-compatible base."""
+    from routers.talk import _vision_chat_completions_url
+
+    monkeypatch.delenv("DREAM_TALK_VISION_URL", raising=False)
+    monkeypatch.setenv("LLM_API_URL", "http://llama-server:8080")
+    monkeypatch.setenv("LLM_API_BASE_PATH", "/v1")
+
+    assert _vision_chat_completions_url() == "http://llama-server:8080/v1/chat/completions"
+
+
+def test_talk_vision_url_does_not_duplicate_v1(monkeypatch):
+    """Operators may pass a full OpenAI base URL; do not append /v1 twice."""
+    from routers.talk import _vision_chat_completions_url
+
+    monkeypatch.setenv("DREAM_TALK_VISION_URL", "http://vision.local:8080/v1")
+    monkeypatch.setenv("LLM_API_BASE_PATH", "/v1")
+
+    assert _vision_chat_completions_url() == "http://vision.local:8080/v1/chat/completions"
+
+
+def test_talk_vision_url_preserves_lemonade_api_v1(monkeypatch):
+    """Lemonade deployments can use /api/v1 as their OpenAI-compatible base."""
+    from routers.talk import _vision_chat_completions_url
+
+    monkeypatch.setenv("DREAM_TALK_VISION_URL", "http://host.docker.internal:8080/api/v1")
+    monkeypatch.setenv("LLM_API_BASE_PATH", "/v1")
+
+    assert _vision_chat_completions_url() == "http://host.docker.internal:8080/api/v1/chat/completions"
+
+
 def test_talk_attachment_requires_session(test_client):
     """No cookie ⇒ 401 even with a valid file."""
     resp = test_client.post(
