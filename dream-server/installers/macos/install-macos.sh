@@ -1425,6 +1425,21 @@ else
     fi
     ai_ok "Docker services started"
 
+    # Refresh the generated Hermes persona now that the stack is actually
+    # running, then copy it into Hermes's runtime data dir from inside the
+    # container. This avoids Docker Desktop's nested bind-mount restriction
+    # while still keeping /opt/data/SOUL.md current for new sessions.
+    _soul_builder="${INSTALL_DIR}/scripts/build-installation-context.py"
+    if [[ -f "$_soul_builder" ]]; then
+        python3 "$_soul_builder" >>"$DS_LOG_FILE" 2>&1 || \
+            ai_warn "Could not refresh Hermes installation-context SOUL.md after compose-up"
+        if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'dream-hermes'; then
+            docker exec dream-hermes cp /opt/hermes/docker/SOUL.md /opt/data/SOUL.md \
+                >>"$DS_LOG_FILE" 2>&1 || \
+                ai_warn "Could not sync installation-context SOUL.md into running Hermes container"
+        fi
+    fi
+
     # Save compose flags for dream-macos.sh
     echo "${COMPOSE_FLAGS[*]}" > "${INSTALL_DIR}/.compose-flags"
 

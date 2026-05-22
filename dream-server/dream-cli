@@ -997,14 +997,9 @@ cmd_restart() {
 
     [[ "$rebuild_images" == "true" ]] && _dream_cli_rebuild_images "${flags[@]}"
 
-    # Refresh data/hermes/SOUL.md whenever Hermes (or the full stack) is
-    # restarted, so the persona's "About this installation" section
-    # reflects which services are currently up. Non-fatal — if the
-    # generator fails (Python missing, etc.) Hermes still boots from
-    # whatever assembled SOUL.md is already on disk, or the template if
-    # the assembled file is missing.
+    local refresh_soul="false"
     if [[ -z "$service" || "$service" == "hermes" ]]; then
-        _dream_cli_refresh_soul || true
+        refresh_soul="true"
     fi
 
     if [[ -z "$service" ]]; then
@@ -1012,6 +1007,13 @@ cmd_restart() {
     else
         service=$(resolve_service "$service")
         _compose_run_with_summary "Restarting $service" "${flags[@]}" up -d "$service"
+    fi
+
+    # Refresh SOUL.md after compose has ensured Hermes is running, so the
+    # generated install context can be copied into /opt/data/SOUL.md without
+    # needing the Docker Desktop-hostile nested bind mount.
+    if [[ "$refresh_soul" == "true" ]]; then
+        _dream_cli_refresh_soul || true
     fi
 }
 

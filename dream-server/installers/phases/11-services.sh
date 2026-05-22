@@ -784,12 +784,18 @@ except Exception:
         # running — the first pass earlier in this phase happened pre-
         # compose-up, so its docker ps was empty. The persona's "About
         # this installation" section needs to reflect what's actually
-        # reachable, not the pre-launch state. Hermes reads SOUL.md on
-        # each new chat session, so simply rewriting the file is enough
-        # — no container restart needed.
+        # reachable, not the pre-launch state. Hermes reads from
+        # /opt/data/SOUL.md at session time; because macOS Docker Desktop
+        # rejects the old nested bind mount, copy the generated file into
+        # the running container instead.
         if [[ -n "${_python_cmd:-}" ]] && [[ -f "$INSTALL_DIR/scripts/build-installation-context.py" ]]; then
             "$_python_cmd" "$INSTALL_DIR/scripts/build-installation-context.py" >>"$LOG_FILE" 2>&1 || \
                 warn "Installation-context SOUL.md regen failed post-launch (non-fatal — earlier static SOUL.md is in place)"
+            if $DOCKER_CMD ps --format '{{.Names}}' 2>/dev/null | grep -qx 'dream-hermes'; then
+                $DOCKER_CMD exec dream-hermes cp /opt/hermes/docker/SOUL.md /opt/data/SOUL.md \
+                    >>"$LOG_FILE" 2>&1 || \
+                    warn "Could not sync installation-context SOUL.md into running Hermes container"
+            fi
         fi
     else
         printf "\r  ${RED}✗${NC} %-60s\n" "Some containers failed to launch"
