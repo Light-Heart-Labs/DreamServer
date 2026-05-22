@@ -44,6 +44,25 @@ if grep -qE '\bstop[[:space:]]+llama-server\b' <<<"$active_code"; then
 fi
 pass "llama.cpp hot-swap does not use stop + up"
 
+grep -qF 'resolve-compose-stack.sh' <<<"$active_code" \
+    || fail "missing .compose-flags fallback must try resolve-compose-stack.sh before giving up"
+pass "missing .compose-flags fallback tries compose resolver"
+
+missing_flags_block="$(awk '
+    /unable to recover compose flags/ { in_block=1 }
+    in_block { print }
+    in_block && /exit 1/ { exit }
+' "$TARGET" | grep -v '^[[:space:]]*#')"
+
+grep -qF 'write_status "failed"' <<<"$missing_flags_block" \
+    || fail "missing compose flags fallback must mark bootstrap status failed"
+grep -qF 'exit 1' <<<"$missing_flags_block" \
+    || fail "missing compose flags fallback must stop before health checks"
+if grep -qE '\b(stop|rm)[[:space:]]+dream-llama-server\b' <<<"$missing_flags_block"; then
+    fail "missing compose flags fallback must not stop/remove the serving llama-server container"
+fi
+pass "missing .compose-flags fallback is non-destructive"
+
 openclaw_recreate_block="$(awk '
     /Recreating OpenClaw to pick up model change/ { in_block=1 }
     in_block { print }

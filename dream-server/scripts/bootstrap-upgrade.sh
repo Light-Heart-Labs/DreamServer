@@ -343,6 +343,23 @@ if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --f
     COMPOSE_ARGS=()
     if [[ -f "$INSTALL_DIR/.compose-flags" ]]; then
         read -ra COMPOSE_ARGS <<< "$(cat "$INSTALL_DIR/.compose-flags")"
+    elif [[ -x "$INSTALL_DIR/scripts/resolve-compose-stack.sh" ]]; then
+        _tier="1"
+        if [[ -f "$ENV_FILE" ]]; then
+            _tier=$(grep -E '^TIER=' "$ENV_FILE" | cut -d= -f2 | tr -d '"\047\r')
+            [[ -n "$_tier" ]] || _tier="1"
+        fi
+        _resolved_env=$("$INSTALL_DIR/scripts/resolve-compose-stack.sh" \
+            --script-dir "$INSTALL_DIR" \
+            --tier "$_tier" \
+            --gpu-backend "${_gpu_backend:-cpu}" \
+            --env 2>/dev/null || true)
+        _resolved_flags=$(printf '%s\n' "$_resolved_env" | sed -n 's/^COMPOSE_FLAGS="\([^"]*\)".*/\1/p')
+        if [[ -n "$_resolved_flags" ]]; then
+            read -ra COMPOSE_ARGS <<< "$_resolved_flags"
+            printf '%s\n' "$_resolved_flags" > "$INSTALL_DIR/.compose-flags"
+            log "Recovered compose flags via resolve-compose-stack.sh"
+        fi
     elif [[ -f "$INSTALL_DIR/docker-compose.base.yml" ]]; then
         COMPOSE_ARGS=(-f "$INSTALL_DIR/docker-compose.base.yml")
         case "${_gpu_backend}" in
@@ -406,17 +423,15 @@ if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --f
         env -u GGUF_FILE -u LLM_MODEL -u MAX_CONTEXT -u CTX_SIZE \
             $DOCKER_COMPOSE_CMD "${COMPOSE_ARGS[@]}" up -d --force-recreate --no-deps llama-server 2>&1 || true
     else
-        # No compose flags — fall back to docker rm + manual recreate. On
-        # NVIDIA the original CMD points at /models/${BOOTSTRAP_GGUF_FILE}
-        # which Phase 4b just deleted; on AMD the container env still has
-        # bootstrap-tier LEMONADE_CTX_SIZE. Either way `docker start`
-        # would reuse the stale state, so we remove the container and ask
-        # the operator to bring it back up via `dream restart` (which
-        # re-runs compose with the latest .env).
-        $DOCKER_CMD stop dream-llama-server 2>&1 || true
-        $DOCKER_CMD rm dream-llama-server 2>&1 || true
-        log "WARNING: .compose-flags not found — container removed. Run 'dream restart' to bring llama-server back up with the correct model + context size."
+        # No reliable compose stack is available. Do NOT stop/remove the
+        # currently-running bootstrap container here: leaving an old but
+        # serving model online is safer than turning a completed download into
+        # an outage. The operator can repair the compose cache or re-run the
+        # installer; both paths can recreate llama-server from the updated .env.
+        log "WARNING: unable to recover compose flags — leaving the current llama-server container untouched."
+        log "Manual recovery: re-run the installer, or restore $INSTALL_DIR/.compose-flags and run the Dream Server CLI restart command."
         write_status "failed"
+        exit 1
     fi
 
     # Pick health endpoint based on GPU backend — Lemonade (AMD) serves
