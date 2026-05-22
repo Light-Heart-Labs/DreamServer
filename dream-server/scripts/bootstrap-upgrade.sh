@@ -676,7 +676,7 @@ LITELLM_UPGRADE_EOF
         if $DOCKER_CMD ps --filter name=dream-hermes --format '{{.Names}}' 2>/dev/null | grep -q dream-hermes; then
             # Live config inside the running container (owned by container UID).
             $DOCKER_CMD exec dream-hermes sh -c \
-                "sed -i -e 's|^  default: \"${_hermes_old_model}\"|  default: \"${_hermes_new_model}\"|' -e 's|^  context_length: .*|  context_length: ${FULL_MAX_CONTEXT}|' -e 's|^    context_length: .*|    context_length: ${FULL_MAX_CONTEXT}|' -e 's|^  threshold: .*|  threshold: 0.50|' -e 's|^  target_ratio: .*|  target_ratio: 0.20|' /opt/data/config.yaml" 2>&1 || \
+                "sed -i -e 's|^  default: \"${_hermes_old_model}\"|  default: \"${_hermes_new_model}\"|' -e 's|^  context_length: .*|  context_length: ${FULL_MAX_CONTEXT}|' -e 's|^    context_length: .*|    context_length: ${FULL_MAX_CONTEXT}|' -e 's|^  enabled: .*|  enabled: true|' -e 's|^  threshold: .*|  threshold: 0.75|' -e 's|^  target_ratio: .*|  target_ratio: 0.50|' -e 's|^  protect_last_n: .*|  protect_last_n: 40|' /opt/data/config.yaml" 2>&1 || \
                 log "WARNING: Could not patch Hermes /opt/data/config.yaml (non-fatal — operator can hand-edit and 'docker restart dream-hermes')"
             log "Restarting Hermes to pick up model change..."
             $DOCKER_CMD restart dream-hermes 2>&1 || log "WARNING: Hermes restart failed (non-fatal — hand-restart with 'docker restart dream-hermes')"
