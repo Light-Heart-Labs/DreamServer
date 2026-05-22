@@ -338,7 +338,18 @@ def build_soul(template_path: Path, env_path: Path, output_path: Path) -> bool:
         assembled = template.rstrip() + "\n\n" + context + "\n"
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    previous = output_path.read_text(encoding="utf-8") if output_path.exists() else ""
+    # Self-heal a pathological state: Docker's bind-mount engine auto-creates
+    # the source path as a *directory* when the path doesn't exist at
+    # compose-up time. If a previous install ran compose-up before this
+    # script generated the file, ``data/persona/SOUL.md`` is now an empty
+    # directory, and the next compose-up keeps failing with "not a directory:
+    # Are you trying to mount a directory onto a file." Remove that directory
+    # so we can write the real file in its place. Caught when re-running
+    # /dream-fleet-test on mac-mini after a prior failed install.
+    if output_path.exists() and not output_path.is_file():
+        import shutil
+        shutil.rmtree(output_path)
+    previous = output_path.read_text(encoding="utf-8") if output_path.is_file() else ""
     if previous == assembled:
         return False
     output_path.write_text(assembled, encoding="utf-8")

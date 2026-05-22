@@ -954,6 +954,21 @@ else
             else
                 ai_warn "Hermes template patch incomplete — Hermes may fail to reach llama-server. Hand-edit ${_hermes_tpl} if prompts hang."
             fi
+
+            # Render data/persona/SOUL.md = static persona + dynamic install
+            # context. The Hermes compose mounts this file as the agent's
+            # SOUL.md so it answers truthfully about what services + hardware
+            # it has on this Dream Server. MUST run before docker compose up,
+            # otherwise Docker's bind-mount engine auto-creates the source
+            # path as a *directory* and the install fails at compose-up with
+            # "not a directory: Are you trying to mount a directory onto a
+            # file" — which then persists across reinstalls because `nuke
+            # install dir` preserves data/.
+            _soul_builder="${INSTALL_DIR}/scripts/build-installation-context.py"
+            if [[ -f "$_soul_builder" ]]; then
+                python3 "$_soul_builder" >>"$DS_LOG_FILE" 2>&1 || \
+                    ai_warn "Could not generate Hermes installation-context SOUL.md (non-fatal — Hermes will use the template default)"
+            fi
         fi
     fi
 
