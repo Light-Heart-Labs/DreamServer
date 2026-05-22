@@ -14,8 +14,8 @@ services:
       - APE_STRICT_MODE=${APE_STRICT_MODE:-false}
       - APE_API_KEY=${APE_API_KEY:-}
     volumes:
-      - ./config/ape:/config:ro
-      - ./data/ape:/data/ape
+      - ./config/ape:/config:ro${DREAM_BIND_SELINUX:-}
+      - ./data/ape:/data/ape:rw${DREAM_BIND_SELINUX:-}
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${APE_PORT:-7890}:7890"
     deploy:

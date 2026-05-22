@@ -16,6 +16,9 @@
 
 # ── Stage 1: Build llama.cpp with ROCm + rocWMMA + patches ──────────────────
 
+# Build args used in FROM must be declared before the first stage. Docker does
+# not let a later stage-local ARG feed a FROM ${...} line.
+ARG LEMONADE_SERVER_IMAGE=ghcr.io/lemonade-sdk/lemonade-server:v10.2.0
 ARG ROCM_VERSION=7.2
 FROM rocm/dev-ubuntu-24.04:${ROCM_VERSION}-complete AS builder
 
@@ -78,7 +81,6 @@ RUN mkdir -p /opt/llama-dist && \
 
 # ── Stage 2: Lemonade runtime with custom binary ────────────────────────────
 
-ARG LEMONADE_SERVER_IMAGE=ghcr.io/lemonade-sdk/lemonade-server:v10.2.0
 FROM ${LEMONADE_SERVER_IMAGE}
 
 # ROCm llama-server binary requires libatomic1 which is missing from the

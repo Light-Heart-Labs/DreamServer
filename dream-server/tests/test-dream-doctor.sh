@@ -155,6 +155,19 @@ if command -v jq >/dev/null 2>&1; then
     if $amd_fields_ok; then
         pass "dream-doctor.sh AMD runtime diagnostics fields present"
     fi
+
+    selinux_fields_ok=true
+    for field in status bind_suffix shared_relabel_active; do
+        jq_exit=0
+        jq -e ".runtime.selinux | has(\"$field\")" "$TEMP_REPORT" >/dev/null || jq_exit=$?
+        if [[ $jq_exit -ne 0 ]]; then
+            fail "dream-doctor.sh runtime.selinux missing field: $field"
+            selinux_fields_ok=false
+        fi
+    done
+    if $selinux_fields_ok; then
+        pass "dream-doctor.sh SELinux diagnostics fields present"
+    fi
 fi
 
 # 9. summary section has expected numeric fields

@@ -37,6 +37,9 @@ Each agent instance shares the same database, so any dashboard shows data for al
 - External Anthropic/OpenAI/Moonshot upstreams should be configured with `UPSTREAM_API_KEY`
 - Local OpenAI-compatible upstreams can run without `UPSTREAM_API_KEY`
 - Token Spy strips its own Bearer token before forwarding requests upstream
+- If `TOKEN_SPY_API_KEY` is not set in `.env`, Token Spy generates one on
+  first start and writes it to `data/token-spy/token-spy-api-key.txt` on the
+  host (`/app/data/token-spy-api-key.txt` inside the container).
 
 ---
 

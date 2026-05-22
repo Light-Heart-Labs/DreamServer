@@ -26,8 +26,8 @@ services:
     container_name: dream-llama-server
     restart: unless-stopped
     volumes:
-      - ./data/models:/models
-      - ./config/llama-server/models.ini:/config/models.ini:ro
+      - ./data/models:/models:rw${DREAM_BIND_SELINUX:-}
+      - ./config/llama-server/models.ini:/config/models.ini:ro${DREAM_BIND_SELINUX:-}
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${OLLAMA_PORT:-8080}:8080"
     command:
@@ -154,7 +154,7 @@ services:
       AUDIO_TTS_VOICE: "af_heart"
       TZ: "${TIMEZONE:-UTC}"
     volumes:
-      - ./data/open-webui:/app/backend/data
+      - ./data/open-webui:/app/backend/data:rw${DREAM_BIND_SELINUX:-}
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${WEBUI_PORT:-3000}:8080"
     deploy:
@@ -249,14 +249,14 @@ services:
       # name we register on AMD install (Qwen3.6-35B-A3B + mmproj-F16).
       - DREAM_TALK_VISION_MODEL=${DREAM_TALK_VISION_MODEL:-user.Qwen3.6-35B-A3B-Vision}
     volumes:
-      - ./scripts:/dream-server/scripts:ro
-      - ./config:/dream-server/config:ro
-      - ./extensions:/dream-server/extensions:ro
-      - ./.env:/dream-server/.env:ro
-      - ./.env.example:/dream-server/.env.example:ro
-      - ./.env.schema.json:/dream-server/.env.schema.json:ro
-      - ./data:/data
-      - ./templates:/dream-server/templates:ro
+      - ./scripts:/dream-server/scripts:ro${DREAM_BIND_SELINUX:-}
+      - ./config:/dream-server/config:ro${DREAM_BIND_SELINUX:-}
+      - ./extensions:/dream-server/extensions:ro${DREAM_BIND_SELINUX:-}
+      - ./.env:/dream-server/.env:ro${DREAM_BIND_SELINUX:-}
+      - ./.env.example:/dream-server/.env.example:ro${DREAM_BIND_SELINUX:-}
+      - ./.env.schema.json:/dream-server/.env.schema.json:ro${DREAM_BIND_SELINUX:-}
+      - ./data:/data:rw${DREAM_BIND_SELINUX:-}
+      - ./templates:/dream-server/templates:ro${DREAM_BIND_SELINUX:-}
     deploy:
       resources:
         limits:
@@ -287,7 +287,7 @@ services:
     environment:
       - DASHBOARD_API_KEY=${DASHBOARD_API_KEY:-}
     volumes:
-      - ./data:/data:ro
+      - ./data:/data:ro${DREAM_BIND_SELINUX:-}
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${DASHBOARD_PORT:-3001}:3001"
     deploy:

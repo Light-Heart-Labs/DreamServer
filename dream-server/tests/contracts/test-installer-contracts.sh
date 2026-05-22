@@ -43,6 +43,9 @@ bash tests/contracts/test-port-contracts.sh
 echo "[contract] Windows AMD local compose readiness"
 bash tests/contracts/test-windows-amd-local-compose.sh
 
+echo "[contract] SELinux bind mount readiness"
+bash tests/test-selinux-bind-mounts.sh
+
 echo "[contract] bootstrap hot-swap force-recreate"
 bash tests/test-bootstrap-upgrade-hotswap-contract.sh
 

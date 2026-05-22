@@ -10,10 +10,10 @@ services:
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${COMFYUI_PORT:-8188}:8188"
     volumes:
-      - ./data/comfyui/models:/models
-      - ./data/comfyui/output:/output
-      - ./data/comfyui/input:/input
-      - ./data/comfyui/workflows:/workflows:ro
+      - ./data/comfyui/models:/models:rw${DREAM_BIND_SELINUX:-}
+      - ./data/comfyui/output:/output:rw${DREAM_BIND_SELINUX:-}
+      - ./data/comfyui/input:/input:rw${DREAM_BIND_SELINUX:-}
+      - ./data/comfyui/workflows:/workflows:ro${DREAM_BIND_SELINUX:-}
     shm_size: '8g'
     deploy:
       resources:

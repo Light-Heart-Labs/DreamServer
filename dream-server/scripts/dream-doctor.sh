@@ -137,6 +137,13 @@ STT_MODEL_NAME=""
 STT_RECOVERY_HINT=""
 TTS_HTTP="unknown"
 TTS_PORT=""
+SELINUX_STATUS="unknown"
+SELINUX_BIND_SUFFIX="${DREAM_BIND_SELINUX:-}"
+if command -v getenforce >/dev/null 2>&1; then
+    SELINUX_STATUS="$(getenforce 2>/dev/null || echo unknown)"
+else
+    SELINUX_STATUS="not_installed"
+fi
 if [[ "${ENABLE_VOICE:-false}" == "true" ]] && command -v curl >/dev/null 2>&1; then
     STT_MODEL_NAME="${AUDIO_STT_MODEL:-Systran/faster-whisper-base}"
     _stt_whisper_port="${SERVICE_PORTS[whisper]:-9000}"
@@ -261,7 +268,10 @@ collect_extension_diagnostics() {
         # manifest-level concern, not a runtime doctor warning.
         if [[ "$backend" != "apple" ]] && declare -p SERVICE_GPU_BACKENDS &>/dev/null; then
             local gpu_backends="${SERVICE_GPU_BACKENDS[$sid]:-}"
-            if [[ -n "$gpu_backends" && ! " $gpu_backends " =~ " $backend " ]]; then
+            if [[ -n "$gpu_backends" \
+                && ! " $gpu_backends " =~ " all " \
+                && ! " $gpu_backends " =~ " none " \
+                && ! " $gpu_backends " =~ " $backend " ]]; then
                 issues+=("gpu_backend_incompatible")
             fi
         fi
@@ -310,7 +320,7 @@ elif command -v python >/dev/null 2>&1; then
     PYTHON_CMD="python"
 fi
 
-"$PYTHON_CMD" - "$CAP_FILE" "$PREFLIGHT_FILE" "$REPORT_FILE" "$DOCKER_CLI" "$DOCKER_DAEMON" "$COMPOSE_CLI" "$DASHBOARD_HTTP" "$WEBUI_HTTP" "$_DASHBOARD_PORT" "$_WEBUI_PORT" "$EXT_DIAGNOSTICS" "$STT_MODEL_CACHED" "$STT_MODEL_NAME" "$STT_RECOVERY_HINT" "$TTS_HTTP" "$TTS_PORT" "$DGX_SPARK_GPU" "$DGX_SPARK_GPU_NAME" "$DGX_SPARK_COMPUTE_CAP" "$LLAMA_CUDA_ARCHS" "$DGX_SPARK_CUDA_ARCH_STATUS" "$DGX_SPARK_CUDA_ARCH_MESSAGE" <<'PY'
+"$PYTHON_CMD" - "$CAP_FILE" "$PREFLIGHT_FILE" "$REPORT_FILE" "$DOCKER_CLI" "$DOCKER_DAEMON" "$COMPOSE_CLI" "$DASHBOARD_HTTP" "$WEBUI_HTTP" "$_DASHBOARD_PORT" "$_WEBUI_PORT" "$EXT_DIAGNOSTICS" "$STT_MODEL_CACHED" "$STT_MODEL_NAME" "$STT_RECOVERY_HINT" "$TTS_HTTP" "$TTS_PORT" "$DGX_SPARK_GPU" "$DGX_SPARK_GPU_NAME" "$DGX_SPARK_COMPUTE_CAP" "$LLAMA_CUDA_ARCHS" "$DGX_SPARK_CUDA_ARCH_STATUS" "$DGX_SPARK_CUDA_ARCH_MESSAGE" "$SELINUX_STATUS" "$SELINUX_BIND_SUFFIX" <<'PY'
 import json
 import os
 import pathlib
@@ -318,7 +328,7 @@ import sys
 from datetime import datetime, timezone
 from urllib import error, request
 
-cap_file, preflight_file, report_file, docker_cli, docker_daemon, compose_cli, dashboard_http, webui_http, dashboard_port, webui_port, ext_diagnostics_json, stt_cached, stt_model_name, stt_recovery, tts_http, tts_port, dgx_spark_gpu, dgx_spark_gpu_name, dgx_spark_compute_cap, llama_cuda_archs, dgx_spark_arch_status, dgx_spark_arch_message = sys.argv[1:]
+cap_file, preflight_file, report_file, docker_cli, docker_daemon, compose_cli, dashboard_http, webui_http, dashboard_port, webui_port, ext_diagnostics_json, stt_cached, stt_model_name, stt_recovery, tts_http, tts_port, dgx_spark_gpu, dgx_spark_gpu_name, dgx_spark_compute_cap, llama_cuda_archs, dgx_spark_arch_status, dgx_spark_arch_message, selinux_status, selinux_bind_suffix = sys.argv[1:]
 
 cap = json.load(open(cap_file, "r", encoding="utf-8"))
 pre = json.load(open(preflight_file, "r", encoding="utf-8"))
@@ -501,6 +511,11 @@ report = {
             "message": dgx_spark_arch_message,
         },
         "amd_runtime": amd_runtime,
+        "selinux": {
+            "status": selinux_status,
+            "bind_suffix": selinux_bind_suffix,
+            "shared_relabel_active": "z" in selinux_bind_suffix.lower().split(","),
+        },
     },
     "extensions": ext_diagnostics,
     "summary": {
@@ -549,6 +564,12 @@ elif stt_cached == "service_down":
 
 if tts_http == "false":
     fix_hints.append("Kokoro TTS is not responding. Run: dream repair voice")
+
+selinux = runtime.get("selinux", {})
+if selinux.get("status") in {"Enforcing", "Permissive"} and not selinux.get("shared_relabel_active"):
+    fix_hints.append(
+        "SELinux is enabled but DREAM_BIND_SELINUX is not ',z'. On Fedora/RHEL hosts, set DREAM_BIND_SELINUX=,z in .env and recreate the stack so Docker bind mounts are shared-labeled."
+    )
 
 if dgx_spark_arch_status == "warn":
     fix_hints.append(

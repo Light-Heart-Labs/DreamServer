@@ -377,6 +377,22 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
         GPU_ASSIGNMENT_JSON_B64=""
     fi
 
+    detect_selinux_bind_suffix() {
+        if [[ -n "${DREAM_BIND_SELINUX:-}" ]]; then
+            echo "$DREAM_BIND_SELINUX"
+            return
+        fi
+        if command -v getenforce >/dev/null 2>&1; then
+            case "$(getenforce 2>/dev/null || true)" in
+                Enforcing|Permissive) echo ",z" ;;
+                *) echo "" ;;
+            esac
+        else
+            echo ""
+        fi
+    }
+    DREAM_BIND_SELINUX="$(detect_selinux_bind_suffix)"
+
     # Generate .env file
     # Subshell-scope a tighter umask so the file is created 0600 from the start
     # (closes a brief window on systems where $HOME is world-readable, e.g.
@@ -401,6 +417,10 @@ BIND_ADDRESS=${BIND_ADDRESS}
 # Host LAN IP (populated when BIND_ADDRESS=0.0.0.0; empty otherwise).
 # Containers like openclaw read this to advertise the host's LAN address.
 HOST_LAN_IP=${HOST_LAN_IP}
+# Docker Compose SELinux bind relabel suffix. Fedora/RHEL-family hosts with
+# SELinux enabled need shared labels on DreamServer's repo/data bind mounts.
+# Empty elsewhere; ",z" renders binds as :ro,z / :rw,z.
+DREAM_BIND_SELINUX=${DREAM_BIND_SELINUX}
 
 #=== LLM Backend Mode ===
 DREAM_MODE=$(if [[ "$GPU_BACKEND" == "amd" && "${DREAM_MODE:-local}" == "local" ]]; then echo "lemonade"; else echo "${DREAM_MODE:-local}"; fi)

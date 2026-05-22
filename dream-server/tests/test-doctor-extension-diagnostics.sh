@@ -55,6 +55,12 @@ if grep -q "gpu_backend_incompatible" "$ROOT_DIR/scripts/dream-doctor.sh"; then
 else
     fail "GPU backend compatibility check missing"
 fi
+if grep -q '" all "' "$ROOT_DIR/scripts/dream-doctor.sh" && \
+   grep -q '" none "' "$ROOT_DIR/scripts/dream-doctor.sh"; then
+    pass "GPU backend compatibility treats all/none manifests as compatible"
+else
+    fail "GPU backend compatibility must not flag manifest gpu_backends all/none"
+fi
 
 # 5. Dependency checking in diagnostics
 if grep -q "missing_dependency" "$ROOT_DIR/scripts/dream-doctor.sh"; then

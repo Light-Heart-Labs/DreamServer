@@ -46,7 +46,7 @@ done
 # 2. Lemonade entrypoint uses absolute path
 # ---------------------------------------------------------------------------
 echo "[contract] Lemonade entrypoint uses absolute path"
-if grep -q '/opt/lemonade/lemonade-server' docker-compose.amd.yml; then
+if grep -q '/opt/lemonade/lemonade-server' extensions/services/llama-server/lemonade-entrypoint.sh; then
     pass "entrypoint: absolute path /opt/lemonade/lemonade-server"
 else
     fail "entrypoint: must use absolute path /opt/lemonade/lemonade-server"
@@ -108,6 +108,14 @@ elif grep -q "$AMD_LEMONADE_IMAGE" extensions/services/llama-server/Dockerfile.a
     pass "Dockerfile.amd: pinned image tag matches amd.json"
 else
     fail "Dockerfile.amd: no matching Lemonade image reference found"
+fi
+if awk '
+    /^FROM / { exit(seen ? 0 : 1) }
+    /^ARG[[:space:]]+LEMONADE_SERVER_IMAGE=/ { seen=1 }
+' extensions/services/llama-server/Dockerfile.amd; then
+    pass "Dockerfile.amd: LEMONADE_SERVER_IMAGE declared before first FROM"
+else
+    fail "Dockerfile.amd: LEMONADE_SERVER_IMAGE must be a global ARG before the first FROM"
 fi
 
 # ---------------------------------------------------------------------------
