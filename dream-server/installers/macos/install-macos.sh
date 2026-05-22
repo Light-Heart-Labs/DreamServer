@@ -189,6 +189,61 @@ _compute_launchd_path() {
     printf '%s' "$path_out"
 }
 
+_find_opencode_bin() {
+    local candidate
+    for candidate in "${OPENCODE_BIN:-}" "$HOME/.opencode/bin/opencode"; do
+        [[ -n "$candidate" && -x "$candidate" ]] && {
+            printf '%s\n' "$candidate"
+            return 0
+        }
+    done
+
+    if command -v opencode >/dev/null 2>&1; then
+        command -v opencode
+        return 0
+    fi
+
+    return 1
+}
+
+_install_opencode() {
+    OPENCODE_BIN="$(_find_opencode_bin 2>/dev/null || true)"
+    if [[ -n "$OPENCODE_BIN" ]]; then
+        ai_ok "OpenCode already installed ($OPENCODE_BIN)"
+        return 0
+    fi
+
+    if command -v brew >/dev/null 2>&1; then
+        ai "Installing OpenCode with Homebrew..."
+        if brew install opencode >> "$DS_LOG_FILE" 2>&1; then
+            OPENCODE_BIN="$(_find_opencode_bin 2>/dev/null || true)"
+            if [[ -n "$OPENCODE_BIN" ]]; then
+                ai_ok "OpenCode installed with Homebrew ($OPENCODE_BIN)"
+                return 0
+            fi
+            ai_warn "Homebrew reported success but opencode was not found on PATH"
+        else
+            ai_warn "Homebrew OpenCode install failed — falling back to upstream installer"
+        fi
+    fi
+
+    ai "Installing OpenCode with upstream installer..."
+    local tmpfile
+    tmpfile=$(mktemp /tmp/opencode-install.XXXXXX.sh)
+    if curl -fsSL --max-time 300 https://opencode.ai/install -o "$tmpfile" 2>/dev/null \
+       && bash "$tmpfile" >> "$DS_LOG_FILE" 2>&1; then
+        OPENCODE_BIN="$(_find_opencode_bin 2>/dev/null || true)"
+        if [[ -n "$OPENCODE_BIN" ]]; then
+            ai_ok "OpenCode installed ($OPENCODE_BIN)"
+        else
+            ai_warn "OpenCode installer completed but opencode was not found"
+        fi
+    else
+        ai_warn "OpenCode install failed — install later with: brew install opencode"
+    fi
+    rm -f "$tmpfile"
+}
+
 _require_docker_cpu_budget() {
     local min_cpus="${1:-6}"
     local max_pin="${2:-4}"
@@ -1434,21 +1489,10 @@ else
     # ── Install & start OpenCode (native host binary) ──
     chapter "OPENCODE (AI CODING IDE)"
 
-    if [[ ! -x "$OPENCODE_BIN" ]]; then
-        ai "Installing OpenCode..."
-        tmpfile=$(mktemp /tmp/opencode-install.XXXXXX.sh)
-        if curl -fsSL --max-time 300 https://opencode.ai/install -o "$tmpfile" 2>/dev/null && bash "$tmpfile" >> "$DS_LOG_FILE" 2>&1; then
-            ai_ok "OpenCode installed (~/.opencode/bin/opencode)"
-        else
-            ai_warn "OpenCode install failed — install later with: curl -fsSL https://opencode.ai/install | bash"
-        fi
-        rm -f "$tmpfile"
-    else
-        ai_ok "OpenCode already installed"
-    fi
+    _install_opencode
 
     # Configure OpenCode to use local llama-server (native Metal, port 8080)
-    if [[ -x "$OPENCODE_BIN" ]]; then
+    if [[ -n "$OPENCODE_BIN" && -x "$OPENCODE_BIN" ]]; then
         mkdir -p "$OPENCODE_CONFIG_DIR"
         if [[ ! -f "$OPENCODE_CONFIG_DIR/opencode.json" ]]; then
             cat > "$OPENCODE_CONFIG_DIR/opencode.json" <<OPENCODE_EOF
@@ -1487,7 +1531,7 @@ OPENCODE_EOF
         # to exit 78 before the target process ever runs. $HOME/Library/Logs is
         # always inside xpcproxy's sandbox writable set, so use that instead.
         mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs/DreamServer"
-        OPENCODE_LAUNCHD_PATH="$(_compute_launchd_path "${HOME}/.opencode/bin")"
+        OPENCODE_LAUNCHD_PATH="$(_compute_launchd_path "$(dirname "$OPENCODE_BIN")")"
         cat > "$OPENCODE_PLIST" <<PLIST_EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -1497,7 +1541,7 @@ OPENCODE_EOF
     <string>${OPENCODE_PLIST_LABEL}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${HOME}/.opencode/bin/opencode</string>
+        <string>${OPENCODE_BIN}</string>
         <string>web</string>
         <string>--port</string>
         <string>3003</string>
@@ -1537,7 +1581,7 @@ PLIST_EOF
             ai_ok "OpenCode Web UI service installed (LaunchAgent, port 3003)"
         else
             ai_warn "OpenCode LaunchAgent failed (rc=${_opencode_bootstrap_rc}): ${_opencode_bootstrap_err}"
-            ai_warn "Start manually: opencode web --port 3003"
+            ai_warn "Start manually: ${OPENCODE_BIN} web --port 3003"
         fi
     fi
 fi
