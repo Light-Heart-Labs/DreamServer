@@ -12,12 +12,8 @@
 # Provides: type_line(), type_line_dramatic(), static_line(), bootline(),
 #           ai(), ai_ok(), ai_warn(), ai_bad(), signal(), chapter(),
 #           show_phase(), show_stranger_boot(), LORE_MESSAGES[], spin_task(),
-#           check_service(), show_hardware_summary(),
+#           pull_with_progress(), check_service(), show_hardware_summary(),
 #           show_tier_recommendation(), show_install_menu(), show_success_card()
-#
-# Note: image pulls have moved to installers/lib/parallel-pull.py (parallel
-#   dashboard with bytes/speed/ETA). The old pull_with_progress() bash wrapper
-#   is gone — its only caller was phase 08, now replaced by the Python helper.
 #
 # Modder notes:
 #   Change the CRT theme, boot splash, lore messages, or spinner style here.
@@ -170,59 +166,100 @@ LORE_MESSAGES=(
   "The code is yours. Make something never imagined."
 )
 
-# Spinner with mm:ss timer + lore that rotates in-place every 8 seconds.
-# The lore used to be printf "\n…\n" — one persistent line per rotation,
-# so a 10-minute task stacked ~75 lore lines in scrollback. Now the lore
-# rides on the same line as the spinner and rotates inline; \033[K clears
-# the residual when a shorter phrase replaces a longer one.
+# Spinner with mm:ss timer + lore messages every 8 seconds
 spin_task() {
   local pid=$1
   local msg=$2
   local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
   local i=0
   local elapsed=0
-  local lore_idx=$(( RANDOM % ${#LORE_MESSAGES[@]} ))
-  local lore=""
-  [[ ${#LORE_MESSAGES[@]} -gt 0 ]] && lore="${LORE_MESSAGES[$lore_idx]}"
+  local lore_idx=0
 
-  # Hide cursor for the duration; restore on exit even if we're killed.
-  printf '\033[?25l'
-  trap 'printf "\033[?25h"' RETURN
-
+  printf "  ${GRN}⠋${NC} [00:00] %s " "$msg"
   while kill -0 "$pid" 2>/dev/null; do
     local mm=$((elapsed / 60))
     local ss=$((elapsed % 60))
-    if [[ -n "$lore" ]]; then
-      printf "\r  ${GRN}%s${NC} [%02d:%02d] %s  ${DGRN}« %s »${NC}\033[K" \
-        "${spin:$i:1}" "$mm" "$ss" "$msg" "$lore"
-    else
-      printf "\r  ${GRN}%s${NC} [%02d:%02d] %s\033[K" \
-        "${spin:$i:1}" "$mm" "$ss" "$msg"
-    fi
+    printf "\r  ${GRN}%s${NC} [%02d:%02d] %s " "${spin:$i:1}" "$mm" "$ss" "$msg"
     i=$(( (i + 1) % ${#spin} ))
     elapsed=$((elapsed + 1))
-    # Rotate lore every 8 seconds — in place, not on a new line.
-    if (( elapsed > 0 && elapsed % 8 == 0 )) && [[ ${#LORE_MESSAGES[@]} -gt 0 ]]; then
+    # Show lore every 8 seconds
+    if (( elapsed > 0 && elapsed % 8 == 0 )); then
+      printf "\n  ${DGRN}  « %s »${NC}\n" "${LORE_MESSAGES[$lore_idx]}"
       lore_idx=$(( (lore_idx + 1) % ${#LORE_MESSAGES[@]} ))
-      lore="${LORE_MESSAGES[$lore_idx]}"
     fi
     sleep 1
   done
-  # Drop a newline so the next caller starts on a fresh line.
-  printf "\n"
   local rc=0
   wait "$pid" || rc=$?
   return $rc
 }
 
-# Image pulls live in installers/lib/parallel-pull.py now — parallel with
-# bytes-downloaded/total and live throughput per job. Phase 08 calls it
-# directly. The old sequential pull_with_progress() bash wrapper was
-# removed (only caller was phase 08).
+# Pull wrapper that prints consistent success/fail lines with retry logic
+pull_with_progress() {
+  local img=$1
+  local label=$2
+  local count=$3
+  local total=$4
+  local max_attempts=3
+  local pull_timeout=3600  # 60 minutes for large images (CUDA is ~10GB)
+  local pull_pid
 
-# Health check with "systems online" vibe + lore that rotates in place
-# every 16s (same pattern as spin_task above — appended to the status line
-# instead of printed on its own).
+  for attempt in $(seq 1 $max_attempts); do
+    if [[ $attempt -gt 1 ]]; then
+      printf "  ${AMB}⟳${NC} [$count/$total] Retry attempt $attempt of $max_attempts for $label\n"
+      # Exponential backoff: 2s, 5s, 10s
+      local backoff=$((2 * (2 ** (attempt - 2)) + (attempt - 2)))
+      sleep "$backoff"
+    fi
+
+    local attempt_log
+    attempt_log=$(mktemp)
+
+    # Wrap docker pull with timeout to prevent indefinite hangs
+    timeout "$pull_timeout" $DOCKER_CMD pull "$img" >"$attempt_log" 2>&1 &
+    pull_pid=$!
+
+    if spin_task "$pull_pid" "[$count/$total] $label"; then
+      # Verify image was pulled successfully
+      if $DOCKER_CMD inspect "$img" >/dev/null 2>&1; then
+        cat "$attempt_log" >> "$LOG_FILE" 2>&1 || true
+        rm -f "$attempt_log"
+        printf "\r  ${BGRN}✓${NC} [$count/$total] %-60s\n" "$label"
+        return 0
+      else
+        cat "$attempt_log" >> "$LOG_FILE" 2>&1 || true
+        rm -f "$attempt_log"
+        printf "\r  ${RED}✗${NC} [$count/$total] %-60s (image validation failed)\n" "$label"
+        continue
+      fi
+    else
+      cat "$attempt_log" >> "$LOG_FILE" 2>&1 || true
+
+      # Check for non-retryable errors
+      if grep -qiE 'unauthorized|denied|not[[:space:]-]?found|\b404\b|no space left on device|cannot connect to the docker daemon|is the docker daemon running' "$attempt_log"; then
+        rm -f "$attempt_log"
+        printf "\r  ${RED}✗${NC} [$count/$total] %-60s (non-retryable error)\n" "$label"
+        return 1
+      fi
+
+      # Check for timeout
+      if grep -qiE 'timeout|timed out' "$attempt_log" || ! kill -0 "$pull_pid" 2>/dev/null; then
+        rm -f "$attempt_log"
+        printf "\r  ${RED}✗${NC} [$count/$total] %-60s (network timeout on attempt $attempt)\n" "$label"
+        continue
+      fi
+
+      rm -f "$attempt_log"
+      printf "\r  ${RED}✗${NC} [$count/$total] %-60s (attempt $attempt failed)\n" "$label"
+    fi
+  done
+
+  # All attempts failed
+  printf "  ${RED}✗${NC} [$count/$total] Failed after $max_attempts attempts: $label\n"
+  return 1
+}
+
+# Health check with "systems online" vibe + lore every 8s
 check_service() {
   local name=$1
   local url=$2
@@ -232,10 +269,7 @@ check_service() {
   local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
   local i=0
   local lore_idx=$(( RANDOM % ${#LORE_MESSAGES[@]} ))
-  local lore=""
-  [[ ${#LORE_MESSAGES[@]} -gt 0 ]] && lore="${LORE_MESSAGES[$lore_idx]}"
   local elapsed=0
-  local status=""  # built each iteration, printed once with lore + \033[K
 
   if $DRY_RUN; then
     ai "[DRY RUN] Would link ${name} at ${url}"
@@ -254,7 +288,7 @@ check_service() {
     # Add timeout to prevent indefinite hangs
     # Capture exit code directly — an if/then would consume it (always 0)
     timeout "$timeout" curl -sf "$url" > /dev/null 2>&1 && {
-      printf "\r  ${BGRN}✓${NC} %-55s\033[K\n" "$name online"
+      printf "\r  ${BGRN}✓${NC} %-55s\n" "$name online"
       return 0
     }
 
@@ -271,7 +305,7 @@ check_service() {
         container_state=$("${docker_cmd_arr[@]}" inspect --format '{{.State.Status}}' "$container_name" 2>/dev/null || echo "missing")
         case "$container_state" in
           exited|dead|missing)
-            printf "\r  ${RED}✗${NC} %-55s\033[K\n" "$name container $container_state"
+            printf "\r  ${RED}✗${NC} %-55s\n" "$name container $container_state"
             ai_warn "$name container is $container_state; not retrying health probe."
             return 1
             ;;
@@ -282,35 +316,32 @@ check_service() {
     # Distinguish between timeout (124), connection refused (7),
     # and transient startup errors (56 = recv error, 52 = empty reply)
     if [[ $curl_exit -eq 124 ]]; then
-      printf -v status "  ${AMB}⟳${NC} Linking %-20s [%ds] (timeout, retrying)" "$name" "$elapsed"
+      # Timeout - service may be overloaded or slow
+      printf "\r  ${AMB}⟳${NC} Linking %-20s [%ds] (timeout, retrying) " "$name" "$elapsed"
     elif [[ $curl_exit -eq 7 ]]; then
-      printf -v status "  ${GRN}%s${NC} Linking %-20s [%ds]" "${spin:$i:1}" "$name" "$elapsed"
+      # Connection refused - service not started yet
+      printf "\r  ${GRN}%s${NC} Linking %-20s [%ds] " "${spin:$i:1}" "$name" "$elapsed"
     elif [[ $curl_exit -eq 56 || $curl_exit -eq 52 ]]; then
       # 56 = recv error (service resetting during startup/migrations)
       # 52 = empty reply (service accepting connections but not ready)
-      printf -v status "  ${GRN}%s${NC} Linking %-20s [%ds] (starting up)" "${spin:$i:1}" "$name" "$elapsed"
+      printf "\r  ${GRN}%s${NC} Linking %-20s [%ds] (starting up) " "${spin:$i:1}" "$name" "$elapsed"
     else
-      printf -v status "  ${AMB}⟳${NC} Linking %-20s [%ds] (error %d)" "$name" "$elapsed" "$curl_exit"
-    fi
-
-    if [[ -n "$lore" ]]; then
-      printf "\r%s  ${DGRN}« %s »${NC}\033[K" "$status" "$lore"
-    else
-      printf "\r%s\033[K" "$status"
+      # Other error (DNS, network, etc.)
+      printf "\r  ${AMB}⟳${NC} Linking %-20s [%ds] (error $curl_exit) " "$name" "$elapsed"
     fi
 
     i=$(( (i + 1) % ${#spin} ))
 
-    # Rotate lore inline every 16s — no newline, no scrollback spam.
-    if (( elapsed > 0 && elapsed % 16 == 0 )) && [[ ${#LORE_MESSAGES[@]} -gt 0 ]]; then
+    # Show lore every 16 seconds of elapsed time
+    if (( elapsed > 0 && elapsed % 16 == 0 )); then
+      printf "\n  ${DGRN}  « %s »${NC}\n" "${LORE_MESSAGES[$lore_idx]}"
       lore_idx=$(( (lore_idx + 1) % ${#LORE_MESSAGES[@]} ))
-      lore="${LORE_MESSAGES[$lore_idx]}"
     fi
 
     sleep "$backoff"
   done
 
-  printf "\r  ${AMB}⚠${NC} %-55s\033[K\n" "$name delayed (may still be starting)"
+  printf "\r  ${AMB}⚠${NC} %-55s\n" "$name delayed (may still be starting)"
   ai_warn "$name not responding yet. I will continue."
   return 1
 }
