@@ -21,6 +21,9 @@ service:
   category: core
   depends_on: []
 
+proxy:
+  subdomain: llm
+
 features:
   - id: chat
     name: AI Chat

@@ -26,6 +26,9 @@ service:
     audit log of every decision. Drop-in governance layer for OpenClaw
     and any OpenAI-compatible agent framework.
 
+proxy:
+  subdomain: ape
+
 features:
   - id: agent-governance
     name: Agent Governance

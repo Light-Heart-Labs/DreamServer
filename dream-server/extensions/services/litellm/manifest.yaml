@@ -24,3 +24,6 @@ service:
       required: true
       secret: true
       description: LiteLLM master API key
+
+proxy:
+  subdomain: litellm

@@ -1381,18 +1381,36 @@ async def service_tokens():
 
 @app.get("/api/external-links")
 async def get_external_links(api_key: str = Depends(verify_api_key)):
-    """Return sidebar-ready external links derived from service manifests."""
+    """Return sidebar-ready external links derived from service manifests.
+
+    When dream-proxy is enabled and a service declares `proxy.subdomain` in
+    its manifest, the response includes a `proxy_url` field with the
+    `http://<sub>.<device>.local` hostname. The frontend prefers `proxy_url`
+    over the port-based URL so operators see the friendly hostnames without
+    needing to remember a port. Sidebar continues to receive `port` as the
+    fallback for installs without dream-proxy.
+    """
+    # dream-proxy is enabled iff its manifest is loaded (compose.yaml present,
+    # not .disabled). This is the same gate the manifest loader uses to skip
+    # disabled extensions, so we get a consistent enabled-set for free.
+    proxy_enabled = "dream-proxy" in SERVICES
+    device_name = (os.environ.get("DREAM_DEVICE_NAME") or "dream").strip() or "dream"
+
     links = []
     for sid, cfg in SERVICES.items():
         ext_port = cfg.get("external_port", cfg.get("port", 0))
         if not ext_port or sid == "dashboard-api":
             continue
-        links.append({
+        entry = {
             "id": sid, "label": cfg.get("name", sid), "port": ext_port,
             "ui_path": cfg.get("ui_path", "/"),
             "icon": SIDEBAR_ICONS.get(sid, "ExternalLink"),
             "healthNeedles": [sid, cfg.get("name", sid).lower()],
-        })
+        }
+        subdomain = cfg.get("proxy_subdomain", "")
+        if proxy_enabled and subdomain:
+            entry["proxy_url"] = f"http://{subdomain}.{device_name}.local"
+        links.append(entry)
     return links
 
 

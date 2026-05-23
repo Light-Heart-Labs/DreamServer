@@ -29,6 +29,9 @@ service:
       default: "8585"
       description: External port the proxy listens on
 
+proxy:
+  subdomain: brave
+
 features:
   - id: brave-web-search
     name: Web Search (Brave)
