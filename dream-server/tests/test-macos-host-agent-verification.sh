@@ -37,6 +37,18 @@ success_block="$(awk '
 
 [[ -n "$success_block" ]] || fail "could not locate host-agent bootstrap success block"
 
+plist_block="$(awk '
+    /cat > "\$DREAM_AGENT_PLIST"/ { in_block=1 }
+    in_block { print }
+    in_block && /^AGENT_PLIST_EOF/ { exit }
+' "$TARGET" | grep -v '^[[:space:]]*#')"
+
+grep -qF '<string>--install-dir</string>' <<<"$plist_block" \
+    || fail "host-agent LaunchAgent must pass --install-dir explicitly"
+grep -qF '<string>${INSTALL_DIR}</string>' <<<"$plist_block" \
+    || fail "host-agent LaunchAgent must pass the installer-selected INSTALL_DIR"
+pass "host-agent LaunchAgent passes explicit install directory"
+
 grep -qE 'launchctl kickstart -p "gui/\$\(id -u\)/\$\{DREAM_AGENT_PLIST_LABEL\}"' <<<"$success_block" \
     || fail "host-agent bootstrap success block must call \`launchctl kickstart -p\` to defeat launchd spawn-pending throttling"
 pass "host-agent bootstrap kickstarts the service after bootstrap"

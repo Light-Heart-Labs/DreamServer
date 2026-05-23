@@ -224,17 +224,28 @@ else
     _monitor_pid=$!
     trap 'kill $_monitor_pid 2>/dev/null || true; write_status "failed"; exit 1' EXIT TERM INT
 
-    # Download with resume support, retry up to 3 times
+    # Download with resume support, retry up to 3 times. curl success is not
+    # enough: finalizing the .part file can fail on macOS if the file vanished
+    # or the target path is unavailable, and this script intentionally does
+    # not use set -e.
     _dl_success=false
+    _part_path="$MODELS_DIR/$FULL_GGUF_FILE.part"
+    _final_path="$MODELS_DIR/$FULL_GGUF_FILE"
     for _attempt in 1 2 3; do
         [[ $_attempt -gt 1 ]] && log "Retry attempt $_attempt of 3..." && sleep 5
         if curl -fSL -C - --connect-timeout 30 --max-time 3600 \
-                -o "$MODELS_DIR/$FULL_GGUF_FILE.part" "$FULL_GGUF_URL" 2>&1; then
-            mv "$MODELS_DIR/$FULL_GGUF_FILE.part" "$MODELS_DIR/$FULL_GGUF_FILE"
-            _dl_success=true
-            break
+                -o "$_part_path" "$FULL_GGUF_URL" 2>&1; then
+            if [[ ! -s "$_part_path" ]]; then
+                log "Download attempt $_attempt reported success but produced no partial file: $_part_path"
+            elif mv "$_part_path" "$_final_path"; then
+                _dl_success=true
+                break
+            else
+                log "Download attempt $_attempt failed while finalizing $_part_path -> $_final_path"
+            fi
+        else
+            log "Download attempt $_attempt failed"
         fi
-        log "Download attempt $_attempt failed"
     done
 
     # Stop background monitor
@@ -245,6 +256,20 @@ else
         rm -f "$MODELS_DIR/$FULL_GGUF_FILE.part"
         write_status "failed"
         fail "Download failed after 3 attempts. Bootstrap model will continue running."
+    fi
+
+    if [[ ! -s "$MODELS_DIR/$FULL_GGUF_FILE" ]]; then
+        write_status "failed"
+        fail "Downloaded model is missing or empty after finalization: $MODELS_DIR/$FULL_GGUF_FILE. Bootstrap model will continue running."
+    fi
+
+    if [[ "$TOTAL_BYTES" -gt 0 ]]; then
+        ACTUAL_BYTES=$(file_size "$MODELS_DIR/$FULL_GGUF_FILE")
+        if [[ "$ACTUAL_BYTES" -lt "$TOTAL_BYTES" ]]; then
+            rm -f "$MODELS_DIR/$FULL_GGUF_FILE"
+            write_status "failed"
+            fail "Downloaded model is smaller than expected (got $ACTUAL_BYTES, expected $TOTAL_BYTES). Bootstrap model will continue running."
+        fi
     fi
 
     write_status "complete"

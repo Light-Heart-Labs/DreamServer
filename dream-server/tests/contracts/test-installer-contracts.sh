@@ -46,6 +46,12 @@ bash tests/contracts/test-windows-amd-local-compose.sh
 echo "[contract] bootstrap hot-swap force-recreate"
 bash tests/test-bootstrap-upgrade-hotswap-contract.sh
 
+echo "[contract] bootstrap download finalization is non-destructive"
+bash tests/test-bootstrap-upgrade-download-finalization.sh
+
+echo "[contract] macOS host-agent LaunchAgent install-dir"
+bash tests/test-macos-host-agent-verification.sh
+
 echo "[contract] AMD reassign keeps HSA override Strix-only"
 grep -q '_env_set "HSA_OVERRIDE_GFX_VERSION" "11.5.1"' dream-cli \
   || { echo "[FAIL] dream-cli must set HSA override to 11.5.1 for gfx1151"; exit 1; }
