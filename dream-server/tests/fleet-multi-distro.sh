@@ -323,7 +323,16 @@ for distro in "${TARGETS[@]}"; do
     echo ""
     echo "=== Fleet distro: $distro ($image) ==="
     if [[ "$PULL" == "true" ]]; then
-        docker pull "$image"
+        # A bare `docker pull "$image"` under `set -euo pipefail` aborts the
+        # entire matrix on a single registry hiccup (transient IPv6 failure,
+        # mirror outage, etc.), skipping every distro that follows. Wrap it
+        # so a pull failure marks this distro failed and the loop moves on.
+        if ! docker pull "$image"; then
+            echo "FAIL: $distro (docker pull failed for $image)"
+            fail=$((fail + 1))
+            failed+=("$distro")
+            continue
+        fi
     fi
 
     container_name="dream-fleet-${distro}-$$"

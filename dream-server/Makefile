@@ -52,6 +52,12 @@ test: ## Run unit and contract tests
 	@echo ""
 	@echo "=== bootstrap-upgrade spawn closes inherited FDs ==="
 	@bash tests/test-bootstrap-upgrade-close-inherited-fds.sh
+	@echo ""
+	@echo "=== macOS dream-host-agent bootstrap verification ==="
+	@bash tests/test-macos-host-agent-verification.sh
+	@echo ""
+	@echo "=== fleet-multi-distro keep-going on docker pull failure ==="
+	@bash tests/test-fleet-multi-distro-keep-going.sh
 
 bats: ## Run BATS unit tests for shell libraries
 	@echo "=== BATS unit tests ==="

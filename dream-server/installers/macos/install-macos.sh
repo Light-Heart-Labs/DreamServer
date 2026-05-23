@@ -163,6 +163,25 @@ fi
 source "${SOURCE_ROOT}/installers/lib/readiness-summary.sh"
 
 # ── File-local helpers ──
+_close_inherited_fds_for_daemon() {
+    local fd fd_dir fd_name
+
+    for fd_dir in "/proc/${BASHPID:-$$}/fd" "/dev/fd"; do
+        [[ -d "$fd_dir" ]] || continue
+        for fd in "$fd_dir"/*; do
+            fd_name="${fd##*/}"
+            [[ "$fd_name" =~ ^[0-9]+$ ]] || continue
+            (( fd_name <= 2 || fd_name == 255 )) && continue
+            eval "exec ${fd_name}>&-" 2>/dev/null || true
+        done
+        return 0
+    done
+
+    for ((fd_name = 3; fd_name <= 254; fd_name++)); do
+        eval "exec ${fd_name}>&-" 2>/dev/null || true
+    done
+}
+
 # Build a launchd-friendly PATH that includes Docker and Homebrew prefixes.
 # launchd does NOT inherit the user's login shell PATH, so any path containing
 # `docker` or `brew`-installed tools must be baked into the plist explicitly.
@@ -1586,17 +1605,17 @@ else
         _upgrade_script="$INSTALL_DIR/scripts/bootstrap-upgrade.sh"
 
         if [[ -x "$_upgrade_script" ]] || [[ -f "$_upgrade_script" ]]; then
-            # Close inherited FDs 3-9 so this long-lived background daemon
-            # never holds a parent's advisory lock (e.g. a fleet-test harness
-            # flock on FD 9) for the lifetime of the model download. The
-            # parent process exits when the installer returns, but the kernel
-            # keeps any flock alive as long as ANY inherited FD points to the
-            # locked file.
-            nohup bash "$_upgrade_script" \
-                "$INSTALL_DIR" "$FULL_GGUF_FILE" "$FULL_GGUF_URL" \
-                "$FULL_GGUF_SHA256" "$FULL_LLM_MODEL" "$FULL_MAX_CONTEXT" \
-                3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&- \
-                > "$INSTALL_DIR/logs/model-upgrade.log" 2>&1 &
+            # Start the long-lived downloader from a child shell that closes
+            # inherited non-stdio FDs first. Otherwise caller-owned advisory
+            # locks (FD 9, FD 200, etc.) can stay held until the model download
+            # exits.
+            (
+                _close_inherited_fds_for_daemon
+                exec nohup bash "$_upgrade_script" \
+                    "$INSTALL_DIR" "$FULL_GGUF_FILE" "$FULL_GGUF_URL" \
+                    "$FULL_GGUF_SHA256" "$FULL_LLM_MODEL" "$FULL_MAX_CONTEXT" \
+                    > "$INSTALL_DIR/logs/model-upgrade.log" 2>&1
+            ) &
             ai "Full model ($FULL_LLM_MODEL) downloading in background."
             ai "Check progress: tail -f $INSTALL_DIR/logs/model-upgrade.log"
         else
@@ -1756,7 +1775,32 @@ AGENT_PLIST_EOF
     launchctl bootout "gui/$(id -u)/${DREAM_AGENT_PLIST_LABEL}" >/dev/null 2>&1 || true
     _agent_bootstrap_err="$(launchctl bootstrap "gui/$(id -u)" "$DREAM_AGENT_PLIST" 2>&1)" && _agent_bootstrap_rc=0 || _agent_bootstrap_rc=$?
     if [[ $_agent_bootstrap_rc -eq 0 ]]; then
-        ai_ok "Dream host agent installed (LaunchAgent, port ${DREAM_AGENT_PORT})"
+        # `launchctl bootstrap` can succeed (definition loaded) while launchd
+        # leaves the service in "pended nondemand spawn = speculative" and
+        # never actually launches the process — common right after a
+        # same-session bootout because the throttler hasn't reset yet, and
+        # `RunAtLoad=true` doesn't override the throttle. Force the spawn
+        # with `kickstart`, then poll /health so we don't report success
+        # while the agent is still down. Without this verification the
+        # dashboard-api will hit "Host agent unreachable" on every model and
+        # extension action even though the installer printed [OK].
+        launchctl kickstart -p "gui/$(id -u)/${DREAM_AGENT_PLIST_LABEL}" >/dev/null 2>&1 || true
+        _agent_health_ok=false
+        for _agent_health_i in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -fsS --max-time 1 "http://127.0.0.1:${DREAM_AGENT_PORT}/health" >/dev/null 2>&1; then
+                _agent_health_ok=true
+                break
+            fi
+            sleep 1
+        done
+        if [[ "$_agent_health_ok" == "true" ]]; then
+            ai_ok "Dream host agent installed (LaunchAgent, port ${DREAM_AGENT_PORT})"
+        else
+            ai_warn "Dream host agent loaded but not responding on :${DREAM_AGENT_PORT} after 10s."
+            ai_warn "  Log:         tail -F ~/Library/Logs/DreamServer/dream-host-agent.log"
+            ai_warn "  Force start: launchctl kickstart -p gui/\$(id -u)/${DREAM_AGENT_PLIST_LABEL}"
+            ai_warn "  Dashboard model + extension actions will fail until the agent comes up."
+        fi
     else
         ai_warn "Dream host agent LaunchAgent failed (rc=${_agent_bootstrap_rc}): ${_agent_bootstrap_err}"
         if [[ "${_agent_bootstrap_err}" == *"Input/output error"* ]]; then
