@@ -120,6 +120,7 @@ except Exception:
 tier_key = str(tier).upper()
 tier_rank_map = {
     "0": 0,
+    "CLOUD": 0,
     "1": 1,
     "2": 2,
     "3": 3,
@@ -136,6 +137,7 @@ tier_rank = tier_rank_map.get(tier_key, 1)
 
 min_ram_map = {
     "0": 4,
+    "CLOUD": 4,
     "T0": 4,
     "1": 16,
     "2": 32,
@@ -146,6 +148,10 @@ min_ram_map = {
 }
 min_disk_map = {
     "0": 15,
+    # Cloud mode skips local GGUF downloads and local llama-server model
+    # storage. It still needs room for core Docker images, configs, logs, and
+    # optional services, but it should not inherit the 50GB local-model default.
+    "CLOUD": 25,
     "T0": 15,
     "1": 30,
     "2": 50,

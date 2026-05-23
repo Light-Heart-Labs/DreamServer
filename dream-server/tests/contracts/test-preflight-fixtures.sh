@@ -94,4 +94,39 @@ if [[ "$blockers" -lt 1 ]]; then
   exit 1
 fi
 
+echo "[contract] preflight fixture: cloud-low-storage-good"
+scripts/preflight-engine.sh \
+  --report "$tmpdir/cloud-low-storage-good.json" \
+  --tier CLOUD \
+  --ram-gb 8 \
+  --disk-gb 44 \
+  --gpu-backend cpu \
+  --gpu-vram-mb 0 \
+  --gpu-name "None" \
+  --platform-id linux \
+  --compose-overlays docker-compose.base.yml \
+  --script-dir "$ROOT_DIR" \
+  --env >/dev/null
+blockers="$(json_summary_blockers "$tmpdir/cloud-low-storage-good.json")"
+assert_eq "$blockers" "0" "cloud-low-storage-good blockers"
+
+echo "[contract] preflight fixture: cloud-disk-blocker"
+scripts/preflight-engine.sh \
+  --report "$tmpdir/cloud-disk-blocker.json" \
+  --tier CLOUD \
+  --ram-gb 8 \
+  --disk-gb 20 \
+  --gpu-backend cpu \
+  --gpu-vram-mb 0 \
+  --gpu-name "None" \
+  --platform-id linux \
+  --compose-overlays docker-compose.base.yml \
+  --script-dir "$ROOT_DIR" \
+  --env >/dev/null
+blockers="$(json_summary_blockers "$tmpdir/cloud-disk-blocker.json")"
+if [[ "$blockers" -lt 1 ]]; then
+  echo "[FAIL] cloud-disk-blocker expected >=1 blocker, got $blockers"
+  exit 1
+fi
+
 echo "[PASS] preflight fixture contracts"

@@ -264,8 +264,17 @@ if [[ "$REQUIREMENTS_MET" != "true" ]]; then
     warn "Some requirements not met. Installation may have limited functionality."
     if $INTERACTIVE && ! $DRY_RUN; then
         read -p "  Continue anyway? [y/N] " -r < /dev/tty
-        [[ ! $REPLY =~ ^[Yy]$ ]] && exit 1
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+        warn "Continuing despite unmet requirements at user request."
     elif $DRY_RUN; then
         log "[DRY RUN] Would prompt to continue despite unmet requirements"
     fi
 fi
+
+# This file is sourced by install-core.sh under `set -e`. Keep the phase's
+# final status successful when the user explicitly chose to continue; otherwise
+# a false [[ ... ]] test in the prompt branch can make `source phase-04` return
+# 1 and trip the top-level error trap.
+true
