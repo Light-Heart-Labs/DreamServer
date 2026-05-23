@@ -8,8 +8,8 @@
 # Expects: DRY_RUN, GPU_BACKEND, ENABLE_VOICE, ENABLE_WORKFLOWS,
 #           ENABLE_RAG, ENABLE_EMBEDDINGS, ENABLE_HERMES, ENABLE_OPENCLAW,
 #           ENABLE_CLUSTER, DOCKER_CMD, LOG_FILE, BGRN, AMB, NC, SCRIPT_DIR,
-#           show_phase(), bootline(), signal(), ai(), ai_ok(), ai_warn(),
-#           pull_with_progress()
+#           LORE_MESSAGES,
+#           show_phase(), bootline(), signal(), ai(), ai_ok(), ai_warn()
 # Provides: (Docker images pulled locally)
 #
 # Modder notes:
@@ -107,38 +107,43 @@ else
     echo ""
     bootline
     echo -e "${BGRN}DOWNLOAD SEQUENCE${NC}"
-    echo -e "${AMB}This is the long scene.${NC} (largest module first)"
+    echo -e "${AMB}Pulling ${#PULL_LIST[@]} modules in parallel.${NC} Largest images dominate wall time; small ones finish during the giant's extract phase."
     bootline
     echo ""
-    signal "Take a break for ten minutes. I've got this."
+    signal "Take a break. I've got this."
     echo ""
 
-    pull_count=0
     pull_total=${#PULL_LIST[@]}
-    pull_failed=0
+    dream_progress 48 "images" "Pulling $pull_total images in parallel"
 
-    for entry in "${PULL_LIST[@]}"; do
-        img="${entry%%|*}"
-        label="${entry##*|}"
-        pull_count=$((pull_count + 1))
-
-        # Sub-milestone: interpolate progress 48-64% across image pulls
-        _img_pct=$(( 48 + (pull_count - 1) * 16 / pull_total ))
-        dream_progress "$_img_pct" "images" "Pulling image $pull_count/$pull_total"
-
-        if ! pull_with_progress "$img" "$label" "$pull_count" "$pull_total"; then
-            ai_warn "Failed to pull $img — will attempt again during service startup"
-            ai "  If this persists, check your network connection and disk space"
-            pull_failed=$((pull_failed + 1))
-        fi
+    # Build --lore args from the bash array so the dashboard footer rotates
+    # the same lines the rest of the installer uses.
+    _lore_args=()
+    for _msg in "${LORE_MESSAGES[@]}"; do
+        _lore_args+=(--lore "$_msg")
     done
+
+    # Concurrency cap of 4: higher just fights for the same network
+    # bandwidth — wall time barely improves and the dashboard feels
+    # janky as four 25%-of-a-pipe streams ping-pong. CLUSTER_PULL_PARALLEL
+    # env var lets ops override per-host.
+    _parallel="${CLUSTER_PULL_PARALLEL:-4}"
+
+    pull_failed=0
+    python3 "$SCRIPT_DIR/installers/lib/parallel-pull.py" \
+        --concurrency "$_parallel" \
+        --log-file "$LOG_FILE" \
+        "${_lore_args[@]}" \
+        "${PULL_LIST[@]}" || pull_failed=$?
 
     echo ""
     if [[ $pull_failed -eq 0 ]]; then
         ai_ok "All $pull_total modules downloaded"
     else
-        ai_warn "$pull_failed of $pull_total modules failed — services may not start fully"
+        ai_warn "Some modules failed — services may not start fully"
+        ai "  Full per-image log lines (prefixed by label) in: $LOG_FILE"
     fi
+    unset _lore_args _parallel _msg
 
     # Build cluster images if LAN cluster mode was selected
     if [[ "${ENABLE_CLUSTER:-}" == "true" ]]; then
