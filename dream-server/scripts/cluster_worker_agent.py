@@ -483,7 +483,11 @@ def main():
     parser.add_argument("--status-port", type=int, default=50054, help="HTTP status port")
     parser.add_argument(
         "--status-bind", default="",
-        help="Bind IP for the HTTP status server (default: --interface value, else CLUSTER_INTERFACE, else 0.0.0.0)",
+        help="Bind IP for the HTTP status server (default: --interface value, "
+             "else CLUSTER_INTERFACE, else 127.0.0.1). /health exposes the "
+             "GPU fingerprint and cluster topology, so it's host-local unless "
+             "you explicitly widen it (e.g. so the controller's `dream cluster "
+             "add <ip>` can auto-fill GPU info from another machine).",
     )
     parser.add_argument("--pid-file", help="Write PID to file")
     parser.add_argument("--interface", default="", help="Bind discovery/status to this network interface IP")

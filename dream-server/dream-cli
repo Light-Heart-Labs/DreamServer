@@ -3678,11 +3678,22 @@ print(json.dumps(gpus))
         cpu)    docker_gpu_flags="" ;;
     esac
 
+    # If --interface was given, narrow the host-side publish to that IP so
+    # rpc-server is not reachable from every network the host is attached to
+    # (Tailscale, virbr0, Docker bridges). llama.cpp RPC has no auth or
+    # encryption — exposing 50052 to all interfaces is a real footgun on
+    # multi-homed hosts. The agent path (cluster_worker_agent.start_rpc_server)
+    # already does this; mirror it here so manual `dream cluster join` is
+    # consistent. Empty interface keeps the prior all-interfaces default
+    # (single-NIC homes don't need to opt in).
+    local _publish="${rpc_port}:50052"
+    [[ -n "$interface" ]] && _publish="${interface}:${rpc_port}:50052"
+
     # shellcheck disable=SC2086
     docker run -d \
         --name dream-rpc-server \
         --restart unless-stopped \
-        -p "${rpc_port}:50052" \
+        -p "$_publish" \
         $docker_gpu_flags \
         "$image_tag" \
         -p 50052 -c --host 0.0.0.0 \
@@ -4228,8 +4239,18 @@ tmp = config_file + ".tmp"
 if os.path.exists(tmp):
     os.unlink(tmp)
 fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-with os.fdopen(fd, "w") as f:
-    json.dump(cfg, f, indent=2)
+# Mirror the BaseException cleanup of the other three cluster.json writers
+# (_cluster_disable / _cluster_add / _cluster_remove). Without this, a
+# crash during json.dump (disk full, SIGKILL, surrogate-char in token)
+# leaves the .tmp around; the next agent-start hits FileExistsError on
+# the O_EXCL above instead of succeeding cleanly via the recovery branch.
+try:
+    with os.fdopen(fd, "w") as f:
+        json.dump(cfg, f, indent=2)
+except BaseException:
+    if os.path.exists(tmp):
+        os.unlink(tmp)
+    raise
 os.replace(tmp, config_file)
 PY
                 log "Agent config initialized (backend: ${gpu_backend})"
