@@ -122,7 +122,11 @@ else
         }
 
         if [[ -n "$bind_addr" && "$bind_addr" != "0.0.0.0" ]]; then
-            ai_warn "$service_label bind address is $bind_addr; skipping automatic firewall rule."
+            if [[ "$rule_label" == "dream-host-agent" ]]; then
+                ai_warn "DREAM_AGENT_BIND=$bind_addr; skipping automatic host-agent firewall rule."
+            else
+                ai_warn "$service_label bind address is $bind_addr; skipping automatic firewall rule."
+            fi
             return 0
         fi
 

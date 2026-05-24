@@ -91,9 +91,9 @@ STUB
 extract_firewall_helper() {
     local out="$1"
     awk '
-        /^    _phase11_allow_host_agent_firewall\(\) \{/ { capture=1 }
+        /^    _phase11_external_lemonade\(\) \{/ { capture=1 }
+        capture && /amd_gpu_runtime_devices_available/ { exit }
         capture { print }
-        capture && /^    \}/ { exit }
     ' "$PHASE11" > "$out"
 }
 
@@ -153,6 +153,28 @@ extract_firewall_helper() {
     assert_success
     assert_output --partial "skipping automatic host-agent firewall rule"
     refute_output --partial "ufw allow"
+}
+
+@test "services firewall: external Lemonade UFW rule is scoped to detected dream-network subnet" {
+    helper="$BATS_TEST_TMPDIR/helper.sh"
+    extract_firewall_helper "$helper"
+
+    run bash -c '
+        source "'"$helper"'"
+        ai_ok() { echo "OK: $1"; }
+        ai_warn() { echo "WARN: $1"; }
+        _phase11_env_get() { echo "${2:-}"; }
+        export SYSTEMCTL_ACTIVE_UNITS="ufw"
+        export DOCKER_NETWORK_SUBNETS="10.91.0.0/24"
+        export LEMONADE_EXTERNAL=true
+        export AMD_INFERENCE_PORT=13305
+        _phase11_allow_external_lemonade_firewall dream-network
+        cat "$COMMAND_LOG"
+    '
+
+    assert_success
+    assert_output --partial "ufw allow from 10.91.0.0/24 to any port 13305 proto tcp comment dream-external-lemonade"
+    refute_output --partial "172.16.0.0/12"
 }
 
 @test "services firewall: installer no longer contains broad docker CIDR allow rule" {
