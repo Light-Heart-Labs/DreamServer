@@ -37,6 +37,23 @@ Fleet phases currently include:
   identity;
 - opt-in lifecycle checks for reinstall, restart, and doctor behavior.
 
+External Lemonade SDK compatibility has a focused fleet smoke:
+
+```bash
+tests/fleet-external-lemonade-e2e.sh --mock
+```
+
+The mock lane starts a tiny OpenAI-compatible Lemonade stand-in, renders the
+external-Lemonade LiteLLM config, starts Dream Server's real LiteLLM compose
+service, and verifies a chat completion traverses the route. On an AMD Linux
+host with Lemonade SDK already running, use the real lane:
+
+```bash
+LEMONADE_E2E_URL=http://localhost:13305 \
+LEMONADE_E2E_MODEL=<model-from-/api/v1/models> \
+tests/fleet-external-lemonade-e2e.sh --real
+```
+
 ## Quick Reference
 
 | Method | Speed | GPU Testing | Kernel Testing | Best For |
