@@ -34,6 +34,7 @@ setup() {
     # Minimal compose-file presence so the resolver picks a base+overlay pair
     # for any of the GPU backends used by the tests below.
     : > "$FIXTURE_DIR/docker-compose.base.yml"
+    : > "$FIXTURE_DIR/docker-compose.cloud.yml"
     : > "$FIXTURE_DIR/docker-compose.nvidia.yml"
     : > "$FIXTURE_DIR/docker-compose.amd.yml"
     : > "$FIXTURE_DIR/docker-compose.apple.yml"
@@ -109,6 +110,23 @@ _refute_output_path() {
         echo "$output" >&2
         return 1
     fi
+}
+
+@test "cloud mode selects cloud overlay instead of cpu/local inference overlay" {
+    DREAM_MODE=cloud _run_resolver --gpu-backend cpu --tier CLOUD
+    assert_success
+    _assert_output_path "docker-compose.cloud.yml"
+    _refute_output_path "docker-compose.cpu.yml"
+}
+
+@test "cloud mode excludes local-mode service overlays" {
+    _write_user_ext_manifest "localsvc" "gpu_backends=[all]"
+    _write_user_ext_overlay "localsvc" "compose.local.yaml"
+
+    DREAM_MODE=cloud _run_resolver --gpu-backend cpu --tier CLOUD
+    assert_success
+    _assert_output_path "data/user-extensions/localsvc/compose.yaml"
+    _refute_output_path "data/user-extensions/localsvc/compose.local.yaml"
 }
 
 # ---------------------------------------------------------------------------

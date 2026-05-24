@@ -507,7 +507,7 @@ _regenerate_compose_flags() {
         # --gpu-count gates the multigpu-{backend}.yml overlay; without it,
         # toggling any extension would silently strip multi-GPU plumbing
         # from the persisted cache.
-        "$INSTALL_DIR/scripts/resolve-compose-stack.sh" \
+        DREAM_MODE="${DREAM_MODE:-local}" "$INSTALL_DIR/scripts/resolve-compose-stack.sh" \
             --script-dir "$INSTALL_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}" \
             --gpu-count "${GPU_COUNT:-1}" --dream-mode "${DREAM_MODE:-local}" \
             > "$INSTALL_DIR/.compose-flags" 2>/dev/null || rm -f "$INSTALL_DIR/.compose-flags"
@@ -652,7 +652,7 @@ get_compose_flags() {
         # Resolver handles base + GPU overlay + extension compose files.
         # --gpu-count gates the multigpu-{backend}.yml overlay — without it,
         # this fallback path resolves to a single-GPU stack on multi-GPU hosts.
-        base_flags=$("$INSTALL_DIR/scripts/resolve-compose-stack.sh" \
+        base_flags=$(DREAM_MODE="${DREAM_MODE:-local}" "$INSTALL_DIR/scripts/resolve-compose-stack.sh" \
             --script-dir "$INSTALL_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}" \
             --gpu-count "${GPU_COUNT:-1}" --dream-mode "${DREAM_MODE:-local}")
         echo "$base_flags"

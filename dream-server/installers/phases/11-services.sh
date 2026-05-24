@@ -225,7 +225,7 @@ else
         # overlay when count > 1. Without it, the refreshed value (which we cache
         # to .compose-flags below) would persistently drop multi-GPU overlays
         # for the rest of the install AND every subsequent dream-cli invocation.
-        _refreshed_flags=$("$INSTALL_DIR/scripts/resolve-compose-stack.sh" \
+        _refreshed_flags=$(DREAM_MODE="${DREAM_MODE:-local}" "$INSTALL_DIR/scripts/resolve-compose-stack.sh" \
             --script-dir "$INSTALL_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}" \
             --gpu-count "${GPU_COUNT:-1}" --dream-mode "${DREAM_MODE:-local}" 2>/dev/null) || true
         if [[ -n "$_refreshed_flags" ]]; then

@@ -23,6 +23,7 @@ if [[ -x "$SCRIPT_DIR/scripts/resolve-compose-stack.sh" ]]; then
     # preflight validates the wrong stack on multi-GPU machines.
     COMPOSE_FLAGS=$("$SCRIPT_DIR/scripts/resolve-compose-stack.sh" \
         --script-dir "$SCRIPT_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}" \
+        --dream-mode "${DREAM_MODE:-local}" \
         --gpu-count "${GPU_COUNT:-1}")
 fi
 
