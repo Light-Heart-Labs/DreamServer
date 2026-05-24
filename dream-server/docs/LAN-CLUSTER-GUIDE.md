@@ -361,6 +361,10 @@ If you invoke the helpers directly (`scripts/cluster-setup-listener.py`, `script
 
 Priority when multiple are supplied: `--token-file` > `CLUSTER_TOKEN` env > `--token` argv.
 
+`dream cluster agent start` accepts `--token-file <path>` as well. When supplied, the wrapper records the file **path** (not the token) in `config/cluster-agent.json` and threads `--token-file <path>` through to both the systemd unit's `ExecStart` and the nohup fallback, so the agent re-reads the file on every start and the secret never lands in the JSON config. Recommended for systemd workers — see the `Token mismatch` troubleshooting note below for where to look when something goes wrong.
+
+`config/cluster-agent.json` is gitignored, but treat it as sensitive on disk anyway: when `--token-file` is not used, the JSON file contains the token in plaintext (mode 0600).
+
 ---
 
 ## Troubleshooting
@@ -390,8 +394,8 @@ Priority when multiple are supplied: `--token-file` > `CLUSTER_TOKEN` env > `--t
 
 **Token mismatch:**
 - Controller token: `grep CLUSTER_TOKEN dream-server/.env`
-- Worker token: `cat dream-server/config/cluster-agent.json`
-- Re-run agent with correct token: `dream cluster agent start --token <CORRECT_TOKEN> --controller <IP>`
+- Worker token: `cat dream-server/config/cluster-agent.json` (inline) or `cat $(jq -r .token_file dream-server/config/cluster-agent.json)` (when `--token-file` was used)
+- Re-run agent with correct token: `dream cluster agent start --token <CORRECT_TOKEN> --controller <IP>` (or `--token-file <PATH>`)
 
 **Worker agent shows `error` state:**
 - The agent flips to `error` (visible on the dashboard and via `dream cluster agent status`) when `docker run` for rpc-server fails — it does **not** silently retry. Check `dream cluster agent logs` for the underlying docker error (missing image, port in use, device permission), fix it, then restart: `dream cluster agent stop && dream cluster agent start --token <TOKEN> --controller <IP>`.
