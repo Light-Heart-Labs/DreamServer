@@ -200,12 +200,18 @@ If a machine has multiple network interfaces (e.g. LAN + VPN + Docker bridge), y
 
 **Controller**: `dream cluster enable` detects multiple interfaces and asks you to pick. The choice is saved as `CLUSTER_INTERFACE` in `.env` and used by the discovery beacon and setup listener.
 
-**Worker**: Pass `--interface IP` to bind discovery to a specific interface:
+**Worker**: Pass `--interface IP` to scope cluster traffic to a specific interface. This does **two** things on the worker side:
+
+1. Binds the discovery listener to that interface (so `--discover` only receives beacons arriving on that NIC).
+2. Narrows the rpc-server's host-side Docker publish from `0.0.0.0:50052` to `<ip>:50052`. Without it, `rpc-server` listens on every interface the host is attached to — Tailscale, virbr0, Docker bridges, etc. Since llama.cpp RPC has no authentication or encryption, this matters on multi-homed hosts.
 
 ```bash
 dream cluster agent start --token T --controller IP --interface 192.168.1.50
 dream cluster join --discover --token T --interface 192.168.1.50
+dream cluster join <CONTROLLER_IP> --token T --interface 192.168.1.50
 ```
+
+Both the agent flow and the manual `join` flow honor `--interface` for the publish bind.
 
 ---
 
@@ -242,6 +248,17 @@ Behavior depends on `CLUSTER_RESTART_POLICY`:
 - `always` (default) — supervisor waits 15 seconds, then starts llama-server with the controller's GPU only (no `--rpc`). When workers come back, they're re-added automatically.
 - `on-worker-recovery` — supervisor waits 15 seconds, exits non-zero if no worker recovered. systemd / your runner is expected to restart it. Useful when controller-only inference would be unacceptably slow.
 - `manual` — supervisor exits immediately on the first crash; you restart it by hand. Useful for diagnostic sessions where you want each crash to surface.
+
+### Crash-Loop Fuses
+
+Both the supervisor (on the controller) and the agent (on each worker) have a circuit breaker: if the wrapped process crashes more than **5 times within 120 seconds**, they exit non-zero instead of restarting again. This prevents a deterministic failure — bad model path, missing GPU device, wedged dockerd, malformed `--rpc` flags — from spinning forever and spamming logs / pulling images / fighting for disk.
+
+When this fires, you'll see:
+
+- **Supervisor**: `[SUPERVISOR] N crashes in 120s — stopping restart loop. Check llama-server config (model path, --rpc, image version).`
+- **Agent**: state flips to `error` with a similar message in `dream cluster agent logs`. systemd's `StartLimitBurst` then prevents it from being restarted by the unit either.
+
+Fix the underlying issue (check logs), then restart manually: `dream cluster agent start ...` or `dream restart llama-server`.
 
 ### Tensor Caching
 
