@@ -242,8 +242,11 @@ collect_extension_diagnostics() {
                 if [[ "$health_type" == "none" ]]; then
                     health_status="not_applicable"
                 elif [[ "$health_type" == "tcp" ]]; then
-                    if [[ "$port" != "0" ]]; then
-                        if timeout 5 bash -c "cat < /dev/null > /dev/tcp/127.0.0.1/$port" >/dev/null 2>&1; then
+                    if ! [[ "$port" =~ ^[0-9]+$ ]] || (( port < 1 || port > 65535 )); then
+                        health_status="unhealthy"
+                        issues+=("invalid_port")
+                    elif [[ "$port" != "0" ]]; then
+                        if timeout 5 bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/$1' _ "$port" >/dev/null 2>&1; then
                             health_status="healthy"
                         else
                             health_status="unhealthy"

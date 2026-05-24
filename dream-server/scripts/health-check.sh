@@ -188,7 +188,12 @@ test_service() {
     fi
 
     if [[ "$health_type" == "tcp" ]]; then
-        if timeout "$timeout" bash -c "cat < /dev/null > /dev/tcp/127.0.0.1/$port" >/dev/null 2>&1; then
+        if ! [[ "$port" =~ ^[0-9]+$ ]] || (( port < 1 || port > 65535 )); then
+            result_set "$sid" "fail"
+            ANY_FAIL=true
+            return 1
+        fi
+        if timeout "$timeout" bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/$1' _ "$port" >/dev/null 2>&1; then
             result_set "$sid" "ok"
             return 0
         fi
