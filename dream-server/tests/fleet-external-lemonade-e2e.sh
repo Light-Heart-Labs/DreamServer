@@ -344,10 +344,17 @@ chat_response="$(curl -fsS \
     -H "Content-Type: application/json" \
     -d '{"model":"default","messages":[{"role":"user","content":"ping"}],"max_tokens":16}' \
     "http://127.0.0.1:${litellm_port}/v1/chat/completions")"
-[[ "$chat_response" == *"external lemonade ok"* ]] || {
-    echo "$chat_response" >&2
-    fail "LiteLLM chat completion did not traverse external Lemonade"
-}
+if [[ "$MODE" == "mock" ]]; then
+    [[ "$chat_response" == *"external lemonade ok"* ]] || {
+        echo "$chat_response" >&2
+        fail "LiteLLM chat completion did not traverse mock Lemonade"
+    }
+else
+    [[ "$chat_response" == *'"object":"chat.completion"'* && "$chat_response" == *'"choices"'* ]] || {
+        echo "$chat_response" >&2
+        fail "LiteLLM did not return an OpenAI-compatible chat completion from real Lemonade"
+    }
+fi
 pass "LiteLLM chat completion traverses external Lemonade"
 
 echo "[PASS] external Lemonade E2E (${MODE})"
