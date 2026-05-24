@@ -129,46 +129,59 @@ if ($selectedTier -notin @("0", "CLOUD") -and $gpuInfo.Backend -eq "none") {
 
 # ── Port conflict detection ───────────────────────────────────────────────────
 # Build list of ports to check based on enabled features.
-# Default service ports match .env.example; overridden ports are not checked here.
+function Get-DreamPortDefault {
+    param([string]$Name, [int]$Default)
+    $value = [Environment]::GetEnvironmentVariable($Name)
+    $parsed = 0
+    if (-not [string]::IsNullOrWhiteSpace($value) -and [int]::TryParse($value, [ref]$parsed) -and $parsed -gt 0) {
+        return $parsed
+    }
+    return $Default
+}
+
 $_portsToCheck = [ordered]@{
-    "llama-server (LLM)"  = 11434
-    "Open WebUI (chat)"   = 3000
-    "Dashboard"           = 3001
-    "Dashboard API"       = 3002
+    "Open WebUI (chat)"   = Get-DreamPortDefault "WEBUI_PORT" 3000
+    "Dashboard"           = Get-DreamPortDefault "DASHBOARD_PORT" 3001
+    "Dashboard API"       = Get-DreamPortDefault "DASHBOARD_API_PORT" 3002
+}
+if (-not $cloudMode) {
+    $_portsToCheck["llama-server (LLM)"] = Get-DreamPortDefault "OLLAMA_PORT" 11434
+}
+if ($enableRecommended -or $cloudMode) {
+    $_portsToCheck["LiteLLM (API gateway)"] = Get-DreamPortDefault "LITELLM_PORT" 4000
 }
 if ($enableRecommended) {
-    $_portsToCheck["LiteLLM (API gateway)"] = 4000
-    $_portsToCheck["SearXNG (search)"] = 8888
-    $_portsToCheck["Token Spy (usage monitor)"] = 3005
+    $_portsToCheck["SearXNG (search)"] = Get-DreamPortDefault "SEARXNG_PORT" 8888
+    $_portsToCheck["Token Spy (usage monitor)"] = Get-DreamPortDefault "TOKEN_SPY_PORT" 3005
 }
 if ($enableVoice) {
-    $_portsToCheck["Whisper (STT)"] = 9000
-    $_portsToCheck["Kokoro (TTS)"]  = 8880
+    $_portsToCheck["Whisper (STT)"] = Get-DreamPortDefault "WHISPER_PORT" 9000
+    $_portsToCheck["Kokoro (TTS)"]  = Get-DreamPortDefault "TTS_PORT" 8880
 }
 if ($enableWorkflows) {
-    $_portsToCheck["n8n (workflows)"] = 5678
+    $_portsToCheck["n8n (workflows)"] = Get-DreamPortDefault "N8N_PORT" 5678
 }
 if ($enableRag) {
-    $_portsToCheck["Qdrant (vector DB)"] = 6333
-    $_portsToCheck["TEI (embeddings)"] = 8090
+    $_portsToCheck["Qdrant (vector DB)"] = Get-DreamPortDefault "QDRANT_PORT" 6333
+    $_portsToCheck["TEI (embeddings)"] = Get-DreamPortDefault "EMBEDDINGS_PORT" 8090
 }
 if ($enableHermes) {
-    $_portsToCheck["Hermes auth proxy"] = 9120
+    $_portsToCheck["Hermes auth proxy"] = Get-DreamPortDefault "HERMES_PROXY_PORT" 9120
 }
 if ($enableOpenClaw) {
-    $_portsToCheck["OpenClaw (agents)"] = 7860
+    $_portsToCheck["OpenClaw (agents)"] = Get-DreamPortDefault "OPENCLAW_PORT" 7860
 }
 if ($enableHermes -or $enableOpenClaw) {
-    $_portsToCheck["APE (agent policy engine)"] = 7890
+    $_portsToCheck["APE (agent policy engine)"] = Get-DreamPortDefault "APE_PORT" 7890
 }
 if ($enableComfyui) {
-    $_portsToCheck["ComfyUI (image generation)"] = 8188
+    $_portsToCheck["ComfyUI (image generation)"] = Get-DreamPortDefault "COMFYUI_PORT" 8188
 }
 if ($enableDeepResearch) {
-    $_portsToCheck["Perplexica (deep research)"] = 3004
+    $_portsToCheck["Perplexica (deep research)"] = Get-DreamPortDefault "PERPLEXICA_PORT" 3004
 }
 if ($enablePrivacyShield) {
-    $_portsToCheck["Privacy Shield"] = 8085
+    $_portsToCheck["Privacy Shield"] = Get-DreamPortDefault "SHIELD_PORT" 8085
 }
 
 $_portConflicts = @()

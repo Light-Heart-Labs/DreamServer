@@ -33,7 +33,7 @@ service:
   gpu_backends: [all]
   compose_file: compose.yaml
   category: recommended
-  depends_on: [llama-server, searxng]
+  depends_on: [searxng]
   description: >
     Hermes Agent (Nous Research) — a self-improving generalist agent with
     persistent memory, autonomous skill creation, and 70+ built-in tools.
@@ -73,7 +73,7 @@ features:
     icon: Bot
     category: productivity
     requirements:
-      services: [llama-server]
+      services_any: [llama-server, litellm]
       vram_gb: 0
     enabled_services_all: [hermes]
     setup_time: ~1 minute (image pull)

@@ -111,6 +111,16 @@ function New-DreamEnv {
         }
         return $Default
     }
+    function Get-EnvOrProcessOrDefault { param([string]$Key, [string]$Default)
+        if ($existingEnv.ContainsKey($Key) -and $existingEnv[$Key]) {
+            return $existingEnv[$Key]
+        }
+        $processValue = [Environment]::GetEnvironmentVariable($Key)
+        if (-not [string]::IsNullOrWhiteSpace($processValue)) {
+            return $processValue
+        }
+        return $Default
+    }
 
     function Select-AutoCpuValue {
         param(
@@ -235,6 +245,17 @@ function New-DreamEnv {
     $langfuseInitProjectId     = Get-EnvOrNew "LANGFUSE_INIT_PROJECT_ID"   (New-SecureHex -Bytes 16)
     $langfuseInitUserEmail     = Get-EnvOrNew "LANGFUSE_INIT_USER_EMAIL"   "admin@dreamserver.local"
     $langfuseInitUserPassword  = Get-EnvOrNew "LANGFUSE_INIT_USER_PASSWORD" (New-SecureHex -Bytes 16)
+    $ollamaPort       = Get-EnvOrProcessOrDefault "OLLAMA_PORT" "11434"
+    $webuiPort        = Get-EnvOrProcessOrDefault "WEBUI_PORT" "3000"
+    $whisperPort      = Get-EnvOrProcessOrDefault "WHISPER_PORT" "9000"
+    $ttsPort          = Get-EnvOrProcessOrDefault "TTS_PORT" "8880"
+    $n8nPort          = Get-EnvOrProcessOrDefault "N8N_PORT" "5678"
+    $qdrantPort       = Get-EnvOrProcessOrDefault "QDRANT_PORT" "6333"
+    $qdrantGrpcPort   = Get-EnvOrProcessOrDefault "QDRANT_GRPC_PORT" "6334"
+    $litellmPort      = Get-EnvOrProcessOrDefault "LITELLM_PORT" "4000"
+    $openclawPort     = Get-EnvOrProcessOrDefault "OPENCLAW_PORT" "7860"
+    $searxngPort      = Get-EnvOrProcessOrDefault "SEARXNG_PORT" "8888"
+    $hermesProxyPort  = Get-EnvOrProcessOrDefault "HERMES_PROXY_PORT" "9120"
 
     # Determine LLM backend engine and API URL
     # AMD on Windows: inference server runs natively, containers reach it via host.docker.internal
@@ -384,23 +405,23 @@ COMFYUI_CPU_LIMIT=$comfyuiCpuLimit
 COMFYUI_CPU_RESERVATION=$comfyuiCpuReservation
 
 #=== Ports ===
-OLLAMA_PORT=11434
-WEBUI_PORT=3000
-WHISPER_PORT=9000
-TTS_PORT=8880
-N8N_PORT=5678
-QDRANT_PORT=6333
-QDRANT_GRPC_PORT=6334
+OLLAMA_PORT=$ollamaPort
+WEBUI_PORT=$webuiPort
+WHISPER_PORT=$whisperPort
+TTS_PORT=$ttsPort
+N8N_PORT=$n8nPort
+QDRANT_PORT=$qdrantPort
+QDRANT_GRPC_PORT=$qdrantGrpcPort
 QDRANT_API_KEY=$qdrantApiKey
-LITELLM_PORT=4000
-OPENCLAW_PORT=7860
-SEARXNG_PORT=8888
+LITELLM_PORT=$litellmPort
+OPENCLAW_PORT=$openclawPort
+SEARXNG_PORT=$searxngPort
 
 #=== Hermes Agent ===
 HERMES_LLM_BASE_URL=$llmApiUrl$llmApiBasePath
 HERMES_LLM_API_KEY=sk-dream-hermes-local
 HERMES_LANGUAGE=en
-HERMES_PROXY_PORT=9120
+HERMES_PROXY_PORT=$hermesProxyPort
 HERMES_PROXY_UPSTREAM=dream-hermes:9119
 DREAM_AUTH_UPSTREAM=dream-dashboard-api:3002
 
