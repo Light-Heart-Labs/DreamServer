@@ -7,7 +7,7 @@ Real-time system status dashboard for Dream Server.
 - **GPU Monitoring**: VRAM usage, utilization %, temperature with warning colors
 - **Service Health**: Status of all Docker services with health indicators
 - **Model Management**: Download, switch, and monitor LLM models
-- **Voice Controls**: LiveKit voice agent management and testing
+- **Voice Status**: Whisper STT, Kokoro TTS, and Dream Talk readiness
 - **Workflow Management**: n8n workflow status and controls
 - **Settings**: System configuration and service controls
 
@@ -48,8 +48,8 @@ The dashboard is built and served via Docker. See the `Dockerfile` and `nginx.co
 dashboard/
 ├── src/
 │   ├── components/     # Sidebar, SetupWizard, PreFlightChecks, etc.
-│   ├── pages/          # Dashboard, Models, Voice, Workflows, Settings
-│   ├── hooks/          # useSystemStatus, useModels, useVoiceAgent, etc.
+│   ├── pages/          # Dashboard, Models, Dream Talk, Extensions, Settings
+│   ├── hooks/          # useSystemStatus, useModels, useVersion, etc.
 │   ├── App.jsx         # Router and layout
 │   └── main.jsx        # Entry point
 ├── public/             # Static assets

@@ -28,15 +28,15 @@ export function SuccessValidation({ status, onAllPassed }) {
       },
       {
         id: 'voice',
-        name: 'Voice Chat',
-        description: 'Can talk to your AI',
+        name: 'Voice I/O',
+        description: 'Speech-to-text and text-to-speech services are ready',
         icon: Mic,
         status: (serviceMap['Whisper (STT)'] === 'healthy' && serviceMap['Kokoro (TTS)'] === 'healthy') 
           ? 'passed' 
           : 'pending',
         service: 'Whisper + Kokoro',
-        action: 'Go to Voice page and start a call',
-        testUrl: '/api/test/voice'
+        action: 'Check Dream Talk owner setup',
+        testUrl: '/api/voice/status'
       },
       {
         id: 'documents',
@@ -75,12 +75,13 @@ export function SuccessValidation({ status, onAllPassed }) {
       try {
         const response = await fetch(updatedTests[i].testUrl)
         const result = await response.json()
+        const success = Boolean(result.success ?? result.available)
         
         await new Promise(r => setTimeout(r, 800)) // Visual feedback
         
         updatedTests[i] = { 
           ...updatedTests[i], 
-          status: result.success ? 'passed' : 'failed',
+          status: success ? 'passed' : 'failed',
           error: result.error
         }
       } catch (err) {

@@ -68,14 +68,14 @@ const commonIssues = [
   },
   {
     id: 'voice-not-working',
-    title: 'Voice chat not working',
+    title: 'Voice services not ready',
     symptoms: ['Cannot connect to voice', 'Microphone not detected', 'No audio output'],
-    cause: 'LiveKit not started or browser permissions blocked',
+    cause: 'Speech services are not healthy or browser permissions are blocked',
     solutions: [
       {
-        title: 'Start voice services',
+        title: 'Start speech services',
         command: 'cd ~/dream-server && docker compose up -d whisper tts',
-        description: 'LiveKit and voice agent must be running'
+        description: 'Whisper and Kokoro must be running for voice input and output'
       },
       {
         title: 'Check browser permissions',
@@ -126,7 +126,7 @@ export function TroubleshootingAssistant({ serviceStatus }) {
   const unhealthyServices = serviceStatus?.services?.filter(s => s.status !== 'healthy') || []
   const relevantIssues = commonIssues.filter(issue => {
     if (issue.id === 'gpu-not-detected' && unhealthyServices.some(s => s.name.includes('llama-server'))) return true
-    if (issue.id === 'voice-not-working' && unhealthyServices.some(s => s.name.includes('LiveKit'))) return true
+    if (issue.id === 'voice-not-working' && unhealthyServices.some(s => s.name.includes('Whisper') || s.name.includes('Kokoro'))) return true
     if (issue.id === 'model-loading' && unhealthyServices.some(s => s.name.includes('llama-server'))) return true
     return false
   })
