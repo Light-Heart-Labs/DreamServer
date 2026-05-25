@@ -65,6 +65,19 @@ case "${DOCKER_STUB_MODE:-success}" in
         echo "network busy (try again later)"
         exit 1
         ;;
+    fail-port-once)
+        state_file="$TMPDIR_TEST/port-retry-count"
+        count=0
+        [[ -f "$state_file" ]] && count=$(cat "$state_file")
+        count=$((count + 1))
+        echo "$count" > "$state_file"
+        if [[ "$count" -eq 1 ]]; then
+            echo "Error response from daemon: failed to set up container networking: Bind for 127.0.0.1:11434 failed: port is already allocated"
+            exit 1
+        fi
+        echo "Container dream-foo started"
+        exit 0
+        ;;
     fail-docker-sock)
         echo "unable to get image 'ghcr.io/remsky/kokoro-fastapi-cpu:v0.2.4': permission denied while trying to connect to the docker API at unix:///var/run/docker.sock"
         exit 1
@@ -204,6 +217,27 @@ teardown() {
 }
 
 # ── docker compose args passthrough ─────────────────────────────────────────
+
+@test "wrapper: compose up retries once on transient port allocation race" {
+    export DOCKER_STUB_MODE=fail-port-once
+    export DREAM_COMPOSE_PORT_RETRY_DELAY=0
+    run _compose_run_with_summary "Restarting all services" up -d
+    assert_success
+    assert_output --partial "Docker reported a port allocation race"
+    assert_output --partial "Restarting all services"
+    assert_output --partial "done"
+    run grep -c '^DOCKER_ARGS:' "$DOCKER_CALL_LOG"
+    assert_output "2"
+}
+
+@test "wrapper: non-up command does not retry on port allocation failure" {
+    export DOCKER_STUB_MODE=fail-port-once
+    export DREAM_COMPOSE_PORT_RETRY_DELAY=0
+    run _compose_run_with_summary "Stopping all services" down
+    assert_failure
+    run grep -c '^DOCKER_ARGS:' "$DOCKER_CALL_LOG"
+    assert_output "1"
+}
 
 @test "wrapper: all args after verb are passed to docker compose" {
     export DOCKER_STUB_MODE=success

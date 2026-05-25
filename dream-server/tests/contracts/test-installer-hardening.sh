@@ -287,6 +287,7 @@ assert_contains "installers/phases/11-services.sh" '_compose_started_with_delaye
 assert_contains "installers/phases/11-services.sh" 'COMPOSE_STARTED_WITH_DELAYED_HEALTH=true' "Linux installer does not mark delayed compose health for strict phase 12 recovery"
 assert_contains "installers/phases/11-services.sh" 'Continuing to the longer health checks' "Linux installer no longer delegates delayed service health to phase 12"
 assert_contains "installers/phases/12-health.sh" 'COMPOSE_STARTED_WITH_DELAYED_HEALTH' "Linux delayed compose health does not make phase 12 strict"
+assert_contains "installers/phases/12-health.sh" 'DREAM_LLM_DELAYED_HEALTH_ATTEMPTS:-300' "Linux delayed compose health does not extend the LLM health wait for large GGUF reloads"
 assert_contains "installers/phases/12-health.sh" 'Docker Compose reported delayed LLM health' "Linux strict delayed-health recovery message missing"
 assert_contains "installers/macos/install-macos.sh" 'compose-launch\.txt' "macOS installer missing compose launch record"
 assert_contains "installers/macos/install-macos.sh" 'ps -q' "macOS installer does not count compose-managed containers"

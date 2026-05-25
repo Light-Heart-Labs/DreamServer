@@ -132,8 +132,15 @@ if [[ "${DREAM_MODE:-local}" == "cloud" ]] || _phase12_external_lemonade; then
 else
     # Format: _check_health "name" "url" max_attempts timeout_per_request
     # llama-server: 150 attempts * adaptive backoff (2s->8s) = up to ~20 minutes (model loading can be slow)
+    _llm_health_attempts=150
+    if [[ "${COMPOSE_STARTED_WITH_DELAYED_HEALTH:-false}" == "true" ]]; then
+        # If phase 11 already saw Docker Compose outlive its own health-gate
+        # window, keep the installer in the long readiness loop instead of
+        # failing right as very large GGUFs finish loading after reinstall.
+        _llm_health_attempts="${DREAM_LLM_DELAYED_HEALTH_ATTEMPTS:-300}"
+    fi
     dream_progress 86 "health" "Waiting for LLM engine"
-    _check_health "llama-server" "http://127.0.0.1:${SERVICE_PORTS[llama-server]:-8080}${SERVICE_HEALTH[llama-server]:-/health}" 150 15 "$(sr_container llama-server)"
+    _check_health "llama-server" "http://127.0.0.1:${SERVICE_PORTS[llama-server]:-8080}${SERVICE_HEALTH[llama-server]:-/health}" "$_llm_health_attempts" 15 "$(sr_container llama-server)"
 fi
 
 # ── Pre-warm the LLM slot so the first real chat doesn't 503 ──
