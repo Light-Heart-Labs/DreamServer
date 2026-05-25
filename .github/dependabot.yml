@@ -4,38 +4,99 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 1
+    groups:
+      github-actions:
+        patterns:
+          - "*"
 
   - package-ecosystem: "npm"
     directory: "/installer"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 1
+    groups:
+      installer-npm:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
 
   - package-ecosystem: "cargo"
     directory: "/installer/src-tauri"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 1
+    groups:
+      tauri-cargo:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
 
   - package-ecosystem: "npm"
     directory: "/dream-server/extensions/services/dashboard"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 1
+    groups:
+      dashboard-npm:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
 
   - package-ecosystem: "pip"
     directory: "/dream-server/extensions/services/dashboard-api"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 1
+    groups:
+      dashboard-api-python:
+        patterns:
+          - "*"
 
   - package-ecosystem: "pip"
     directory: "/dream-server/extensions/services/privacy-shield"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 1
+    groups:
+      privacy-shield-python:
+        patterns:
+          - "*"
 
   - package-ecosystem: "pip"
     directory: "/dream-server/extensions/services/token-spy"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 1
+    groups:
+      token-spy-python:
+        patterns:
+          - "*"
 
   - package-ecosystem: "pip"
     directory: "/dream-server/extensions/services/ape"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 1
+    groups:
+      ape-python:
+        patterns:
+          - "*"
