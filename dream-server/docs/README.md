@@ -45,6 +45,20 @@ changes get the validation surface they can affect.
 Use [HIGH_RISK_CHANGE_MAP.md](HIGH_RISK_CHANGE_MAP.md) for the full policy and
 [RELEASE_VALIDATION.md](RELEASE_VALIDATION.md) for the User Green release gate.
 
+## Document Status
+
+Some docs are canonical contracts; others are operator guides, implementation
+deep dives, or historical/planned notes. When docs overlap, prefer the
+canonical source and treat older recipes as context.
+
+| Status | Meaning | Examples |
+|--------|---------|----------|
+| Canonical contract | Defines behavior reviewers should enforce | [HIGH_RISK_CHANGE_MAP.md](HIGH_RISK_CHANGE_MAP.md), [INSTALLER_PHASE_CONTRACTS.md](INSTALLER_PHASE_CONTRACTS.md), [COMPOSE_RESOLVER_CONTRACTS.md](COMPOSE_RESOLVER_CONTRACTS.md), [RELEASE_VALIDATION.md](RELEASE_VALIDATION.md) |
+| Operator guide | Helps users install, operate, or troubleshoot | [../QUICKSTART.md](../QUICKSTART.md), [DREAM-DOCTOR.md](DREAM-DOCTOR.md), [TROUBLESHOOTING.md](TROUBLESHOOTING.md), [POST-INSTALL-CHECKLIST.md](POST-INSTALL-CHECKLIST.md) |
+| Maintainer runbook | Explains how to preserve or release the project | [MAINTAINER_RUNBOOK.md](MAINTAINER_RUNBOOK.md), [FORKABILITY.md](FORKABILITY.md), [OFFLINE_AND_MIRRORING.md](OFFLINE_AND_MIRRORING.md), [VALIDATION_REPRODUCIBILITY.md](VALIDATION_REPRODUCIBILITY.md) |
+| Deep dive | Explains a subsystem or design area | [INSTALLER-ARCHITECTURE.md](INSTALLER-ARCHITECTURE.md), [BACKEND-CONTRACT.md](BACKEND-CONTRACT.md), [DREAM_CLI_DECOMPOSITION.md](DREAM_CLI_DECOMPOSITION.md) |
+| Historical or planned | Records a past migration, launch checklist, or future direction | [PROFILES.md](PROFILES.md), [OSS-LAUNCH-CHECKLIST.md](OSS-LAUNCH-CHECKLIST.md), [SERVICE_MANIFEST_V2_PLAN.md](SERVICE_MANIFEST_V2_PLAN.md) |
+
 ## Current Truths
 
 - The golden paths are Linux NVIDIA, Windows with Docker Desktop + WSL2 for
@@ -91,6 +105,7 @@ Use [HIGH_RISK_CHANGE_MAP.md](HIGH_RISK_CHANGE_MAP.md) for the full policy and
 | [EXTENSIONS.md](EXTENSIONS.md) | Builders | Add Docker services, manifests, dashboard plugins |
 | [../extensions/templates/README.md](../extensions/templates/README.md) | Builders | Starter manifest, compose, GPU overlay, and dashboard plugin templates |
 | [../extensions/CATALOG.md](../extensions/CATALOG.md) | Builders / reviewers | Current bundled service manifest catalog |
+| [SERVICE_MANIFEST_V2_PLAN.md](SERVICE_MANIFEST_V2_PLAN.md) | Maintainers / extension reviewers | Non-breaking plan for future manifest schema evolution |
 | [INSTALLER-ARCHITECTURE.md](INSTALLER-ARCHITECTURE.md) | Modders | Installer module map, mod recipes, header convention |
 | [DREAM_CLI_DECOMPOSITION.md](DREAM_CLI_DECOMPOSITION.md) | Maintainers / CLI contributors | Behavior-preserving plan for splitting the large Bash operator CLI without a risky rewrite |
 | [INTEGRATION-GUIDE.md](INTEGRATION-GUIDE.md) | Developers | Connect apps via OpenAI SDK, LangChain, n8n |
@@ -98,6 +113,7 @@ Use [HIGH_RISK_CHANGE_MAP.md](HIGH_RISK_CHANGE_MAP.md) for the full policy and
 | [INSTALLER_PHASE_CONTRACTS.md](INSTALLER_PHASE_CONTRACTS.md) | Maintainers / installer reviewers | Phase ownership, inputs, outputs, idempotency, and validation expectations |
 | [COMPOSE_RESOLVER_CONTRACTS.md](COMPOSE_RESOLVER_CONTRACTS.md) | Maintainers / backend reviewers | Compose layer rules for services, hardware overlays, modes, dependencies, and ports |
 | [HERMES.md](HERMES.md) | Developers / operators | Default Hermes Agent packaging, security posture, and operations |
+| [OAUTH_PROVIDER_SETUP.md](OAUTH_PROVIDER_SETUP.md) | Operators / maintainers | OAuth provider registry, private credential bundles, and BYOC setup |
 | [OPENCLAW-INTEGRATION.md](OPENCLAW-INTEGRATION.md) | Developers | Deprecated OpenClaw setup and migration reference |
 
 ## Hardware & Configuration

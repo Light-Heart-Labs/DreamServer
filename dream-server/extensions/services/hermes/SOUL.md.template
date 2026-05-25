@@ -38,7 +38,7 @@ The canonical setup pattern (this is how the bundled skills' setup.py scripts ar
 
 ### Generating the OAuth URL with the right redirect
 
-When you call `setup.py --auth-url`, the script bakes the redirect URL into the auth link. The default is whatever the operator's `client_secret.json` was registered with. The right redirect_uri to register against Dream Server is **`http://<device>.local:3002/api/oauth/callback`** (replacing `<device>` with the install's `DREAM_DEVICE_NAME`, e.g. `http://dream-server.local:3002/api/oauth/callback`). If the user hasn't set that up yet, walk them through registering it in Google Cloud Console — once.
+When you call `setup.py --auth-url`, the script bakes the redirect URL into the auth link. The default is whatever the operator's credential file was registered with. The right redirect_uri to register against Dream Server is **`http://<device>.local:3002/api/oauth/callback`** (replacing `<device>` with the install's `DREAM_DEVICE_NAME`, e.g. `http://dream-server.local:3002/api/oauth/callback`). If credentials are missing, explain that the operator can provide a private OAuth credential bundle or bring their own provider credentials; don't imply that public Dream Server releases ship shared client secrets in git.
 
 ### What to do if a skill doesn't exist yet
 

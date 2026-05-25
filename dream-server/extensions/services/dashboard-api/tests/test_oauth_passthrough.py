@@ -129,6 +129,56 @@ def test_oauth_pending_endpoint_returns_true_after_callback(oauth_client):
     assert body["stale"] is False
 
 
+def test_oauth_providers_requires_auth(oauth_client):
+    resp = oauth_client.get("/api/oauth/providers")
+    assert resp.status_code == 401
+
+
+def test_oauth_providers_reports_credential_status(oauth_client, monkeypatch):
+    registry = oauth_client.tmp / "providers.json"
+    registry.write_text(
+        json.dumps(
+            {
+                "schema_version": "dream.oauth-providers.v1",
+                "providers": [
+                    {
+                        "id": "google",
+                        "name": "Google Workspace",
+                        "skill_id": "google-workspace",
+                        "flow": "authorization_code",
+                        "credential_files": ["google_client_secret.json"],
+                        "redirect_uris": ["http://localhost:3002/api/oauth/callback"],
+                    },
+                    {
+                        "id": "spotify",
+                        "name": "Spotify",
+                        "skill_id": "spotify",
+                        "flow": "authorization_code_pkce",
+                        "credential_files": ["spotify_client.json"],
+                        "redirect_uris": ["http://localhost:3002/api/oauth/callback"],
+                    },
+                ],
+            }
+        )
+    )
+    data_dir = oauth_client.tmp / "data"
+    hermes_dir = data_dir / "hermes"
+    hermes_dir.mkdir(parents=True)
+    (hermes_dir / "google_client_secret.json").write_text("{}")
+
+    monkeypatch.setenv("DREAM_OAUTH_PROVIDERS_FILE", str(registry))
+    monkeypatch.setenv("DREAM_DATA_DIR", str(data_dir))
+
+    resp = oauth_client.get("/api/oauth/providers", headers=oauth_client.auth_headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["schema_version"] == "dream.oauth-providers.v1"
+    by_id = {provider["id"]: provider for provider in body["providers"]}
+    assert by_id["google"]["configured"] is True
+    assert by_id["spotify"]["configured"] is False
+    assert by_id["google"]["found_credentials"] == ["hermes/google_client_secret.json"]
+
+
 def test_oauth_callback_atomic_write(oauth_client):
     """The handler writes via a .tmp + rename so a concurrent read by the
     agent never sees a half-written file. Verify the tmp file is gone
