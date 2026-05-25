@@ -139,7 +139,7 @@ at [`../../README.md`](../../README.md).
 | Doc | Audience | Description |
 |-----|----------|-------------|
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | Contributors | How to contribute |
-| [MAINTAINER_RUNBOOK.md](MAINTAINER_RUNBOOK.md) | Maintainers / fork operators | Release, rollback, validation, and handoff runbook |
+| [MAINTAINER_RUNBOOK.md](MAINTAINER_RUNBOOK.md) | Maintainers / fork operators | Release, rollback, validation, and operator continuity runbook |
 | [../SECURITY.md](../SECURITY.md) | Everyone | Security guide and disclosure |
 | [../../SECURITY_AUDIT.md](../../SECURITY_AUDIT.md) | Maintainers / reviewers | Historical security audit with current remediation status and receipts |
 | [../CHANGELOG.md](../CHANGELOG.md) | Everyone | Version history |

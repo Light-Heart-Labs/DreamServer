@@ -114,11 +114,11 @@ Treat these areas as high-risk:
 Use [HIGH_RISK_CHANGE_MAP.md](HIGH_RISK_CHANGE_MAP.md) to choose validation
 before merging.
 
-## Handoff Checklist
+## Operator Handoff Checklist
 
-When handing maintenance to another person or fork:
+When adding, rotating, or handing off maintenance for an upstream area or fork:
 
-- point them at this runbook;
+- point the operator at this runbook;
 - identify the current known-good commit;
 - share the latest sanitized validation result;
 - list disabled or lab-only fleet lanes;
@@ -127,5 +127,5 @@ When handing maintenance to another person or fork:
 - explain where secrets and runtime data live;
 - explain how to restore from backup or reinstall cleanly.
 
-The handoff is not complete until the next operator can run validation and
+The handoff is not complete until the receiving operator can run validation and
 interpret the result without private context.

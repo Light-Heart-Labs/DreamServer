@@ -1,8 +1,8 @@
 # Offline And Mirroring Guide
 
 Dream Server should be usable as independently owned infrastructure. This guide
-explains how operators and forks can reduce reliance on mutable upstream state by
-pinning, mirroring, and recording release artifacts.
+explains how operators and forks can run from their own pinned refs, mirrors, and
+release receipts instead of depending on mutable upstream state at install time.
 
 This is not a promise that every upstream service, model, or image license
 permits redistribution. Mirror only what you are allowed to mirror.
@@ -102,9 +102,9 @@ Operator notes:
 The receipt is what lets another maintainer rebuild trust without access to the
 original lab.
 
-## Recovery If Upstream Disappears
+## Operating From Your Own Mirror
 
-If upstream is unavailable:
+When you choose to operate from a mirror:
 
 1. Use your mirrored git ref.
 2. Restore mirrored Docker images or retag local images.
@@ -113,5 +113,5 @@ If upstream is unavailable:
 5. Run the validation subset from [HIGH_RISK_CHANGE_MAP.md](HIGH_RISK_CHANGE_MAP.md).
 6. Record a new local validation receipt.
 
-The goal is not to freeze Dream Server forever. The goal is to make each release
-understandable and recoverable without depending on mutable external state.
+The goal is not to freeze Dream Server at one point in time. The goal is to make
+each release inspectable and reproducible from artifacts an operator controls.

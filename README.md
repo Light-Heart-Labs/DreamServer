@@ -412,7 +412,7 @@ Other tools get you part of the way. Dream Server gets you the whole way.
 | [Docs Index](dream-server/docs/README.md) | Maintained map for operators, contributors, and reviewers |
 | [Build On Dream Server](dream-server/docs/BUILD-ON-DREAM-SERVER.md) | Forking, custom editions, extension templates, and downstream validation |
 | [Forkability](dream-server/docs/FORKABILITY.md) | How to fork, audit, customize, and independently operate Dream Server |
-| [Maintainer Runbook](dream-server/docs/MAINTAINER_RUNBOOK.md) | Release, rollback, validation, and handoff guidance for maintainers and fork operators |
+| [Maintainer Runbook](dream-server/docs/MAINTAINER_RUNBOOK.md) | Release, rollback, validation, and operator continuity guidance for maintainers and forks |
 | [High-Risk Change Map](dream-server/docs/HIGH_RISK_CHANGE_MAP.md) | Which changes require focused checks, fleet validation, or release-grade gates |
 | [Headless Setup](dream-server/docs/HEADLESS-SETUP.md) | QR onboarding, first-boot setup, AP mode, mDNS, and local agent access |
 | [Support Matrix](dream-server/docs/SUPPORT-MATRIX.md) | Current platform and GPU support status |

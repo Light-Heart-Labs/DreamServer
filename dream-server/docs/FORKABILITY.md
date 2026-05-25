@@ -1,8 +1,9 @@
 # Forkability And Independent Operation
 
-Dream Server is Apache-licensed infrastructure. Upstream should be useful, but it
-should not be the only place where the system can be understood, operated, or
-kept alive.
+Dream Server is Apache-licensed infrastructure. The upstream repository is a
+coordination point, not a hosted control plane. Operators should be able to
+inspect the rules, run their own node, validate their own hardware, and maintain
+their own fork.
 
 This document describes the project posture for downstream maintainers,
 hardware builders, labs, schools, companies, and individuals who want to fork,
@@ -15,7 +16,7 @@ Dream Server should be:
 - forkable without asking upstream for permission;
 - auditable from a cold clone;
 - customizable through documented extension points;
-- recoverable from pinned refs and mirrored artifacts;
+- reproducible from pinned refs and mirrored artifacts;
 - validated by repeatable public and private test layers;
 - understandable by maintainers who did not write the original installer.
 
