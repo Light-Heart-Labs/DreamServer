@@ -612,19 +612,30 @@ get_compose_flags() {
                 fi
                 prev="$tok"
             done
-            if [[ "${DREAM_MODE:-local}" == "cloud" ]] && \
-               { [[ "$cached" == *"docker-compose.cpu.yml"* ]] || [[ "$cached" == *"compose.local.yaml"* ]] || [[ "$cached" != *"docker-compose.cloud.yml"* ]]; }; then
-                stale=1
-            fi
+            local _dream_mode="${DREAM_MODE:-local}"
             local _lemonade_external="${LEMONADE_EXTERNAL:-false}"
             local _amd_runtime="${AMD_INFERENCE_RUNTIME:-}"
             local _amd_managed="${AMD_INFERENCE_MANAGED:-true}"
             _lemonade_external="${_lemonade_external,,}"
             _amd_runtime="${_amd_runtime,,}"
             _amd_managed="${_amd_managed,,}"
-            if [[ "${DREAM_MODE:-local}" == "lemonade" ]] && \
-               { [[ "$_lemonade_external" =~ ^(1|true|yes|on)$ ]] || { [[ "$_amd_runtime" == "lemonade" ]] && [[ "$_amd_managed" =~ ^(0|false|no|off)$ ]]; }; } && \
+            local _external_lemonade_active="false"
+            if [[ "$_dream_mode" == "lemonade" ]]; then
+                if [[ "$_lemonade_external" =~ ^(1|true|yes|on)$ ]] || \
+                   { [[ "$_amd_runtime" == "lemonade" ]] && [[ "$_amd_managed" =~ ^(0|false|no|off)$ ]]; }; then
+                    _external_lemonade_active="true"
+                fi
+            fi
+            if [[ "$_dream_mode" == "cloud" ]] && \
+               { [[ "$cached" == *"docker-compose.cpu.yml"* ]] || [[ "$cached" == *"compose.local.yaml"* ]] || [[ "$cached" != *"docker-compose.cloud.yml"* ]]; }; then
+                stale=1
+            fi
+            if [[ "$_external_lemonade_active" == "true" ]] && \
                { [[ "$cached" == *"compose.local.yaml"* ]] || [[ "$cached" == *"docker-compose.amd.yml"* ]] || [[ "$cached" != *"docker-compose.cloud.yml"* ]] || [[ "$cached" != *"docker-compose.lemonade-external.yml"* ]]; }; then
+                stale=1
+            fi
+            if [[ "$_dream_mode" != "cloud" ]] && [[ "$_external_lemonade_active" != "true" ]] && \
+               [[ "$cached" == *"docker-compose.cloud.yml"* ]]; then
                 stale=1
             fi
             if [[ "$stale" == "0" ]]; then

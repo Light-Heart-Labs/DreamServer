@@ -85,6 +85,11 @@ def main() -> int:
         "dream-cli must keep a top-level command dispatch case",
     )
     require(r"^cmd_help\(\) \{$", text, "dream-cli must define cmd_help")
+    require(
+        r'"\$_dream_mode" != "cloud"[\s\S]*"\$_external_lemonade_active" != "true"[\s\S]*docker-compose\.cloud\.yml',
+        text,
+        "dream-cli must reject stale cloud compose caches in local/managed modes",
+    )
 
     for command, (function_name, help_snippet) in COMMANDS.items():
         require(
