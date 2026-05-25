@@ -23,5 +23,7 @@ service:
 
 proxy:
   subdomain: shield
-  exposure: user
+  # Privacy Shield is API-only — proxy.py exposes /health and a
+  # /{path:path} catch-all gated by SHIELD_API_KEY. No UI to expose.
+  exposure: developer-api
   auth: service

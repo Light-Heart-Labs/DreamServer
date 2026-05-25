@@ -24,4 +24,7 @@ service:
 proxy:
   subdomain: perplexica
   exposure: user
-  auth: service
+  # Perplexica's web UI is unauthenticated — only the upstream LLM call
+  # carries LITELLM_KEY. Gate via dream-session so a LAN drive-by can't
+  # burn through your LLM tokens via web search.
+  auth: dream-session

@@ -23,4 +23,8 @@ service:
 proxy:
   subdomain: tokens
   exposure: user
-  auth: service
+  # /api/* and /v1/* are gated by TOKEN_SPY_API_KEY, but the /dashboard
+  # HTML route is open — a LAN visitor would see the dashboard chrome
+  # (and any data the JS already fetched server-side). Wrap the whole
+  # subdomain in dream-session to keep the UI out of strangers' hands.
+  auth: dream-session
