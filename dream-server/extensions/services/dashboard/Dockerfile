@@ -2,7 +2,9 @@
 # Multi-stage build: React SPA → nginx static serving
 
 # Stage 1: Build React app
-FROM node:20-alpine AS builder
+# Vite 7 requires Node >=20.19. Use a compatible tag so dashboard rebuilds do
+# not reuse an older cached node:20-alpine base image.
+FROM node:20.19-alpine AS builder
 
 WORKDIR /app
 
