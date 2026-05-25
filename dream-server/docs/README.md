@@ -98,6 +98,7 @@ Use [HIGH_RISK_CHANGE_MAP.md](HIGH_RISK_CHANGE_MAP.md) for the full policy and
 | [INSTALLER_PHASE_CONTRACTS.md](INSTALLER_PHASE_CONTRACTS.md) | Maintainers / installer reviewers | Phase ownership, inputs, outputs, idempotency, and validation expectations |
 | [COMPOSE_RESOLVER_CONTRACTS.md](COMPOSE_RESOLVER_CONTRACTS.md) | Maintainers / backend reviewers | Compose layer rules for services, hardware overlays, modes, dependencies, and ports |
 | [HERMES.md](HERMES.md) | Developers / operators | Default Hermes Agent packaging, security posture, and operations |
+| [OAUTH_PROVIDER_SETUP.md](OAUTH_PROVIDER_SETUP.md) | Operators / maintainers | OAuth provider registry, private credential bundles, and BYOC setup |
 | [OPENCLAW-INTEGRATION.md](OPENCLAW-INTEGRATION.md) | Developers | Deprecated OpenClaw setup and migration reference |
 
 ## Hardware & Configuration

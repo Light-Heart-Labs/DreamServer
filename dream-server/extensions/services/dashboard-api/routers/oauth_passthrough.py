@@ -81,6 +81,67 @@ def _callback_dir() -> Path:
     return base
 
 
+def _install_dir() -> Path:
+    return Path(os.environ.get("DREAM_INSTALL_DIR", "/dream-server"))
+
+
+def _data_dir() -> Path:
+    return Path(os.environ.get("DREAM_DATA_DIR", "/data"))
+
+
+def _providers_file() -> Path:
+    override = os.environ.get("DREAM_OAUTH_PROVIDERS_FILE", "").strip()
+    if override:
+        return Path(override)
+    return _install_dir() / "extensions" / "services" / "hermes" / "oauth-providers.json"
+
+
+def _credential_roots() -> list[Path]:
+    override = os.environ.get("DREAM_OAUTH_CREDENTIAL_DIRS", "").strip()
+    if override:
+        return [Path(item) for item in override.split(os.pathsep) if item.strip()]
+    data_dir = _data_dir()
+    return [
+        data_dir / "hermes",
+        data_dir / "hermes" / "credentials",
+        data_dir / "persona" / "oauth",
+    ]
+
+
+def _load_provider_registry() -> dict:
+    path = _providers_file()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {"schema_version": "dream.oauth-providers.v1", "providers": []}
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("oauth provider registry unavailable at %s: %s", path, exc)
+        return {"schema_version": "dream.oauth-providers.v1", "providers": [], "error": str(exc)}
+    if not isinstance(payload, dict):
+        return {"schema_version": "dream.oauth-providers.v1", "providers": [], "error": "registry root must be an object"}
+    providers = payload.get("providers")
+    if not isinstance(providers, list):
+        payload["providers"] = []
+        payload["error"] = "providers must be a list"
+    return payload
+
+
+def _credential_status(provider: dict) -> tuple[bool, list[str]]:
+    found: list[str] = []
+    credential_files = provider.get("credential_files") or []
+    if not isinstance(credential_files, list):
+        return False, found
+    for filename in credential_files:
+        if not isinstance(filename, str) or not filename or Path(filename).is_absolute():
+            continue
+        for root in _credential_roots():
+            candidate = root / filename
+            if candidate.is_file():
+                found.append(f"{root.name}/{filename}")
+                break
+    return bool(found), found
+
+
 def _safe_return_path(return_url: str) -> str | None:
     """Return a same-origin relative path, or None for unsafe links.
 
@@ -213,4 +274,36 @@ async def oauth_pending(api_key: str = Depends(verify_api_key)):
         "captured_at": payload.get("captured_at"),
         "age_seconds": age,
         "stale": age > 900,  # codes typically expire ~10 min at the provider
+    }
+
+
+@router.get("/api/oauth/providers")
+async def oauth_providers(api_key: str = Depends(verify_api_key)):
+    """Report OAuth provider bootstrap readiness without exposing secrets."""
+    registry = _load_provider_registry()
+    providers = []
+    for raw_provider in registry.get("providers", []):
+        if not isinstance(raw_provider, dict):
+            continue
+        configured, found_files = _credential_status(raw_provider)
+        providers.append(
+            {
+                "id": raw_provider.get("id"),
+                "name": raw_provider.get("name"),
+                "skill_id": raw_provider.get("skill_id"),
+                "flow": raw_provider.get("flow"),
+                "configured": configured,
+                "credential_files": raw_provider.get("credential_files", []),
+                "found_credentials": found_files,
+                "redirect_uris": raw_provider.get("redirect_uris", []),
+                "requires_provider_verification": bool(raw_provider.get("requires_provider_verification", False)),
+                "notes": raw_provider.get("notes", ""),
+            }
+        )
+    return {
+        "schema_version": registry.get("schema_version", "dream.oauth-providers.v1"),
+        "registry_available": "error" not in registry,
+        "error": registry.get("error"),
+        "credential_roots": [path.name for path in _credential_roots()],
+        "providers": providers,
     }
