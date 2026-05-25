@@ -139,8 +139,28 @@ else
         # failing right as very large GGUFs finish loading after reinstall.
         _llm_health_attempts="${DREAM_LLM_DELAYED_HEALTH_ATTEMPTS:-300}"
     fi
-    dream_progress 86 "health" "Waiting for LLM engine"
-    _check_health "llama-server" "http://127.0.0.1:${SERVICE_PORTS[llama-server]:-8080}${SERVICE_HEALTH[llama-server]:-/health}" "$_llm_health_attempts" 15 "$(sr_container llama-server)"
+
+    # When a background model upgrade is in progress the bootstrap model is
+    # already serving and healthy — the full model will hot-swap automatically
+    # once the download finishes. Blocking here would fail the installer on
+    # hosts where the full model download + swap exceeds the health window
+    # (e.g. tower2 with a 24 GB GGUF after a ComfyUI rebuild).
+    _bootstrap_status_file="${INSTALL_DIR}/data/bootstrap-status.json"
+    _model_download_active=false
+    if [[ -f "$_bootstrap_status_file" ]]; then
+        _bs_status="$(grep -o '"status"[[:space:]]*:[[:space:]]*"[^"]*"' "$_bootstrap_status_file" 2>/dev/null | head -1 | cut -d'"' -f4)"
+        if [[ "$_bs_status" == "downloading" || "$_bs_status" == "starting" || "$_bs_status" == "swapping" ]]; then
+            _model_download_active=true
+        fi
+    fi
+
+    if [[ "$_model_download_active" == "true" ]]; then
+        ai_ok "Full model upgrade in progress — bootstrap model is serving, skipping blocking health wait"
+        ai "  Monitor progress: tail -f ${INSTALL_DIR}/logs/model-upgrade.log"
+    else
+        dream_progress 86 "health" "Waiting for LLM engine"
+        _check_health "llama-server" "http://127.0.0.1:${SERVICE_PORTS[llama-server]:-8080}${SERVICE_HEALTH[llama-server]:-/health}" "$_llm_health_attempts" 15 "$(sr_container llama-server)"
+    fi
 fi
 
 # ── Pre-warm the LLM slot so the first real chat doesn't 503 ──

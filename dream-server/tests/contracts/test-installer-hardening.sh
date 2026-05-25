@@ -289,6 +289,8 @@ assert_contains "installers/phases/11-services.sh" 'Continuing to the longer hea
 assert_contains "installers/phases/12-health.sh" 'COMPOSE_STARTED_WITH_DELAYED_HEALTH' "Linux delayed compose health does not make phase 12 strict"
 assert_contains "installers/phases/12-health.sh" 'DREAM_LLM_DELAYED_HEALTH_ATTEMPTS:-300' "Linux delayed compose health does not extend the LLM health wait for large GGUF reloads"
 assert_contains "installers/phases/12-health.sh" 'Docker Compose reported delayed LLM health' "Linux strict delayed-health recovery message missing"
+assert_contains "installers/phases/12-health.sh" 'bootstrap-status.json' "Phase 12 does not check bootstrap model download status"
+assert_contains "installers/phases/12-health.sh" '_model_download_active' "Phase 12 does not skip health wait when model upgrade is in progress"
 assert_contains "installers/macos/install-macos.sh" 'compose-launch\.txt' "macOS installer missing compose launch record"
 assert_contains "installers/macos/install-macos.sh" 'ps -q' "macOS installer does not count compose-managed containers"
 assert_contains "installers/macos/install-macos.sh" 'docker compose up completed but created no managed containers' "macOS installer does not fail loud on zero managed containers"
