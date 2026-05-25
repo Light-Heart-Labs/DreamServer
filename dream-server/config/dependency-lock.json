@@ -71,7 +71,7 @@
       "id": "dashboard.node",
       "type": "image",
       "path": "extensions/services/dashboard/Dockerfile",
-      "value": "node:20-alpine"
+      "value": "node:20.19-alpine"
     },
     {
       "id": "dashboard.nginx",
