@@ -78,85 +78,33 @@ pub fn download_url() -> &'static str {
     { "https://docs.docker.com/engine/install/" }
 }
 
-/// Attempt to install Docker. Returns Ok on success, Err with instructions on failure.
+/// Return Docker installation guidance.
+///
+/// The desktop installer intentionally does not execute Docker's Linux
+/// convenience script or downloaded Docker Desktop installers. Docker has
+/// host-level privileges, so users should install it through a visible,
+/// verifiable flow and then rerun prerequisite checks.
 pub async fn install_docker() -> Result<String, String> {
     #[cfg(target_os = "linux")]
     {
-        // Try the official convenience script
-        let curl = Command::new("bash")
-            .args(["-c", "curl -fsSL https://get.docker.com | sh"])
-            .output()
-            .map_err(|e| format!("Failed to run Docker install script: {}", e))?;
-
-        if curl.status.success() {
-            // Add current user to docker group
-            let user = std::env::var("USER").unwrap_or_default();
-            if !user.is_empty() {
-                let _ = Command::new("sudo")
-                    .args(["usermod", "-aG", "docker", &user])
-                    .output();
-            }
-            Ok("Docker installed successfully. You may need to log out and back in for group changes.".into())
-        } else {
-            Err(format!(
-                "Automatic install failed. Please install Docker manually:\n{}",
-                download_url()
-            ))
-        }
+        Err(format!(
+            "For safety, the desktop installer does not run Docker's convenience script automatically.\n\nInstall Docker Engine using the official instructions, then rerun prerequisite checks:\n{}\n\nYou can also run Dream Server's shell installer from a terminal if you want the guided prerequisite flow.",
+            download_url()
+        ))
     }
 
     #[cfg(target_os = "windows")]
     {
-        // Download and run Docker Desktop installer silently
-        let url = download_url();
-        let installer_path = std::env::temp_dir().join("DockerDesktopInstaller.exe");
-        let dl = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                &format!(
-                    "Invoke-WebRequest -Uri '{}' -OutFile '{}' -UseBasicParsing",
-                    url,
-                    installer_path.display()
-                ),
-            ])
-            .output()
-            .map_err(|e| format!("Failed to download Docker Desktop: {}", e))?;
-
-        if !dl.status.success() {
-            return Err(format!(
-                "Failed to download Docker Desktop. Please install manually:\n{}",
-                url
-            ));
-        }
-
-        let install = Command::new(installer_path)
-            .args(["install", "--quiet", "--accept-license"])
-            .output()
-            .map_err(|e| format!("Failed to run Docker Desktop installer: {}", e))?;
-
-        if install.status.success() {
-            Ok("Docker Desktop installed. It may need a restart to complete setup.".into())
-        } else {
-            Err("Docker Desktop installation failed. Please install manually from docker.com".into())
-        }
+        Err(format!(
+            "For safety, the desktop installer does not download or run Docker Desktop automatically.\n\nInstall Docker Desktop manually, verify the installer publisher, then rerun prerequisite checks:\n{}",
+            download_url()
+        ))
     }
 
     #[cfg(target_os = "macos")]
     {
-        // Try homebrew first, fall back to manual
-        let brew = Command::new("brew")
-            .args(["install", "--cask", "docker"])
-            .output();
-
-        if let Ok(out) = brew {
-            if out.status.success() {
-                return Ok("Docker Desktop installed via Homebrew. Please open it from Applications.".into());
-            }
-        }
-
         Err(format!(
-            "Please download and install Docker Desktop manually:\n{}",
+            "For safety, the desktop installer does not install Docker Desktop automatically.\n\nInstall Docker Desktop manually, then open it once from Applications before rerunning prerequisite checks:\n{}",
             download_url()
         ))
     }
