@@ -33,7 +33,7 @@ COMMANDS = {
     "rollback": ("cmd_rollback", "rollback"),
     "logs": ("cmd_logs", "logs <service>"),
     "restart": ("cmd_restart", "restart [service]"),
-    "repair": ("cmd_repair", "repair|fix [voice"),
+    "repair": ("cmd_repair", ("repair|fix [voice]", "repair|fix [voice|hermes-workers]")),
     "start": ("cmd_start", "start [service]"),
     "stop": ("cmd_stop", "stop [service]"),
     "update": ("cmd_update", "update [--force]"),
@@ -92,8 +92,10 @@ def main() -> int:
             text,
             f"{command} is missing implementation function {function_name}",
         )
-        if help_snippet not in text:
-            fail(f"{command} is missing help entry: {help_snippet}")
+        help_snippets = (help_snippet,) if isinstance(help_snippet, str) else help_snippet
+        if not any(snippet in text for snippet in help_snippets):
+            expected = " or ".join(help_snippets)
+            fail(f"{command} is missing help entry: {expected}")
         require(
             dispatch_pattern(command, function_name),
             text,
