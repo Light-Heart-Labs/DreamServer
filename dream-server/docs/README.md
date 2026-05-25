@@ -12,7 +12,7 @@ at [`../../README.md`](../../README.md).
 
 | I want to... | Read this first | Then use |
 |--------------|-----------------|----------|
-| Install the default path | [../QUICKSTART.md](../QUICKSTART.md) | [SUPPORT-MATRIX.md](SUPPORT-MATRIX.md), [POST-INSTALL-CHECKLIST.md](POST-INSTALL-CHECKLIST.md) |
+| Install the default path | [../QUICKSTART.md](../QUICKSTART.md) | [INSTALLER_TRUST.md](INSTALLER_TRUST.md), [SUPPORT-MATRIX.md](SUPPORT-MATRIX.md), [POST-INSTALL-CHECKLIST.md](POST-INSTALL-CHECKLIST.md) |
 | Install on Windows | [WINDOWS-QUICKSTART.md](WINDOWS-QUICKSTART.md) | [WINDOWS-INSTALL-WALKTHROUGH.md](WINDOWS-INSTALL-WALKTHROUGH.md), [WINDOWS-WSL2-GPU-GUIDE.md](WINDOWS-WSL2-GPU-GUIDE.md) |
 | Install on Apple Silicon | [MACOS-QUICKSTART.md](MACOS-QUICKSTART.md) | [MODEL-MANAGEMENT.md](MODEL-MANAGEMENT.md), [TROUBLESHOOTING.md](TROUBLESHOOTING.md) |
 | Debug a broken install | [DREAM-DOCTOR.md](DREAM-DOCTOR.md) | [INSTALL-TROUBLESHOOTING.md](INSTALL-TROUBLESHOOTING.md), [SUPPORT-BUNDLE.md](SUPPORT-BUNDLE.md) |
@@ -52,6 +52,7 @@ at [`../../README.md`](../../README.md).
 | [../../README.md](../../README.md) | Everyone | GitHub landing page and public project overview |
 | [../README.md](../README.md) | Everyone | Product README, quickstart, architecture, and operator overview |
 | [../QUICKSTART.md](../QUICKSTART.md) | Operators | Step-by-step first install |
+| [INSTALLER_TRUST.md](INSTALLER_TRUST.md) | Operators / reviewers | Inspect-first install paths, release ref pinning, and current provenance limits |
 | [HEADLESS-SETUP.md](HEADLESS-SETUP.md) | Operators / hardware builders | Hardware-neutral QR onboarding, first-boot setup, AP mode, mDNS, and local-agent access map |
 | [../EDGE-QUICKSTART.md](../EDGE-QUICKSTART.md) | Operators | Edge devices (planned — do not follow yet; use cloud mode for CPU-only today) |
 | [../.env.example](../.env.example) | Operators | All environment variables with defaults |

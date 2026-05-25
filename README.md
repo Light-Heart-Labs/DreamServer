@@ -43,6 +43,9 @@ Linux and macOS:
 curl -fsSL https://raw.githubusercontent.com/Light-Heart-Labs/DreamServer/main/dream-server/get-dream-server.sh | bash
 ```
 
+Prefer to inspect before running or pin a release tag? See
+[Installer Trust](dream-server/docs/INSTALLER_TRUST.md).
+
 Windows users should use the PowerShell installer shown below or follow the [Windows Quickstart](dream-server/docs/WINDOWS-QUICKSTART.md).
 
 After install, open **http://localhost:3000** and start chatting.
@@ -412,6 +415,7 @@ Other tools get you part of the way. Dream Server gets you the whole way.
 | [Support Matrix](dream-server/docs/SUPPORT-MATRIX.md) | Current platform and GPU support status |
 | [Release Validation](dream-server/docs/RELEASE_VALIDATION.md) | User Green gates and the release-grade fleet/distro validation policy |
 | [Validation Matrix](dream-server/docs/VALIDATION-MATRIX.md) | Sanitized CI, distro lab, and real-hardware fleet release-readiness evidence |
+| [Installer Trust](dream-server/docs/INSTALLER_TRUST.md) | Inspect-first install paths, ref pinning, and current provenance limits |
 | [Model Management](dream-server/docs/MODEL-MANAGEMENT.md) | Dashboard model downloads, switching, and manual GGUF workflows |
 | [Hardware Guide](dream-server/docs/HARDWARE-GUIDE.md) | What to buy, tier recommendations |
 | [FAQ](dream-server/FAQ.md) | Common questions and configuration |
