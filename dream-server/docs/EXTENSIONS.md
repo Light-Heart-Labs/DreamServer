@@ -27,6 +27,12 @@ extensions/services/
 
 **Extension services** have both `manifest.yaml` and `compose.yaml`. The compose fragment is merged into the stack automatically by `resolve-compose-stack.sh`.
 
+The current manifest schema is v1. If you are proposing new manifest semantics
+rather than filling existing fields, read
+[SERVICE_MANIFEST_V2_PLAN.md](SERVICE_MANIFEST_V2_PLAN.md) first. v1 remains
+the supported schema until migration tooling and compatibility policy are in
+place.
+
 ## What You Can Extend
 
 - **Docker services** via `extensions/services/<name>/compose.yaml`
