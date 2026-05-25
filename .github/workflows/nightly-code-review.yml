@@ -187,7 +187,7 @@ jobs:
 
       - name: Upload patch
         if: steps.check-changes.outputs.has_improvements == 'true'
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: code-improvements-patch
           path: /tmp/code-improvements.patch
