@@ -141,6 +141,13 @@ if not selected:
         if min_vram >= 0 and vram_mb < min_vram:
             continue
 
+        # Check max_vram_mb. This lets the database model "too small for
+        # GPU inference" classes explicitly instead of catching them in broad
+        # vendor fallbacks.
+        max_vram = match.get("max_vram_mb", -1)
+        if max_vram >= 0 and vram_mb > max_vram:
+            continue
+
         # Check min_ram_mb (for unified memory classes)
         min_ram = match.get("min_ram_mb", -1)
         if min_ram >= 0 and ram_mb < min_ram:
@@ -186,7 +193,7 @@ if selected:
         backend = rec.get("backend", "cpu")
         tier = rec.get("tier", "T1")
         m_memtype = selected.get("match", {}).get("memory_type", "")
-        memory_source = "ram" if m_memtype == "unified" else "vram"
+        memory_source = "ram" if backend == "cpu" or m_memtype == "unified" else "vram"
 else:
     class_id = "unknown"
     label = "Unknown"

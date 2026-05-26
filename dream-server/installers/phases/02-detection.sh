@@ -156,6 +156,15 @@ else
             ai "Continuing for now; AMD tuning will try to load kernel modules before services start."
         fi
     fi
+
+    if [[ "${GPU_BACKEND_REQUESTED,,}" != "nvidia" \
+        && "${TIER_FORCED:-false}" != "true" \
+        && "${GPU_BACKEND:-}" == "nvidia" \
+        && "${GPU_MEMORY_TYPE:-discrete}" == "discrete" \
+        && "${GPU_VRAM:-0}" -gt 0 \
+        && "${GPU_VRAM:-0}" -lt 4096 ]]; then
+        apply_cpu_gpu_fallback "Detected NVIDIA GPU has only ${GPU_VRAM}MB VRAM; using CPU/Tier 0 fallback to avoid CUDA OOM loops."
+    fi
 fi
 
 BACKEND_ID="$GPU_BACKEND"

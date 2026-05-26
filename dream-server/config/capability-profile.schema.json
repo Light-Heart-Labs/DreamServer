@@ -94,7 +94,7 @@
       "properties": {
         "recommended": {
           "type": "string",
-          "enum": ["T1", "T2", "T3", "T4", "SH_COMPACT", "SH_LARGE"]
+          "enum": ["T0", "T1", "T2", "T3", "T4", "SH_COMPACT", "SH_LARGE", "NV_ULTRA"]
         }
       },
       "additionalProperties": false

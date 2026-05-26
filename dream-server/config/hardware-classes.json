@@ -92,13 +92,29 @@
       }
     },
     {
+      "id": "nvidia_low_vram_cpu_fallback",
+      "label": "NVIDIA Low-VRAM CPU Fallback",
+      "match": {
+        "platform_id": ["linux", "wsl"],
+        "gpu_vendor": ["nvidia"],
+        "memory_type": ["discrete"],
+        "min_vram_mb": 0,
+        "max_vram_mb": 4095
+      },
+      "recommended": {
+        "backend": "cpu",
+        "tier": "T0",
+        "compose_overlays": ["docker-compose.base.yml", "docker-compose.cpu.yml"]
+      }
+    },
+    {
       "id": "nvidia_entry",
       "label": "NVIDIA Entry",
       "match": {
         "platform_id": ["linux", "wsl"],
         "gpu_vendor": ["nvidia"],
         "memory_type": ["discrete"],
-        "min_vram_mb": 0
+        "min_vram_mb": 4096
       },
       "recommended": {
         "backend": "nvidia",

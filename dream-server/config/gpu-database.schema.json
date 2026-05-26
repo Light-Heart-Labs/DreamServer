@@ -110,6 +110,7 @@
             "vendor": { "enum": ["nvidia", "amd", "apple", "intel", "none"] },
             "memory_type": { "enum": ["discrete", "unified", "none"] },
             "min_vram_mb": { "type": "integer", "minimum": 0 },
+            "max_vram_mb": { "type": "integer", "minimum": 0 },
             "min_ram_mb": { "type": "integer", "minimum": 0 }
           }
         },
@@ -125,7 +126,7 @@
         "backend": { "enum": ["nvidia", "amd", "apple", "cpu"] },
         "tier": {
           "type": "string",
-          "pattern": "^(T[1-4]|SH_LARGE|SH_COMPACT|NV_ULTRA)$"
+          "pattern": "^(T[0-4]|SH_LARGE|SH_COMPACT|NV_ULTRA)$"
         }
       }
     },

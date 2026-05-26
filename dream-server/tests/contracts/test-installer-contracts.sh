@@ -269,11 +269,25 @@ grep -q 'data\\\\config\\\\setup-complete.json\|setup-complete.json' installers/
 # --- classify-hardware: shared device_id disambiguation ---
 echo "[contract] classify-hardware shared device_id"
 _classify() {
-  bash scripts/classify-hardware.sh --device-id "$1" --gpu-name "$2" --gpu-vendor "${3:-amd}" --vram-mb "${4:-0}" 2>/dev/null
+  bash scripts/classify-hardware.sh --device-id "$1" --gpu-name "$2" --gpu-vendor "${3:-amd}" --vram-mb "${4:-0}" --memory-type "${5:-discrete}" 2>/dev/null
 }
 _classify_id()   { _classify "$@" | jq -r '.id'; }
 _classify_tier() { _classify "$@" | jq -r '.recommended.tier'; }
+_classify_backend() { _classify "$@" | jq -r '.recommended.backend'; }
 _classify_bw()   { _classify "$@" | jq -r '.bandwidth_gbps'; }
+
+# --- Low-VRAM NVIDIA cards must not be routed to CUDA by default ---
+
+[[ "$(_classify_id "" "NVIDIA GeForce 940MX" nvidia 2048)" == "nvidia_low_vram_cpu_fallback" ]] \
+  || { echo "[FAIL] 2GB NVIDIA must match low-VRAM CPU fallback"; exit 1; }
+[[ "$(_classify_backend "" "NVIDIA GeForce 940MX" nvidia 2048)" == "cpu" ]] \
+  || { echo "[FAIL] 2GB NVIDIA must use CPU backend"; exit 1; }
+[[ "$(_classify_tier "" "NVIDIA GeForce 940MX" nvidia 2048)" == "T0" ]] \
+  || { echo "[FAIL] 2GB NVIDIA must use T0"; exit 1; }
+[[ "$(_classify_id "" "NVIDIA GeForce GTX 1650" nvidia 4096)" == "nvidia_entry" ]] \
+  || { echo "[FAIL] 4GB NVIDIA should remain entry CUDA"; exit 1; }
+[[ "$(_classify_backend "" "NVIDIA GeForce GTX 1650" nvidia 4096)" == "nvidia" ]] \
+  || { echo "[FAIL] 4GB NVIDIA should keep NVIDIA backend"; exit 1; }
 
 # --- 0x744c: XTX / XT / GRE (same die, different SKUs) ---
 

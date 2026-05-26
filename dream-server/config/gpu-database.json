@@ -408,8 +408,13 @@
       "recommended": { "backend": "nvidia", "tier": "T2" }
     },
     {
+      "id": "nvidia_low_vram_cpu_fallback",
+      "match": { "vendor": "nvidia", "memory_type": "discrete", "min_vram_mb": 0, "max_vram_mb": 4095 },
+      "recommended": { "backend": "cpu", "tier": "T0" }
+    },
+    {
       "id": "nvidia_entry",
-      "match": { "vendor": "nvidia", "memory_type": "discrete", "min_vram_mb": 0 },
+      "match": { "vendor": "nvidia", "memory_type": "discrete", "min_vram_mb": 4096 },
       "recommended": { "backend": "nvidia", "tier": "T1" }
     },
     {

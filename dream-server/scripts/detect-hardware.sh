@@ -424,6 +424,7 @@ tier_description() {
         T4)    echo "Ultimate (48GB+): large flagship local profile with long context headroom" ;;
         T3)    echo "Pro (20-47GB): strong local profile with room for larger models" ;;
         T2)    echo "Starter (12-19GB): mid-size local profile for everyday work" ;;
+        T0)    echo "Lightweight (<4GB discrete VRAM): CPU fallback profile for install stability" ;;
         T1)    echo "Mini (<12GB): compact local profile or CPU inference" ;;
         NV_ULTRA)   echo "NVIDIA Ultra (90GB+ unified or discrete): flagship local profile (Grace Blackwell or multi-GPU)" ;;
         SH_LARGE)   echo "Strix Halo 90+: flagship unified-memory local profile" ;;
@@ -453,6 +454,7 @@ tier_model() {
             T4)    echo "gemma-4-31b-it" ;;
             T3)    echo "gemma-4-26b-a4b-it" ;;
             T2)    echo "gemma-4-e4b-it" ;;
+            T0)    echo "qwen3.5-2b" ;;
             T1)    echo "gemma-4-e2b-it" ;;
             NV_ULTRA)   echo "gemma-4-31b-it" ;;
             SH_LARGE)   echo "gemma-4-31b-it" ;;
@@ -468,6 +470,7 @@ tier_model() {
         T4)    echo "qwen3-coder-next" ;;
         T3)    echo "qwen3-30b-a3b" ;;
         T2)    echo "qwen3.5-9b" ;;
+        T0)    echo "qwen3.5-2b" ;;
         T1)    echo "qwen3.5-2b" ;;
         NV_ULTRA)   echo "qwen3-coder-next" ;;
         SH_LARGE)   echo "qwen3-coder-next" ;;
@@ -614,7 +617,9 @@ main() {
     # Determine tier
     # For unified memory AMD APUs, use system RAM — VRAM reports only carve-out, not usable UMA.
     local tier tier_desc recommended_model
-    if [[ "$memory_type" == "unified" && "$gpu_type" == "amd" ]]; then
+    if [[ "$memory_type" == "discrete" && "$gpu_type" == "nvidia" && "$gpu_vram_mb" -gt 0 && "$gpu_vram_mb" -lt 4096 ]]; then
+        tier="T0"
+    elif [[ "$memory_type" == "unified" && "$gpu_type" == "amd" ]]; then
         tier=$(get_strix_halo_tier "$ram")
     elif [[ "$memory_type" == "unified" && "$gpu_type" == "nvidia" ]]; then
         local unified_gb
