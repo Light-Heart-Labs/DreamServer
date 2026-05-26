@@ -111,6 +111,26 @@ function New-DreamEnv {
         }
         return $Default
     }
+    function Get-EnvOrProcessOrDefault { param([string]$Key, [string]$Default)
+        if ($existingEnv.ContainsKey($Key) -and $existingEnv[$Key]) {
+            return $existingEnv[$Key]
+        }
+        $processValue = [Environment]::GetEnvironmentVariable($Key)
+        if (-not [string]::IsNullOrWhiteSpace($processValue)) {
+            return $processValue
+        }
+        return $Default
+    }
+
+    function Normalize-OpenAIBaseUrl {
+        param([string]$Url)
+        if ([string]::IsNullOrWhiteSpace($Url)) { return "" }
+        $trimmed = $Url.TrimEnd("/")
+        if ($trimmed.EndsWith("/v1") -or $trimmed.EndsWith("/api/v1")) {
+            return $trimmed
+        }
+        return "$trimmed/v1"
+    }
 
     function Select-AutoCpuValue {
         param(
@@ -235,6 +255,17 @@ function New-DreamEnv {
     $langfuseInitProjectId     = Get-EnvOrNew "LANGFUSE_INIT_PROJECT_ID"   (New-SecureHex -Bytes 16)
     $langfuseInitUserEmail     = Get-EnvOrNew "LANGFUSE_INIT_USER_EMAIL"   "admin@dreamserver.local"
     $langfuseInitUserPassword  = Get-EnvOrNew "LANGFUSE_INIT_USER_PASSWORD" (New-SecureHex -Bytes 16)
+    $ollamaPort       = Get-EnvOrProcessOrDefault "OLLAMA_PORT" "11434"
+    $webuiPort        = Get-EnvOrProcessOrDefault "WEBUI_PORT" "3000"
+    $whisperPort      = Get-EnvOrProcessOrDefault "WHISPER_PORT" "9000"
+    $ttsPort          = Get-EnvOrProcessOrDefault "TTS_PORT" "8880"
+    $n8nPort          = Get-EnvOrProcessOrDefault "N8N_PORT" "5678"
+    $qdrantPort       = Get-EnvOrProcessOrDefault "QDRANT_PORT" "6333"
+    $qdrantGrpcPort   = Get-EnvOrProcessOrDefault "QDRANT_GRPC_PORT" "6334"
+    $litellmPort      = Get-EnvOrProcessOrDefault "LITELLM_PORT" "4000"
+    $openclawPort     = Get-EnvOrProcessOrDefault "OPENCLAW_PORT" "7860"
+    $searxngPort      = Get-EnvOrProcessOrDefault "SEARXNG_PORT" "8888"
+    $hermesProxyPort  = Get-EnvOrProcessOrDefault "HERMES_PROXY_PORT" "9120"
 
     # Determine LLM backend engine and API URL
     # AMD on Windows: inference server runs natively, containers reach it via host.docker.internal
@@ -258,6 +289,28 @@ function New-DreamEnv {
     } else {
         "http://llama-server:8080"
     })
+    $cloudLlmBaseUrl = ""
+    $cloudLlmApiKey = ""
+    $cloudLlmModel = ""
+    if ($DreamMode -eq "cloud") {
+        $cloudBaseDefault = [Environment]::GetEnvironmentVariable("CLOUD_LLM_BASE_URL")
+        if ([string]::IsNullOrWhiteSpace($cloudBaseDefault)) { $cloudBaseDefault = [Environment]::GetEnvironmentVariable("OPENAI_BASE_URL") }
+        if ([string]::IsNullOrWhiteSpace($cloudBaseDefault)) { $cloudBaseDefault = [Environment]::GetEnvironmentVariable("OPENAI_API_BASE_URL") }
+        if ([string]::IsNullOrWhiteSpace($cloudBaseDefault)) {
+            $candidateLlmUrl = [Environment]::GetEnvironmentVariable("LLM_API_URL")
+            if (-not [string]::IsNullOrWhiteSpace($candidateLlmUrl) -and
+                $candidateLlmUrl -notmatch "^http://(litellm|llama-server)(:|/)") {
+                $cloudBaseDefault = $candidateLlmUrl
+            }
+        }
+        $cloudLlmBaseUrl = Normalize-OpenAIBaseUrl (Get-EnvOrProcessOrDefault "CLOUD_LLM_BASE_URL" $cloudBaseDefault)
+        $cloudKeyDefault = [Environment]::GetEnvironmentVariable("OPENAI_API_KEY")
+        if ([string]::IsNullOrWhiteSpace($cloudKeyDefault)) { $cloudKeyDefault = "" }
+        $cloudLlmApiKey = Get-EnvOrProcessOrDefault "CLOUD_LLM_API_KEY" $cloudKeyDefault
+        if (-not [string]::IsNullOrWhiteSpace($cloudLlmBaseUrl) -and [string]::IsNullOrWhiteSpace($cloudLlmApiKey)) { $cloudLlmApiKey = "sk-local" }
+        $cloudLlmModel = Get-EnvOrProcessOrDefault "CLOUD_LLM_MODEL" "$(if ([Environment]::GetEnvironmentVariable("LLM_MODEL")) { [Environment]::GetEnvironmentVariable("LLM_MODEL") } else { $TierConfig.LlmModel })"
+        if ([string]::IsNullOrWhiteSpace($cloudLlmModel)) { $cloudLlmModel = "qwen3.5-9b" }
+    }
 
     # Timezone -- convert Windows timezone ID to IANA for Docker containers
     $tz = $(try {
@@ -333,6 +386,9 @@ ANTHROPIC_API_KEY=$(Get-EnvOrNew "ANTHROPIC_API_KEY" "")
 OPENAI_API_KEY=$(Get-EnvOrNew "OPENAI_API_KEY" "")
 TOGETHER_API_KEY=$(Get-EnvOrNew "TOGETHER_API_KEY" "")
 MINIMAX_API_KEY=$(Get-EnvOrNew "MINIMAX_API_KEY" "")
+CLOUD_LLM_BASE_URL=$cloudLlmBaseUrl
+CLOUD_LLM_API_KEY=$cloudLlmApiKey
+CLOUD_LLM_MODEL=$cloudLlmModel
 
 #=== LLM Settings (llama-server) ===
 MODEL_PROFILE=$(Get-EnvOrNew "MODEL_PROFILE" "$(if ($TierConfig.ModelProfileRequested) { $TierConfig.ModelProfileRequested } else { "qwen" })")
@@ -384,23 +440,23 @@ COMFYUI_CPU_LIMIT=$comfyuiCpuLimit
 COMFYUI_CPU_RESERVATION=$comfyuiCpuReservation
 
 #=== Ports ===
-OLLAMA_PORT=11434
-WEBUI_PORT=3000
-WHISPER_PORT=9000
-TTS_PORT=8880
-N8N_PORT=5678
-QDRANT_PORT=6333
-QDRANT_GRPC_PORT=6334
+OLLAMA_PORT=$ollamaPort
+WEBUI_PORT=$webuiPort
+WHISPER_PORT=$whisperPort
+TTS_PORT=$ttsPort
+N8N_PORT=$n8nPort
+QDRANT_PORT=$qdrantPort
+QDRANT_GRPC_PORT=$qdrantGrpcPort
 QDRANT_API_KEY=$qdrantApiKey
-LITELLM_PORT=4000
-OPENCLAW_PORT=7860
-SEARXNG_PORT=8888
+LITELLM_PORT=$litellmPort
+OPENCLAW_PORT=$openclawPort
+SEARXNG_PORT=$searxngPort
 
 #=== Hermes Agent ===
-HERMES_LLM_BASE_URL=$llmApiUrl$llmApiBasePath
-HERMES_LLM_API_KEY=sk-dream-hermes-local
+HERMES_LLM_BASE_URL=$(if ($DreamMode -eq "cloud") { "http://litellm:4000/v1" } else { "$llmApiUrl$llmApiBasePath" })
+HERMES_LLM_API_KEY=$(if ($DreamMode -eq "cloud") { $litellmKey } else { "sk-dream-hermes-local" })
 HERMES_LANGUAGE=en
-HERMES_PROXY_PORT=9120
+HERMES_PROXY_PORT=$hermesProxyPort
 HERMES_PROXY_UPSTREAM=dream-hermes:9119
 DREAM_AUTH_UPSTREAM=dream-dashboard-api:3002
 

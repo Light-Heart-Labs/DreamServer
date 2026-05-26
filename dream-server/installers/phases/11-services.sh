@@ -225,7 +225,7 @@ else
         # overlay when count > 1. Without it, the refreshed value (which we cache
         # to .compose-flags below) would persistently drop multi-GPU overlays
         # for the rest of the install AND every subsequent dream-cli invocation.
-        _refreshed_flags=$("$INSTALL_DIR/scripts/resolve-compose-stack.sh" \
+        _refreshed_flags=$(DREAM_MODE="${DREAM_MODE:-local}" "$INSTALL_DIR/scripts/resolve-compose-stack.sh" \
             --script-dir "$INSTALL_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}" \
             --gpu-count "${GPU_COUNT:-1}" --dream-mode "${DREAM_MODE:-local}" 2>/dev/null) || true
         if [[ -n "$_refreshed_flags" ]]; then
@@ -626,10 +626,16 @@ MODELS_INI_EOF
         _python_cmd="$(ds_detect_python_cmd 2>/dev/null || command -v python3 2>/dev/null || command -v python 2>/dev/null || true)"
         _hermes_tpl="$INSTALL_DIR/extensions/services/hermes/cli-config.yaml.template"
         if [[ -f "$_hermes_tpl" ]]; then
-            # Model name: cloud mode uses the routed model id; Lemonade
+            # Model name: cloud mode uses LiteLLM route names; Lemonade
             # prefixes GGUF files with "extra."; llama.cpp uses the file name.
             if [[ "${DREAM_MODE:-local}" == "cloud" ]]; then
-                _hermes_model="${LLM_MODEL:-default}"
+                if [[ -n "${HERMES_LLM_MODEL:-}" ]]; then
+                    _hermes_model="$HERMES_LLM_MODEL"
+                elif [[ -n "${CLOUD_LLM_BASE_URL:-}" ]]; then
+                    _hermes_model="private-cloud"
+                else
+                    _hermes_model="default"
+                fi
             elif _phase11_external_lemonade; then
                 _hermes_model="${LEMONADE_MODEL:-$(_phase11_env_get LEMONADE_MODEL "${LLM_MODEL:-default}")}"
             else

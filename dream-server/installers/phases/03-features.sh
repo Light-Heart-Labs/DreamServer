@@ -196,7 +196,7 @@ if [[ -x "$SCRIPT_DIR/scripts/resolve-compose-stack.sh" ]]; then
     # --gpu-count is load-bearing: the resolver only adds the multigpu-{backend}.yml
     # overlay when count > 1. Omitting it here would silently drop multi-GPU
     # plumbing on installs that already detected GPU_COUNT >= 2 in Phase 02.
-    _refreshed_flags=$("$SCRIPT_DIR/scripts/resolve-compose-stack.sh" \
+    _refreshed_flags=$(DREAM_MODE="${DREAM_MODE:-local}" "$SCRIPT_DIR/scripts/resolve-compose-stack.sh" \
         --script-dir "$SCRIPT_DIR" --tier "${TIER:-1}" --gpu-backend "${GPU_BACKEND:-nvidia}" \
         --gpu-count "${GPU_COUNT:-1}" --dream-mode "${DREAM_MODE:-local}" 2>/dev/null) || true
     if [[ -n "$_refreshed_flags" ]]; then

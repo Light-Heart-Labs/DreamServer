@@ -21,6 +21,9 @@ chapter "REQUIREMENTS CHECK"
 
 [[ -f "${SCRIPT_DIR:-}/lib/safe-env.sh" ]] && . "${SCRIPT_DIR}/lib/safe-env.sh"
 [[ -f "$SCRIPT_DIR/lib/service-registry.sh" ]] && . "$SCRIPT_DIR/lib/service-registry.sh"
+[[ -n "${INSTALL_DIR:-}" && -f "$INSTALL_DIR/.env" ]] && load_env_file "$INSTALL_DIR/.env"
+sr_load || true
+sr_resolve_ports || true
 
 REQUIREMENTS_MET=true
 TIER_RANK="$(tier_rank "$TIER")"
@@ -243,11 +246,35 @@ if $OLLAMA_RUNNING; then
 fi
 
 # Port conflict detection with detailed process information
-PORTS_TO_CHECK="${SERVICE_PORTS[llama-server]:-8080} ${SERVICE_PORTS[open-webui]:-3000}"
-[[ "$ENABLE_VOICE" == "true" ]] && PORTS_TO_CHECK="$PORTS_TO_CHECK ${SERVICE_PORTS[whisper]:-9000} ${SERVICE_PORTS[tts]:-8880}"
-[[ "$ENABLE_WORKFLOWS" == "true" ]] && PORTS_TO_CHECK="$PORTS_TO_CHECK ${SERVICE_PORTS[n8n]:-5678}"
-[[ "$ENABLE_RAG" == "true" ]] && PORTS_TO_CHECK="$PORTS_TO_CHECK ${SERVICE_PORTS[qdrant]:-6333}"
-[[ "$ENABLE_COMFYUI" == "true" ]] && PORTS_TO_CHECK="$PORTS_TO_CHECK ${SERVICE_PORTS[comfyui]:-8188}"
+PORTS_TO_CHECK=""
+_add_port_check() {
+    local sid="$1" fallback="$2" port
+    port="${SERVICE_PORTS[$sid]:-$fallback}"
+    [[ "$port" =~ ^[0-9]+$ && "$port" -gt 0 ]] || return 0
+    case " $PORTS_TO_CHECK " in
+        *" $port "*) ;;
+        *) PORTS_TO_CHECK="$PORTS_TO_CHECK $port" ;;
+    esac
+}
+
+[[ "${DREAM_MODE:-local}" == "cloud" ]] || _add_port_check llama-server 8080
+_add_port_check open-webui 3000
+_add_port_check dashboard 3001
+_add_port_check dashboard-api 3002
+[[ "${DREAM_MODE:-local}" == "cloud" || "$ENABLE_RECOMMENDED" == "true" ]] && _add_port_check litellm 4000
+[[ "$ENABLE_RECOMMENDED" == "true" ]] && _add_port_check searxng 8888
+[[ "$ENABLE_RECOMMENDED" == "true" ]] && _add_port_check token-spy 3005
+[[ "$ENABLE_VOICE" == "true" ]] && _add_port_check whisper 9000
+[[ "$ENABLE_VOICE" == "true" ]] && _add_port_check tts 8880
+[[ "$ENABLE_WORKFLOWS" == "true" ]] && _add_port_check n8n 5678
+[[ "$ENABLE_RAG" == "true" ]] && _add_port_check qdrant 6333
+[[ "$ENABLE_RAG" == "true" ]] && _add_port_check embeddings 8090
+[[ "$ENABLE_HERMES" == "true" ]] && _add_port_check hermes-proxy 9120
+[[ "$ENABLE_OPENCLAW" == "true" ]] && _add_port_check openclaw 7860
+[[ "$ENABLE_HERMES" == "true" || "$ENABLE_OPENCLAW" == "true" ]] && _add_port_check ape 7890
+[[ "$ENABLE_COMFYUI" == "true" ]] && _add_port_check comfyui 8188
+[[ "$ENABLE_PERPLEXICA" == "true" ]] && _add_port_check perplexica 3004
+[[ "$ENABLE_PRIVACY_SHIELD" == "true" ]] && _add_port_check privacy-shield 8085
 
 for port in $PORTS_TO_CHECK; do
     if check_port_conflict "$port"; then

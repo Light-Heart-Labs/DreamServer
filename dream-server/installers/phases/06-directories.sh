@@ -268,6 +268,16 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
         echo "$default"
     }
 
+    _normalize_openai_base_url() {
+        local url="${1:-}"
+        url="${url%/}"
+        [[ -z "$url" ]] && return 0
+        case "$url" in
+            */v1|*/api/v1) printf '%s\n' "$url" ;;
+            *) printf '%s/v1\n' "$url" ;;
+        esac
+    }
+
     # Secrets: reuse existing values, generate only if missing
     WEBUI_SECRET=$(_env_get WEBUI_SECRET "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
     N8N_PASS=$(_env_get N8N_PASS "$(openssl rand -base64 16 2>/dev/null || head -c 16 /dev/urandom | base64)")
@@ -497,6 +507,37 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
     OPENAI_API_KEY=$(_env_get OPENAI_API_KEY "${OPENAI_API_KEY:-}")
     TOGETHER_API_KEY=$(_env_get TOGETHER_API_KEY "${TOGETHER_API_KEY:-}")
     MINIMAX_API_KEY=$(_env_get MINIMAX_API_KEY "${MINIMAX_API_KEY:-}")
+    CLOUD_LLM_BASE_URL_VALUE=$(_env_get CLOUD_LLM_BASE_URL "${CLOUD_LLM_BASE_URL:-${OPENAI_BASE_URL:-${OPENAI_API_BASE_URL:-}}}")
+    if [[ -z "$CLOUD_LLM_BASE_URL_VALUE" && "${DREAM_MODE:-local}" == "cloud" ]]; then
+        _candidate_llm_url="${LLM_API_URL:-}"
+        if [[ -z "$_candidate_llm_url" && -n "$_env_existing" ]]; then
+            _candidate_llm_url=$(_env_get LLM_API_URL "")
+        fi
+        case "$_candidate_llm_url" in
+            http://litellm:*|http://litellm/*|http://llama-server:*|http://llama-server/*|"") ;;
+            *) CLOUD_LLM_BASE_URL_VALUE="$_candidate_llm_url" ;;
+        esac
+    fi
+    CLOUD_LLM_BASE_URL_VALUE="$(_normalize_openai_base_url "${CLOUD_LLM_BASE_URL_VALUE:-}")"
+    CLOUD_LLM_API_KEY_VALUE=$(_env_get CLOUD_LLM_API_KEY "${CLOUD_LLM_API_KEY:-${OPENAI_API_KEY:-}}")
+    if [[ -n "$CLOUD_LLM_BASE_URL_VALUE" && -z "$CLOUD_LLM_API_KEY_VALUE" ]]; then
+        CLOUD_LLM_API_KEY_VALUE="sk-local"
+    fi
+    CLOUD_LLM_MODEL_VALUE=$(_env_get CLOUD_LLM_MODEL "${CLOUD_LLM_MODEL:-${LLM_MODEL:-qwen3.5-9b}}")
+    [[ -z "$CLOUD_LLM_MODEL_VALUE" ]] && CLOUD_LLM_MODEL_VALUE="qwen3.5-9b"
+    OLLAMA_PORT_VALUE=$(_env_get OLLAMA_PORT "${OLLAMA_PORT:-11434}")
+    WEBUI_PORT_VALUE=$(_env_get WEBUI_PORT "${WEBUI_PORT:-3000}")
+    SEARXNG_PORT_VALUE=$(_env_get SEARXNG_PORT "${SEARXNG_PORT:-8888}")
+    PERPLEXICA_PORT_VALUE=$(_env_get PERPLEXICA_PORT "${PERPLEXICA_PORT:-3004}")
+    WHISPER_PORT_VALUE=$(_env_get WHISPER_PORT "${WHISPER_PORT:-9000}")
+    TTS_PORT_VALUE=$(_env_get TTS_PORT "${TTS_PORT:-8880}")
+    N8N_PORT_VALUE=$(_env_get N8N_PORT "${N8N_PORT:-5678}")
+    QDRANT_PORT_VALUE=$(_env_get QDRANT_PORT "${QDRANT_PORT:-6333}")
+    QDRANT_GRPC_PORT_VALUE=$(_env_get QDRANT_GRPC_PORT "${QDRANT_GRPC_PORT:-6334}")
+    EMBEDDINGS_PORT_VALUE=$(_env_get EMBEDDINGS_PORT "${EMBEDDINGS_PORT:-8090}")
+    LITELLM_PORT_VALUE=$(_env_get LITELLM_PORT "${LITELLM_PORT:-4000}")
+    OPENCLAW_PORT_VALUE=$(_env_get OPENCLAW_PORT "${OPENCLAW_PORT:-7860}")
+    HERMES_PROXY_PORT_VALUE=$(_env_get HERMES_PROXY_PORT "${HERMES_PROXY_PORT:-9120}")
     # Base64-encode GPU assignment JSON for safe .env storage
     if [[ -n "${GPU_ASSIGNMENT_JSON:-}" && "${GPU_ASSIGNMENT_JSON:-}" != "{}" ]]; then
         GPU_ASSIGNMENT_JSON_B64=$(echo "$GPU_ASSIGNMENT_JSON" | jq -c '.' | base64 -w0)
@@ -552,6 +593,9 @@ ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
 OPENAI_API_KEY=${OPENAI_API_KEY:-}
 TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
 MINIMAX_API_KEY=${MINIMAX_API_KEY:-}
+CLOUD_LLM_BASE_URL=${CLOUD_LLM_BASE_URL_VALUE}
+CLOUD_LLM_API_KEY=${CLOUD_LLM_API_KEY_VALUE}
+CLOUD_LLM_MODEL=${CLOUD_LLM_MODEL_VALUE}
 
 #=== Service Auth (LiteLLM proxy) ===
 TARGET_API_KEY=not-needed
@@ -666,18 +710,18 @@ INTEL_ENV
 fi)
 
 #=== Ports ===
-OLLAMA_PORT=11434
-WEBUI_PORT=3000
-SEARXNG_PORT=8888
-PERPLEXICA_PORT=3004
-WHISPER_PORT=${WHISPER_PORT:-9000}
-TTS_PORT=8880
-N8N_PORT=5678
-QDRANT_PORT=6333
-QDRANT_GRPC_PORT=6334
-EMBEDDINGS_PORT=8090
-LITELLM_PORT=4000
-OPENCLAW_PORT=7860
+OLLAMA_PORT=${OLLAMA_PORT_VALUE}
+WEBUI_PORT=${WEBUI_PORT_VALUE}
+SEARXNG_PORT=${SEARXNG_PORT_VALUE}
+PERPLEXICA_PORT=${PERPLEXICA_PORT_VALUE}
+WHISPER_PORT=${WHISPER_PORT_VALUE}
+TTS_PORT=${TTS_PORT_VALUE}
+N8N_PORT=${N8N_PORT_VALUE}
+QDRANT_PORT=${QDRANT_PORT_VALUE}
+QDRANT_GRPC_PORT=${QDRANT_GRPC_PORT_VALUE}
+EMBEDDINGS_PORT=${EMBEDDINGS_PORT_VALUE}
+LITELLM_PORT=${LITELLM_PORT_VALUE}
+OPENCLAW_PORT=${OPENCLAW_PORT_VALUE}
 LANGFUSE_PORT=${LANGFUSE_PORT}
 
 #=== Hermes Agent ===
@@ -691,7 +735,7 @@ LANGFUSE_PORT=${LANGFUSE_PORT}
 HERMES_LLM_BASE_URL=${HERMES_LLM_BASE_URL_VALUE}
 HERMES_LLM_API_KEY=${HERMES_LLM_API_KEY_VALUE}
 HERMES_LANGUAGE=${HERMES_LANGUAGE:-en}
-HERMES_PROXY_PORT=${HERMES_PROXY_PORT:-9120}
+HERMES_PROXY_PORT=${HERMES_PROXY_PORT_VALUE}
 HERMES_PROXY_UPSTREAM=${HERMES_PROXY_UPSTREAM:-dream-hermes:9119}
 DREAM_AUTH_UPSTREAM=${DREAM_AUTH_UPSTREAM:-dream-dashboard-api:3002}
 

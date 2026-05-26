@@ -163,6 +163,54 @@ fi
 source "${SOURCE_ROOT}/installers/lib/readiness-summary.sh"
 
 # ── File-local helpers ──
+normalize_openai_base_url() {
+    local url="${1:-}"
+    url="${url%/}"
+    [[ -z "$url" ]] && return 0
+    case "$url" in
+        */v1|*/api/v1) printf '%s\n' "$url" ;;
+        *) printf '%s/v1\n' "$url" ;;
+    esac
+}
+
+if [[ "${CLOUD_MODE:-false}" == "true" ]]; then
+    CLOUD_LLM_BASE_URL="${CLOUD_LLM_BASE_URL:-${OPENAI_BASE_URL:-${OPENAI_API_BASE_URL:-}}}"
+    if [[ -z "$CLOUD_LLM_BASE_URL" && -n "${LLM_API_URL:-}" ]]; then
+        case "$LLM_API_URL" in
+            http://litellm:*|http://litellm/*|http://llama-server:*|http://llama-server/*) ;;
+            *) CLOUD_LLM_BASE_URL="$LLM_API_URL" ;;
+        esac
+    fi
+    CLOUD_LLM_BASE_URL="$(normalize_openai_base_url "${CLOUD_LLM_BASE_URL:-}")"
+    CLOUD_LLM_MODEL="${CLOUD_LLM_MODEL:-${LLM_MODEL:-qwen3.5-9b}}"
+    CLOUD_LLM_API_KEY="${CLOUD_LLM_API_KEY:-${OPENAI_API_KEY:-}}"
+    if [[ -n "$CLOUD_LLM_BASE_URL" && -z "$CLOUD_LLM_API_KEY" ]]; then
+        CLOUD_LLM_API_KEY="sk-local"
+    fi
+
+    if [[ "${NON_INTERACTIVE:-false}" != "true" && "${DRY_RUN:-false}" != "true" ]]; then
+        echo ""
+        echo -e "${BGRN}Cloud / private-cloud LLM upstream${NC}"
+        echo -e "  ${DIM}Optional. Leave blank for hosted cloud providers; set this for LM Studio on the host/LAN.${NC}"
+        _cloud_base_prompt="${CLOUD_LLM_BASE_URL:-none}"
+        read -r -p "  OpenAI-compatible base URL [${_cloud_base_prompt}]: " _cloud_base < /dev/tty
+        [[ -n "$_cloud_base" ]] && CLOUD_LLM_BASE_URL="$(normalize_openai_base_url "$_cloud_base")"
+        if [[ -n "$CLOUD_LLM_BASE_URL" ]]; then
+            read -r -p "  Private-cloud model id [${CLOUD_LLM_MODEL}]: " _cloud_model < /dev/tty
+            [[ -n "$_cloud_model" ]] && CLOUD_LLM_MODEL="$_cloud_model"
+            _cloud_key_prompt="not set"
+            [[ -n "$CLOUD_LLM_API_KEY" ]] && _cloud_key_prompt="set, press Enter to keep"
+            read -r -s -p "  Private-cloud API key [${_cloud_key_prompt}]: " _cloud_key < /dev/tty
+            echo
+            [[ -n "$_cloud_key" ]] && CLOUD_LLM_API_KEY="$_cloud_key"
+            [[ -z "$CLOUD_LLM_API_KEY" ]] && CLOUD_LLM_API_KEY="sk-local"
+        fi
+        unset _cloud_base _cloud_model _cloud_key _cloud_key_prompt _cloud_base_prompt
+    fi
+
+    export CLOUD_LLM_BASE_URL CLOUD_LLM_MODEL CLOUD_LLM_API_KEY
+fi
+
 _close_inherited_fds_for_daemon() {
     local fd fd_dir fd_name
 
@@ -1061,39 +1109,51 @@ else
     # This must run for all local macOS installs, not only bootstrap mode:
     # Tier 0, offline/no-bootstrap, and already-downloaded full models need
     # the same host.docker.internal base_url.
-    if ! $CLOUD_MODE; then
+    if $ENABLE_HERMES; then
         _hermes_tpl="${INSTALL_DIR}/extensions/services/hermes/cli-config.yaml.template"
         if [[ -f "$_hermes_tpl" ]]; then
-            _hermes_base_url="http://host.docker.internal:${OLLAMA_PORT:-8080}/v1"
+            if $CLOUD_MODE; then
+                _hermes_base_url="${HERMES_LLM_BASE_URL:-http://litellm:4000/v1}"
+                if [[ -n "${HERMES_LLM_MODEL:-}" ]]; then
+                    _hermes_model="$HERMES_LLM_MODEL"
+                elif [[ -n "${CLOUD_LLM_BASE_URL:-}" ]]; then
+                    _hermes_model="private-cloud"
+                else
+                    _hermes_model="default"
+                fi
+                _hermes_api_key="${HERMES_LLM_API_KEY:-${LITELLM_KEY:-}}"
+            else
+                _hermes_base_url="http://host.docker.internal:${OLLAMA_PORT:-8080}/v1"
+                _hermes_model="$GGUF_FILE"
+                _hermes_api_key=""
+            fi
             _hermes_patcher="${INSTALL_DIR}/scripts/patch-hermes-config.py"
             if [[ -f "$_hermes_patcher" ]]; then
-                python3 "$_hermes_patcher" "$_hermes_tpl" \
-                    --model "$GGUF_FILE" \
-                    --base-url "$_hermes_base_url" \
-                    --context-length "$MAX_CONTEXT" >>"$DS_LOG_FILE" 2>&1 || \
+                _hermes_args=("$_hermes_tpl" --model "$_hermes_model" --base-url "$_hermes_base_url" --context-length "$MAX_CONTEXT")
+                [[ -n "$_hermes_api_key" ]] && _hermes_args+=(--api-key "$_hermes_api_key")
+                python3 "$_hermes_patcher" "${_hermes_args[@]}" >>"$DS_LOG_FILE" 2>&1 || \
                     ai_warn "Hermes template patch failed — hand-edit ${_hermes_tpl} if prompts hang."
                 _hermes_live="${INSTALL_DIR}/data/hermes/config.yaml"
                 if [[ -f "$_hermes_live" ]]; then
-                    python3 "$_hermes_patcher" "$_hermes_live" \
-                        --model "$GGUF_FILE" \
-                        --base-url "$_hermes_base_url" \
-                        --context-length "$MAX_CONTEXT" >>"$DS_LOG_FILE" 2>&1 || \
+                    _hermes_live_args=("$_hermes_live" --model "$_hermes_model" --base-url "$_hermes_base_url" --context-length "$MAX_CONTEXT")
+                    [[ -n "$_hermes_api_key" ]] && _hermes_live_args+=(--api-key "$_hermes_api_key")
+                    python3 "$_hermes_patcher" "${_hermes_live_args[@]}" >>"$DS_LOG_FILE" 2>&1 || \
                         ai_warn "Hermes live config patch failed — hand-edit ${_hermes_live} and restart Hermes if prompts hang."
                 fi
             else
                 sed -i '' \
-                    -e "s|^  default: \"qwen3.5-9b\"|  default: \"${GGUF_FILE}\"|" \
-                    -e "s|^  base_url: \"http://llama-server:8080/v1\"|  base_url: \"${_hermes_base_url}\"|" \
+                    -e "s|^  default: \"qwen3.5-9b\"|  default: \"${_hermes_model}\"|" \
+                    -e "s|^  base_url: \".*\"|  base_url: \"${_hermes_base_url}\"|" \
                     -e "s|^  context_length: .*|  context_length: ${MAX_CONTEXT}|" \
                     -e "s|^    context_length: .*|    context_length: ${MAX_CONTEXT}|" \
                     "$_hermes_tpl"
             fi
-            if grep -q "host.docker.internal" "$_hermes_tpl" && \
-               grep -q "^  default: \"${GGUF_FILE}\"$" "$_hermes_tpl" && \
+            if grep -q "^  base_url: \"${_hermes_base_url}\"$" "$_hermes_tpl" && \
+               grep -q "^  default: \"${_hermes_model}\"$" "$_hermes_tpl" && \
                grep -q "^  context_length: ${MAX_CONTEXT}$" "$_hermes_tpl"; then
-                ai_ok "Patched Hermes config for macOS (model=${GGUF_FILE}, context=${MAX_CONTEXT}, base_url=host.docker.internal)"
+                ai_ok "Patched Hermes config for macOS (model=${_hermes_model}, context=${MAX_CONTEXT}, base_url=${_hermes_base_url})"
             else
-                ai_warn "Hermes template patch incomplete — Hermes may fail to reach llama-server. Hand-edit ${_hermes_tpl} if prompts hang."
+                ai_warn "Hermes template patch incomplete — Hermes may fail to reach its configured LLM endpoint. Hand-edit ${_hermes_tpl} if prompts hang."
             fi
 
             # Render data/persona/SOUL.md = static persona + dynamic install

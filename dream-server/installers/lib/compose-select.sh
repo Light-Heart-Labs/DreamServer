@@ -46,8 +46,11 @@ resolve_compose_config() {
                 COMPOSE_FLAGS="-f docker-compose.base.yml -f docker-compose.nvidia.yml"
                 COMPOSE_FILE="docker-compose.nvidia.yml"
             fi
-        elif [[ "$TIER" == "CLOUD" ]]; then
-            if [[ -f "$SCRIPT_DIR/docker-compose.base.yml" ]]; then
+        elif [[ "${DREAM_MODE:-local}" == "cloud" || "$TIER" == "CLOUD" ]]; then
+            if [[ -f "$SCRIPT_DIR/docker-compose.base.yml" && -f "$SCRIPT_DIR/docker-compose.cloud.yml" ]]; then
+                COMPOSE_FLAGS="-f docker-compose.base.yml -f docker-compose.cloud.yml"
+                COMPOSE_FILE="docker-compose.cloud.yml"
+            elif [[ -f "$SCRIPT_DIR/docker-compose.base.yml" ]]; then
                 COMPOSE_FLAGS="-f docker-compose.base.yml"
                 COMPOSE_FILE="docker-compose.base.yml"
             fi
@@ -86,11 +89,12 @@ resolve_compose_config() {
     fi
 
     if [[ -x "$SCRIPT_DIR/scripts/resolve-compose-stack.sh" ]]; then
-        COMPOSE_ENV="$("$SCRIPT_DIR/scripts/resolve-compose-stack.sh" \
+        COMPOSE_ENV="$(DREAM_MODE="${DREAM_MODE:-local}" "$SCRIPT_DIR/scripts/resolve-compose-stack.sh" \
             --script-dir "$SCRIPT_DIR" \
             --tier "$TIER" \
             --gpu-backend "$GPU_BACKEND" \
             --profile-overlays "${CAP_COMPOSE_OVERLAYS:-}" \
+            --dream-mode "${DREAM_MODE:-local}" \
             --gpu-count "${GPU_COUNT:-1}" \
             --dream-mode "${DREAM_MODE:-local}" \
             --env 2>>"$LOG_FILE")"

@@ -39,6 +39,31 @@ read_env_value() {
     grep -E "^${key}=" "$env_path" 2>/dev/null | sed -n '1p' | cut -d'=' -f2- | tr -d '\r' || true
 }
 
+read_env_or_process_default() {
+    local env_path="$1"
+    local key="$2"
+    local default="$3"
+    local existing
+    existing="$(read_env_value "$env_path" "$key")"
+    if [[ -n "$existing" ]]; then
+        echo "$existing"
+    elif [[ -n "${!key:-}" ]]; then
+        echo "${!key}"
+    else
+        echo "$default"
+    fi
+}
+
+normalize_openai_base_url() {
+    local url="${1:-}"
+    url="${url%/}"
+    [[ -z "$url" ]] && return 0
+    case "$url" in
+        */v1|*/api/v1) printf '%s\n' "$url" ;;
+        *) printf '%s/v1\n' "$url" ;;
+    esac
+}
+
 # Read SearXNG secret_key from an existing settings.yml file.
 # Arguments:
 #   1) settings_path: full path to settings.yml
@@ -322,8 +347,49 @@ generate_dream_env() {
     langfuse_init_project_id=$(new_secure_hex 16)
     local langfuse_init_user_password
     langfuse_init_user_password=$(new_secure_hex 16)
-    # macOS: llama-server runs natively, containers reach it via host.docker.internal
+    local dream_mode="local"
     local llm_api_url="http://host.docker.internal:8080"
+    local hermes_llm_base_url="http://host.docker.internal:8080/v1"
+    local hermes_llm_api_key="sk-dream-hermes-local"
+    local cloud_llm_base_url=""
+    local cloud_llm_api_key=""
+    local cloud_llm_model=""
+    if [[ "${CLOUD_MODE:-false}" == "true" ]]; then
+        dream_mode="cloud"
+        llm_api_url="http://litellm:4000"
+        cloud_llm_base_url="$(read_env_or_process_default "$env_path" "CLOUD_LLM_BASE_URL" "${CLOUD_LLM_BASE_URL:-${OPENAI_BASE_URL:-${OPENAI_API_BASE_URL:-}}}")"
+        if [[ -z "$cloud_llm_base_url" && -n "${LLM_API_URL:-}" ]]; then
+            case "$LLM_API_URL" in
+                http://litellm:*|http://litellm/*|http://llama-server:*|http://llama-server/*) ;;
+                *) cloud_llm_base_url="$LLM_API_URL" ;;
+            esac
+        fi
+        cloud_llm_base_url="$(normalize_openai_base_url "${cloud_llm_base_url:-}")"
+        cloud_llm_api_key="$(read_env_or_process_default "$env_path" "CLOUD_LLM_API_KEY" "${CLOUD_LLM_API_KEY:-${OPENAI_API_KEY:-}}")"
+        if [[ -n "$cloud_llm_base_url" && -z "$cloud_llm_api_key" ]]; then
+            cloud_llm_api_key="sk-local"
+        fi
+        cloud_llm_model="$(read_env_or_process_default "$env_path" "CLOUD_LLM_MODEL" "${CLOUD_LLM_MODEL:-${LLM_MODEL:-qwen3.5-9b}}")"
+        [[ -z "$cloud_llm_model" ]] && cloud_llm_model="qwen3.5-9b"
+        hermes_llm_base_url="${HERMES_LLM_BASE_URL:-http://litellm:4000/v1}"
+        hermes_llm_api_key="${HERMES_LLM_API_KEY:-$litellm_key}"
+    fi
+    local ollama_port webui_port searxng_port perplexica_port whisper_port tts_port n8n_port
+    local qdrant_port qdrant_grpc_port embeddings_port litellm_port openclaw_port langfuse_port hermes_proxy_port
+    ollama_port="$(read_env_or_process_default "$env_path" "OLLAMA_PORT" "8080")"
+    webui_port="$(read_env_or_process_default "$env_path" "WEBUI_PORT" "3000")"
+    searxng_port="$(read_env_or_process_default "$env_path" "SEARXNG_PORT" "8888")"
+    perplexica_port="$(read_env_or_process_default "$env_path" "PERPLEXICA_PORT" "3004")"
+    whisper_port="$(read_env_or_process_default "$env_path" "WHISPER_PORT" "9000")"
+    tts_port="$(read_env_or_process_default "$env_path" "TTS_PORT" "8880")"
+    n8n_port="$(read_env_or_process_default "$env_path" "N8N_PORT" "5678")"
+    qdrant_port="$(read_env_or_process_default "$env_path" "QDRANT_PORT" "6333")"
+    qdrant_grpc_port="$(read_env_or_process_default "$env_path" "QDRANT_GRPC_PORT" "6334")"
+    embeddings_port="$(read_env_or_process_default "$env_path" "EMBEDDINGS_PORT" "8090")"
+    litellm_port="$(read_env_or_process_default "$env_path" "LITELLM_PORT" "4000")"
+    openclaw_port="$(read_env_or_process_default "$env_path" "OPENCLAW_PORT" "7860")"
+    langfuse_port="$(read_env_or_process_default "$env_path" "LANGFUSE_PORT" "3006")"
+    hermes_proxy_port="$(read_env_or_process_default "$env_path" "HERMES_PROXY_PORT" "9120")"
 
     # Host LAN IP — only populated when the operator has pre-set
     # BIND_ADDRESS=0.0.0.0 in the environment (macOS has no --lan flag).
@@ -358,7 +424,7 @@ DREAM_DEVICE_NAME=${device_name}
 DREAM_AGENT_HOST=${DREAM_AGENT_HOST:-host.docker.internal}
 
 #=== LLM Backend Mode ===
-DREAM_MODE=local
+DREAM_MODE=${dream_mode}
 LLM_API_URL=${llm_api_url}
 
 #=== Cloud API Keys ===
@@ -366,6 +432,9 @@ ANTHROPIC_API_KEY=
 OPENAI_API_KEY=
 TOGETHER_API_KEY=
 MINIMAX_API_KEY=
+CLOUD_LLM_BASE_URL=${cloud_llm_base_url}
+CLOUD_LLM_API_KEY=${cloud_llm_api_key}
+CLOUD_LLM_MODEL=${cloud_llm_model}
 
 #=== LLM Settings (llama-server -- native Metal) ===
 MODEL_PROFILE=${MODEL_PROFILE_REQUESTED:-${MODEL_PROFILE:-qwen}}
@@ -409,26 +478,27 @@ COMFYUI_CPU_LIMIT=${comfyui_cpu_limit}
 COMFYUI_CPU_RESERVATION=${comfyui_cpu_reservation}
 
 #=== Ports ===
-OLLAMA_PORT=8080
-WEBUI_PORT=3000
-SEARXNG_PORT=8888
-PERPLEXICA_PORT=3004
-WHISPER_PORT=${WHISPER_PORT:-9000}
-TTS_PORT=8880
-N8N_PORT=5678
-QDRANT_PORT=6333
-QDRANT_GRPC_PORT=6334
-EMBEDDINGS_PORT=8090
-LITELLM_PORT=4000
-OPENCLAW_PORT=7860
-LANGFUSE_PORT=3006
+OLLAMA_PORT=${ollama_port}
+WEBUI_PORT=${webui_port}
+SEARXNG_PORT=${searxng_port}
+PERPLEXICA_PORT=${perplexica_port}
+WHISPER_PORT=${whisper_port}
+TTS_PORT=${tts_port}
+N8N_PORT=${n8n_port}
+QDRANT_PORT=${qdrant_port}
+QDRANT_GRPC_PORT=${qdrant_grpc_port}
+EMBEDDINGS_PORT=${embeddings_port}
+LITELLM_PORT=${litellm_port}
+OPENCLAW_PORT=${openclaw_port}
+LANGFUSE_PORT=${langfuse_port}
 
 #=== Hermes Agent ===
-# macOS runs llama-server natively with Metal; containers reach it via host.docker.internal.
-HERMES_LLM_BASE_URL=http://host.docker.internal:8080/v1
-HERMES_LLM_API_KEY=sk-dream-hermes-local
+# macOS local mode reaches native Metal llama-server via host.docker.internal;
+# cloud mode routes through LiteLLM and never starts local inference.
+HERMES_LLM_BASE_URL=${hermes_llm_base_url}
+HERMES_LLM_API_KEY=${hermes_llm_api_key}
 HERMES_LANGUAGE=en
-HERMES_PROXY_PORT=9120
+HERMES_PROXY_PORT=${hermes_proxy_port}
 HERMES_PROXY_UPSTREAM=dream-hermes:9119
 DREAM_AUTH_UPSTREAM=dream-dashboard-api:3002
 

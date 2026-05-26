@@ -61,6 +61,7 @@ AGENT_API_KEY: str = ""
 GPU_BACKEND: str = "nvidia"
 TIER: str = "1"
 GPU_COUNT: str = "1"
+DREAM_MODE: str = "local"
 CORE_SERVICE_IDS: set = set()
 # Always-on services defined in docker-compose.base.yml — never stoppable via API.
 # Distinct from CORE_SERVICE_IDS (which is the allowlist of known service IDs).
@@ -213,7 +214,8 @@ def resolve_compose_flags() -> list:
     # the host agent would resolve a single-GPU stack on multi-GPU hosts.
     result = subprocess.run(
         ["bash", _to_bash_path(script), "--script-dir", _to_bash_path(INSTALL_DIR),
-         "--tier", TIER, "--gpu-backend", GPU_BACKEND, "--gpu-count", GPU_COUNT],
+         "--tier", TIER, "--gpu-backend", GPU_BACKEND,
+         "--dream-mode", DREAM_MODE, "--gpu-count", GPU_COUNT],
         capture_output=True, text=True, check=True,
         cwd=str(INSTALL_DIR), timeout=30,
     )
@@ -4239,7 +4241,7 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 
 
 def main():
-    global INSTALL_DIR, DATA_DIR, AGENT_API_KEY, GPU_BACKEND, TIER, GPU_COUNT, CORE_SERVICE_IDS
+    global INSTALL_DIR, DATA_DIR, AGENT_API_KEY, GPU_BACKEND, TIER, GPU_COUNT, DREAM_MODE, CORE_SERVICE_IDS
     global USER_EXTENSIONS_DIR, EXTENSIONS_DIR, DREAM_VERSION
 
     parser = argparse.ArgumentParser(description="DreamServer Host Agent")
@@ -4277,6 +4279,7 @@ def main():
     GPU_BACKEND = env.get("GPU_BACKEND", "nvidia")
     TIER = env.get("TIER", "1")
     GPU_COUNT = env.get("GPU_COUNT", "1")
+    DREAM_MODE = env.get("DREAM_MODE", "local")
 
     DATA_DIR = Path(env.get("DREAM_DATA_DIR", str(INSTALL_DIR / "data")))
     USER_EXTENSIONS_DIR = Path(env.get(
