@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.5.2] - 2026-05-26
+
+### Fixed
+- Dashboard nginx now re-resolves the `dashboard-api` service through Docker
+  DNS at request time so lifecycle recreation cannot leave `/api/*` and Dream
+  Talk routes pinned to a stale container IP.
+- Discrete NVIDIA GPUs with less than 4GB VRAM now route to the CPU/Tier 0
+  fallback by default instead of entering a green install with a crash-looping
+  CUDA `llama-server`.
+
+### Validation
+- Fleet test run on 2026-05-26 at commit `c1df395` passed User Green: true
+  fresh install, product, full-model capabilities, lifecycle, and UI validation
+  across tower2, Strix Halo, Spark, and M5 MacBook Pro.
+- Full-model capability probes passed on all 4 enabled hosts, including chat,
+  search, files, code, 76 Hermes skills, Dream Talk SSE streaming, session
+  pooling, SOUL.md context, and install-context grounding.
+- Distro lab passed 10/10 Docker lanes and 5/5 Incus VM lanes, and all 14
+  prior regression fixtures stayed green.
+
 ## [2.5.1] - 2026-05-26
 
 ### Added

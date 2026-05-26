@@ -1,10 +1,10 @@
 {
   "schema_version": 2,
-  "dream_version": "2.5.1",
+  "dream_version": "2.5.2",
   "min_compatible_dream_version": "1.0.0",
   "manifestVersion": "1.0.0",
   "release": {
-    "version": "2.5.1",
+    "version": "2.5.2",
     "channel": "stable",
     "date": "2026-05-26"
   },

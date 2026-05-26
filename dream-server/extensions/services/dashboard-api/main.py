@@ -948,7 +948,7 @@ async def _lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Dream Server Dashboard API",
-    version="2.5.1",
+    version="2.5.2",
     description="System status API for Dream Server Dashboard",
     lifespan=_lifespan,
 )
