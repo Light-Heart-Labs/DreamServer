@@ -55,11 +55,13 @@ bash tests/test-bootstrap-upgrade-download-finalization.sh
 echo "[contract] bootstrap download failures preserve resume state"
 bash tests/test-bootstrap-upgrade-resume-status.sh
 
-echo "[contract] bootstrap failed upgrades are restart-resumable"
+echo "[contract] bootstrap failed upgrades are start/restart-resumable"
 grep -q 'bootstrap-upgrade.args' installers/phases/11-services.sh \
   || { echo "[FAIL] Phase 11 must persist bootstrap-upgrade retry metadata"; exit 1; }
-grep -q '_dream_cli_maybe_resume_bootstrap_upgrade' dream-cli \
+awk '/cmd_restart\(\)/,/^}/' dream-cli | grep -q '_dream_cli_maybe_resume_bootstrap_upgrade' \
   || { echo "[FAIL] dream restart must retry failed bootstrap upgrades"; exit 1; }
+awk '/cmd_start\(\)/,/^}/' dream-cli | grep -q '_dream_cli_maybe_resume_bootstrap_upgrade' \
+  || { echo "[FAIL] dream start must retry failed bootstrap upgrades"; exit 1; }
 
 echo "[contract] macOS host-agent LaunchAgent install-dir"
 bash tests/test-macos-host-agent-verification.sh

@@ -1266,6 +1266,10 @@ cmd_start() {
     if [[ "$refresh_soul" == "true" ]]; then
         _dream_cli_refresh_soul || true
     fi
+
+    if [[ -z "$resolved_service" || "$resolved_service" == "llama-server" ]]; then
+        _dream_cli_maybe_resume_bootstrap_upgrade || true
+    fi
 }
 
 cmd_dry_run() {
