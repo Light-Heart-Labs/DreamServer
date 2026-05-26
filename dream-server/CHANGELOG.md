@@ -6,14 +6,73 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.5.1] - 2026-05-26
+
+### Added
+- Dream Talk owner-portal work for mobile use: local owner-card routing,
+  streamed SSE replies, live status frames, TTS streaming, paperclip image/file
+  attachments, and install-context grounding so the agent can describe the
+  services actually running on a node.
+- OAuth browser-redirect passthrough and provider-readiness metadata so the
+  agent and dashboard can guide provider setup without guessing.
+- Evidence-based `dream doctor` install and inference diagnostics, including
+  local/cloud routing checks and clearer remediation messages.
+- External AMD Lemonade SDK runtime support and an experimental AMD GAIA recipe
+  for operators testing alternate AMD paths.
+- Forkability, installer trust, release-channel, AI-contribution, branch
+  hygiene, and CLI-roadmap documentation for downstream operators.
+
+### Changed
+- Moved long contributor credits out of the README and tightened README
+  positioning so first-time operators see the product path faster.
+- Expanded release validation entrypoints, validation gates, static contracts,
+  and distro-lab locking so fleet, Docker, and Incus runs are less likely to
+  contend with each other on the same host.
+- Updated dashboard developer dependencies and grouped Dependabot updates after
+  audit review.
+
 ### Fixed
+- Bootstrap full-model downloads now preserve partial `.part` files, retry with
+  resume support, keep failed status counters populated, cap progress display at
+  100%, and recover cleanly on the next `dream start`, `dream restart`, or
+  reinstall.
+- Hermes local-provider calls now set a longer request timeout for slow
+  time-to-first-token backends, and slash-worker guardrails prevent repeated
+  agent sessions from accumulating runaway workers.
 - Linux cloud installs no longer launch or health-gate on local `llama-server`;
-  the compose resolver now selects a cloud overlay, skips local-mode dependency
+  the compose resolver selects a cloud overlay, skips local-mode dependency
   overlays, and keeps Hermes SOUL persona generation outside the local-model
   path.
-- Fleet distro lab Docker and Incus runners now take a shared host lock so
-  tower2 distro dry-runs do not contend with heavy full-fleet install/build
-  work on the same host.
+- Lifecycle, reinstall, and bootstrap-model paths were hardened across compose
+  health waits, delayed port reuse, model-swap container recreation, stale cloud
+  compose-cache invalidation, bundled service CPU limits, and fallback model
+  serving when compose flags are missing.
+- Installer portability fixes for Fedora/RHEL, openSUSE bootstrap detection,
+  Python prerequisite setup, PATH-installed OpenCode, macOS launchd services,
+  Windows compose working directories, and Docker-cloud install paths.
+- Dashboard feature-card and LAN web guidance now point users at the intended
+  proxy surfaces instead of raw API ports or misplaced homepage banners.
+- Extension/security regressions fixed for trusted `extra_hosts`, Gaia data
+  ownership, Hermes data ownership on reinstall, and inherited file descriptors
+  in bootstrap upgrade workers.
+
+### Security
+- Pinned remaining GitHub Actions, added a root security policy/repo map, and
+  strengthened desktop installer guardrails and installer trust documentation.
+- Hardened OAuth pending-state handling, dashboard feature-card links, network
+  exposure checks, and static audit contracts.
+
+### Validation
+- Fleet test run 11 on 2026-05-26 passed true fresh install, lifecycle, product,
+  and core capability validation on tower2, Strix Halo, Spark, and M5 MacBook
+  Pro after Docker images, volumes, build cache, and stale model files were
+  removed.
+- Full target-model core capabilities passed on all 4 hardware platforms; Dream
+  Talk capability probes passed where the Talk surface was enabled, with
+  unavailable Talk surfaces correctly skipped.
+- Distro lab passed 10/10 Docker lanes and 5/5 Incus VM lanes.
+- Session total: 11 fleet runs, 35+ commits, 7 issues filed, 6 resolved, 4
+  harness improvements, and zero product regressions.
 
 ## [2.5.0] - 2026-05-21
 

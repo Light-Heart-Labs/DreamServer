@@ -519,7 +519,7 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
 # Tier: ${TIER} (${TIER_NAME})
 
 #=== Dream Server Version (used by dream-cli update for version-compat checks) ===
-DREAM_VERSION=${VERSION:-2.5.0}
+DREAM_VERSION=${VERSION:-2.5.1}
 
 #=== Network Binding ===
 # 127.0.0.1 = localhost only (secure default)
