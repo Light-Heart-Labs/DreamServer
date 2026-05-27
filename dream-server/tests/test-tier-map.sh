@@ -164,6 +164,29 @@ assert_eq "GPU_BACKEND"  "sycl"                                "$GPU_BACKEND"
 assert_eq "N_GPU_LAYERS" "99"                                  "$N_GPU_LAYERS"
 echo ""
 
+# --- JETSON_ORIN_NANO (qwen profile) ---
+echo "JETSON_ORIN_NANO (NVIDIA Jetson Orin Nano, 8 GB unified, qwen):"
+run_tier JETSON_ORIN_NANO
+assert_eq "TIER_NAME"    "Jetson Orin Nano"                    "$TIER_NAME"
+assert_eq "MODEL_PROFILE_EFFECTIVE" "qwen"                   "$MODEL_PROFILE_EFFECTIVE"
+assert_eq "LLM_MODEL"    "qwen3.5-2b"                        "$LLM_MODEL"
+assert_eq "GGUF_FILE"    "Qwen3.5-2B-Q4_K_M.gguf"            "$GGUF_FILE"
+assert_eq "MAX_CONTEXT"  "8192"                                "$MAX_CONTEXT"
+assert_eq "N_GPU_LAYERS" "99"                                  "$N_GPU_LAYERS"
+echo ""
+
+# --- JETSON_ORIN_NANO (gemma4 profile) ---
+echo "JETSON_ORIN_NANO (gemma4 profile):"
+MODEL_PROFILE=gemma4 run_tier JETSON_ORIN_NANO
+assert_eq "TIER_NAME"    "Jetson Orin Nano"                    "$TIER_NAME"
+assert_eq "MODEL_PROFILE_EFFECTIVE" "gemma4"                 "$MODEL_PROFILE_EFFECTIVE"
+assert_eq "LLM_MODEL"    "gemma-4-e2b-it"                    "$LLM_MODEL"
+assert_eq "GGUF_FILE"    "gemma-4-E2B-it-Q4_K_M.gguf"        "$GGUF_FILE"
+assert_eq "MAX_CONTEXT"  "8192"                                "$MAX_CONTEXT"
+assert_eq "N_GPU_LAYERS" "99"                                  "$N_GPU_LAYERS"
+unset MODEL_PROFILE
+echo ""
+
 # --- Invalid tier should fail ---
 echo "Invalid tier (should fail):"
 if TIER="INVALID" resolve_tier_config 2>/dev/null; then
@@ -177,7 +200,7 @@ echo ""
 
 # --- GGUF_URL should be set for all tiers ---
 echo "GGUF_URL populated for all tiers:"
-for t in 0 1 2 3 4 NV_ULTRA SH_LARGE SH_COMPACT ARC ARC_LITE; do
+for t in 0 1 2 3 4 NV_ULTRA SH_LARGE SH_COMPACT ARC ARC_LITE JETSON_ORIN_NANO; do
     run_tier "$t"
     if [[ -n "$GGUF_URL" && "$GGUF_URL" == https://* ]]; then
         echo "  PASS: Tier $t has valid GGUF_URL"

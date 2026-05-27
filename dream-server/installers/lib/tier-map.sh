@@ -154,6 +154,21 @@ set_qwen_tier_config() {
             MAX_CONTEXT=8192
             LLM_MODEL_SIZE_MB=1500    # Qwen3.5-2B-Q4_K_M (1.28 GB)
             ;;
+        JETSON_ORIN_NANO)
+            # NVIDIA Jetson Orin Nano (8 GB unified memory, Ampere sm_87).
+            # Conservative default: 2B Q4_K_M (~1.5 GB) leaves ~5 GB unified
+            # RAM for KV cache + open-webui + dashboard-api on an 8 GB SoC.
+            # Larger Orin Nano variants and Orin NX/AGX are deliberately
+            # excluded from this milestone — see issue #195.
+            TIER_NAME="Jetson Orin Nano"
+            LLM_MODEL="qwen3.5-2b"
+            GGUF_FILE="Qwen3.5-2B-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf"
+            GGUF_SHA256=""
+            MAX_CONTEXT=8192
+            LLM_MODEL_SIZE_MB=1500
+            N_GPU_LAYERS=99           # iGPU + unified memory: offload all layers
+            ;;
         1)
             TIER_NAME="Entry Level"
             LLM_MODEL="qwen3.5-9b"
@@ -191,7 +206,7 @@ set_qwen_tier_config() {
             LLM_MODEL_SIZE_MB=18600   # 18.6 GB per HF file listing
             ;;
         *)
-            error "Invalid tier: $TIER. Valid tiers: 0, 1, 2, 3, 4, CLOUD, NV_ULTRA, SH_LARGE, SH_COMPACT, ARC, ARC_LITE"
+            error "Invalid tier: $TIER. Valid tiers: 0, 1, 2, 3, 4, CLOUD, NV_ULTRA, SH_LARGE, SH_COMPACT, ARC, ARC_LITE, JETSON_ORIN_NANO"
             # NOTE for modders: add your tier above this line and update this message.
             ;;
     esac
@@ -267,6 +282,20 @@ set_gemma4_tier_config() {
             MAX_CONTEXT=8192
             LLM_MODEL_SIZE_MB=1500
             ;;
+        JETSON_ORIN_NANO)
+            # Jetson Orin Nano (8 GB unified, Ampere sm_87) with gemma4 profile.
+            # E2B Q4_K_M (~2.81 GB) fits comfortably alongside the rest of the
+            # stack on 8 GB unified memory; reduced context vs entry-level to
+            # leave headroom for KV cache.
+            TIER_NAME="Jetson Orin Nano"
+            LLM_MODEL="gemma-4-e2b-it"
+            GGUF_FILE="gemma-4-E2B-it-Q4_K_M.gguf"
+            GGUF_URL="https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf"
+            GGUF_SHA256=""
+            MAX_CONTEXT=8192
+            LLM_MODEL_SIZE_MB=2810
+            N_GPU_LAYERS=99           # iGPU + unified memory: offload all layers
+            ;;
         1)
             TIER_NAME="Entry Level"
             LLM_MODEL="gemma-4-e2b-it"
@@ -304,7 +333,7 @@ set_gemma4_tier_config() {
             LLM_MODEL_SIZE_MB=19800
             ;;
         *)
-            error "Invalid tier: $TIER. Valid tiers: 0, 1, 2, 3, 4, CLOUD, NV_ULTRA, SH_LARGE, SH_COMPACT, ARC, ARC_LITE"
+            error "Invalid tier: $TIER. Valid tiers: 0, 1, 2, 3, 4, CLOUD, NV_ULTRA, SH_LARGE, SH_COMPACT, ARC, ARC_LITE, JETSON_ORIN_NANO"
             ;;
     esac
 }
@@ -348,6 +377,7 @@ tier_to_model() {
                 SH_COMPACT|SH)  model="gemma-4-26b-a4b-it" ;;
                 ARC)            model="gemma-4-e4b-it" ;;
                 ARC_LITE)       model="gemma-4-e2b-it" ;;
+                JETSON_ORIN_NANO) model="gemma-4-e2b-it" ;;
                 0|T0)           model="qwen3.5-2b" ;;
                 1|T1)           model="gemma-4-e2b-it" ;;
                 2|T2)           model="gemma-4-e4b-it" ;;
@@ -373,6 +403,7 @@ tier_to_model() {
                 SH_COMPACT|SH)  model="qwen3-30b-a3b" ;;
                 ARC)            model="qwen3.5-9b" ;;
                 ARC_LITE)       model="qwen3.5-4b" ;;
+                JETSON_ORIN_NANO) model="qwen3.5-2b" ;;
                 0|T0)           model="qwen3.5-2b" ;;
                 1|T1)           model="qwen3.5-9b" ;;
                 2|T2)           model="qwen3.5-9b" ;;
