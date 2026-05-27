@@ -106,6 +106,13 @@ const STATUS = {
   unknown: { color: '#6b7280', text: 'text-zinc-500', dot: 'bg-zinc-500' },
 }
 
+const INTEGRATIONS_PANEL_STYLE = {
+  background:
+    'linear-gradient(180deg, rgba(18,18,25,0.94), rgba(8,8,16,0.96)), repeating-linear-gradient(90deg, transparent 0 47px, rgba(255,255,255,0.025) 47px 48px), repeating-linear-gradient(180deg, transparent 0 47px, rgba(255,255,255,0.025) 47px 48px)',
+  borderColor: 'rgba(255,255,255,0.08)',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.045), 0 18px 40px rgba(0,0,0,0.22)',
+}
+
 function statusMeta(status) {
   return STATUS[status] || STATUS.unknown
 }
@@ -222,7 +229,10 @@ function DetailPanel({ node, edges, onClose }) {
   const serviceUrl = node.port ? `http://${window.location.hostname}:${node.port}` : null
 
   return (
-    <div className="absolute top-4 right-4 z-10 w-72 overflow-hidden rounded-xl border border-theme-border bg-theme-card shadow-2xl">
+    <div
+      className="absolute top-4 right-4 z-10 w-72 overflow-hidden rounded-xl border border-theme-border bg-theme-card shadow-2xl"
+      style={{ ...INTEGRATIONS_PANEL_STYLE, position: 'absolute', top: '1rem', right: '1rem' }}
+    >
       <div className="flex items-center justify-between border-b border-theme-border px-4 py-3">
         <div className="flex items-center gap-2">
           <span className={`h-2.5 w-2.5 rounded-full ${meta.dot}`} />
@@ -304,7 +314,7 @@ export default function ServiceMap() {
   const edgeLabels = [...new Set(edges.map(edge => edge.label))]
 
   if (loading) {
-    return <div className="p-8 animate-pulse"><div className="mb-6 h-8 w-1/3 rounded bg-theme-card" /><div className="h-96 rounded-xl bg-theme-card" /></div>
+    return <div className="p-8 animate-pulse"><div className="mb-6 h-8 w-1/3 rounded bg-theme-card" /><div className="h-96 rounded-xl border border-theme-border bg-theme-card" style={INTEGRATIONS_PANEL_STYLE} /></div>
   }
 
   if (error) {
@@ -323,7 +333,7 @@ export default function ServiceMap() {
             {counts.other > 0 && <>, <span className="text-zinc-500">{counts.other} other</span></>}
           </p>
         </div>
-        <div className="flex items-center gap-2 rounded-lg border border-theme-border bg-theme-card px-3 py-2 font-mono text-xs text-theme-text-muted"><RefreshCw size={12} className="text-theme-accent" />live · 10s</div>
+        <div className="flex items-center gap-2 rounded-lg border border-theme-border bg-theme-card px-3 py-2 font-mono text-xs text-theme-text-muted" style={INTEGRATIONS_PANEL_STYLE}><RefreshCw size={12} className="text-theme-accent" />live · 10s</div>
       </div>
 
       <div className="mb-4 flex flex-wrap gap-4 text-xs text-theme-text-muted">
@@ -333,29 +343,31 @@ export default function ServiceMap() {
         <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-zinc-500" />Not deployed</span>
       </div>
 
-      <div className="relative min-h-[70vh] overflow-auto rounded-xl border border-theme-border bg-theme-card">
-        <svg width={svgWidth} height={svgHeight} viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="mx-auto block">
-          <defs>
-            <filter id="node-shadow" x="-25%" y="-60%" width="150%" height="230%"><feDropShadow dx="0" dy="2" stdDeviation="10" floodColor="#000" floodOpacity="0.7" /></filter>
-            {Object.entries(EDGE_META).map(([label, color]) => <marker key={label} id={`arrow-${label.replaceAll(' ', '-')}`} markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M 0 0 L 7 2.5 L 0 5 Z" fill={color} fillOpacity="0.85" /></marker>)}
-          </defs>
+      <div className="liquid-metal-frame liquid-metal-frame--soft relative min-h-[70vh] overflow-hidden rounded-xl border border-theme-border bg-theme-card" style={INTEGRATIONS_PANEL_STYLE}>
+        <div className="min-h-[70vh] overflow-auto">
+          <svg width={svgWidth} height={svgHeight} viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="mx-auto block">
+            <defs>
+              <filter id="node-shadow" x="-25%" y="-60%" width="150%" height="230%"><feDropShadow dx="0" dy="2" stdDeviation="10" floodColor="#000" floodOpacity="0.7" /></filter>
+              {Object.entries(EDGE_META).map(([label, color]) => <marker key={label} id={`arrow-${label.replaceAll(' ', '-')}`} markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M 0 0 L 7 2.5 L 0 5 Z" fill={color} fillOpacity="0.85" /></marker>)}
+            </defs>
 
-          {LAYERS.map(layer => layerY[layer] == null ? null : <text key={layer} x="32" y={layerY[layer] + NODE_H / 2} className="fill-zinc-600" style={{ fontSize: 10, fontWeight: 700 }}>{LAYER_LABELS[layer]}</text>)}
+            {LAYERS.map(layer => layerY[layer] == null ? null : <text key={layer} x="32" y={layerY[layer] + NODE_H / 2} className="fill-zinc-600" style={{ fontSize: 10, fontWeight: 700 }}>{LAYER_LABELS[layer]}</text>)}
 
-          {edges.map(edge => {
-            const source = positions[edge.source]
-            const target = positions[edge.target]
-            if (!source || !target) return null
-            const color = EDGE_META[edge.label] || '#6b7280'
-            return <path key={`${edge.source}-${edge.target}`} d={edgePath(source, target)} fill="none" stroke={color} strokeWidth="1.8" strokeOpacity={edge.status === 'healthy' ? 0.72 : 0.32} strokeDasharray={edge.status === 'healthy' ? undefined : '5 4'} markerEnd={`url(#arrow-${edge.label.replaceAll(' ', '-')})`} />
-          })}
+            {edges.map(edge => {
+              const source = positions[edge.source]
+              const target = positions[edge.target]
+              if (!source || !target) return null
+              const color = EDGE_META[edge.label] || '#6b7280'
+              return <path key={`${edge.source}-${edge.target}`} d={edgePath(source, target)} fill="none" stroke={color} strokeWidth="1.8" strokeOpacity={edge.status === 'healthy' ? 0.72 : 0.32} strokeDasharray={edge.status === 'healthy' ? undefined : '5 4'} markerEnd={`url(#arrow-${edge.label.replaceAll(' ', '-')})`} />
+            })}
 
-          {nodes.map(node => positions[node.id] && <ServiceNode key={node.id} node={node} pos={positions[node.id]} selected={selectedNode?.id === node.id} onSelect={setSelectedNode} />)}
-        </svg>
+            {nodes.map(node => positions[node.id] && <ServiceNode key={node.id} node={node} pos={positions[node.id]} selected={selectedNode?.id === node.id} onSelect={setSelectedNode} />)}
+          </svg>
 
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-theme-border px-4 py-3">
-          <span className="text-xs font-medium text-zinc-600">Connections:</span>
-          {edgeLabels.map(label => <span key={label} className="flex items-center gap-1.5 text-xs text-theme-text-muted"><span className="inline-block h-2 w-2 rounded-full" style={{ background: EDGE_META[label] || '#6b7280' }} />{label}</span>)}
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-theme-border px-4 py-3">
+            <span className="text-xs font-medium text-zinc-600">Connections:</span>
+            {edgeLabels.map(label => <span key={label} className="flex items-center gap-1.5 text-xs text-theme-text-muted"><span className="inline-block h-2 w-2 rounded-full" style={{ background: EDGE_META[label] || '#6b7280' }} />{label}</span>)}
+          </div>
         </div>
 
         <DetailPanel node={selectedNode} edges={edges} onClose={() => setSelectedNode(null)} />
