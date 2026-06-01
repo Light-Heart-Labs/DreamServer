@@ -48,10 +48,10 @@ fi
 [[ "$ENABLE_WORKFLOWS" == "true" ]] && PULL_LIST+=("n8nio/n8n:2.6.4|N8N — automation engine")
 [[ "$ENABLE_RAG" == "true" ]] && PULL_LIST+=("qdrant/qdrant:v1.16.3|QDRANT — memory vault")
 if [[ "$ENABLE_HERMES" == "true" ]]; then
-    # SHA-pinned: see extensions/services/hermes/compose.yaml for the pin
-    # rationale + "How to bump the pin" in docs/HERMES.md. Hermes-proxy
-    # is the auth gate (Caddy) and is pulled alongside Hermes.
-    PULL_LIST+=("nousresearch/hermes-agent:sha-dd0923bb89ed2dd56f82cb63656a1323f6f42e6f|HERMES — default agent (Nous Research)")
+    # Version-pinned upstream image. See extensions/services/hermes/compose.yaml
+    # and docs/HERMES.md for the bump process. Hermes-proxy is the auth gate
+    # (Caddy) and is pulled alongside Hermes.
+    PULL_LIST+=("${HERMES_AGENT_IMAGE:-nousresearch/hermes-agent:v2026.5.16}|HERMES — default agent (Nous Research)")
     PULL_LIST+=("caddy:2.11.3-alpine|HERMES PROXY — magic-link auth gate (Caddy)")
 fi
 [[ "$ENABLE_OPENCLAW" == "true" ]] && PULL_LIST+=("ghcr.io/openclaw/openclaw:2026.3.8|OPENCLAW — agent framework")
@@ -98,6 +98,50 @@ else
                         sed -i.bak "s|^LLAMA_SERVER_IMAGE=.*|LLAMA_SERVER_IMAGE=${_validated_llama_image}|" "$INSTALL_DIR/.env" && rm -f "$INSTALL_DIR/.env.bak"
                     else
                         printf '\nLLAMA_SERVER_IMAGE=%s\n' "$_validated_llama_image" >> "$INSTALL_DIR/.env"
+                    fi
+                fi
+            fi
+        fi
+    fi
+
+    if [[ "${ENABLE_HERMES:-false}" == "true" ]]; then
+        _hermes_image=""
+        _hermes_label=""
+        _hermes_index=-1
+        for _idx in "${!PULL_LIST[@]}"; do
+            entry="${PULL_LIST[$_idx]}"
+            _entry_img="${entry%%|*}"
+            _entry_label="${entry##*|}"
+            if [[ "$_entry_label" == HERMES\ * ]]; then
+                _hermes_image="$_entry_img"
+                _hermes_label="$_entry_label"
+                _hermes_index="$_idx"
+                break
+            fi
+        done
+
+        if [[ -n "$_hermes_image" ]]; then
+            ai "Validating Hermes Agent image tag before download..."
+            if [[ -z "${HERMES_AGENT_IMAGE_FALLBACK:-}" && -f "$INSTALL_DIR/.env" ]]; then
+                _hermes_fallback_from_env="$(sed -n 's/^HERMES_AGENT_IMAGE_FALLBACK=//p' "$INSTALL_DIR/.env" 2>/dev/null | head -n 1 || true)"
+                _hermes_fallback_from_env="${_hermes_fallback_from_env#\"}"
+                _hermes_fallback_from_env="${_hermes_fallback_from_env%\"}"
+                _hermes_fallback_from_env="${_hermes_fallback_from_env#\'}"
+                _hermes_fallback_from_env="${_hermes_fallback_from_env%\'}"
+                [[ -n "$_hermes_fallback_from_env" ]] && HERMES_AGENT_IMAGE_FALLBACK="$_hermes_fallback_from_env"
+            fi
+            _validated_hermes_image=""
+            if ! validate_docker_image_or_fallback _validated_hermes_image "$_hermes_image" "Hermes Agent" "HERMES_AGENT_IMAGE_FALLBACK" "HERMES_AGENT_IMAGE"; then
+                exit 1
+            fi
+            if [[ "$_validated_hermes_image" != "$_hermes_image" ]]; then
+                HERMES_AGENT_IMAGE="$_validated_hermes_image"
+                PULL_LIST[$_hermes_index]="${_validated_hermes_image}|${_hermes_label}"
+                if [[ -f "$INSTALL_DIR/.env" ]]; then
+                    if grep -q '^HERMES_AGENT_IMAGE=' "$INSTALL_DIR/.env"; then
+                        sed -i.bak "s|^HERMES_AGENT_IMAGE=.*|HERMES_AGENT_IMAGE=${_validated_hermes_image}|" "$INSTALL_DIR/.env" && rm -f "$INSTALL_DIR/.env.bak"
+                    else
+                        printf '\nHERMES_AGENT_IMAGE=%s\n' "$_validated_hermes_image" >> "$INSTALL_DIR/.env"
                     fi
                 fi
             fi

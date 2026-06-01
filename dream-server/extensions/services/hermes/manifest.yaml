@@ -37,7 +37,7 @@ service:
   description: >
     Hermes Agent (Nous Research) — a self-improving generalist agent with
     persistent memory, autonomous skill creation, and 70+ built-in tools.
-    Dream Server runs the upstream image pinned by SHA, points it at the
+    Dream Server runs the upstream image pinned by version, points it at the
     local LLM (llama-server), and ships no messaging-platform adapters
     (Telegram / Discord / Slack / etc.) since the web dashboard is the
     surface we ship. The container runs `hermes gateway run` with the
