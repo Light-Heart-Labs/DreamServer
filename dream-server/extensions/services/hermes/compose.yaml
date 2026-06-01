@@ -1,10 +1,9 @@
 services:
   hermes:
-    # SHA-pinned to NousResearch/hermes-agent@dd0923bb89ed2dd56f82cb63656a1323f6f42e6f
-    # (2026-05-12). Upstream's CI publishes a sha-<full-sha> tag for every main
-    # push, so this is an immutable reference. Bumping the pin is a deliberate
-    # review-and-smoke-test pass — see docs/HERMES.md "How to bump the pin."
-    image: nousresearch/hermes-agent:sha-dd0923bb89ed2dd56f82cb63656a1323f6f42e6f
+    # Version-pinned upstream image. Override HERMES_AGENT_IMAGE only for
+    # deliberate hotfix testing; bumping the default is a review-and-smoke-test
+    # pass — see docs/HERMES.md "How to bump the image pin."
+    image: ${HERMES_AGENT_IMAGE:-nousresearch/hermes-agent:v2026.5.16}
     container_name: dream-hermes
     restart: unless-stopped
     # NOT host networking — we use bridge so the container can resolve

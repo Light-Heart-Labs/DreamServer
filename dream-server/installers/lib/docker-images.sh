@@ -36,6 +36,7 @@ validate_docker_image_or_fallback() {
     local image="$2"
     local label="$3"
     local fallback_env="${4:-}"
+    local primary_env="${5:-LLAMA_SERVER_IMAGE}"
     local fallback=""
 
     if docker_image_available "$image"; then
@@ -63,7 +64,9 @@ validate_docker_image_or_fallback() {
 
     ai "Docker cannot resolve this image tag before service startup."
     ai "Check the tag, registry access, and Docker Desktop/daemon network."
-    ai "To override intentionally, set LLAMA_SERVER_IMAGE to a valid image."
-    ai "To permit an explicit fallback, set LLAMA_SERVER_IMAGE_FALLBACK to a valid image."
+    ai "To override intentionally, set $primary_env to a valid image."
+    if [[ -n "$fallback_env" ]]; then
+        ai "To permit an explicit fallback, set $fallback_env to a valid image."
+    fi
     return 1
 }

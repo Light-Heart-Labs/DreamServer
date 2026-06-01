@@ -101,7 +101,7 @@
       "id": "hermes.agent",
       "type": "image",
       "path": "extensions/services/hermes/compose.yaml",
-      "value": "nousresearch/hermes-agent:sha-dd0923bb89ed2dd56f82cb63656a1323f6f42e6f"
+      "value": "nousresearch/hermes-agent:v2026.5.16"
     },
     {
       "id": "hermes-proxy.caddy",
@@ -306,6 +306,12 @@
       "value": "${LLAMA_ARC_IMAGE:-dream-llama-sycl:local}",
       "default": "dream-llama-sycl:local",
       "reason": "Intel Arc uses a local SYCL image by default and can be overridden for experiments."
+    },
+    {
+      "path": "extensions/services/hermes/compose.yaml",
+      "value": "${HERMES_AGENT_IMAGE:-nousresearch/hermes-agent:v2026.5.16}",
+      "default": "nousresearch/hermes-agent:v2026.5.16",
+      "reason": "Hermes Agent image can be overridden for upstream registry hotfixes, but the shipped default is locked."
     },
     {
       "path": "extensions/services/llama-server/Dockerfile.amd",

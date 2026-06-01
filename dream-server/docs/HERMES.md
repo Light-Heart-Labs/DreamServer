@@ -120,23 +120,28 @@ For local backends, keep `model.context_length` and `auxiliary.compression.conte
 - **The container has full network access** within Dream Server's bridge net — Hermes can make outbound HTTP requests for tools like `web_search`. If you want to restrict this, add an iptables firewall rule on the host or run Hermes behind a forward proxy.
 - **No APE policy enforcement yet.** Hermes's 70+ tools include shell + file write. The base config defaults toward less-risky tools, but Hermes can still execute shell commands inside its sandbox container. APE policy wrapping is a planned follow-up; until then, the trust model is "the user authenticated to Hermes is trusted to use the local container."
 
-## How to bump the SHA pin
+## How to bump the image pin
 
-Hermes is a young, fast-moving project (~3 months old as of v1 integration). The SHA pin in `compose.yaml` lets us audit upstream changes deliberately rather than auto-tracking `:latest`. Bumping is a 5-minute pass:
+Hermes is a young, fast-moving project. Dream Server pins a reviewed upstream image tag in `compose.yaml` instead of auto-tracking `:latest`. Operators can temporarily override it with `HERMES_AGENT_IMAGE`, and can provide `HERMES_AGENT_IMAGE_FALLBACK` for registry hotfixes, but changing the shipped default is a deliberate review-and-smoke-test pass:
 
 ```bash
-# 1. Pick the new SHA. Upstream publishes a sha-<full-sha> tag for every
-#    main push, so any commit on NousResearch/hermes-agent's main is fair game.
-gh api repos/NousResearch/hermes-agent/commits/main --jq '{sha,date:.commit.author.date,msg:.commit.message}'
+# 1. Pick a published upstream image tag.
+curl -s 'https://hub.docker.com/v2/repositories/nousresearch/hermes-agent/tags?page_size=25' \
+  | jq -r '.results[] | [.name, .last_updated] | @tsv'
 
-# 2. Read the diff since our current pin. Skim breaking changes,
-#    config-format migrations, removed env vars.
-gh api repos/NousResearch/hermes-agent/compare/<old-sha>...<new-sha> --jq '.commits[].commit.message'
+# 2. Verify Docker can resolve the tag on a clean machine.
+docker manifest inspect nousresearch/hermes-agent:<new-tag> >/dev/null
 
-# 3. Update extensions/services/hermes/compose.yaml — the only place the
-#    pin appears.
+# 3. Review upstream release notes / commits. Skim breaking changes,
+#    config-format migrations, removed env vars, and dashboard changes.
 
-# 4. Smoke test:
+# 4. Update:
+#    - extensions/services/hermes/compose.yaml
+#    - installers/phases/08-images.sh
+#    - config/dependency-lock.json
+#    - this bump-history table
+
+# 5. Smoke test:
 #    dream restart hermes
 #    docker inspect --format '{{.State.Health.Status}}' dream-hermes
 #    curl http://localhost:9120/health
@@ -240,7 +245,7 @@ For Hermes, `CTX_SIZE` / `MAX_CONTEXT`, `model.context_length`, and `auxiliary.c
 
 ### Sessions / memories / skills disappeared after upgrade
 
-The SHA pin protects you from accidental version drift, but if you DID bump and lose data, it's almost certainly because Hermes's config format changed. Check `data/hermes/config.yaml` against upstream's current `cli-config.yaml.example`. The container's first start regenerates `config.yaml` from our template only if it doesn't exist — your old config sticks around.
+The image pin protects you from accidental version drift, but if you DID bump and lose data, it's almost certainly because Hermes's config format changed. Check `data/hermes/config.yaml` against upstream's current `cli-config.yaml.example`. The container's first start regenerates `config.yaml` from our template only if it doesn't exist — your old config sticks around.
 
 ### "I don't want Hermes anymore"
 
@@ -259,6 +264,7 @@ When promoting / talking about this extension, the convention is: "Hermes Agent 
 
 ## Bump history
 
-| Date | Pinned SHA | Notes |
+| Date | Pinned image | Notes |
 |---|---|---|
+| 2026-06-01 | `nousresearch/hermes-agent:v2026.5.16` | Replace removed upstream `sha-*` tag with a published version tag; add `HERMES_AGENT_IMAGE` override/fallback path. |
 | 2026-05-12 | `dd0923bb89ed2dd56f82cb63656a1323f6f42e6f` | Initial integration. |
