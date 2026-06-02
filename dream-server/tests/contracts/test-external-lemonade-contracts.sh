@@ -32,6 +32,26 @@ grep -q 'openai/Qwen3-0.6B-GGUF' <<<"$rendered" \
 grep -q 'host.docker.internal:13305/api/v1' <<<"$rendered" \
   || { echo "[FAIL] renderer must use supplied Lemonade API base"; exit 1; }
 
+echo "[contract] installer discovers external Lemonade model and avoids stale fallbacks"
+grep -q '_phase06_discover_lemonade_model' installers/phases/06-directories.sh \
+  || { echo "[FAIL] phase 06 must discover the model served by external Lemonade"; exit 1; }
+if grep -q 'LLM_MODEL_VALUE' installers/phases/06-directories.sh; then
+  echo "[FAIL] phase 06 must not reference undefined LLM_MODEL_VALUE"
+  exit 1
+fi
+grep -q 'LEMONADE_MODEL_VALUE' installers/phases/06-directories.sh \
+  || { echo "[FAIL] phase 06 must write a resolved LEMONADE_MODEL value"; exit 1; }
+
+echo "[contract] external Lemonade does not pull managed Lemonade image"
+grep -q '_lemonade_external' installers/phases/08-images.sh \
+  || { echo "[FAIL] phase 08 must skip managed Lemonade image pulls in external mode"; exit 1; }
+
+echo "[contract] external Lemonade install verifies real completion"
+grep -q '_phase12_verify_external_lemonade_completion' installers/phases/12-health.sh \
+  || { echo "[FAIL] phase 12 must verify a real external Lemonade completion"; exit 1; }
+grep -q '/v1/chat/completions' installers/phases/12-health.sh \
+  || { echo "[FAIL] phase 12 completion check must call the LiteLLM chat route"; exit 1; }
+
 echo "[contract] resolver selects cloud + external overlay instead of managed AMD overlay"
 resolved="$(LEMONADE_EXTERNAL=true DREAM_MODE=lemonade \
   ./scripts/resolve-compose-stack.sh --script-dir "$ROOT_DIR" --dream-mode lemonade --gpu-backend amd --tier SH_LARGE --env)"

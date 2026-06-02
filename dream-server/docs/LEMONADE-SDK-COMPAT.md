@@ -18,6 +18,13 @@ If Lemonade is not using its default URL, pass it explicitly:
 ./install.sh --use-existing-lemonade --lemonade-url http://localhost:13305
 ```
 
+When `--lemonade-url` is omitted, Dream Server checks `http://localhost:13305`
+first, then `http://localhost:8000`. This covers current Lemonade Server
+packages and older Python SDK installs. If neither endpoint is reachable, the
+installer falls back to `http://localhost:13305` and the Phase 12 completion
+check will fail with a targeted Lemonade routing error instead of declaring a
+false-green install.
+
 If Lemonade requires an API key:
 
 ```bash
@@ -80,8 +87,11 @@ service.
 
 ## Model Selection
 
-Set `LEMONADE_MODEL` if the default Dream model id does not match a model in
-your Lemonade library:
+Dream Server auto-detects the first model id returned by Lemonade's
+`/api/v1/models` endpoint and writes it to `LEMONADE_MODEL`.
+
+Set `LEMONADE_MODEL` only if you want Dream Server to use a specific served
+model:
 
 ```bash
 LEMONADE_MODEL=Qwen3-0.6B-GGUF ./install.sh --use-existing-lemonade
@@ -93,6 +103,11 @@ example:
 ```bash
 curl http://localhost:13305/api/v1/models
 ```
+
+Phase 12 verifies the selected model with a real chat completion through
+LiteLLM. If Lemonade is reachable from the host but not from Docker containers,
+or if the selected model id is wrong, the installer fails there with a recovery
+hint instead of finishing with a broken chat path.
 
 ## Linux Docker Networking
 
@@ -121,7 +136,7 @@ with `--lemonade-api-key`.
 | Mode | Who owns Lemonade? | Default API target | Model storage |
 | --- | --- | --- | --- |
 | Managed AMD Lemonade | Dream Server | `llama-server:8080/api/v1` inside Docker | Dream `data/models` |
-| Existing Lemonade SDK | User / OS service | `host.docker.internal:13305/api/v1` from containers | Lemonade cache |
+| Existing Lemonade SDK | User / OS service | Auto-detected `host.docker.internal:<port>/api/v1` from containers | Lemonade cache |
 
 In both modes, Dream services talk to LiteLLM first. LiteLLM normalizes model
 routing and gives Open WebUI, Hermes, Perplexica, and other services one stable

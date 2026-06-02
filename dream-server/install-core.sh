@@ -141,7 +141,8 @@ Options:
     --cloud           Cloud mode: skip GPU detection, use LiteLLM + cloud APIs
     --use-existing-lemonade
                       Use an already-running Lemonade SDK server as the AMD LLM runtime
-    --lemonade-url U  Lemonade server URL for --use-existing-lemonade (default: http://localhost:13305)
+    --lemonade-url U  Lemonade server URL for --use-existing-lemonade
+                      (auto-detects localhost:13305, then localhost:8000 when omitted)
     --lemonade-api-key K
                       API key LiteLLM should send to the existing Lemonade server
     --voice           Enable voice services (Whisper + Kokoro)
@@ -246,7 +247,6 @@ done
 if [[ "${LEMONADE_EXTERNAL,,}" == "true" ]]; then
     DREAM_MODE="lemonade"
     ENABLE_RECOMMENDED=true
-    LEMONADE_BASE_URL="${LEMONADE_BASE_URL:-http://localhost:13305}"
     export LEMONADE_EXTERNAL LEMONADE_BASE_URL LEMONADE_API_KEY
 fi
 

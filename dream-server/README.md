@@ -58,7 +58,9 @@ On Linux Docker installs, llama-server is exposed to the host on **http://localh
 
 On Linux AMD hosts already running Lemonade SDK, install Dream Server around it with
 `./install.sh --use-existing-lemonade` so Dream manages the app stack while
-Lemonade keeps owning inference and model storage. See
+Lemonade keeps owning inference and model storage. The installer auto-detects
+common Lemonade ports and the first served model, then verifies a real completion
+through LiteLLM before declaring success. See
 [docs/LEMONADE-SDK-COMPAT.md](docs/LEMONADE-SDK-COMPAT.md). Existing Lemonade
 mode only reuses Lemonade for LLM inference; Full Stack still enables
 Dream-managed Whisper, Kokoro, and ComfyUI unless you pass `--no-voice` and/or

@@ -268,6 +268,58 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
         echo "$default"
     }
 
+    _phase06_detect_lemonade_url() {
+        command -v curl >/dev/null 2>&1 || return 1
+        local candidate
+        for candidate in "http://localhost:13305" "http://localhost:8000"; do
+            if curl -fsS --max-time 3 "${candidate}/api/v1/models" >/dev/null 2>&1 || \
+               curl -fsS --max-time 3 "${candidate}/api/v1/health" >/dev/null 2>&1 || \
+               curl -fsS --max-time 3 "${candidate}/health" >/dev/null 2>&1; then
+                printf '%s\n' "$candidate"
+                return 0
+            fi
+        done
+        return 1
+    }
+
+    _phase06_first_model_id_from_json() {
+        local json="$1"
+        local py="${DREAM_PYTHON_CMD:-}"
+        if [[ -z "$py" && -f "$SCRIPT_DIR/lib/python-cmd.sh" ]]; then
+            . "$SCRIPT_DIR/lib/python-cmd.sh"
+            py="$(ds_detect_python_cmd 2>/dev/null || true)"
+        fi
+        [[ -n "$py" ]] || py="python3"
+        if command -v "$py" >/dev/null 2>&1; then
+            printf '%s' "$json" | "$py" -c 'import json,sys
+try:
+    data=json.load(sys.stdin).get("data", [])
+    for item in data:
+        model_id=item.get("id") if isinstance(item, dict) else None
+        if model_id:
+            print(model_id)
+            raise SystemExit(0)
+except Exception:
+    pass
+raise SystemExit(1)' 2>/dev/null && return 0
+        fi
+        printf '%s' "$json" \
+            | grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*"' \
+            | head -n 1 \
+            | sed 's/.*"id"[[:space:]]*:[[:space:]]*"//; s/".*//'
+    }
+
+    _phase06_discover_lemonade_model() {
+        local api_base="$1"
+        command -v curl >/dev/null 2>&1 || return 1
+        local models_json model_id
+        models_json="$(curl -fsS --max-time 10 "${api_base%/}/models" 2>/dev/null || true)"
+        [[ -n "$models_json" ]] || return 1
+        model_id="$(_phase06_first_model_id_from_json "$models_json" || true)"
+        [[ -n "$model_id" ]] || return 1
+        printf '%s\n' "$model_id"
+    }
+
     # Secrets: reuse existing values, generate only if missing
     WEBUI_SECRET=$(_env_get WEBUI_SECRET "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
     N8N_PASS=$(_env_get N8N_PASS "$(openssl rand -base64 16 2>/dev/null || head -c 16 /dev/urandom | base64)")
@@ -284,7 +336,15 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
     LEMONADE_CONTAINER_BASE_URL_VALUE=""
     LEMONADE_PORT_VALUE=""
     if [[ "$LEMONADE_EXTERNAL_VALUE" == "true" ]]; then
-        LEMONADE_BASE_URL_VALUE="$(_env_get LEMONADE_BASE_URL "${LEMONADE_BASE_URL:-http://localhost:13305}")"
+        LEMONADE_BASE_URL_VALUE="$(_env_get LEMONADE_BASE_URL "${LEMONADE_BASE_URL:-}")"
+        if [[ -z "$LEMONADE_BASE_URL_VALUE" ]]; then
+            if LEMONADE_BASE_URL_VALUE="$(_phase06_detect_lemonade_url)"; then
+                ai_ok "Detected existing Lemonade server at ${LEMONADE_BASE_URL_VALUE}"
+            else
+                LEMONADE_BASE_URL_VALUE="http://localhost:13305"
+                warn "Could not auto-detect existing Lemonade; using ${LEMONADE_BASE_URL_VALUE}. Pass --lemonade-url if your server uses another port."
+            fi
+        fi
         LEMONADE_BASE_URL_VALUE="${LEMONADE_BASE_URL_VALUE%/}"
         for _lemonade_suffix in "/api/v1" "/v1" "/api"; do
             if [[ "$LEMONADE_BASE_URL_VALUE" == *"$_lemonade_suffix" ]]; then
@@ -312,6 +372,21 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
     fi
     LEMONADE_API_BASE_VALUE="${LEMONADE_BASE_URL_VALUE}${LEMONADE_API_BASE_PATH_VALUE}"
     LEMONADE_CONTAINER_API_BASE_VALUE="$(if [[ "$LEMONADE_EXTERNAL_VALUE" == "true" ]]; then echo "${LEMONADE_CONTAINER_BASE_URL_VALUE}${LEMONADE_API_BASE_PATH_VALUE}"; else echo "http://llama-server:8080/api/v1"; fi)"
+    LEMONADE_MODEL_VALUE=""
+    if [[ "$LEMONADE_EXTERNAL_VALUE" == "true" ]]; then
+        LEMONADE_MODEL_VALUE="$(_env_get LEMONADE_MODEL "${LEMONADE_MODEL:-}")"
+        if [[ -z "$LEMONADE_MODEL_VALUE" ]]; then
+            if LEMONADE_MODEL_VALUE="$(_phase06_discover_lemonade_model "$LEMONADE_API_BASE_VALUE")"; then
+                ai_ok "Detected existing Lemonade model: ${LEMONADE_MODEL_VALUE}"
+            elif [[ -n "${GGUF_FILE:-}" ]]; then
+                LEMONADE_MODEL_VALUE="extra.${GGUF_FILE}"
+                warn "Could not auto-detect a Lemonade model from ${LEMONADE_API_BASE_VALUE}/models; using ${LEMONADE_MODEL_VALUE}. Phase 12 will verify the route before declaring install success."
+            else
+                warn "Could not auto-detect a Lemonade model from ${LEMONADE_API_BASE_VALUE}/models. Set LEMONADE_MODEL to the id returned by that endpoint."
+            fi
+        fi
+        LEMONADE_MODEL="$LEMONADE_MODEL_VALUE"
+    fi
     LIVEKIT_SECRET=$(_env_get LIVEKIT_API_SECRET "$(openssl rand -base64 32 2>/dev/null || head -c 32 /dev/urandom | base64)")
     DASHBOARD_API_KEY=$(_env_get DASHBOARD_API_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
     DREAM_AGENT_KEY=$(_env_get DREAM_AGENT_KEY "$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)")
@@ -545,7 +620,7 @@ LEMONADE_EXTERNAL=${LEMONADE_EXTERNAL_VALUE}
 LEMONADE_BASE_URL=${LEMONADE_BASE_URL_VALUE}
 LEMONADE_CONTAINER_BASE_URL=${LEMONADE_CONTAINER_BASE_URL_VALUE}
 LEMONADE_API_BASE_PATH=${LEMONADE_API_BASE_PATH_VALUE}
-LEMONADE_MODEL=$(if [[ "$LEMONADE_EXTERNAL_VALUE" == "true" ]]; then echo "${LEMONADE_MODEL:-${LLM_MODEL_VALUE}}"; else echo "${LEMONADE_MODEL:-}"; fi)
+LEMONADE_MODEL=$(if [[ "$LEMONADE_EXTERNAL_VALUE" == "true" ]]; then echo "${LEMONADE_MODEL_VALUE:-}"; else echo "${LEMONADE_MODEL:-}"; fi)
 
 #=== Cloud API Keys ===
 ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
@@ -804,7 +879,7 @@ ENV_EOF
         fi
         _lemonade_model_id=""
         if [[ "$LEMONADE_EXTERNAL_VALUE" == "true" ]]; then
-            _lemonade_model_id="${LEMONADE_MODEL:-${LLM_MODEL_VALUE:-default}}"
+            _lemonade_model_id="${LEMONADE_MODEL_VALUE:-}"
         fi
         # Pass chat_template_kwargs.enable_thinking=false to Lemonade so Qwen3
         # thinking-mode is OFF by default for every client. Perplexica and any

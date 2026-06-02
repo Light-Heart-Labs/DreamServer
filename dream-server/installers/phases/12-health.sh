@@ -123,12 +123,51 @@ _phase12_external_lemonade() {
     [[ "${external,,}" == "true" ]] || [[ "${mode,,}" == "lemonade" && "${managed,,}" == "false" ]]
 }
 
+_phase12_verify_external_lemonade_completion() {
+    local litellm_port="${SERVICE_PORTS[litellm]:-4000}"
+    local litellm_key="${LITELLM_KEY:-$(_phase12_env_get LITELLM_KEY "")}"
+    local model="${LEMONADE_MODEL:-$(_phase12_env_get LEMONADE_MODEL default)}"
+    [[ -n "$model" ]] || model="default"
+    local auth_header=()
+    [[ -n "$litellm_key" ]] && auth_header=(-H "Authorization: Bearer ${litellm_key}")
+    local body response
+    body='{"model":"default","messages":[{"role":"user","content":"Reply with exactly OK. /no_think"}],"max_tokens":16,"temperature":0,"stream":false}'
+
+    ai "Verifying external Lemonade completion route through LiteLLM..."
+    response="$(curl -sS --max-time 180 -X POST "http://127.0.0.1:${litellm_port}/v1/chat/completions" \
+        "${auth_header[@]}" \
+        -H "Content-Type: application/json" \
+        -d "$body" 2>&1)" || {
+        printf "  ${RED}ERR${NC} External Lemonade completion failed\n"
+        ai_warn "LiteLLM could not complete through external Lemonade (model: ${model})."
+        ai_warn "Check that Lemonade is reachable from Docker containers, is bound to 0.0.0.0 on trusted hosts, and that LEMONADE_MODEL matches /api/v1/models."
+        printf '%s\n' "$response" >> "$LOG_FILE"
+        return 1
+    }
+
+    if printf '%s\n' "$response" | grep -Eq '"content"[[:space:]]*:[[:space:]]*"[^"]+'; then
+        printf "  ${BGRN}OK${NC} External Lemonade completion route healthy\n"
+        return 0
+    fi
+
+    printf "  ${RED}ERR${NC} External Lemonade returned no assistant content\n"
+    ai_warn "LiteLLM reached external Lemonade but did not receive non-empty assistant content (model: ${model})."
+    printf '%s\n' "$response" >> "$LOG_FILE"
+    return 1
+}
+
 # Core service health checks with adaptive timeouts.
 # Cloud mode does not launch local llama-server; LiteLLM/external APIs are the
 # LLM surface, so do not wait on a container that intentionally is not running.
 if [[ "${DREAM_MODE:-local}" == "cloud" ]] || _phase12_external_lemonade; then
     dream_progress 86 "health" "Waiting for LiteLLM gateway"
     _check_health "LiteLLM" "http://127.0.0.1:${SERVICE_PORTS[litellm]:-4000}${SERVICE_HEALTH[litellm]:-/health/readiness}" 60 10 "$(sr_container litellm)"
+    if _phase12_external_lemonade; then
+        dream_progress 87 "health" "Verifying external Lemonade route"
+        if ! _phase12_verify_external_lemonade_completion; then
+            exit 1
+        fi
+    fi
 else
     # Format: _check_health "name" "url" max_attempts timeout_per_request
     # llama-server: 150 attempts * adaptive backoff (2s->8s) = up to ~20 minutes (model loading can be slow)
