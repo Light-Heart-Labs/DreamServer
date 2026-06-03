@@ -29,6 +29,10 @@ load_env_file() {
         key="${key%"${key##*[![:space:]]}"}"
         [[ -z "$key" ]] && continue
         [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+        # Bash exposes UID as a readonly shell variable. A .env line such as
+        # UID=1000 is valid for Docker Compose, but exporting it here aborts
+        # lifecycle commands under set -e before they can reach compose.
+        [[ "$key" == "UID" ]] && continue
         # Strip optional surrounding quotes and one leading space
         value="${value# }"
         value="${value%\"}"

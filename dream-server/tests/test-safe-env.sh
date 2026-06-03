@@ -101,5 +101,15 @@ load_model_selector_env_from_output < <(printf '%s\n' 'LLM_MODEL="qwen-test"' 'E
 [[ -z "${EVIL_SELECTOR_KEY:-}" ]] || fail "EVIL_SELECTOR_KEY should not be loaded"
 pass "model selector loader is allowlisted"
 
+echo "Test 10: load_env_file skips Bash readonly UID"
+cat > "$tmpdir/.env-readonly" << 'EOF'
+UID=12345
+AFTER_READONLY_UID=still_loads
+EOF
+load_env_file "$tmpdir/.env-readonly"
+[[ "${UID}" != "12345" ]] || fail "UID should not be overwritten"
+[[ "${AFTER_READONLY_UID:-}" == "still_loads" ]] || fail "load_env_file stopped after readonly UID"
+pass "load_env_file tolerates UID from .env"
+
 echo ""
 echo "All safe-env tests passed."
