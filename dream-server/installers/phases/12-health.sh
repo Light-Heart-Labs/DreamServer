@@ -169,7 +169,11 @@ _phase12_verify_external_lemonade_completion() {
         ai_warn "The selected Lemonade model looks like an image/non-chat model. DreamServer needs a text/chat model for the LLM route."
     fi
     ai_warn "Run: curl ${LEMONADE_BASE_URL:-$(_phase12_env_get LEMONADE_BASE_URL http://127.0.0.1:13305)}${LEMONADE_API_BASE_PATH:-$(_phase12_env_get LEMONADE_API_BASE_PATH /api/v1)}/models"
-    ai_warn "Then rerun with LEMONADE_MODEL=<chat-model-id> ./install.sh --use-existing-lemonade ..."
+    if [[ -f "${SCRIPT_DIR}/install.sh" ]]; then
+        ai_warn "Then rerun from ${SCRIPT_DIR}: LEMONADE_MODEL=<chat-model-id> ./install.sh --use-existing-lemonade ..."
+    else
+        ai_warn "Then rerun from ${SCRIPT_DIR}: LEMONADE_MODEL=<chat-model-id> bash install-core.sh --use-existing-lemonade ..."
+    fi
     printf '%s\n' "$response" >> "$LOG_FILE"
     return 1
 }

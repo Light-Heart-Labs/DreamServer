@@ -268,6 +268,16 @@ Fix with: sudo chown -R \$(id -u):\$(id -g) $INSTALL_DIR/config $INSTALL_DIR/dat
         echo "$default"
     }
 
+    _env_get_explicit_first() {
+        local key="$1" default="${2:-}" val
+        val="${!key-}"
+        if [[ -n "$val" ]]; then
+            echo "$val"
+            return
+        fi
+        _env_get "$key" "$default"
+    }
+
     _phase06_detect_lemonade_url() {
         command -v curl >/dev/null 2>&1 || return 1
         local candidate
@@ -346,13 +356,13 @@ raise SystemExit(1)' 2>/dev/null && return 0
     if [[ "$LEMONADE_EXTERNAL_VALUE" == "true" && -n "${LEMONADE_API_KEY:-}" ]]; then
         LITELLM_LEMONADE_API_KEY="$LEMONADE_API_KEY"
     fi
-    LEMONADE_API_BASE_PATH_VALUE="$(_env_get LEMONADE_API_BASE_PATH "/api/v1")"
+    LEMONADE_API_BASE_PATH_VALUE="$(_env_get_explicit_first LEMONADE_API_BASE_PATH "/api/v1")"
     [[ "$LEMONADE_API_BASE_PATH_VALUE" == /* ]] || LEMONADE_API_BASE_PATH_VALUE="/$LEMONADE_API_BASE_PATH_VALUE"
     LEMONADE_BASE_URL_VALUE=""
     LEMONADE_CONTAINER_BASE_URL_VALUE=""
     LEMONADE_PORT_VALUE=""
     if [[ "$LEMONADE_EXTERNAL_VALUE" == "true" ]]; then
-        LEMONADE_BASE_URL_VALUE="$(_env_get LEMONADE_BASE_URL "${LEMONADE_BASE_URL:-}")"
+        LEMONADE_BASE_URL_VALUE="$(_env_get_explicit_first LEMONADE_BASE_URL "")"
         if [[ -z "$LEMONADE_BASE_URL_VALUE" ]]; then
             if LEMONADE_BASE_URL_VALUE="$(_phase06_detect_lemonade_url)"; then
                 ai_ok "Detected existing Lemonade server at ${LEMONADE_BASE_URL_VALUE}"
@@ -375,7 +385,7 @@ raise SystemExit(1)' 2>/dev/null && return 0
                 LEMONADE_PORT_VALUE="13305"
             fi
         fi
-        LEMONADE_CONTAINER_BASE_URL_VALUE="$(_env_get LEMONADE_CONTAINER_BASE_URL "")"
+        LEMONADE_CONTAINER_BASE_URL_VALUE="$(_env_get_explicit_first LEMONADE_CONTAINER_BASE_URL "")"
         if [[ -z "$LEMONADE_CONTAINER_BASE_URL_VALUE" ]]; then
             case "$LEMONADE_BASE_URL_VALUE" in
                 http://localhost:*) LEMONADE_CONTAINER_BASE_URL_VALUE="${LEMONADE_BASE_URL_VALUE/http:\/\/localhost:/http:\/\/host.docker.internal:}" ;;
@@ -390,7 +400,7 @@ raise SystemExit(1)' 2>/dev/null && return 0
     LEMONADE_CONTAINER_API_BASE_VALUE="$(if [[ "$LEMONADE_EXTERNAL_VALUE" == "true" ]]; then echo "${LEMONADE_CONTAINER_BASE_URL_VALUE}${LEMONADE_API_BASE_PATH_VALUE}"; else echo "http://llama-server:8080/api/v1"; fi)"
     LEMONADE_MODEL_VALUE=""
     if [[ "$LEMONADE_EXTERNAL_VALUE" == "true" ]]; then
-        LEMONADE_MODEL_VALUE="$(_env_get LEMONADE_MODEL "${LEMONADE_MODEL:-}")"
+        LEMONADE_MODEL_VALUE="$(_env_get_explicit_first LEMONADE_MODEL "")"
         if [[ -z "$LEMONADE_MODEL_VALUE" ]]; then
             if LEMONADE_MODEL_VALUE="$(_phase06_discover_lemonade_model "$LEMONADE_API_BASE_VALUE")"; then
                 ai_ok "Detected existing Lemonade model: ${LEMONADE_MODEL_VALUE}"

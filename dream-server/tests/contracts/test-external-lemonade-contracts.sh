@@ -43,6 +43,10 @@ if grep -q 'LLM_MODEL_VALUE' installers/phases/06-directories.sh; then
 fi
 grep -q 'LEMONADE_MODEL_VALUE' installers/phases/06-directories.sh \
   || { echo "[FAIL] phase 06 must write a resolved LEMONADE_MODEL value"; exit 1; }
+grep -q '_env_get_explicit_first LEMONADE_MODEL' installers/phases/06-directories.sh \
+  || { echo "[FAIL] explicit LEMONADE_MODEL must override stale .env values during reinstall"; exit 1; }
+grep -q '_env_get_explicit_first LEMONADE_BASE_URL' installers/phases/06-directories.sh \
+  || { echo "[FAIL] explicit LEMONADE_BASE_URL/--lemonade-url must override stale .env values during reinstall"; exit 1; }
 
 echo "[contract] explicit LAN binding overrides stale env during reinstall"
 grep -q 'BIND_ADDRESS_EXPLICIT' install-core.sh \
@@ -61,6 +65,10 @@ grep -q '/v1/chat/completions' installers/phases/12-health.sh \
   || { echo "[FAIL] phase 12 completion check must call the LiteLLM chat route"; exit 1; }
 grep -q '_phase12_model_looks_non_chat' installers/phases/12-health.sh \
   || { echo "[FAIL] phase 12 must explain image/non-chat Lemonade model failures"; exit 1; }
+grep -q 'bash install-core.sh --use-existing-lemonade' installers/phases/12-health.sh \
+  || { echo "[FAIL] phase 12 Lemonade recovery hint must work when install.sh is absent from the runtime tree"; exit 1; }
+grep -q 'LEMONADE_MODEL=<chat-model-id>' installers/phases/12-health.sh \
+  || { echo "[FAIL] phase 12 Lemonade recovery hint must show inline LEMONADE_MODEL assignment"; exit 1; }
 
 echo "[contract] external Lemonade preflight checks LiteLLM instead of managed llama-server"
 grep -q 'is_external_lemonade()' dream-preflight.sh \
