@@ -57,8 +57,9 @@ EOF
 make_install() {
     local install_dir="$1"
 
-    mkdir -p "$install_dir/data"
+    mkdir -p "$install_dir/data" "$install_dir/lib"
     cp "$TARGET" "$install_dir/dream-uninstall.sh"
+    cp "$ROOT_DIR/lib/safe-env.sh" "$install_dir/lib/safe-env.sh"
     touch "$install_dir/dream-cli"
     touch "$install_dir/docker-compose.base.yml"
     touch "$install_dir/docker-compose.cpu.yml"
@@ -81,6 +82,9 @@ run_uninstall() {
 
 main() {
     [[ -f "$TARGET" ]] || fail "missing $TARGET"
+    if grep -qF 'source "$INSTALL_DIR/.env"' "$TARGET"; then
+        fail "uninstall must load .env through lib/safe-env.sh, not source it"
+    fi
 
     TMP_DIR="$(mktemp -d -t dream-uninstall-test-XXXXXX)"
     trap 'rm -rf "$TMP_DIR"' EXIT
@@ -113,6 +117,21 @@ main() {
     grep -qF 'compose -f docker-compose.base.yml -f docker-compose.cpu.yml down -v --remove-orphans' "$log_purge" \
         || fail "normal uninstall must remove compose volumes with -v"
     pass "normal uninstall removes compose volumes"
+
+    local install_safe="$TMP_DIR/install-safe-env"
+    local home_safe="$TMP_DIR/home-safe-env"
+    local log_safe="$TMP_DIR/docker-safe-env.log"
+    mkdir -p "$home_safe"
+    make_install "$install_safe"
+    cat > "$install_safe/.env" <<'EOF'
+GPU_BACKEND=$(touch "$HOME/uninstall-env-sourced")
+EOF
+    DOCKER_LOG="$log_safe" run_uninstall "$install_safe" "$home_safe" "$stub_dir" --keep-data
+
+    if [[ -e "$home_safe/uninstall-env-sourced" ]]; then
+        fail "uninstall must not execute command substitutions from .env"
+    fi
+    pass "uninstall loads .env without executing shell substitutions"
 }
 
 main "$@"

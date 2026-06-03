@@ -105,10 +105,13 @@ $KEEP_DATA && log_info "Keeping user data (--keep-data)"
 echo ""
 
 if [[ -f "$INSTALL_DIR/.env" ]]; then
-    set -a
-    # shellcheck disable=SC1091
-    source "$INSTALL_DIR/.env" 2>/dev/null || true
-    set +a
+    if [[ -f "$INSTALL_DIR/lib/safe-env.sh" ]]; then
+        # shellcheck source=lib/safe-env.sh
+        . "$INSTALL_DIR/lib/safe-env.sh"
+        load_env_file "$INSTALL_DIR/.env"
+    else
+        log_warn "safe-env.sh not found; using uninstall defaults without loading .env"
+    fi
 fi
 
 if [[ "$FORCE" != "true" ]]; then

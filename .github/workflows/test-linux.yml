@@ -63,6 +63,9 @@ jobs:
       - name: Compose Failure Report Tests
         run: bash tests/test-compose-failure-report.sh
 
+      - name: Uninstall Compose Flags Tests
+        run: bash tests/test-uninstall-compose-flags.sh
+
       - name: Windows Compose Failure Report Tests
         run: bash tests/test-windows-compose-failure-report.sh
 
