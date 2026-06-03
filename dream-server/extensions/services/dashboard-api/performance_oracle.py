@@ -83,6 +83,10 @@ def read_env_value(key: str, install_dir: str | Path) -> str:
     value = os.environ.get(key, "")
     if value:
         return value.strip().strip("\"'")
+    return read_env_file_value(key, install_dir)
+
+
+def read_env_file_value(key: str, install_dir: str | Path) -> str:
     env_path = Path(install_dir) / ".env"
     try:
         for line in env_path.read_text(encoding="utf-8").splitlines():
@@ -342,7 +346,13 @@ def _matching_runtime_profile(model: dict[str, Any], gpu_info: Optional[GPUInfo]
     if not gpu_info:
         return None
     backend = normalize_key(gpu_info.gpu_backend)
-    memory_type = "unified" if backend == "apple" or "strix-halo" in normalize_key(gpu_info.name) else "discrete"
+    memory_type = (
+        "unified"
+        if backend == "apple"
+        or normalize_key(getattr(gpu_info, "memory_type", "")) == "unified"
+        or "strix-halo" in normalize_key(gpu_info.name)
+        else "discrete"
+    )
     host_arch = _normalize_host_arch(platform.machine())
     vram_gb = float(gpu_info.memory_total_mb or 0) / 1024.0
     ram_gb = system_ram_gb if system_ram_gb is not None else _system_ram_gb()
@@ -615,6 +625,54 @@ def _recommendation_from_env(install_dir: str | Path) -> dict[str, Any]:
     }
 
 
+def _host_amd_runtime_gpu_from_env(install_dir: str | Path, system_ram_gb: int) -> Optional[GPUInfo]:
+    """Build a conservative GPU surrogate for Windows AMD native runtimes.
+
+    On Windows AMD installs, dashboard-api runs inside Docker while Lemonade or
+    llama-server runs on the host. The container often cannot inspect the host
+    APU/GPU directly, so get_gpu_info() can be None even though the host runtime
+    can load a downloaded model. Use the installer-written runtime contract
+    instead of falling back to an artificial 4GB compatibility ceiling.
+    """
+    def runtime_value(key: str) -> str:
+        return read_env_file_value(key, install_dir) or os.environ.get(key, "")
+
+    gpu_backend = normalize_key(runtime_value("GPU_BACKEND"))
+    if gpu_backend != "amd" or system_ram_gb <= 0:
+        return None
+
+    location = normalize_key(runtime_value("AMD_INFERENCE_LOCATION"))
+    runtime = normalize_key(runtime_value("AMD_INFERENCE_RUNTIME"))
+    llm_backend = normalize_key(runtime_value("LLM_BACKEND"))
+    managed = normalize_key(runtime_value("AMD_INFERENCE_MANAGED"))
+    if location not in {"host", "local", ""}:
+        return None
+    if runtime not in {"lemonade", "llama-server", ""} and llm_backend != "lemonade":
+        return None
+    if managed in {"false", "no", "off"} and not runtime and llm_backend != "lemonade":
+        return None
+    profile_text = normalize_key(" ".join([
+        runtime_value("MODEL_RUNTIME_PROFILE"),
+        runtime_value("MODEL_RUNTIME_PROFILE_LABEL"),
+        runtime_value("MODEL_RECOMMENDATION_POLICY"),
+        runtime_value("MODEL_RECOMMENDATION_REASON"),
+    ]))
+    if not any(marker in profile_text for marker in ("strix", "unified-memory", "unified")):
+        return None
+
+    total_mb = int(system_ram_gb * 1024)
+    return GPUInfo(
+        name="AMD Strix Halo host runtime",
+        memory_used_mb=0,
+        memory_total_mb=total_mb,
+        memory_percent=0,
+        utilization_percent=0,
+        temperature_c=0,
+        memory_type="unified",
+        gpu_backend="amd",
+    )
+
+
 def _catalog_fit_reason(model: dict[str, Any], gpu_info: Optional[GPUInfo], configured: bool) -> str:
     runtime_profile = model.get("_runtime_profile") if isinstance(model.get("_runtime_profile"), dict) else None
     context_k = int(_effective_context_length(model, runtime_profile) / 1024) if _effective_context_length(model, runtime_profile) else 0
@@ -818,9 +876,11 @@ def build_models_payload(gpu_info: Optional[GPUInfo], loaded_model: Optional[str
     configured_entry = find_catalog_model(catalog, configured_model, configured_gguf)
     profile = _model_profile(install_dir)
     try:
-        install_ram_gb = int(read_env_value("SYSTEM_RAM_GB", install_dir) or 0)
+        install_ram_gb = int(read_env_file_value("SYSTEM_RAM_GB", install_dir) or read_env_value("SYSTEM_RAM_GB", install_dir) or 0)
     except ValueError:
         install_ram_gb = 0
+    if gpu_info is None:
+        gpu_info = _host_amd_runtime_gpu_from_env(install_dir, install_ram_gb)
     ranked_recommendations = rank_pre_download_models(catalog, gpu_info, profile=profile, limit=3, system_ram_gb=install_ram_gb or None)
     recommended_entry = configured_entry or (ranked_recommendations[0] if ranked_recommendations else None)
     flags = collect_runtime_flags(install_dir)

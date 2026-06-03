@@ -228,6 +228,56 @@ def test_pre_download_ranker_falls_back_to_smallest_model_without_gpu_info(data_
     assert [model["id"] for model in ranked] == ["qwen3.5-9b-q4"]
 
 
+def test_windows_amd_host_runtime_uses_install_ram_when_gpu_probe_is_unavailable(data_dir, tmp_path):
+    install_dir = tmp_path / "dream-server"
+    install_dir.mkdir(parents=True)
+    models_dir = data_dir / "models"
+    models_dir.mkdir(parents=True)
+    (models_dir / "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf").write_text("placeholder", encoding="utf-8")
+    (install_dir / ".env").write_text(
+        "GPU_BACKEND=amd\n"
+        "LLM_BACKEND=lemonade\n"
+        "AMD_INFERENCE_RUNTIME=lemonade\n"
+        "AMD_INFERENCE_LOCATION=host\n"
+        "SYSTEM_RAM_GB=128\n"
+        "MODEL_RECOMMENDATION_POLICY=context-aware-largest-capable-general-v1+unified-memory-coder-next-a3b-v1\n",
+        encoding="utf-8",
+    )
+    catalog = [{
+        "id": "qwen3.6-35b-a3b-ud-q4",
+        "name": "Qwen 3.6 35B-A3B",
+        "family": "qwen",
+        "gguf_file": "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+        "size_mb": 21110,
+        "vram_required_gb": 24,
+        "context_length": 131072,
+        "quantization": "UD-Q4_K_M",
+        "specialty": "Quality",
+        "description": "Large MoE model",
+        "llm_model_name": "qwen3.6-35b-a3b",
+        "runtime_profiles": [{
+            "id": "amd-strix-halo-unified",
+            "label": "AMD Strix Halo unified-memory profile",
+            "backend": "amd",
+            "memory_type": "unified",
+            "vram_min_gb": 90,
+            "system_ram_min_gb": 64,
+            "estimated_required_gb": 44,
+            "context_length": 131072,
+            "fit_label": "Host AMD unified-memory fit",
+        }],
+    }]
+
+    payload = build_models_payload(None, None, 0, install_dir, data_dir, catalog=catalog, evidence=[])
+
+    model = payload["models"][0]
+    assert payload["gpu"]["vramTotal"] == 128
+    assert payload["gpu"]["vramFree"] == 128
+    assert model["status"] == "downloaded"
+    assert model["fitsVram"] is True
+    assert model["runtimeProfile"]["id"] == "amd-strix-halo-unified"
+
+
 def test_pre_download_ranker_honors_gemma_profile(data_dir):
     catalog = [
         _model(),
@@ -253,6 +303,7 @@ def test_pre_download_ranker_honors_gemma_profile(data_dir):
 
 def test_pre_download_ranker_allows_8gb_nvidia_runtime_profile(monkeypatch):
     monkeypatch.setattr("performance_oracle._system_ram_gb", lambda: 31)
+    monkeypatch.setattr("performance_oracle.platform.machine", lambda: "x86_64")
     catalog = [
         _model(),
         {

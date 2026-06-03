@@ -785,7 +785,9 @@ if ($dryRun) {
             param(
                 [string]$Image,
                 [string]$Label,
-                [string]$FallbackImage = ""
+                [string]$FallbackImage = "",
+                [string]$ImageEnvName = "LLAMA_SERVER_IMAGE",
+                [string]$FallbackEnvName = "LLAMA_SERVER_IMAGE_FALLBACK"
             )
 
             if (Test-DreamDockerImageAvailable -Image $Image) {
@@ -795,11 +797,11 @@ if ($dryRun) {
 
             $fallback = $FallbackImage
             if ([string]::IsNullOrWhiteSpace($fallback)) {
-                $fallback = [Environment]::GetEnvironmentVariable("LLAMA_SERVER_IMAGE_FALLBACK")
+                $fallback = [Environment]::GetEnvironmentVariable($FallbackEnvName)
             }
             if (-not [string]::IsNullOrWhiteSpace($fallback)) {
                 Write-AIWarn "$Label image unavailable: $Image"
-                Write-AIWarn "Trying explicit fallback from LLAMA_SERVER_IMAGE_FALLBACK: $fallback"
+                Write-AIWarn "Trying explicit fallback from ${FallbackEnvName}: $fallback"
                 if (Test-DreamDockerImageAvailable -Image $fallback) {
                     Write-AISuccess "$Label fallback image available: $fallback"
                     return $fallback
@@ -811,9 +813,23 @@ if ($dryRun) {
 
             Write-AI "  Docker cannot resolve this image tag before service startup."
             Write-AI "  Check the tag, registry access, and Docker Desktop network."
-            Write-AI "  To override intentionally, set LLAMA_SERVER_IMAGE to a valid image."
-            Write-AI "  To permit an explicit fallback, set LLAMA_SERVER_IMAGE_FALLBACK to a valid image."
+            Write-AI "  To override intentionally, set $ImageEnvName to a valid image."
+            Write-AI "  To permit an explicit fallback, set $FallbackEnvName to a valid image."
             return $null
+        }
+
+        function Get-DreamEnvValueFromFile {
+            param(
+                [Parameter(Mandatory = $true)][string]$Path,
+                [Parameter(Mandatory = $true)][string]$Key
+            )
+            if (-not (Test-Path $Path)) { return "" }
+            foreach ($line in Get-Content $Path) {
+                if ($line -match "^$([regex]::Escape($Key))=(.+)$") {
+                    return $Matches[1].Trim().Trim('"').Trim("'")
+                }
+            }
+            return ""
         }
 
         if (-not $cloudMode -and $currentBackend -ne "amd") {
@@ -829,7 +845,12 @@ if ($dryRun) {
 
             if (-not [string]::IsNullOrWhiteSpace($envLlamaImage)) {
                 Write-AI "Validating llama-server image tag before startup..."
-                $validatedImage = Resolve-DreamDockerImageOrFallback -Image $envLlamaImage -Label "llama-server" -FallbackImage $envFallbackImage
+                $validatedImage = Resolve-DreamDockerImageOrFallback `
+                    -Image $envLlamaImage `
+                    -Label "llama-server" `
+                    -FallbackImage $envFallbackImage `
+                    -ImageEnvName "LLAMA_SERVER_IMAGE" `
+                    -FallbackEnvName "LLAMA_SERVER_IMAGE_FALLBACK"
                 if ([string]::IsNullOrWhiteSpace($validatedImage)) { exit 1 }
 
                 if ($validatedImage -ne $envLlamaImage) {
@@ -839,6 +860,41 @@ if ($dryRun) {
                     }
                     Write-Utf8NoBom -Path $_envCheck -Content ($envLines -join "`n")
                 }
+            }
+        }
+
+        if ($enableHermes) {
+            $envHermesImage = Get-DreamEnvValueFromFile -Path $_envCheck -Key "HERMES_AGENT_IMAGE"
+            $hasHermesImageOverride = -not [string]::IsNullOrWhiteSpace($envHermesImage)
+            $envHermesFallbackImage = Get-DreamEnvValueFromFile -Path $_envCheck -Key "HERMES_AGENT_IMAGE_FALLBACK"
+            if ([string]::IsNullOrWhiteSpace($envHermesImage)) {
+                $envHermesImage = "nousresearch/hermes-agent:v2026.5.16"
+            }
+
+            Write-AI "Validating Hermes Agent image tag before startup..."
+            $validatedHermesImage = Resolve-DreamDockerImageOrFallback `
+                -Image $envHermesImage `
+                -Label "Hermes Agent" `
+                -FallbackImage $envHermesFallbackImage `
+                -ImageEnvName "HERMES_AGENT_IMAGE" `
+                -FallbackEnvName "HERMES_AGENT_IMAGE_FALLBACK"
+            if ([string]::IsNullOrWhiteSpace($validatedHermesImage)) { exit 1 }
+
+            if ($validatedHermesImage -ne $envHermesImage) {
+                $envLines = Get-Content $_envCheck
+                $updatedHermesImage = $false
+                $envLines = $envLines | ForEach-Object {
+                    if ($_ -match '^HERMES_AGENT_IMAGE=') {
+                        $updatedHermesImage = $true
+                        "HERMES_AGENT_IMAGE=$validatedHermesImage"
+                    } else {
+                        $_
+                    }
+                }
+                if (-not $updatedHermesImage -and -not $hasHermesImageOverride) {
+                    $envLines += "HERMES_AGENT_IMAGE=$validatedHermesImage"
+                }
+                Write-Utf8NoBom -Path $_envCheck -Content ($envLines -join "`n")
             }
         }
 
