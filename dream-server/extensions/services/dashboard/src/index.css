@@ -419,11 +419,12 @@ a, button, input, select, textarea,
     );
   background-size: 240% 240%;
   background-repeat: no-repeat;
+  background-position: 180% 0%;
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   mask-composite: exclude;
-  animation: liquidBorderOrbit 11s linear infinite;
+  animation: none;
   opacity: 0.28;
   z-index: 0;
   transition:
@@ -446,9 +447,13 @@ a, button, input, select, textarea,
     0 18px 36px rgba(0,0,0,0.22);
 }
 
-.liquid-metal-frame:hover::after {
-  animation-name: liquidBorderOrbit;
-  animation-duration: 3.6s;
+.liquid-metal-frame:hover::after,
+.liquid-metal-frame:focus-within::after,
+.liquid-metal-nav:hover::after,
+.liquid-metal-nav:focus-visible::after,
+.liquid-metal-button:hover::after,
+.liquid-metal-button:focus-visible::after {
+  animation: liquidBorderOrbit 3.6s linear infinite;
   animation-delay: -1.15s;
   opacity: 0.92;
   background-size: 190% 190%;
@@ -519,10 +524,17 @@ a, button, input, select, textarea,
   );
   background-size: 132px 100%;
   background-repeat: repeat-x;
-  animation: liquidMetalFlow 5.5s linear infinite;
+  background-position: 0px 50%;
+  animation: none;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.34),
     0 0 10px rgba(157, 0, 255, 0.16);
+}
+
+.liquid-metal-frame:hover .liquid-metal-progress-fill,
+.liquid-metal-frame:focus-within .liquid-metal-progress-fill,
+.liquid-metal-progress-track:hover .liquid-metal-progress-fill {
+  animation: liquidMetalFlow 5.5s linear infinite;
 }
 
 .liquid-metal-progress-fill--warn {
@@ -588,6 +600,13 @@ a, button, input, select, textarea,
   -webkit-text-fill-color: transparent;
   -webkit-text-stroke: 0.38px rgba(226, 204, 255, 0.3);
   filter: none;
+  background-position: 0px 50%;
+  animation: none;
+  will-change: auto;
+}
+
+.dream-logo-liquid:hover,
+.dream-logo-liquid:focus-visible {
   animation: liquidMetalLogoFlow 6.8s linear infinite;
   will-change: background-position;
 }
@@ -622,26 +641,23 @@ a, button, input, select, textarea,
 .liquid-metal-sequence-grid > *:nth-child(12) { --liquid-sequence-delay: calc(var(--liquid-sequence-step) * 11); }
 
 .liquid-metal-sequence-card::after {
-  animation-name: liquidBorderSequence;
-  animation-duration: var(--liquid-sequence-duration, 12.8s);
-  animation-timing-function: linear;
-  animation-iteration-count: infinite;
-  animation-delay: var(--liquid-sequence-delay, 0s);
+  animation: none;
+  background-position: 180% 0%;
   opacity: 0;
 }
 
-.liquid-metal-sequence-card:hover::after {
-  animation-name: liquidBorderOrbit;
-  animation-duration: 3.6s;
+.liquid-metal-sequence-card:hover::after,
+.liquid-metal-sequence-card:focus-within::after {
+  animation: liquidBorderOrbit 3.6s linear infinite;
   animation-delay: -1.15s;
   opacity: 0.96;
   background-size: 190% 190%;
   filter: saturate(1.24) brightness(1.08);
 }
 
-.liquid-metal-sequence-slot:hover .liquid-metal-sequence-card::after {
-  animation-name: liquidBorderOrbit;
-  animation-duration: 3.6s;
+.liquid-metal-sequence-slot:hover .liquid-metal-sequence-card::after,
+.liquid-metal-sequence-slot:focus-within .liquid-metal-sequence-card::after {
+  animation: liquidBorderOrbit 3.6s linear infinite;
   animation-delay: -1.15s;
   opacity: 0.96;
   background-size: 190% 190%;
@@ -671,6 +687,14 @@ a, button, input, select, textarea,
   .liquid-metal-button,
   .liquid-metal-progress-fill,
   .dream-logo-liquid {
+    animation: none !important;
+    will-change: auto !important;
+  }
+
+  .liquid-metal-frame::after,
+  .liquid-metal-nav::after,
+  .liquid-metal-button::after,
+  .liquid-metal-sequence-card::after {
     animation: none !important;
   }
 
