@@ -41,6 +41,16 @@ if grep -Eq '\$result\.Ok = \$true' "$LIB" && grep -q 'FileExists -and \$result.
 else
     fail "Ok must require file present AND completion success"
 fi
+if grep -q '\$isLemonadeEndpoint' "$LIB" && grep -q 'Endpoint.ContainsKey("Backend")' "$LIB"; then
+    pass "readiness derives Lemonade model ids from the resolved endpoint"
+else
+    fail "readiness must key Lemonade model-id prefixing off the resolved endpoint"
+fi
+if grep -q 'GpuBackend.ToLowerInvariant() -eq "amd"' "$LIB"; then
+    fail "readiness must not prefix every AMD backend with extra. (llama-server fallback uses plain GGUF id)"
+else
+    pass "AMD llama-server fallback is not treated as Lemonade for model ids"
+fi
 
 # ---------------------------------------------------------------------------
 # 2. The installer wires the gate and fails loud (flips healthy) on failure.
@@ -74,7 +84,7 @@ if command -v pwsh >/dev/null 2>&1; then
         # Dead endpoint so the completion cannot succeed; nonexistent GGUF file.
         \$ep = @{ ChatCompletionsUrl = 'http://127.0.0.1:1/api/v1/chat/completions' }
         \$r = Test-WindowsLlmModelReadiness -Endpoint \$ep -InstallDir 'C:\\__dream_nope__' \`
-                -GgufFile 'Qwen3.5-2B-Q4_K_M.gguf' -GpuBackend 'amd' -TimeoutSec 2
+                -GgufFile 'Qwen3.5-2B-Q4_K_M.gguf' -TimeoutSec 2
         Write-Output (\"OK=\" + \$r.Ok + \";FILE=\" + \$r.FileExists + \";DETAIL=\" + \$r.Detail)
     " 2>/dev/null || true)"
     if echo "$OUT" | grep -q 'OK=False' && echo "$OUT" | grep -qi 'backing file is missing'; then

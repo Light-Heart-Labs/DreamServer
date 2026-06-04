@@ -79,6 +79,39 @@ grep -qF '"/models/${FULL_GGUF_FILE}"' <<<"$active_code" \
     || fail "hot-swap must assert the running command points at the full GGUF"
 pass "hot-swap asserts the running command uses the full GGUF"
 
+grep -qF 'restart_windows_lemonade_with_full_model' <<<"$active_code" \
+    || fail "Windows Lemonade hot-swap must restart the native Lemonade process"
+grep -qF 'extra.${FULL_GGUF_FILE' <<<"$active_code" \
+    || fail "Windows Lemonade hot-swap must verify the full GGUF model id"
+pass "Windows Lemonade hot-swap restarts native inference and verifies the full model"
+
+grep -qF 'patch_hermes_model_after_swap' <<<"$active_code" \
+    || fail "Windows Lemonade hot-swap must patch Hermes off the bootstrap model"
+windows_lemonade_block="$(awk '
+    /_windows_lemonade_swap_applies/ { in_block=1 }
+    in_block { print }
+    in_block && /HOT_SWAP_VERIFIED=true/ { exit }
+' "$TARGET" | grep -v '^[[:space:]]*#')"
+grep -qF 'patch_hermes_model_after_swap' <<<"$windows_lemonade_block" \
+    || fail "Windows Lemonade must patch Hermes before marking the swap verified"
+pass "Windows Lemonade hot-swap patches Hermes before cleanup"
+
+grep -qF 'HOT_SWAP_VERIFIED=true' <<<"$active_code" \
+    || fail "hot-swap must record when the full model is verified serving"
+grep -qF 'Removing bootstrap model after verified full-model serving' <<<"$active_code" \
+    || fail "bootstrap GGUF cleanup must happen only after verified full-model serving"
+bootstrap_cleanup_block="$(awk '
+    /HOT_SWAP_VERIFIED.*true.*BOOTSTRAP_PATH/ { in_block=1 }
+    in_block { print }
+    in_block && /Bootstrap model removed/ { exit }
+' "$TARGET" | grep -v '^[[:space:]]*#')"
+if grep -qF 'HOT_SWAP_VERIFIED' <<<"$bootstrap_cleanup_block" \
+    && grep -qF 'Removing bootstrap model after verified full-model serving' <<<"$bootstrap_cleanup_block"; then
+    pass "bootstrap cleanup is gated by verified full-model serving"
+else
+    fail "bootstrap cleanup must be gated by HOT_SWAP_VERIFIED"
+fi
+
 stale_block="$(awk '
     /llama-server container started with stale --model arg/ { in_block=1 }
     in_block { print }
@@ -90,3 +123,14 @@ grep -qF 'write_status "failed"' <<<"$stale_block" \
 grep -qF 'fail "llama-server container started with stale --model arg after force-recreate."' <<<"$stale_block" \
     || fail "stale --model assertion must exit non-zero"
 pass "stale --model assertion fails loudly"
+
+windows_failure_block="$(awk '
+    /_windows_lemonade_swap_applies/ { in_block=1 }
+    in_block { print }
+    in_block && /exit 1/ { exit }
+' "$TARGET" | grep -v '^[[:space:]]*#')"
+grep -qF 'write_status "failed"' <<<"$windows_failure_block" \
+    || fail "Windows Lemonade hot-swap failure must mark bootstrap status failed"
+grep -qF 'exit 1' <<<"$windows_failure_block" \
+    || fail "Windows Lemonade hot-swap failure must exit non-zero"
+pass "Windows Lemonade hot-swap failure is honest"

@@ -132,6 +132,177 @@ sync_windows_opencode_config() {
         >/dev/null 2>&1 || log "WARNING: OpenCode config refresh failed (non-fatal)"
 }
 
+read_env_value() {
+    local key="$1"
+    [[ -f "$ENV_FILE" ]] || return 0
+    grep -E "^${key}=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"\047\r'
+}
+
+is_windows_bash() {
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+windows_path() {
+    local path="$1"
+    if command -v cygpath >/dev/null 2>&1; then
+        cygpath -w "$path"
+    else
+        printf '%s\n' "$path"
+    fi
+}
+
+windows_ps_command() {
+    if command -v powershell.exe >/dev/null 2>&1; then
+        printf '%s\n' "powershell.exe"
+    elif command -v pwsh.exe >/dev/null 2>&1; then
+        printf '%s\n' "pwsh.exe"
+    fi
+}
+
+restart_windows_lemonade_with_full_model() {
+    is_windows_bash || return 1
+
+    local runtime llm_backend
+    runtime="$(read_env_value AMD_INFERENCE_RUNTIME | tr '[:upper:]' '[:lower:]')"
+    llm_backend="$(read_env_value LLM_BACKEND | tr '[:upper:]' '[:lower:]')"
+    [[ "$runtime" == "lemonade" || "$llm_backend" == "lemonade" ]] || return 1
+
+    local ps_cmd
+    ps_cmd="$(windows_ps_command)"
+    [[ -n "$ps_cmd" ]] || {
+        log "WARNING: no PowerShell executable found; cannot restart native Windows Lemonade."
+        return 1
+    }
+
+    local pid_file bind_addr lemonade_port
+    pid_file="$INSTALL_DIR/data/llama-server.pid"
+    bind_addr="$(read_env_value BIND_ADDRESS)"
+    [[ -n "$bind_addr" ]] || bind_addr="127.0.0.1"
+    lemonade_port="$(read_env_value AMD_INFERENCE_PORT)"
+    [[ -n "$lemonade_port" ]] || lemonade_port="8080"
+
+    log "Restarting native Windows Lemonade with full model..."
+    DREAM_WIN_PID_FILE="$(windows_path "$pid_file")" \
+    DREAM_WIN_MODELS_DIR="$(windows_path "$MODELS_DIR")" \
+    DREAM_WIN_BIND_ADDR="$bind_addr" \
+    DREAM_WIN_LEMONADE_PORT="$lemonade_port" \
+    "$ps_cmd" -NoProfile -ExecutionPolicy Bypass -Command '
+        $ErrorActionPreference = "Stop"
+        $pidPath = $env:DREAM_WIN_PID_FILE
+        if (Test-Path $pidPath) {
+            $rawPid = (Get-Content -LiteralPath $pidPath -Raw).Trim()
+            if ($rawPid -match "^\d+$") {
+                Stop-Process -Id ([int]$rawPid) -Force -ErrorAction SilentlyContinue
+                for ($i = 0; $i -lt 20; $i++) {
+                    $old = Get-Process -Id ([int]$rawPid) -ErrorAction SilentlyContinue
+                    if (-not $old) { break }
+                    Start-Sleep -Milliseconds 500
+                }
+            }
+            Remove-Item -LiteralPath $pidPath -Force -ErrorAction SilentlyContinue
+        }
+
+        $roots = @()
+        if ($env:ProgramFiles) { $roots += $env:ProgramFiles }
+        $pf86 = [Environment]::GetFolderPath("ProgramFilesX86")
+        if ($pf86) { $roots += $pf86 }
+        $exe = $null
+        foreach ($root in $roots) {
+            $candidate = Join-Path (Join-Path (Join-Path $root "Lemonade Server") "bin") "lemonade-server.exe"
+            if (Test-Path $candidate) { $exe = $candidate; break }
+        }
+        if (-not $exe) { throw "lemonade-server.exe not found under Program Files roots" }
+
+        $args = @(
+            "serve",
+            "--port", $env:DREAM_WIN_LEMONADE_PORT,
+            "--host", $env:DREAM_WIN_BIND_ADDR,
+            "--no-tray",
+            "--llamacpp", "vulkan",
+            "--extra-models-dir", $env:DREAM_WIN_MODELS_DIR
+        )
+        $proc = Start-Process -FilePath $exe -ArgumentList $args -WindowStyle Hidden -PassThru
+        New-Item -ItemType Directory -Path (Split-Path -Parent $pidPath) -Force | Out-Null
+        Set-Content -LiteralPath $pidPath -Value $proc.Id
+    ' >/dev/null 2>&1 || {
+        log "WARNING: native Windows Lemonade restart failed."
+        return 1
+    }
+
+    log "Waiting for native Windows Lemonade to serve extra.$FULL_GGUF_FILE ..."
+    local model_id
+    model_id="extra.${FULL_GGUF_FILE//\"/\\\"}"
+    for _i in $(seq 1 12); do
+        if curl -sf --max-time 5 "http://127.0.0.1:${lemonade_port}/api/v1/models" 2>/dev/null \
+            | grep -q "\"id\"[[:space:]]*:[[:space:]]*\"${model_id}\""; then
+            if curl -sf --max-time 240 -X POST \
+                "http://127.0.0.1:${lemonade_port}/api/v1/chat/completions" \
+                -H "Content-Type: application/json" \
+                -d "{\"model\":\"${model_id}\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1,\"temperature\":0,\"stream\":false}" \
+                >/dev/null 2>&1; then
+                log "SUCCESS: native Windows Lemonade completed with ${model_id}"
+                return 0
+            fi
+            log "Windows Lemonade lists ${model_id}, but completion is not ready yet (attempt $_i/12)."
+        else
+            log "Waiting for Windows Lemonade to register ${model_id} (attempt $_i/12)."
+        fi
+        sleep 10
+    done
+
+    log "WARNING: native Windows Lemonade did not complete with ${model_id}; keeping bootstrap model for recovery."
+    return 1
+}
+
+patch_hermes_model_after_swap() {
+    local gpu_backend llm_backend old_model new_model tpl patcher py_cmd
+    gpu_backend="$(read_env_value GPU_BACKEND | tr '[:upper:]' '[:lower:]')"
+    llm_backend="$(read_env_value LLM_BACKEND | tr '[:upper:]' '[:lower:]')"
+    old_model="$BOOTSTRAP_GGUF_FILE"
+    new_model="$FULL_GGUF_FILE"
+    if [[ "$gpu_backend" == "amd" || "$llm_backend" == "lemonade" ]]; then
+        old_model="extra.$BOOTSTRAP_GGUF_FILE"
+        new_model="extra.$FULL_GGUF_FILE"
+    fi
+
+    log "Patching Hermes config after full-model swap: ${old_model} -> ${new_model}"
+
+    tpl="$INSTALL_DIR/extensions/services/hermes/cli-config.yaml.template"
+    patcher="$INSTALL_DIR/scripts/patch-hermes-config.py"
+    py_cmd="$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)"
+    if [[ -f "$tpl" ]]; then
+        if [[ -n "$py_cmd" && -f "$patcher" ]]; then
+            "$py_cmd" "$patcher" "$tpl" --model "$new_model" --context-length "$FULL_MAX_CONTEXT" 2>&1 || \
+                log "WARNING: Could not patch ${tpl} with patch-hermes-config.py"
+        elif sed -i.bak \
+            -e "s|^  default: \"${old_model}\"|  default: \"${new_model}\"|" \
+            -e "s|^  context_length: .*|  context_length: ${FULL_MAX_CONTEXT}|" \
+            -e "s|^    context_length: .*|    context_length: ${FULL_MAX_CONTEXT}|" \
+            "$tpl" 2>&1; then
+            rm -f "${tpl}.bak"
+        else
+            log "WARNING: Could not patch ${tpl}"
+        fi
+    fi
+
+    if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-hermes --format '{{.Names}}' 2>/dev/null | grep -q dream-hermes; then
+        $DOCKER_CMD exec dream-hermes sh -c \
+            "sed -i -e 's|^  default: \"${old_model}\"|  default: \"${new_model}\"|' -e 's|^  context_length: .*|  context_length: ${FULL_MAX_CONTEXT}|' -e 's|^    context_length: .*|    context_length: ${FULL_MAX_CONTEXT}|' /opt/data/config.yaml" 2>&1 || {
+                log "ERROR: Could not patch Hermes live config after full-model swap."
+                return 1
+            }
+        $DOCKER_CMD restart dream-hermes 2>&1 || {
+            log "ERROR: Could not restart Hermes after full-model swap."
+            return 1
+        }
+    fi
+
+    return 0
+}
+
 # Background monitor: polls .part file size every 2s
 monitor_download() {
     local part_file="$1" total_bytes="$2"
@@ -365,17 +536,9 @@ n-ctx = ${FULL_MAX_CONTEXT}
 EOF
 log "models.ini updated"
 
-# ── Phase 4b: Remove bootstrap model ──
-# Lemonade's --extra-models-dir auto-discovers all GGUFs in /models and may
-# load the bootstrap model instead of the full one specified in models.ini.
-# Remove the bootstrap file to prevent this.
 BOOTSTRAP_GGUF="${BOOTSTRAP_GGUF_FILE:-Qwen3.5-2B-Q4_K_M.gguf}"
 BOOTSTRAP_PATH="$MODELS_DIR/$BOOTSTRAP_GGUF"
-if [[ -f "$BOOTSTRAP_PATH" && "$FULL_GGUF_FILE" != "$BOOTSTRAP_GGUF" ]]; then
-    log "Removing bootstrap model: $BOOTSTRAP_GGUF"
-    rm -f "$BOOTSTRAP_PATH"
-    log "Bootstrap model removed"
-fi
+HOT_SWAP_VERIFIED=false
 
 # ── Phase 5: Hot-swap llama-server (if running) ──
 # Read OLLAMA_PORT from .env (nohup doesn't inherit env vars from parent)
@@ -383,7 +546,27 @@ if [[ -f "$ENV_FILE" ]]; then
     OLLAMA_PORT=$(grep -E '^OLLAMA_PORT=' "$ENV_FILE" | cut -d= -f2 | tr -d '"\047\r')
 fi
 
-if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --format '{{.Names}}' 2>/dev/null | grep -q dream-llama-server; then
+_windows_lemonade_swap_applies=false
+if is_windows_bash; then
+    _runtime_for_swap="$(read_env_value AMD_INFERENCE_RUNTIME | tr '[:upper:]' '[:lower:]')"
+    _backend_for_swap="$(read_env_value LLM_BACKEND | tr '[:upper:]' '[:lower:]')"
+    if [[ "$_runtime_for_swap" == "lemonade" || "$_backend_for_swap" == "lemonade" ]]; then
+        _windows_lemonade_swap_applies=true
+    fi
+fi
+
+if [[ "$_windows_lemonade_swap_applies" == "true" ]]; then
+    if restart_windows_lemonade_with_full_model; then
+        if ! patch_hermes_model_after_swap; then
+            write_status "failed"
+            exit 1
+        fi
+        HOT_SWAP_VERIFIED=true
+    else
+        write_status "failed"
+        exit 1
+    fi
+elif [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --format '{{.Names}}' 2>/dev/null | grep -q dream-llama-server; then
     log "Restarting llama-server with full model..."
 
     # Read GPU backend from .env (needed for health endpoint and restart strategy)
@@ -584,6 +767,7 @@ if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --f
 
     if $_healthy; then
         log "SUCCESS: llama-server is running with $FULL_LLM_MODEL"
+        HOT_SWAP_VERIFIED=true
         # Regenerate lemonade.yaml with the new model ID and restart LiteLLM.
         # Lemonade exposes models as "extra.<GGUF_FILE>" — the config must
         # reference the exact ID, not a wildcard passthrough.
@@ -939,6 +1123,7 @@ elif [[ -f "$INSTALL_DIR/data/.llama-server.pid" ]]; then
 
             if $_healthy; then
                 log "SUCCESS: Native llama-server running with ${_gguf_file} (PID $_new_pid)"
+                HOT_SWAP_VERIFIED=true
             else
                 log "WARNING: New model failed to load. Attempting rollback..."
                 kill "$_new_pid" 2>/dev/null || true
@@ -967,6 +1152,20 @@ elif [[ -f "$INSTALL_DIR/data/.llama-server.pid" ]]; then
     fi
 else
     log "Docker services not running. Config updated — full model will load on next start."
+fi
+
+# ── Phase 5b: Remove bootstrap model only after verified full-model serving ──
+# Lemonade's --extra-models-dir auto-discovers all GGUFs in /models. Removing
+# the bootstrap too early can wedge Windows Lemonade: it may keep serving the
+# old model id while the file is gone, producing 500s until a manual restart.
+# Keep the bootstrap as the recovery path unless the new model has answered a
+# real completion.
+if [[ "$HOT_SWAP_VERIFIED" == "true" && -f "$BOOTSTRAP_PATH" && "$FULL_GGUF_FILE" != "$BOOTSTRAP_GGUF" ]]; then
+    log "Removing bootstrap model after verified full-model serving: $BOOTSTRAP_GGUF"
+    rm -f "$BOOTSTRAP_PATH"
+    log "Bootstrap model removed"
+elif [[ "$FULL_GGUF_FILE" != "$BOOTSTRAP_GGUF" && -f "$BOOTSTRAP_PATH" ]]; then
+    log "Keeping bootstrap model until the full model is verified serving: $BOOTSTRAP_GGUF"
 fi
 
 # ── Phase 5c: Update Perplexica's defaultChatModel ──

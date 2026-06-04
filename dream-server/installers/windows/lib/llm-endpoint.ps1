@@ -162,7 +162,6 @@ function Test-WindowsLlmModelReadiness {
         [Parameter(Mandatory = $true)] [hashtable]$Endpoint,
         [Parameter(Mandatory = $true)] [string]$InstallDir,
         [string]$GgufFile = "",
-        [string]$GpuBackend = "",
         [int]$TimeoutSec = 120
     )
 
@@ -178,9 +177,18 @@ function Test-WindowsLlmModelReadiness {
         $result.FileExists = $true
     }
 
-    # 2. Resolve the served model id (AMD Lemonade prefixes discovered GGUFs with 'extra.').
+    # 2. Resolve the served model id. Lemonade prefixes discovered GGUFs with
+    #    'extra.', while the native llama-server fallback serves the GGUF name
+    #    directly. Key this off the resolved endpoint, not the broader AMD GPU
+    #    family, so a valid Vulkan fallback install does not false-fail.
     $modelId = $GgufFile
-    if (-not [string]::IsNullOrWhiteSpace($GgufFile) -and $GpuBackend.ToLowerInvariant() -eq "amd") {
+    $isLemonadeEndpoint = $false
+    if ($Endpoint.ContainsKey("Backend")) {
+        $isLemonadeEndpoint = ([string]$Endpoint.Backend).ToLowerInvariant() -eq "lemonade"
+    } elseif ($Endpoint.ContainsKey("ApiBasePath")) {
+        $isLemonadeEndpoint = ([string]$Endpoint.ApiBasePath) -eq "/api/v1"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($GgufFile) -and $isLemonadeEndpoint) {
         $modelId = "extra.$GgufFile"
     }
     if ([string]::IsNullOrWhiteSpace($modelId)) { $modelId = "default" }

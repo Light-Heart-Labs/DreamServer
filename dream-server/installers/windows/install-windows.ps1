@@ -1198,7 +1198,7 @@ foreach ($check in $healthChecks) {
 if (-not $cloudMode) {
     Write-AI "Verifying the LLM can actually serve a completion..."
     $llmReady = Test-WindowsLlmModelReadiness -Endpoint $llmEndpoint -InstallDir $installDir `
-        -GgufFile $tierConfig.GgufFile -GpuBackend $gpuInfo.Backend -TimeoutSec 120
+        -GgufFile $tierConfig.GgufFile -TimeoutSec 120
     if ($llmReady.Ok) {
         Write-AISuccess "LLM serving verified (model: $($llmReady.ModelId))"
     } else {
