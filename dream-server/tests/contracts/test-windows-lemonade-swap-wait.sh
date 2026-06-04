@@ -15,6 +15,11 @@
 #      bare `write_status "failed"` that zeroes bytesDownloaded/bytesTotal and
 #      reads as a 0-byte download failure (which is what originally misled
 #      triage into thinking the download never started).
+#
+#   3. The full-model swap must not leave active config split-brained. The
+#      script updates .env/models.ini before restarting native Lemonade; if the
+#      full model cannot be proven, it must restore the previous active config
+#      so the bootstrap model remains the last-known-good runtime.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -65,6 +70,26 @@ if grep -q 'Hermes config patch failed after swap' "$SCRIPT"; then
     pass "post-swap Hermes-patch failure reports real bytes + cause"
 else
     fail "post-swap Hermes-patch failure must report real bytes + cause, not a bare failed status"
+fi
+
+# ---------------------------------------------------------------------------
+# 5. Windows Lemonade swap must snapshot and restore active config on failure.
+# ---------------------------------------------------------------------------
+if grep -q 'snapshot_active_model_config' "$SCRIPT" \
+   && grep -q 'restore_active_model_config' "$SCRIPT" \
+   && grep -q 'Restoring previous active model config after Windows Lemonade swap timeout' "$SCRIPT"; then
+    pass "Windows Lemonade swap snapshots active config and restores it on timeout"
+else
+    fail "Windows Lemonade swap failure must restore the previous active .env/models.ini config"
+fi
+
+# ---------------------------------------------------------------------------
+# 6. Failure status should tell operators the active config was restored.
+# ---------------------------------------------------------------------------
+if grep -q 'Previous active model config restored and bootstrap model kept' "$SCRIPT"; then
+    pass "swap-timeout status tells the operator the previous active config was restored"
+else
+    fail "swap-timeout status should explicitly say the previous active config was restored"
 fi
 
 echo "------------------------------------------------------------"

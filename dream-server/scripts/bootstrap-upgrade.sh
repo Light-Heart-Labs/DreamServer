@@ -103,6 +103,56 @@ write_failed_download_status() {
     write_status "failed" "$percent" "$downloaded" "$total" 0 "$message"
 }
 
+ACTIVE_CONFIG_SNAPSHOT_DIR=""
+
+snapshot_active_model_config() {
+    local snapshot_base
+    snapshot_base="${INSTALL_DIR}/data"
+    mkdir -p "$snapshot_base" 2>/dev/null || return 1
+    ACTIVE_CONFIG_SNAPSHOT_DIR="$(mktemp -d "${snapshot_base}/bootstrap-upgrade-active-config.XXXXXX" 2>/dev/null || true)"
+    [[ -n "$ACTIVE_CONFIG_SNAPSHOT_DIR" ]] || return 1
+
+    if [[ -f "$ENV_FILE" ]]; then
+        cp -p "$ENV_FILE" "$ACTIVE_CONFIG_SNAPSHOT_DIR/env" || return 1
+    else
+        : > "$ACTIVE_CONFIG_SNAPSHOT_DIR/env.missing"
+    fi
+
+    if [[ -f "$MODELS_INI" ]]; then
+        mkdir -p "$ACTIVE_CONFIG_SNAPSHOT_DIR/config-llama-server" || return 1
+        cp -p "$MODELS_INI" "$ACTIVE_CONFIG_SNAPSHOT_DIR/config-llama-server/models.ini" || return 1
+    else
+        : > "$ACTIVE_CONFIG_SNAPSHOT_DIR/models.ini.missing"
+    fi
+}
+
+restore_active_model_config() {
+    [[ -n "${ACTIVE_CONFIG_SNAPSHOT_DIR:-}" && -d "$ACTIVE_CONFIG_SNAPSHOT_DIR" ]] || return 1
+
+    if [[ -f "$ACTIVE_CONFIG_SNAPSHOT_DIR/env" ]]; then
+        cp -p "$ACTIVE_CONFIG_SNAPSHOT_DIR/env" "$ENV_FILE" || return 1
+    elif [[ -f "$ACTIVE_CONFIG_SNAPSHOT_DIR/env.missing" ]]; then
+        rm -f "$ENV_FILE"
+    fi
+
+    if [[ -f "$ACTIVE_CONFIG_SNAPSHOT_DIR/config-llama-server/models.ini" ]]; then
+        mkdir -p "$(dirname "$MODELS_INI")" || return 1
+        cp -p "$ACTIVE_CONFIG_SNAPSHOT_DIR/config-llama-server/models.ini" "$MODELS_INI" || return 1
+    elif [[ -f "$ACTIVE_CONFIG_SNAPSHOT_DIR/models.ini.missing" ]]; then
+        rm -f "$MODELS_INI"
+    fi
+
+    rm -rf "$ACTIVE_CONFIG_SNAPSHOT_DIR"
+    ACTIVE_CONFIG_SNAPSHOT_DIR=""
+}
+
+discard_active_model_config_snapshot() {
+    if [[ -n "${ACTIVE_CONFIG_SNAPSHOT_DIR:-}" ]]; then
+        rm -rf "$ACTIVE_CONFIG_SNAPSHOT_DIR"
+        ACTIVE_CONFIG_SNAPSHOT_DIR=""
+    fi
+}
+
 sync_windows_opencode_config() {
     case "$(uname -s)" in
         MINGW*|MSYS*|CYGWIN*) ;;
@@ -504,6 +554,25 @@ if [[ -n "$FULL_GGUF_SHA256" ]]; then
     fi
 fi
 
+_windows_lemonade_swap_applies=false
+if is_windows_bash; then
+    _runtime_for_swap="$(read_env_value AMD_INFERENCE_RUNTIME | tr '[:upper:]' '[:lower:]')"
+    _backend_for_swap="$(read_env_value LLM_BACKEND | tr '[:upper:]' '[:lower:]')"
+    if [[ "$_runtime_for_swap" == "lemonade" || "$_backend_for_swap" == "lemonade" ]]; then
+        _windows_lemonade_swap_applies=true
+    fi
+fi
+
+if [[ "$_windows_lemonade_swap_applies" == "true" ]]; then
+    log "Snapshotting active Windows Lemonade model config before full-model swap..."
+    if ! snapshot_active_model_config; then
+        discard_active_model_config_snapshot
+        write_status "failed" 100 "$TOTAL_BYTES" "$TOTAL_BYTES" 0 \
+            "Full model downloaded and verified, but Dream Server could not snapshot active model config before swap. Bootstrap model left unchanged; re-run to retry."
+        exit 1
+    fi
+fi
+
 # ── Phase 3: Update .env ──
 write_status "swapping" 100 "$TOTAL_BYTES" "$TOTAL_BYTES" 0 ""
 log "Updating .env..."
@@ -553,15 +622,6 @@ if [[ -f "$ENV_FILE" ]]; then
     OLLAMA_PORT=$(grep -E '^OLLAMA_PORT=' "$ENV_FILE" | cut -d= -f2 | tr -d '"\047\r')
 fi
 
-_windows_lemonade_swap_applies=false
-if is_windows_bash; then
-    _runtime_for_swap="$(read_env_value AMD_INFERENCE_RUNTIME | tr '[:upper:]' '[:lower:]')"
-    _backend_for_swap="$(read_env_value LLM_BACKEND | tr '[:upper:]' '[:lower:]')"
-    if [[ "$_runtime_for_swap" == "lemonade" || "$_backend_for_swap" == "lemonade" ]]; then
-        _windows_lemonade_swap_applies=true
-    fi
-fi
-
 if [[ "$_windows_lemonade_swap_applies" == "true" ]]; then
     if restart_windows_lemonade_with_full_model; then
         if ! patch_hermes_model_after_swap; then
@@ -569,19 +629,24 @@ if [[ "$_windows_lemonade_swap_applies" == "true" ]]; then
             # config patch failed. Report the real byte counts and the actual
             # cause, not a bare write_status "failed" that zeroes the byte fields
             # and reads as a 0-byte download failure (#1517).
+            log "Restoring previous active model config after Hermes patch failure..."
+            restore_active_model_config || log "WARNING: could not restore active model config; inspect $ENV_FILE and $MODELS_INI"
             write_status "failed" 100 "$TOTAL_BYTES" "$TOTAL_BYTES" 0 \
-                "Full model downloaded and loaded, but the Hermes config patch failed after swap. Re-run to retry."
+                "Full model downloaded and loaded, but the Hermes config patch failed after swap. Previous active model config restored; re-run to retry."
             exit 1
         fi
         HOT_SWAP_VERIFIED=true
+        discard_active_model_config_snapshot
     else
         # The model downloaded and verified (byte counts are real); the native
         # Windows Lemonade swap did not register/load it within the wait window,
         # so the bootstrap model is kept. Report the real bytes + cause instead
         # of a bare write_status "failed" that zeroes bytesDownloaded/bytesTotal
         # and misreads as a 0-byte download failure (#1517).
+        log "Restoring previous active model config after Windows Lemonade swap timeout..."
+        restore_active_model_config || log "WARNING: could not restore active model config; inspect $ENV_FILE and $MODELS_INI"
         write_status "failed" 100 "$TOTAL_BYTES" "$TOTAL_BYTES" 0 \
-            "Model downloaded and verified, but native Windows Lemonade did not load it after swap (registration timeout). Bootstrap model kept; re-run to retry the swap."
+            "Model downloaded and verified, but native Windows Lemonade did not load it after swap (registration timeout). Previous active model config restored and bootstrap model kept; re-run to retry the swap."
         exit 1
     fi
 elif [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --format '{{.Names}}' 2>/dev/null | grep -q dream-llama-server; then
