@@ -14,6 +14,8 @@
 $script:CATALOG_SELECTOR_POLICY = "context-aware-largest-capable-general-v1"
 $script:SPARK_AARCH64_POLICY = "spark-aarch64-nv-ultra-a3b-v1"
 $script:SPARK_AARCH64_MODEL_ID = "qwen3.6-35b-a3b-ud-q4"
+$script:UNIFIED_MEMORY_POLICY = "unified-memory-coder-next-a3b-v1"
+$script:UNIFIED_MEMORY_MODEL_ID = "qwen3.6-35b-a3b-ud-q4"
 
 function Normalize-ModelProfile {
     param([string]$ModelProfile = $env:MODEL_PROFILE)
@@ -115,13 +117,17 @@ function Resolve-QwenTierConfig {
             }
         }
         "SH_LARGE" {
+            # Strix Halo (AMD Ryzen AI MAX+ 395, 124GB unified) should stay
+            # on the A3B MoE path proven by fleet. Dense 70B/Coder Next choices
+            # are too aggressive for Windows Lemonade first-run recovery.
             return @{
                 TierName   = "Strix Halo 90+"
-                LlmModel   = "qwen3-coder-next"
-                GgufFile   = "qwen3-coder-next-Q4_K_M.gguf"
-                GgufUrl    = "https://huggingface.co/unsloth/Qwen3-Coder-Next-GGUF/resolve/main/Qwen3-Coder-Next-Q4_K_M.gguf"
-                GgufSha256 = ""
+                LlmModel   = "qwen3.6-35b-a3b"
+                GgufFile   = "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
+                GgufUrl    = "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
+                GgufSha256 = "ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61"
                 MaxContext = 131072
+                ModelSizeMB = 21110
                 ModelProfileRequested = "qwen"
                 ModelProfileEffective = "qwen"
                 LlamaServerImage = ""
@@ -581,6 +587,15 @@ function Resolve-CatalogModelRecommendation {
         $hostArchName = Get-HostArchitecture
     }
 
+    $backendName = "$($GpuInfo.Backend)".ToLowerInvariant()
+    $memoryTypeName = "$($GpuInfo.MemoryType)".ToLowerInvariant()
+    $isAmdUnifiedStrixLarge = (
+        $Tier -eq "SH_LARGE" -and
+        $modelProfileName -eq "qwen" -and
+        $backendName -eq "amd" -and
+        $memoryTypeName -eq "unified"
+    )
+
     if ($Tier -eq "NV_ULTRA" -and $modelProfileName -eq "qwen" -and $hostArchName -eq "arm64") {
         $selectedArchModel = Get-CatalogModelById -Catalog $catalog -ModelId $script:SPARK_AARCH64_MODEL_ID
         if ($selectedArchModel -and $selectedArchModel.gguf_url) {
@@ -602,6 +617,31 @@ function Resolve-CatalogModelRecommendation {
             $TierConfig["RecommendationConfidence"] = "high"
             $TierConfig["RecommendationReason"] = $reason
             $TierConfig["RecommendationAlternatives"] = "$($selectedArchModel.id):$([int]$selectedArchModel.context_length):$([double]$selectedRequiredGb)"
+            return $TierConfig
+        }
+    }
+
+    if ($isAmdUnifiedStrixLarge) {
+        $selectedUnifiedModel = Get-CatalogModelById -Catalog $catalog -ModelId $script:UNIFIED_MEMORY_MODEL_ID
+        if ($selectedUnifiedModel -and $selectedUnifiedModel.gguf_url) {
+            $selectedRequiredGb = Get-CatalogModelSelectorRequiredGB -Model $selectedUnifiedModel
+            $contextK = [int]([int]$selectedUnifiedModel.context_length / 1024)
+            $reason = "Arch-aware catalog policy ($script:UNIFIED_MEMORY_POLICY): $($selectedUnifiedModel.name) is selected for AMD unified-memory SH_LARGE hosts because Qwen3.6-35B-A3B is the fleet-proven Windows Lemonade target. Dense 70B and Coder Next defaults are avoided for first-run recovery. It needs about ${selectedRequiredGb}GB including context/KV, fits $([Math]::Round($capacityGb, 1))GB $($memory.Label), and gives ${contextK}K context. Throughput requires a local benchmark after first launch."
+
+            $TierConfig["LlmModel"] = $selectedUnifiedModel.llm_model_name
+            $TierConfig["GgufFile"] = $selectedUnifiedModel.gguf_file
+            $TierConfig["GgufUrl"] = $selectedUnifiedModel.gguf_url
+            $TierConfig["GgufSha256"] = $selectedUnifiedModel.gguf_sha256
+            $TierConfig["MaxContext"] = [int]$selectedUnifiedModel.context_length
+            $TierConfig["ModelSizeMB"] = [int][Math]::Round([double]$selectedUnifiedModel.size_mb)
+            if ($selectedUnifiedModel.llama_server_image) {
+                $TierConfig["LlamaServerImage"] = $selectedUnifiedModel.llama_server_image
+            }
+            $TierConfig["RecommendationSource"] = "catalog_arch_policy_pre_download"
+            $TierConfig["RecommendationPolicy"] = "$script:CATALOG_SELECTOR_POLICY+$script:UNIFIED_MEMORY_POLICY"
+            $TierConfig["RecommendationConfidence"] = "high"
+            $TierConfig["RecommendationReason"] = $reason
+            $TierConfig["RecommendationAlternatives"] = "$($selectedUnifiedModel.id):$([int]$selectedUnifiedModel.context_length):$([double]$selectedRequiredGb)"
             return $TierConfig
         }
     }
@@ -737,7 +777,7 @@ function ConvertTo-ModelFromTier {
     switch -Regex ($Tier) {
         "^CLOUD$"                { return "anthropic/claude-sonnet-4-5-20250514" }
         "^NV_ULTRA$"             { return "qwen3-coder-next" }
-        "^SH_LARGE$"             { return "qwen3-coder-next" }
+        "^SH_LARGE$"             { return "qwen3.6-35b-a3b" }
         "^(SH_COMPACT|SH)$"      { return "qwen3-30b-a3b" }
         "^(0|T0)$"               { return "qwen3.5-2b" }
         "^(1|T1)$"               { return "qwen3.5-9b" }

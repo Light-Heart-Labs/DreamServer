@@ -31,6 +31,7 @@ test: ## Run unit and contract tests
 	@echo "=== AMD/Lemonade contracts ==="
 	@bash tests/contracts/test-amd-lemonade-contracts.sh
 	@bash tests/test-litellm-amd-auth-enforced.sh
+	@bash tests/contracts/test-windows-strix-tier-map.sh
 	@bash tests/contracts/test-windows-llm-model-readiness.sh
 	@echo ""
 	@echo "=== Overlay/plist contracts ==="
