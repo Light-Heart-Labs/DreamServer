@@ -142,3 +142,82 @@ function Get-WindowsLocalLlmEndpoint {
         ChatCompletionsUrl = "http://localhost:${port}${apiBasePath}/chat/completions"
     }
 }
+
+function Test-WindowsLlmModelReadiness {
+    <#
+    .SYNOPSIS
+        Prove the local LLM can actually serve, not just that its process is alive.
+    .DESCRIPTION
+        A healthy Lemonade/llama-server process is NOT proof the model works: if the
+        GGUF backing file was never placed on disk, /v1/models still lists the model
+        but every chat/completions returns 500. This gate proves two things before an
+        install may report healthy:
+          1. the GGUF backing file exists at the path the backend loads from, and
+          2. a minimal completion actually succeeds (the real user path).
+        Returns a result hashtable; the caller decides fatality.
+    .OUTPUTS
+        @{ Ok; FileExists; ModelFile; ModelId; CompletionOk; Detail }
+    #>
+    param(
+        [Parameter(Mandatory = $true)] [hashtable]$Endpoint,
+        [Parameter(Mandatory = $true)] [string]$InstallDir,
+        [string]$GgufFile = "",
+        [string]$GpuBackend = "",
+        [int]$TimeoutSec = 120
+    )
+
+    $result = @{ Ok = $false; FileExists = $false; ModelFile = ""; ModelId = ""; CompletionOk = $false; Detail = "" }
+
+    # 1. The backing GGUF must exist on disk where the backend loads it from.
+    if (-not [string]::IsNullOrWhiteSpace($GgufFile)) {
+        $modelPath = Join-Path (Join-Path (Join-Path $InstallDir "data") "models") $GgufFile
+        $result.ModelFile = $modelPath
+        $result.FileExists = Test-Path $modelPath
+    } else {
+        # No local GGUF configured (e.g. cloud/managed backend) -> file gate N/A.
+        $result.FileExists = $true
+    }
+
+    # 2. Resolve the served model id (AMD Lemonade prefixes discovered GGUFs with 'extra.').
+    $modelId = $GgufFile
+    if (-not [string]::IsNullOrWhiteSpace($GgufFile) -and $GpuBackend.ToLowerInvariant() -eq "amd") {
+        $modelId = "extra.$GgufFile"
+    }
+    if ([string]::IsNullOrWhiteSpace($modelId)) { $modelId = "default" }
+    $result.ModelId = $modelId
+
+    # 3. A minimal completion must actually succeed -- this is the real user path that
+    #    a "registered but missing file" install silently fails.
+    $body = @{
+        model       = $modelId
+        messages    = @(@{ role = "user"; content = "hi" })
+        max_tokens  = 1
+        temperature = 0
+        stream      = $false
+    } | ConvertTo-Json -Compress -Depth 5
+
+    try {
+        $resp = Invoke-WebRequest -Method POST -Uri $Endpoint.ChatCompletionsUrl `
+            -ContentType "application/json" -Body $body -TimeoutSec $TimeoutSec `
+            -UseBasicParsing -ErrorAction Stop
+        if ([int]$resp.StatusCode -ge 200 -and [int]$resp.StatusCode -lt 300) {
+            $result.CompletionOk = $true
+        }
+    } catch [System.Net.WebException] {
+        # Narrow I/O-boundary catch: map the failed completion to a meaningful status.
+        $code = -1
+        if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
+        $result.Detail = "completion request failed (status=$code)"
+    }
+
+    if ($result.FileExists -and $result.CompletionOk) {
+        $result.Ok = $true
+        $result.Detail = "model file present and completion succeeded"
+    } elseif (-not $result.FileExists) {
+        $result.Detail = "model '$modelId' is registered but its backing file is missing: $($result.ModelFile)"
+    } elseif ([string]::IsNullOrWhiteSpace($result.Detail)) {
+        $result.Detail = "completion did not succeed"
+    }
+
+    return $result
+}

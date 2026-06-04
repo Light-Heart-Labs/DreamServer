@@ -1189,6 +1189,28 @@ foreach ($check in $healthChecks) {
     }
 }
 
+# ── LLM model-serving gate ───────────────────────────────────────────────────
+# A healthy LLM process is NOT proof the model can serve: if the GGUF backing file
+# was never placed on disk, /v1/models still lists it but every completion 500s.
+# Prove the file exists AND a minimal completion succeeds before this install may
+# report healthy — otherwise fail loud instead of a "health says yes, chat says no"
+# green install.
+if (-not $cloudMode) {
+    Write-AI "Verifying the LLM can actually serve a completion..."
+    $llmReady = Test-WindowsLlmModelReadiness -Endpoint $llmEndpoint -InstallDir $installDir `
+        -GgufFile $tierConfig.GgufFile -GpuBackend $gpuInfo.Backend -TimeoutSec 120
+    if ($llmReady.Ok) {
+        Write-AISuccess "LLM serving verified (model: $($llmReady.ModelId))"
+    } else {
+        $allHealthy = $false
+        Write-AIError "LLM not serving: $($llmReady.Detail)"
+        if (-not $llmReady.FileExists) {
+            Write-Host "    Model file missing: $($llmReady.ModelFile)" -ForegroundColor DarkGray
+            Write-Host "    Re-run the installer to (re)download it: .\install.ps1" -ForegroundColor DarkGray
+        }
+    }
+}
+
 # ── Pre-download the Whisper STT model ───────────────────────────────────────
 # Speaches does NOT auto-download on transcription requests — it returns 404.
 # Trigger the download explicitly, verify it completed, surface recovery
