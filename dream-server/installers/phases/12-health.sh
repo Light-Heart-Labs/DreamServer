@@ -56,6 +56,7 @@ sleep 5
 # Health checks are best-effort — track failures but don't let set -e kill the install.
 # Services may need more startup time; we report all failures at the end.
 HEALTH_FAILURES=0
+EMBEDDINGS_HEALTH_FAILED=false
 _check_health() {
     if ! check_service "$@"; then
         HEALTH_FAILURES=$((HEALTH_FAILURES + 1))
@@ -288,7 +289,10 @@ fi
 # on bufferbloated networks before /health responds.
 if [[ "${ENABLE_EMBEDDINGS:-${ENABLE_RAG:-false}}" == "true" ]]; then
     dream_progress 94 "health" "Waiting for Embeddings"
-    _check_health "embeddings" "http://127.0.0.1:${SERVICE_PORTS[embeddings]:-7860}${SERVICE_HEALTH[embeddings]:-/health}" 150 10 "$(sr_container embeddings)"
+    if ! check_service "embeddings" "http://127.0.0.1:${SERVICE_PORTS[embeddings]:-8090}${SERVICE_HEALTH[embeddings]:-/health}" 150 10 "$(sr_container embeddings)"; then
+        HEALTH_FAILURES=$((HEALTH_FAILURES + 1))
+        EMBEDDINGS_HEALTH_FAILED=true
+    fi
 fi
 
 # Perplexica auto-config: seed chat model + embedding model on first boot.
@@ -452,6 +456,13 @@ if [[ "$HEALTH_FAILURES" -gt 0 ]]; then
     ai_warn "${HEALTH_FAILURES} service(s) did not pass health checks."
     ai_warn "Some services may still be starting. Check with: dream status"
     ai_warn "Logs: docker compose logs <service-name>"
+    if [[ "$EMBEDDINGS_HEALTH_FAILED" == "true" ]]; then
+        ai_warn "Embeddings/RAG was selected, but the embeddings service did not become healthy."
+        ai_warn "This often means text-embeddings-inference stalled while downloading its ONNX model from Hugging Face."
+        ai_warn "Recovery: docker compose logs embeddings"
+        ai_warn "Then retry after network/CDN recovery: docker compose up -d embeddings"
+        exit 1
+    fi
     if [[ "${COMPOSE_STARTED_WITH_DELAYED_HEALTH:-false}" == "true" ]]; then
         ai_warn "Docker Compose reported delayed LLM health during launch, and the longer health checks did not recover."
         exit 1

@@ -8,6 +8,8 @@ services:
       - no-new-privileges:true
     environment:
       - MODEL_ID=${EMBEDDING_MODEL:-BAAI/bge-base-en-v1.5}
+      - HF_HUB_DOWNLOAD_TIMEOUT=${HF_HUB_DOWNLOAD_TIMEOUT:-120}
+      - HF_HUB_ETAG_TIMEOUT=${HF_HUB_ETAG_TIMEOUT:-30}
     volumes:
       - ./data/embeddings:/data:z
     ports:
