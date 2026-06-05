@@ -264,22 +264,30 @@ function New-DreamEnv {
     $langfuseInitUserEmail     = Get-EnvOrNew "LANGFUSE_INIT_USER_EMAIL"   "admin@dreamserver.local"
     $langfuseInitUserPassword  = Get-EnvOrNew "LANGFUSE_INIT_USER_PASSWORD" (New-SecureHex -Bytes 16)
 
-    # Determine LLM backend engine and API URL
-    # AMD on Windows: inference server runs natively, containers reach it via host.docker.internal
-    # NVIDIA: llama-server runs in Docker, containers reach it via service name
+    # Determine LLM backend engine and API URL.
+    # AMD on Windows runs inference natively on the host. When that runtime is
+    # Lemonade, DREAM_MODE must also be lemonade so the LiteLLM container mounts
+    # config/litellm/lemonade.yaml instead of local.yaml's in-container
+    # llama-server route.
+    $windowsAmdHostInference = ($GpuBackend -eq "amd" -and $DreamMode -ne "cloud")
+    $windowsAmdLemonade = ($windowsAmdHostInference -and $AmdInferenceRuntime -eq "lemonade")
+    $effectiveDreamMode = $(if ($windowsAmdLemonade) { "lemonade" } else { $DreamMode })
+
     # NOTE: $(if ...) syntax required for PS 5.1 compatibility
-    $llmBackend = $(if ($GpuBackend -eq "amd") {
+    $llmBackend = $(if ($windowsAmdLemonade) {
         "lemonade"
     } elseif ($DreamMode -eq "cloud") {
         "litellm"
+    } elseif ($windowsAmdHostInference) {
+        "llama-server"
     } else {
         "llama-server"
     })
 
     # Lemonade serves OpenAI-compatible API at /api/v1; llama-server at /v1
-    $llmApiBasePath = $(if ($GpuBackend -eq "amd") { "/api/v1" } else { "/v1" })
+    $llmApiBasePath = $(if ($windowsAmdLemonade) { "/api/v1" } else { "/v1" })
 
-    $llmApiUrl = $(if ($GpuBackend -eq "amd") {
+    $llmApiUrl = $(if ($windowsAmdHostInference) {
         "http://host.docker.internal:8080"
     } elseif ($DreamMode -eq "cloud") {
         "http://litellm:4000"
@@ -344,7 +352,7 @@ BIND_ADDRESS=$(Get-EnvOrNew "BIND_ADDRESS" "$(if ($EnableLan) { "0.0.0.0" } else
 DREAM_AGENT_HOST=$(Get-EnvOrNew "DREAM_AGENT_HOST" "host.docker.internal")
 
 #=== LLM Backend Mode ===
-DREAM_MODE=$DreamMode
+DREAM_MODE=$effectiveDreamMode
 LLM_BACKEND=$llmBackend
 LLM_API_URL=$llmApiUrl
 LLM_API_BASE_PATH=$llmApiBasePath
@@ -492,6 +500,41 @@ LANGFUSE_INIT_USER_PASSWORD=$langfuseInitUserPassword
 
     $envPath = Join-Path $InstallDir ".env"
     Write-Utf8NoBom -Path $envPath -Content $envContent
+
+    if ($windowsAmdLemonade) {
+        $litellmDir = Join-Path (Join-Path $InstallDir "config") "litellm"
+        New-Item -ItemType Directory -Path $litellmDir -Force | Out-Null
+        $lemonadePort = $(if ($AmdInferencePort) { $AmdInferencePort } else { "8080" })
+        $lemonadeModel = "extra.$($TierConfig.GgufFile)"
+        $lemonadeApiBase = "http://host.docker.internal:$lemonadePort/api/v1"
+        $lemonadeConfig = @"
+model_list:
+  - model_name: default
+    litellm_params:
+      model: openai/$lemonadeModel
+      api_base: $lemonadeApiBase
+      api_key: $litellmLemonadeApiKey
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+
+  - model_name: "*"
+    litellm_params:
+      model: openai/$lemonadeModel
+      api_base: $lemonadeApiBase
+      api_key: $litellmLemonadeApiKey
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false
+  request_timeout: 120
+  stream_timeout: 60
+"@
+        Write-Utf8NoBom -Path (Join-Path $litellmDir "lemonade.yaml") -Content $lemonadeConfig
+    }
 
     # Restrict .env to current user only (Windows ACL equivalent of chmod 600)
     try {

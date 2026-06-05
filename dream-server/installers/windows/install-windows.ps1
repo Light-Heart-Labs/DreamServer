@@ -540,6 +540,7 @@ if ($dryRun) {
                 $envPath = Join-Path $installDir ".env"
                 if (Test-Path $envPath) {
                     $envContent = Get-Content $envPath -Raw
+                    $envContent = $envContent -replace "(?m)^DREAM_MODE=.*$", "DREAM_MODE=local"
                     $envContent = $envContent -replace "(?m)^LLM_BACKEND=.*$", "LLM_BACKEND=llama-server"
                     $envContent = $envContent -replace "(?m)^LLM_API_BASE_PATH=.*$", "LLM_API_BASE_PATH=/v1"
                     $envContent = $envContent -replace "(?m)^AMD_INFERENCE_RUNTIME=.*$", "AMD_INFERENCE_RUNTIME=llama-server"

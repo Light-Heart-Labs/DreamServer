@@ -3706,6 +3706,7 @@ def _render_runtime_config(
     *,
     gguf_file: str,
     lemonade_api_key: str,
+    lemonade_api_base: str,
     dream_mode: str,
     gpu_backend: str,
 ) -> bool:
@@ -3723,6 +3724,8 @@ def _render_runtime_config(
         gpu_backend,
         "--gguf-file",
         gguf_file,
+        "--lemonade-api-base",
+        lemonade_api_base,
         "--litellm-key",
         lemonade_api_key,
         "--output-root",
@@ -3760,11 +3763,16 @@ def _write_lemonade_config(install_dir: Path, gguf_file: str):
     lemonade_api_key = env.get("LITELLM_LEMONADE_API_KEY", "sk-lemonade")
     dream_mode = env.get("DREAM_MODE", "lemonade")
     gpu_backend = env.get("GPU_BACKEND", "amd")
+    lemonade_api_base = "http://llama-server:8080/api/v1"
+    if env.get("AMD_INFERENCE_LOCATION", "").lower() == "host":
+        lemonade_port = env.get("AMD_INFERENCE_PORT", "8080") or "8080"
+        lemonade_api_base = f"http://host.docker.internal:{lemonade_port}/api/v1"
     if _render_runtime_config(
         install_dir,
         "litellm-lemonade",
         gguf_file=gguf_file,
         lemonade_api_key=lemonade_api_key,
+        lemonade_api_base=lemonade_api_base,
         dream_mode=dream_mode,
         gpu_backend=gpu_backend,
     ):
@@ -3776,7 +3784,7 @@ def _write_lemonade_config(install_dir: Path, gguf_file: str):
         "  - model_name: \"*\"\n"
         "    litellm_params:\n"
         f"      model: openai/extra.{gguf_file}\n"
-        "      api_base: http://llama-server:8080/api/v1\n"
+        f"      api_base: {lemonade_api_base}\n"
         f"      api_key: {lemonade_api_key}\n"
         "      extra_body:\n"
         "        chat_template_kwargs:\n"

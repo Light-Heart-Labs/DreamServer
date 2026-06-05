@@ -319,8 +319,25 @@ if command -v pwsh >/dev/null 2>&1; then
         }
         New-DreamEnv -InstallDir $installDir -TierConfig $tier -Tier "SH" -GpuBackend "amd" -AmdInferenceRuntime "lemonade" -AmdInferenceLocation "host" | Out-Null
         $envText = Get-Content -LiteralPath (Join-Path $installDir ".env") -Raw
+        if ($envText -notmatch "(?m)^DREAM_MODE=lemonade$") {
+            throw "Expected Windows AMD Lemonade installs to write DREAM_MODE=lemonade"
+        }
+        if ($envText -notmatch "(?m)^LLM_BACKEND=lemonade$") {
+            throw "Expected Windows AMD Lemonade installs to write LLM_BACKEND=lemonade"
+        }
         if ($envText -notmatch "(?m)^WHISPER_PORT=9100$") {
             throw "Expected WHISPER_PORT=9100 for Windows AMD managed Lemonade"
+        }
+        $litellmConfig = Join-Path (Join-Path (Join-Path $installDir "config") "litellm") "lemonade.yaml"
+        if (-not (Test-Path -LiteralPath $litellmConfig)) {
+            throw "Expected Windows AMD Lemonade installs to generate config/litellm/lemonade.yaml"
+        }
+        $litellmText = Get-Content -LiteralPath $litellmConfig -Raw
+        if ($litellmText -notmatch "api_base: http://host\.docker\.internal:8080/api/v1") {
+            throw "Expected Windows AMD Lemonade LiteLLM config to route through host.docker.internal:8080/api/v1"
+        }
+        if ($litellmText -match "api_base: http://llama-server:8080/api/v1") {
+            throw "Windows AMD Lemonade LiteLLM config must not route to in-container llama-server"
         }
 
         Set-Content -LiteralPath (Join-Path $installDir ".env") -Value "WHISPER_PORT=9000`n" -NoNewline

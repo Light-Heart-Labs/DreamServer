@@ -989,6 +989,13 @@ elif [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server -
             # went from "hangs indefinitely" to 1.8s end-to-end with this
             # one block added. The kwarg is a Qwen3-specific switch and is
             # safely ignored by non-Qwen3 chat templates.
+            _lemonade_api_base="http://llama-server:8080/api/v1"
+            _amd_location="$(read_env_value AMD_INFERENCE_LOCATION | tr '[:upper:]' '[:lower:]')"
+            _amd_port="$(read_env_value AMD_INFERENCE_PORT)"
+            : "${_amd_port:=8080}"
+            if [[ "$_amd_location" == "host" ]]; then
+                _lemonade_api_base="http://host.docker.internal:${_amd_port}/api/v1"
+            fi
             _renderer_ok=false
             _renderer_script="$INSTALL_DIR/scripts/render-runtime-configs.py"
             _renderer_py="${DREAM_PYTHON_CMD:-}"
@@ -1005,6 +1012,7 @@ elif [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server -
                     --dream-mode lemonade \
                     --gpu-backend amd \
                     --gguf-file "$FULL_GGUF_FILE" \
+                    --lemonade-api-base "$_lemonade_api_base" \
                     --litellm-key "$LITELLM_LEMONADE_API_KEY" \
                     --output-root "$INSTALL_DIR" \
                     --write >/dev/null 2>&1; then
@@ -1019,7 +1027,7 @@ model_list:
   - model_name: default
     litellm_params:
       model: openai/extra.${FULL_GGUF_FILE}
-      api_base: http://llama-server:8080/api/v1
+      api_base: ${_lemonade_api_base}
       api_key: ${LITELLM_LEMONADE_API_KEY}
       extra_body:
         chat_template_kwargs:
@@ -1028,7 +1036,7 @@ model_list:
   - model_name: "*"
     litellm_params:
       model: openai/extra.${FULL_GGUF_FILE}
-      api_base: http://llama-server:8080/api/v1
+      api_base: ${_lemonade_api_base}
       api_key: ${LITELLM_LEMONADE_API_KEY}
       extra_body:
         chat_template_kwargs:
@@ -1041,7 +1049,7 @@ litellm_settings:
   stream_timeout: 60
 LITELLM_UPGRADE_EOF
             fi
-            unset _renderer_ok _renderer_script _renderer_py
+            unset _renderer_ok _renderer_script _renderer_py _lemonade_api_base _amd_location _amd_port
             log "Restarting LiteLLM to pick up model change..."
             $DOCKER_CMD restart dream-litellm 2>&1 || log "WARNING: LiteLLM restart failed (non-fatal)"
         fi
