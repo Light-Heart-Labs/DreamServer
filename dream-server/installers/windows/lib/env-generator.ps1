@@ -295,6 +295,15 @@ function New-DreamEnv {
         "http://llama-server:8080"
     })
 
+    # Hermes streams through the OpenAI-compatible provider. On Windows AMD
+    # Lemonade, direct streaming against Lemonade can close chunked responses
+    # early; LiteLLM normalizes that path and already fronts the same runtime
+    # for Open WebUI. Match the Linux AMD behavior and authenticate with the
+    # LiteLLM master key whenever Hermes targets LiteLLM.
+    $hermesUsesLiteLlm = ($windowsAmdLemonade -or $DreamMode -eq "cloud")
+    $hermesLlmBaseUrl = $(if ($hermesUsesLiteLlm) { "http://litellm:4000/v1" } else { "$llmApiUrl$llmApiBasePath" })
+    $hermesLlmApiKey = $(if ($hermesUsesLiteLlm) { $litellmKey } else { "sk-dream-hermes-local" })
+
     # Timezone -- convert Windows timezone ID to IANA for Docker containers
     $tz = $(try {
         $tzInfo = [System.TimeZoneInfo]::Local
@@ -433,8 +442,8 @@ OPENCLAW_PORT=7860
 SEARXNG_PORT=8888
 
 #=== Hermes Agent ===
-HERMES_LLM_BASE_URL=$llmApiUrl$llmApiBasePath
-HERMES_LLM_API_KEY=sk-dream-hermes-local
+HERMES_LLM_BASE_URL=$hermesLlmBaseUrl
+HERMES_LLM_API_KEY=$hermesLlmApiKey
 HERMES_LANGUAGE=en
 HERMES_PROXY_PORT=9120
 HERMES_PROXY_UPSTREAM=dream-hermes:9119

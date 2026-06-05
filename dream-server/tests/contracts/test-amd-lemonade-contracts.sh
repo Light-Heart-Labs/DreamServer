@@ -325,6 +325,19 @@ if command -v pwsh >/dev/null 2>&1; then
         if ($envText -notmatch "(?m)^LLM_BACKEND=lemonade$") {
             throw "Expected Windows AMD Lemonade installs to write LLM_BACKEND=lemonade"
         }
+        $litellmKey = [regex]::Match($envText, "(?m)^LITELLM_KEY=([^\r\n]+)\r?$").Groups[1].Value
+        if ([string]::IsNullOrWhiteSpace($litellmKey)) {
+            throw "Expected Windows AMD Lemonade installs to generate LITELLM_KEY"
+        }
+        if ($envText -notmatch "(?m)^HERMES_LLM_BASE_URL=http://litellm:4000/v1$") {
+            throw "Expected Windows AMD Lemonade Hermes to route through LiteLLM"
+        }
+        if ($envText -notmatch "(?m)^HERMES_LLM_API_KEY=$([regex]::Escape($litellmKey))\r?$") {
+            throw "Expected Windows AMD Lemonade Hermes to authenticate with LITELLM_KEY"
+        }
+        if ($envText -match "(?m)^HERMES_LLM_BASE_URL=http://host\.docker\.internal:8080/api/v1$") {
+            throw "Windows AMD Lemonade Hermes must not stream directly against native Lemonade"
+        }
         if ($envText -notmatch "(?m)^WHISPER_PORT=9100$") {
             throw "Expected WHISPER_PORT=9100 for Windows AMD managed Lemonade"
         }
