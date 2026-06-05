@@ -110,6 +110,29 @@ if (Test-Path $_retiredDreamForge) {
     Write-AI "Removed retired DreamForge service files from extensions/services"
 }
 
+# Copy extensions library to data dir for dashboard portal. Keep this in
+# parity with Linux phase 06 and macOS install: dashboard-api installs
+# optional extensions from data/extensions-library, not from the source tree.
+$_extLibSrc = $null
+foreach ($_candidate in @(
+    (Join-Path $sourceRoot "extensions\library\services"),
+    (Join-Path $installDir "extensions\library\services"),
+    (Join-Path $installDir "extensions-library-bundle\services")
+)) {
+    if (Test-Path $_candidate) {
+        $_extLibSrc = $_candidate
+        break
+    }
+}
+if ($null -ne $_extLibSrc) {
+    $_extLibDst = Join-Path $installDir "data\extensions-library"
+    New-Item -ItemType Directory -Path $_extLibDst -Force | Out-Null
+    Copy-Item -Path (Join-Path $_extLibSrc "*") -Destination $_extLibDst -Recurse -Force
+    Write-AISuccess "Extensions library copied to data/extensions-library (from $_extLibSrc)"
+} else {
+    Write-AIWarn "Extensions library not found; dashboard Extensions page will return 503 until populated"
+}
+
 # Copies from the Windows installer directory to the install root so users
 # can manage Dream Server with: .\dream.ps1 status
 # $ScriptDir is set by install-windows.ps1 (installers/windows/) and is
