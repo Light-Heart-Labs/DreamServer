@@ -267,8 +267,8 @@ if ($dryRun) {
             }
 
             if ($needsDownload) {
-                $dlOk = Show-ProgressDownload -Url $tierConfig.GgufUrl `
-                    -Destination $modelPath -Label "Downloading $($tierConfig.GgufFile)"
+                $dlOk = Invoke-DownloadWithRetry -Url $tierConfig.GgufUrl `
+                    -Destination $modelPath -Label "Downloading $($tierConfig.GgufFile)" -MaxRetries 4
                 if (-not $dlOk) {
                     Write-AIError "Model download failed. Re-run the installer to resume."
                     exit 1

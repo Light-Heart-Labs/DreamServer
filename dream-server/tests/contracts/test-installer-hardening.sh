@@ -167,6 +167,11 @@ assert_not_contains "$macos_installer" 'pip install --user .*pyyaml|pip install 
 assert_contains "$macos_installer" 'export DREAM_PYTHON_CMD' "macOS installer does not export selected Python"
 assert_contains "$macos_installer" '_ds_python_cmd_cached=' "macOS installer does not refresh python resolver cache"
 
+echo "[contract] Windows bootstrap model download uses retry wrapper"
+win_installer="installers/windows/install-windows.ps1"
+assert_contains "$win_installer" 'Invoke-DownloadWithRetry -Url \$tierConfig\.GgufUrl' "Windows installer should retry/resume transient GGUF download failures"
+assert_not_contains "$win_installer" '\$dlOk = Show-ProgressDownload -Url \$tierConfig\.GgufUrl' "Windows installer bootstrap model path should not bypass retry wrapper"
+
 echo "[contract] Linux phase 06 reports substeps on failure"
 phase06="installers/phases/06-directories.sh"
 assert_contains "$phase06" 'export INSTALL_PHASE="06-directories/\$\{step\}"' "phase 06 missing substep INSTALL_PHASE updates"
