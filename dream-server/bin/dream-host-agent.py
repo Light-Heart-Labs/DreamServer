@@ -90,6 +90,53 @@ def _to_bash_path(path: Path) -> str:
         return f"/{drive.lower()}/{tail}"
     return normalized
 
+
+def _python_can_import(python_cmd: str, module: str) -> bool:
+    try:
+        result = subprocess.run(
+            [python_cmd, "-c", f"import {module}"],
+            capture_output=True, text=True, timeout=15, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
+def _ensure_windows_resolver_pyyaml(python_cmd: str) -> None:
+    """Ensure the Windows host Python used by Git Bash can import PyYAML."""
+    if platform.system() != "Windows":
+        return
+    if _python_can_import(python_cmd, "yaml"):
+        return
+
+    logger.warning(
+        "PyYAML is missing from %s; installing it so compose resolution can validate extensions",
+        python_cmd,
+    )
+    pip_cmd = [
+        python_cmd, "-m", "pip", "install",
+        "--user", "--disable-pip-version-check", "--quiet", "PyYAML",
+    ]
+    try:
+        result = subprocess.run(
+            pip_cmd,
+            capture_output=True, text=True, timeout=180, check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError(f"failed to install PyYAML for compose resolution: {exc}") from exc
+
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        raise RuntimeError(
+            "PyYAML is required for compose resolution, but automatic install failed: "
+            f"{detail[:1000]}"
+        )
+
+    if not _python_can_import(python_cmd, "yaml"):
+        raise RuntimeError(
+            "PyYAML install completed but the Windows resolver Python still cannot import yaml"
+        )
+
 # Model download state — only one download at a time
 _model_download_lock = threading.Lock()
 _model_download_thread: threading.Thread | None = None
@@ -214,6 +261,7 @@ def resolve_compose_flags() -> list:
     env = os.environ.copy()
     bash = "bash"
     if platform.system() == "Windows":
+        _ensure_windows_resolver_pyyaml(sys.executable)
         env["DREAM_PYTHON_CMD"] = _to_bash_path(Path(sys.executable))
         bash = _find_update_bash()
         if not bash:

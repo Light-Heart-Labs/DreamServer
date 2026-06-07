@@ -540,6 +540,57 @@ patch_hermes_model_after_swap() {
     return 0
 }
 
+refresh_lemonade_after_bootstrap_cleanup() {
+    local gpu_backend llm_backend
+    gpu_backend="$(read_env_value GPU_BACKEND | tr '[:upper:]' '[:lower:]')"
+    llm_backend="$(read_env_value LLM_BACKEND | tr '[:upper:]' '[:lower:]')"
+
+    [[ "$gpu_backend" == "amd" || "$llm_backend" == "lemonade" ]] || return 0
+    is_windows_bash && return 0
+    [[ "$FULL_GGUF_FILE" != "$BOOTSTRAP_GGUF" ]] || return 0
+    [[ -n "$DOCKER_CMD" ]] || return 1
+
+    local compose_args=()
+    if [[ -f "$INSTALL_DIR/.compose-flags" ]]; then
+        read -ra compose_args <<< "$(cat "$INSTALL_DIR/.compose-flags")"
+    fi
+    if [[ ${#compose_args[@]} -eq 0 || -z "$DOCKER_COMPOSE_CMD" ]]; then
+        log "WARNING: cannot refresh Lemonade after bootstrap cleanup because compose flags are unavailable."
+        return 1
+    fi
+
+    log "Refreshing Lemonade after bootstrap model cleanup so stale model metadata is dropped..."
+    env -u GGUF_FILE -u LLM_MODEL -u MAX_CONTEXT -u CTX_SIZE \
+        $DOCKER_COMPOSE_CMD "${compose_args[@]}" up -d --force-recreate --no-deps llama-server 2>&1 || return 1
+
+    local lemonade_port model_id old_model_id models_json
+    lemonade_port="$(read_env_value OLLAMA_PORT)"
+    [[ -n "$lemonade_port" ]] || lemonade_port="8080"
+    model_id="extra.${FULL_GGUF_FILE//\"/\\\"}"
+    old_model_id="extra.${BOOTSTRAP_GGUF//\"/\\\"}"
+
+    for _i in $(seq 1 60); do
+        models_json="$(curl -sf --max-time 5 "http://127.0.0.1:${lemonade_port}/api/v1/models" 2>/dev/null || true)"
+        if echo "$models_json" | grep -q "\"id\"[[:space:]]*:[[:space:]]*\"${model_id}\"" \
+            && ! echo "$models_json" | grep -q "\"id\"[[:space:]]*:[[:space:]]*\"${old_model_id}\""; then
+            if curl -sf --max-time 240 -X POST \
+                "http://127.0.0.1:${lemonade_port}/api/v1/chat/completions" \
+                -H "Content-Type: application/json" \
+                -d "{\"model\":\"${model_id}\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1,\"temperature\":0,\"stream\":false}" \
+                >/dev/null 2>&1; then
+                log "Lemonade refreshed with only the full model advertised: ${model_id}"
+                return 0
+            fi
+            log "Lemonade lists ${model_id} after cleanup, but completion is not ready yet (attempt $_i/60)."
+        else
+            log "Waiting for Lemonade to drop bootstrap metadata after cleanup (attempt $_i/60)."
+        fi
+        sleep 5
+    done
+
+    return 1
+}
+
 # Background monitor: polls .part file size every 2s
 monitor_download() {
     local part_file="$1" total_bytes="$2"
@@ -1478,6 +1529,11 @@ if [[ "$HOT_SWAP_VERIFIED" == "true" && -f "$BOOTSTRAP_PATH" && "$FULL_GGUF_FILE
     log "Removing bootstrap model after verified full-model serving: $BOOTSTRAP_GGUF"
     rm -f "$BOOTSTRAP_PATH"
     log "Bootstrap model removed"
+    if ! refresh_lemonade_after_bootstrap_cleanup; then
+        write_status "failed" 100 "$TOTAL_BYTES" "$TOTAL_BYTES" 0 \
+            "Full model served, but Dream Server could not refresh Lemonade after removing the bootstrap model. Re-run to retry."
+        fail "Lemonade refresh after bootstrap cleanup failed."
+    fi
 elif [[ "$FULL_GGUF_FILE" != "$BOOTSTRAP_GGUF" && -f "$BOOTSTRAP_PATH" ]]; then
     log "Keeping bootstrap model until the full model is verified serving: $BOOTSTRAP_GGUF"
 fi

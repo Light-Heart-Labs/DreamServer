@@ -94,6 +94,7 @@ class TestResolveComposeFlags:
         monkeypatch.setenv("DREAM_PYTHON_CMD", "python3")
         git_bash = r"C:\Program Files\Git\bin\bash.exe"
         monkeypatch.setattr(_mod, "_find_update_bash", lambda: git_bash)
+        monkeypatch.setattr(_mod, "_ensure_windows_resolver_pyyaml", lambda python_cmd: None)
 
         calls = []
 
@@ -115,6 +116,35 @@ class TestResolveComposeFlags:
         assert env["DREAM_PYTHON_CMD"] == (
             "/c/Users/conta/AppData/Local/Programs/Python/Python313/python.exe"
         )
+
+    def test_windows_installs_pyyaml_for_resolver_python(self, monkeypatch):
+        monkeypatch.setattr(_mod.platform, "system", lambda: "Windows")
+        python_cmd = r"C:\Users\conta\AppData\Local\Programs\Python\Python312\python.exe"
+        calls = []
+        import_attempts = {"count": 0}
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            if cmd == [python_cmd, "-c", "import yaml"]:
+                import_attempts["count"] += 1
+                return subprocess.CompletedProcess(
+                    cmd,
+                    0 if import_attempts["count"] > 1 else 1,
+                    "",
+                    "" if import_attempts["count"] > 1 else "ModuleNotFoundError",
+                )
+            if cmd[:4] == [python_cmd, "-m", "pip", "install"]:
+                return subprocess.CompletedProcess(cmd, 0, "", "")
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+
+        _mod._ensure_windows_resolver_pyyaml(python_cmd)
+
+        assert [python_cmd, "-m", "pip", "install"] == calls[1][:4]
+        assert "--user" in calls[1]
+        assert "PyYAML" in calls[1]
+        assert import_attempts["count"] == 2
 
     def test_windows_bash_discovery_skips_unusable_path_bash(self, monkeypatch):
         monkeypatch.setattr(_mod.platform, "system", lambda: "Windows")

@@ -112,6 +112,21 @@ else
     fail "bootstrap cleanup must be gated by HOT_SWAP_VERIFIED"
 fi
 
+grep -qF 'refresh_lemonade_after_bootstrap_cleanup' <<<"$active_code" \
+    || fail "AMD/Lemonade cleanup must refresh llama-server after removing bootstrap GGUF"
+lemonade_cleanup_block="$(awk '
+    /refresh_lemonade_after_bootstrap_cleanup/ { in_block=1 }
+    in_block { print }
+    in_block && /Lemonade refresh after bootstrap cleanup failed/ { exit }
+' "$TARGET" | grep -v '^[[:space:]]*#')"
+grep -qF 'up -d --force-recreate --no-deps llama-server' <<<"$lemonade_cleanup_block" \
+    || fail "AMD/Lemonade cleanup refresh must force-recreate llama-server after bootstrap removal"
+grep -qF 'old_model_id="extra.${BOOTSTRAP_GGUF' <<<"$lemonade_cleanup_block" \
+    || fail "AMD/Lemonade cleanup refresh must verify the removed bootstrap model is no longer advertised"
+grep -qF 'write_status "failed" 100 "$TOTAL_BYTES" "$TOTAL_BYTES"' <<<"$lemonade_cleanup_block" \
+    || fail "AMD/Lemonade cleanup refresh failure must report real downloaded bytes"
+pass "AMD/Lemonade cleanup refresh drops stale bootstrap metadata"
+
 stale_block="$(awk '
     /llama-server container started with stale --model arg/ { in_block=1 }
     in_block { print }
