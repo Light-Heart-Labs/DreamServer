@@ -1218,6 +1218,7 @@ foreach ($check in $healthChecks) {
 # Prove the file exists AND a minimal completion succeeds before this install may
 # report healthy — otherwise fail loud instead of a "health says yes, chat says no"
 # green install.
+$llmModelReady = $true
 if (-not $cloudMode) {
     Write-AI "Verifying the LLM can actually serve a completion..."
     $llmReady = Test-WindowsLlmModelReadiness -Endpoint $llmEndpoint -InstallDir $installDir `
@@ -1226,6 +1227,7 @@ if (-not $cloudMode) {
         Write-AISuccess "LLM serving verified (model: $($llmReady.ModelId))"
     } else {
         $allHealthy = $false
+        $llmModelReady = $false
         Write-AIError "LLM not serving: $($llmReady.Detail)"
         if (-not $llmReady.FileExists) {
             Write-Host "    Model file missing: $($llmReady.ModelFile)" -ForegroundColor DarkGray
@@ -1446,10 +1448,14 @@ if (Test-DreamWindowsServiceEnabled -ServiceId "privacy-shield" -Plan $servicePl
     $privacyPort = Get-ReadinessPort -Name "SHIELD_PORT" -Default "8085"
     $readinessChecks += @{ Name = "Privacy Shield"; Url = "http://localhost:$privacyPort/health"; Container = "dream-privacy-shield"; OpenUrl = "http://localhost:$privacyPort" }
 }
-Write-DreamInstallReadinessSummary -Checks $readinessChecks `
+$installReadiness = Write-DreamInstallReadinessSummary -Checks $readinessChecks `
     -StatusCommand ".\dream.ps1 status" `
     -LogPath (Join-Path $installDir "logs\install.log") `
-    -DashboardUrl "http://localhost:$dashboardPort"
+    -DashboardUrl "http://localhost:$dashboardPort" `
+    -PassThru
+if ($installReadiness -and $installReadiness.AllReady -and $llmModelReady -and $sttModelReady) {
+    $allHealthy = $true
+}
 
 # ── Desktop & Start Menu shortcuts ───────────────────────────────────────────
 try {

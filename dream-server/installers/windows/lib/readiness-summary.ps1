@@ -54,7 +54,8 @@ function Write-DreamInstallReadinessSummary {
         [object[]]$Checks,
         [string]$StatusCommand = ".\dream.ps1 status",
         [string]$LogPath = "",
-        [string]$DashboardUrl = "http://localhost:3001"
+        [string]$DashboardUrl = "http://localhost:3001",
+        [switch]$PassThru
     )
 
     $ready = New-Object System.Collections.Generic.List[string]
@@ -84,11 +85,21 @@ function Write-DreamInstallReadinessSummary {
         }
     }
 
-    if (($ready.Count + $attention.Count) -eq 0) { return }
+    $total = $ready.Count + $attention.Count
+    $summary = [pscustomobject]@{
+        Ready = $ready.Count
+        Total = $total
+        AllReady = ($total -gt 0 -and $attention.Count -eq 0)
+    }
+
+    if ($total -eq 0) {
+        if ($PassThru) { return $summary }
+        return
+    }
 
     Write-Host ""
     Write-Host "INSTALL READINESS" -ForegroundColor Green
-    Write-Host "Ready now: $($ready.Count)/$($ready.Count + $attention.Count)"
+    Write-Host "Ready now: $($ready.Count)/$total"
     if ($ready.Count -gt 0) {
         Write-Host "Ready:"
         foreach ($line in $ready) { Write-Host "  [OK] $line" -ForegroundColor Green }
@@ -102,4 +113,6 @@ function Write-DreamInstallReadinessSummary {
     Write-Host "  - Check status: $StatusCommand"
     if ($LogPath) { Write-Host "  - Logs: $LogPath" }
     Write-Host ""
+
+    if ($PassThru) { return $summary }
 }
