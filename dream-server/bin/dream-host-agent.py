@@ -350,7 +350,7 @@ def resolve_compose_flags() -> list:
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or exc.stdout or str(exc)).strip()
         raise RuntimeError(
-            f"resolve-compose-stack.sh failed: {detail[:1000]}",
+            f"compose resolver failed: {detail[:1000]}",
         ) from exc
     return result.stdout.strip().split()
 
