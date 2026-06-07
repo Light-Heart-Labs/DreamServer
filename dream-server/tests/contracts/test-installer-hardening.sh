@@ -219,6 +219,9 @@ phase06_win="installers/windows/phases/06-directories.ps1"
 assert_contains "$phase06_win" 'http://litellm:4000/v1' "Windows AMD Hermes should route through LiteLLM, not direct Lemonade"
 assert_contains "$phase06_win" 'local-lemonade' "Windows AMD Hermes should render compact local profile"
 assert_contains "$phase06_win" 'disabled_toolsets:' "Windows AMD Hermes should compact optional toolsets"
+assert_contains "$phase06_win" 'extensions-library-bundle\\services' "Windows installer should consider public-bootstrap extensions-library bundle"
+assert_contains "$phase06_win" 'extensions\\library\\services' "Windows installer should copy product extensions library templates"
+assert_contains "$phase06_win" 'data/extensions-library' "Windows installer should populate data/extensions-library for dashboard extension installs"
 assert_contains "scripts/build-installation-context.py" 'local-lemonade' "SOUL builder should expose local-lemonade profile"
 assert_contains "extensions/services/dashboard-api/routers/models.py" '_loaded_model_backend_ready_sync' "dashboard model no-op should verify live backend readiness"
 
@@ -373,5 +376,24 @@ assert_contains "installers/windows/dream.ps1" 'WindowsApps' "dream.ps1 agent st
 assert_contains "installers/windows/dream.ps1" 'PrefixArgs' "dream.ps1 agent start does not support py launcher -3 arguments"
 assert_contains "installers/windows/dream.ps1" 'Register-ScheduledTask -TaskName \$script:DREAM_AGENT_TASK_NAME' "dream.ps1 agent start should use Scheduled Tasks so SSH-launched agents persist"
 assert_contains "installers/windows/dream.ps1" 'RedirectStandardError .* -Wait' "dream.ps1 agent task should wait on Python instead of spawning a transient child"
+assert_contains "lib/python-cmd.sh" 'windowsapps/python3' "Bash Python resolver should reject WindowsApps python3 aliases"
+
+fake_winapps="$tmpdir/Local/Microsoft/WindowsApps"
+fake_realbin="$tmpdir/real-python"
+mkdir -p "$fake_winapps" "$fake_realbin"
+cat >"$fake_winapps/python3" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+cat >"$fake_realbin/python" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+chmod +x "$fake_winapps/python3" "$fake_realbin/python"
+resolver_out="$(PATH="$fake_winapps:$fake_realbin:$PATH" bash -c '. "$1"; ds_detect_python_cmd' bash "$ROOT_DIR/lib/python-cmd.sh")"
+if [[ "$resolver_out" != "python" ]]; then
+  echo "Bash Python resolver selected '$resolver_out' instead of real python after a WindowsApps python3 alias" >&2
+  exit 1
+fi
 
 echo "[PASS] installer hardening contracts"

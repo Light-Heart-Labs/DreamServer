@@ -6,10 +6,31 @@
 
 _ds_python_cmd_cached=""
 
+_ds_python_resolved_path() {
+    local candidate="$1"
+    command -v "$candidate" 2>/dev/null || printf '%s' "$candidate"
+}
+
+_ds_python_is_windowsapps_alias() {
+    local resolved_lc
+    resolved_lc="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr '\\' '/')"
+    case "$resolved_lc" in
+        */windowsapps/python|*/windowsapps/python.exe|*/windowsapps/python3|*/windowsapps/python3.exe|*/windowsapps/*/python.exe)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
 _ds_python_runnable() {
     local candidate="$1"
+    local resolved
     [[ -n "$candidate" ]] || return 1
     command -v "$candidate" >/dev/null 2>&1 || [[ -x "$candidate" ]] || return 1
+    resolved="$(_ds_python_resolved_path "$candidate")"
+    if _ds_python_is_windowsapps_alias "$resolved"; then
+        return 1
+    fi
     "$candidate" -c 'import sys; sys.exit(0)' >/dev/null 2>&1
 }
 

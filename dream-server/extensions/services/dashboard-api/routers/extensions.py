@@ -122,6 +122,19 @@ def _write_error_progress(service_id: str, error_msg: str) -> None:
     progress_file.write_text(json.dumps(data), encoding="utf-8")
 
 
+def _has_error_progress(service_id: str) -> bool:
+    progress = _read_progress(service_id)
+    return bool(progress and progress.get("status") == "error")
+
+
+def _clear_progress(service_id: str) -> None:
+    progress_file = Path(DATA_DIR) / "extension-progress" / f"{service_id}.json"
+    try:
+        progress_file.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning("Failed to clear progress file for %s: %s", service_id, exc)
+
+
 def _sync_extension_config(service_id: str) -> bool:
     """Ask host agent to copy config/<id>/ from an installed extension
     into INSTALL_DIR/config/.
@@ -1154,14 +1167,15 @@ def _install_from_library(service_id: str) -> None:
     if dest.exists():
         has_compose = (dest / "compose.yaml").exists()
         has_disabled = (dest / "compose.yaml.disabled").exists()
-        if has_compose or has_disabled:
+        if (has_compose or has_disabled) and not _has_error_progress(service_id):
             raise HTTPException(
                 status_code=409,
                 detail=f"Extension already installed: {service_id}",
             )
-        # Broken directory (no compose file) — clean up before reinstall
-        logger.warning("Cleaning up broken extension directory under lock: %s", dest)
+        # Broken or failed directory — clean up before reinstall.
+        logger.warning("Cleaning up extension directory under lock before retry: %s", dest)
         shutil.rmtree(dest)
+        _clear_progress(service_id)
 
     # Size check
     total_size = 0
@@ -1293,13 +1307,14 @@ def install_extension(service_id: str, api_key: str = Depends(verify_api_key)):
     if dest.exists():
         has_compose = (dest / "compose.yaml").exists()
         has_disabled = (dest / "compose.yaml.disabled").exists()
-        if has_compose or has_disabled:
+        if (has_compose or has_disabled) and not _has_error_progress(service_id):
             raise HTTPException(
                 status_code=409, detail=f"Extension already installed: {service_id}",
             )
-        # Broken directory (no compose file) — clean up before reinstall
-        logger.warning("Cleaning up broken extension directory: %s", dest)
+        # Broken or failed directory — clean up before reinstall.
+        logger.warning("Cleaning up extension directory before retry: %s", dest)
         shutil.rmtree(dest)
+        _clear_progress(service_id)
 
     # NOTE: pre_install hook is deferred to a future version. On fresh library
     # installs, the extension directory doesn't exist yet, so the host agent

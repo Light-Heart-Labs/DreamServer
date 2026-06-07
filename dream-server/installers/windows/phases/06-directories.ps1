@@ -61,6 +61,7 @@ $_dirs = @(
     (Join-Path $_dataDir "n8n"),
     (Join-Path $_dataDir "qdrant"),
     (Join-Path $_dataDir "models"),
+    (Join-Path $_dataDir "extensions-library"),
     (Join-Path $_dataDir "comfyui"),
     (Join-Path $_dataDir "perplexica"),
     (Join-Path $_dataDir "ape"),
@@ -98,6 +99,30 @@ if ($sourceRoot -ne $installDir) {
     Write-AISuccess "Source files installed to $installDir"
 } else {
     Write-AI "Running in-place (source == install directory) -- skipping file copy"
+}
+
+# Copy extensions library to data dir for dashboard portal installs.
+# Linux/macOS do this in Phase 06 as well; Windows needs the same deployed
+# data/extensions-library tree or dashboard-api refuses /api/extensions/*/install.
+$_extLibDst = Join-Path $_dataDir "extensions-library"
+$_extLibSrc = $null
+$_extLibCandidates = @(
+    (Join-Path $sourceRoot "extensions\library\services"),
+    (Join-Path $installDir "extensions\library\services"),
+    (Join-Path $installDir "extensions-library-bundle\services")
+)
+foreach ($_candidate in $_extLibCandidates) {
+    if (Test-Path -LiteralPath $_candidate) {
+        $_extLibSrc = $_candidate
+        break
+    }
+}
+if ($_extLibSrc) {
+    New-Item -ItemType Directory -Path $_extLibDst -Force | Out-Null
+    Copy-Item -Path (Join-Path $_extLibSrc "*") -Destination $_extLibDst -Recurse -Force
+    Write-AISuccess "Extensions library copied to data/extensions-library (from $_extLibSrc)"
+} else {
+    Write-AIWarn "Extensions library not found; dashboard Extensions page will return 503 until populated"
 }
 
 # ── Copy dream.ps1 CLI + lib/ ─────────────────────────────────────────────────

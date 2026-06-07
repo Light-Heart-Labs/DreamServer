@@ -450,6 +450,33 @@ class TestInstallExtension:
         )
         assert resp.status_code == 409
 
+    def test_install_retries_after_error_progress(self, test_client, monkeypatch, tmp_path):
+        """A terminal install error should allow retrying the library install."""
+        lib_dir = _setup_library_ext(tmp_path, "my-ext")
+        user_dir = _setup_user_ext(tmp_path, "my-ext", enabled=True)
+        progress_dir = tmp_path / "extension-progress"
+        progress_dir.mkdir()
+        (progress_dir / "my-ext.json").write_text(json.dumps({
+            "service_id": "my-ext",
+            "status": "error",
+            "error": "previous compose resolve failed",
+            "started_at": "2026-01-01T00:00:00+00:00",
+            "updated_at": "2026-01-01T00:00:00+00:00",
+        }))
+        (user_dir / "my-ext" / "stale.txt").write_text("left over")
+        _patch_mutation_config(monkeypatch, tmp_path, lib_dir=lib_dir,
+                               user_dir=user_dir)
+
+        resp = test_client.post(
+            "/api/extensions/my-ext/install",
+            headers=test_client.auth_headers,
+        )
+
+        assert resp.status_code == 200
+        assert not (user_dir / "my-ext" / "stale.txt").exists()
+        assert (user_dir / "my-ext" / "compose.yaml").exists()
+        assert resp.json()["action"] == "installed"
+
     def test_install_unknown_extension_404(self, test_client, monkeypatch, tmp_path):
         """404 when extension is not in the library."""
         _patch_mutation_config(monkeypatch, tmp_path)
