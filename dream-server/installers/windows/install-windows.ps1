@@ -1079,6 +1079,7 @@ if ($dryRun) {
                 $upgradePidFile = Join-Path $logDir "model-upgrade.pid"
                 $upgradeLaunchLog = Join-Path $logDir "model-upgrade-launch.log"
                 $upgradeLaunchErrLog = Join-Path $logDir "model-upgrade-launch-err.log"
+                $upgradeTaskName = "DreamServerModelUpgrade"
                 $bashUpgradePidFile = ($upgradePidFile -replace "\\", "/" -replace "^([A-Za-z]):", '/$1').ToLower()
 
                 # Write a temp wrapper script to avoid Windows/PowerShell quoting
@@ -1102,30 +1103,42 @@ disown "`$pid" 2>/dev/null || true
                 if ($bashPath) {
                     Remove-Item -LiteralPath $upgradePidFile, $upgradeLaunchLog, $upgradeLaunchErrLog -ErrorAction SilentlyContinue
 
-                    $upgradeProc = Start-Process -FilePath $bashPath -ArgumentList $wrapperScript `
-                        -WindowStyle Hidden `
-                        -RedirectStandardOutput $upgradeLaunchLog `
-                        -RedirectStandardError $upgradeLaunchErrLog `
-                        -PassThru
+                    $scheduled = $false
+                    try {
+                        try { Stop-ScheduledTask -TaskName $upgradeTaskName -ErrorAction SilentlyContinue } catch { }
+                        try { Unregister-ScheduledTask -TaskName $upgradeTaskName -Confirm:$false -ErrorAction SilentlyContinue } catch { }
+
+                        $upgradeAction = New-ScheduledTaskAction -Execute $bashPath -Argument ('"{0}"' -f $wrapperScript)
+                        $upgradeTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1)
+                        $upgradePrincipal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
+                        Register-ScheduledTask -TaskName $upgradeTaskName `
+                            -Action $upgradeAction `
+                            -Trigger $upgradeTrigger `
+                            -Principal $upgradePrincipal `
+                            -Description "Dream Server background model upgrade" `
+                            -Force | Out-Null
+                        Start-ScheduledTask -TaskName $upgradeTaskName -ErrorAction Stop
+                        $scheduled = $true
+                    } catch {
+                        Write-AIWarn "Background full-model download task failed to start: $($_.Exception.Message)"
+                    }
 
                     $pidDeadline = (Get-Date).AddSeconds(10)
-                    while (-not (Test-Path -LiteralPath $upgradePidFile) -and (Get-Date) -lt $pidDeadline) {
+                    while ($scheduled -and -not (Test-Path -LiteralPath $upgradePidFile) -and (Get-Date) -lt $pidDeadline) {
                         Start-Sleep -Milliseconds 250
-                        try { $upgradeProc.Refresh() } catch { break }
-                        if ($upgradeProc.HasExited) {
-                            break
-                        }
                     }
 
                     if (Test-Path -LiteralPath $upgradePidFile) {
                         Write-AI "Full model ($($fullTierConfig.LlmModel)) downloading in background."
                         Write-AI "Check progress: Get-Content '$upgradeLog' -Tail 10"
                     } else {
-                        try { $upgradeProc.Refresh() } catch {}
-                        if ($upgradeProc.HasExited) {
-                            Write-AIWarn "Background full-model download launcher exited before writing a PID file (exit code: $($upgradeProc.ExitCode))."
-                        } else {
-                            Write-AIWarn "Background full-model download launcher did not write a PID file before continuing."
+                        if ($scheduled) {
+                            try {
+                                $taskState = (Get-ScheduledTask -TaskName $upgradeTaskName -ErrorAction Stop).State
+                                Write-AIWarn "Background full-model download task did not write a PID file before continuing (task state: $taskState)."
+                            } catch {
+                                Write-AIWarn "Background full-model download task did not write a PID file before continuing."
+                            }
                         }
                         Write-AI "  Retry manually with: & '$bashPath' '$wrapperScript'"
                         Write-AI "  Launcher log: $upgradeLaunchLog"

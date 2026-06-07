@@ -180,18 +180,25 @@ assert_not_contains "$win_installer" 'Invoke-WebRequest -Method POST -Uri "\$whi
 assert_contains "$win_installer" 'nohup bash "\$bashScript"' "Windows installer should detach the full-model upgrade from the installer process tree"
 assert_contains "$win_installer" '< /dev/null &' "Windows installer full-model upgrade should close stdin and background the launcher"
 assert_contains "$win_installer" 'model-upgrade.pid' "Windows installer should record the background model-upgrade PID"
-assert_contains "$win_installer" '-RedirectStandardOutput \$upgradeLaunchLog' "Windows installer should only redirect the short upgrade launcher output"
+assert_contains "$win_installer" 'DreamServerModelUpgrade' "Windows installer should launch full-model upgrade through a separate scheduled task"
 python3 - "$win_installer" >"$tmpdir/windows-upgrade-launcher.out" <<'PY'
 import sys
 from pathlib import Path
 
 text = Path(sys.argv[1]).read_text(encoding="utf-8")
-start = text.index("$upgradeProc = Start-Process -FilePath $bashPath")
+start = text.index('$upgradeTaskName = "DreamServerModelUpgrade"')
 end = text.index("if (Test-Path -LiteralPath $upgradePidFile)", start)
 block = text[start:end]
-if "-Wait" in block:
-    raise SystemExit("model upgrade launcher waits for Git Bash wrapper")
-if "while (-not (Test-Path -LiteralPath $upgradePidFile)" not in text:
+if "Start-Process -FilePath $bashPath" in block or "-Wait" in block:
+    raise SystemExit("model upgrade launcher stays in the installer process tree")
+for needle in (
+    "New-ScheduledTaskAction -Execute $bashPath",
+    "Register-ScheduledTask -TaskName $upgradeTaskName",
+    "Start-ScheduledTask -TaskName $upgradeTaskName",
+):
+    if needle not in block:
+        raise SystemExit(f"model upgrade launcher missing {needle}")
+if "while ($scheduled -and -not (Test-Path -LiteralPath $upgradePidFile)" not in text:
     raise SystemExit("model upgrade launcher does not poll for PID handoff")
 print("windows-upgrade-launcher-detached")
 PY
