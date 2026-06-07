@@ -1100,24 +1100,36 @@ disown "`$pid" 2>/dev/null || true
 
                 $bashPath = Get-UsableWindowsBash -InstallPath $installDir
                 if ($bashPath) {
+                    Remove-Item -LiteralPath $upgradePidFile, $upgradeLaunchLog, $upgradeLaunchErrLog -ErrorAction SilentlyContinue
+
                     $upgradeProc = Start-Process -FilePath $bashPath -ArgumentList $wrapperScript `
                         -WindowStyle Hidden `
                         -RedirectStandardOutput $upgradeLaunchLog `
                         -RedirectStandardError $upgradeLaunchErrLog `
-                        -Wait `
                         -PassThru
 
-                    if ($upgradeProc.ExitCode -ne 0) {
-                        Write-AIWarn "Background full-model download launcher failed (exit code: $($upgradeProc.ExitCode))."
-                        Write-AI "  Retry manually with: & '$bashPath' '$wrapperScript'"
-                        Write-AI "  Launcher error log: $upgradeLaunchErrLog"
-                    } elseif (-not (Test-Path -LiteralPath $upgradePidFile)) {
-                        Write-AIWarn "Background full-model download launcher did not write a PID file."
-                        Write-AI "  Retry manually with: & '$bashPath' '$wrapperScript'"
-                        Write-AI "  Launcher log: $upgradeLaunchLog"
-                    } else {
+                    $pidDeadline = (Get-Date).AddSeconds(10)
+                    while (-not (Test-Path -LiteralPath $upgradePidFile) -and (Get-Date) -lt $pidDeadline) {
+                        Start-Sleep -Milliseconds 250
+                        try { $upgradeProc.Refresh() } catch { break }
+                        if ($upgradeProc.HasExited) {
+                            break
+                        }
+                    }
+
+                    if (Test-Path -LiteralPath $upgradePidFile) {
                         Write-AI "Full model ($($fullTierConfig.LlmModel)) downloading in background."
                         Write-AI "Check progress: Get-Content '$upgradeLog' -Tail 10"
+                    } else {
+                        try { $upgradeProc.Refresh() } catch {}
+                        if ($upgradeProc.HasExited) {
+                            Write-AIWarn "Background full-model download launcher exited before writing a PID file (exit code: $($upgradeProc.ExitCode))."
+                        } else {
+                            Write-AIWarn "Background full-model download launcher did not write a PID file before continuing."
+                        }
+                        Write-AI "  Retry manually with: & '$bashPath' '$wrapperScript'"
+                        Write-AI "  Launcher log: $upgradeLaunchLog"
+                        Write-AI "  Launcher error log: $upgradeLaunchErrLog"
                     }
                 } else {
                     Write-AIWarn "No Git Bash-compatible shell was found for bootstrap-upgrade.sh."

@@ -181,6 +181,21 @@ assert_contains "$win_installer" 'nohup bash "\$bashScript"' "Windows installer 
 assert_contains "$win_installer" '< /dev/null &' "Windows installer full-model upgrade should close stdin and background the launcher"
 assert_contains "$win_installer" 'model-upgrade.pid' "Windows installer should record the background model-upgrade PID"
 assert_contains "$win_installer" '-RedirectStandardOutput \$upgradeLaunchLog' "Windows installer should only redirect the short upgrade launcher output"
+python3 - "$win_installer" >"$tmpdir/windows-upgrade-launcher.out" <<'PY'
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+start = text.index("$upgradeProc = Start-Process -FilePath $bashPath")
+end = text.index("if (Test-Path -LiteralPath $upgradePidFile)", start)
+block = text[start:end]
+if "-Wait" in block:
+    raise SystemExit("model upgrade launcher waits for Git Bash wrapper")
+if "while (-not (Test-Path -LiteralPath $upgradePidFile)" not in text:
+    raise SystemExit("model upgrade launcher does not poll for PID handoff")
+print("windows-upgrade-launcher-detached")
+PY
+assert_contains "$tmpdir/windows-upgrade-launcher.out" 'windows-upgrade-launcher-detached' "Windows installer should not wait for the full-model launcher wrapper"
 assert_contains "installers/windows/dream.ps1" 'Invoke-DreamSttModelDownloadTrigger' "dream.ps1 repair voice should trigger STT preload through a bounded helper"
 assert_not_contains "installers/windows/dream.ps1" 'Invoke-WebRequest -Method POST -Uri \$voice\.SttModelUrl -TimeoutSec 3600' "dream.ps1 repair voice should not block on the long STT preload POST"
 
