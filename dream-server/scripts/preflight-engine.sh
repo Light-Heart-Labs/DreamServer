@@ -132,6 +132,10 @@ tier_rank_map = {
     "T4": 4,
     "SH_COMPACT": 3,
     "SH_LARGE": 4,
+    # Jetson Orin Nano (8 GB unified, sm_87) is functionally a tier-0-ish
+    # device: small model footprint, low VRAM budget. Ranked alongside tier 0
+    # for ordering purposes.
+    "JETSON_ORIN_NANO": 0,
 }
 tier_rank = tier_rank_map.get(tier_key, 1)
 
@@ -145,6 +149,10 @@ min_ram_map = {
     "4": 64,
     "SH_COMPACT": 64,
     "SH_LARGE": 96,
+    # Orin Nano ships with 8 GB unified memory; usable ~7.6 GB after kernel
+    # reservation. Require 6 GB so the preflight doesn't warn against the
+    # only memory configuration this SKU has.
+    "JETSON_ORIN_NANO": 6,
 }
 min_disk_map = {
     "0": 15,
@@ -159,6 +167,10 @@ min_disk_map = {
     "4": 150,
     "SH_COMPACT": 80,
     "SH_LARGE": 120,
+    # Qwen3.5-2B (~1.5 GB) + dustynv/llama_cpp image (~5 GB) + dashboard +
+    # litellm + qdrant + searxng + working space ≈ 15 GB. Same envelope as
+    # tier 0 since the model footprint dominates.
+    "JETSON_ORIN_NANO": 15,
 }
 min_ram = min_ram_map.get(tier_key, 16)
 min_disk = min_disk_map.get(tier_key, 50)
@@ -292,6 +304,13 @@ elif gpu_backend == "apple":
         "warn",
         "Apple backend selected (experimental path).",
         "Use macOS installer preflight + doctor and run reduced profile set until Tier A parity is complete.",
+    )
+elif gpu_backend == "jetson":
+    add_check(
+        "gpu-backend",
+        "warn",
+        "NVIDIA Jetson (Tegra) backend selected (experimental path — milestone tracked in #195).",
+        "Ensure JetPack 6.x is flashed and nvidia-container-toolkit is the default Docker runtime.",
     )
 elif gpu_backend == "cpu":
     if platform_id in {"windows", "macos"}:

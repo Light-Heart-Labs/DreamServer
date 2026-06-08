@@ -109,6 +109,12 @@ if gpu_type == "amd" and memory_type == "unified":
 elif gpu_type == "nvidia":
     llm_backend = "nvidia"
     overlays = ["docker-compose.base.yml", "docker-compose.nvidia.yml"]
+elif gpu_type == "jetson":
+    # Jetson is Tegra (arm64 + iGPU + unified memory). docker-compose.jetson.yml
+    # provides a JetPack-compatible llama.cpp image and the Tegra container
+    # runtime (`runtime: nvidia`) — see docker-compose.jetson.yml and #195.
+    llm_backend = "jetson"
+    overlays = ["docker-compose.base.yml", "docker-compose.jetson.yml"]
 elif gpu_type == "apple":
     llm_backend = "apple"
     overlays = ["docker-compose.base.yml", "docker-compose.amd.yml"]
@@ -117,18 +123,27 @@ else:
     overlays = ["docker-compose.base.yml", "docker-compose.cpu.yml"]
 
 tier = (hardware.get("tier") or "T1").upper()
-if tier in {"T1", "T2", "T3", "T4"}:
+if tier in {"T1", "T2", "T3", "T4", "JETSON_ORIN_NANO"}:
     recommended = tier
 elif tier in {"SH_COMPACT", "SH_LARGE"}:
     recommended = tier
 else:
     recommended = "T1"
 
+# classify-hardware.sh is a data-driven lookup against gpu-database.json which
+# does not yet have Jetson entries. When the GPU is one of our explicitly-known
+# vendors (amd / nvidia / apple / jetson), the gpu_type branch above has
+# already set the correct llm_backend + overlays — letting the classifier
+# override with its "unknown → cpu" default would silently break the install
+# (e.g. on Jetson Orin Nano: jetson → cpu, jetson.yml → cpu.yml). Only let
+# classifier overrides apply when gpu_type is something we don't already
+# special-case.
+gpu_type_known = gpu_type in {"amd", "nvidia", "apple", "jetson"}
 if hw_rec_tier:
     recommended = hw_rec_tier
-if hw_rec_backend:
+if hw_rec_backend and not gpu_type_known:
     llm_backend = hw_rec_backend
-if hw_rec_overlays:
+if hw_rec_overlays and not gpu_type_known:
     overlays = hw_rec_overlays
 
 profile = {
@@ -138,7 +153,7 @@ profile = {
         "family": family,
     },
     "gpu": {
-        "vendor": gpu_type if gpu_type in {"nvidia", "amd", "apple", "none"} else "unknown",
+        "vendor": gpu_type if gpu_type in {"nvidia", "amd", "apple", "jetson", "none"} else "unknown",
         "name": gpu_name,
         "memory_type": memory_type if memory_type in {"discrete", "unified", "none"} else "unknown",
         "count": gpu_count,
