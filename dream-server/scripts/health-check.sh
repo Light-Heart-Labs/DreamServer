@@ -157,10 +157,17 @@ test_service() {
     local default_port="${SERVICE_PORTS[$sid]}"
     local health="${SERVICE_HEALTH[$sid]}"
     local timeout="${SERVICE_HEALTH_TIMEOUTS[$sid]:-$TIMEOUT}"
+    local health_type="${SERVICE_HEALTH_TYPES[$sid]:-http}"
 
     # Resolve port
     local port="$default_port"
     [[ -n "$port_env" ]] && port="${!port_env:-$default_port}"
+
+    # Skip check for CLI tools (health_type=none)
+    if [[ "$health_type" == "none" ]]; then
+        result_set "$sid" "skipped"
+        return 0
+    fi
 
     [[ -z "$health" || "$port" == "0" ]] && return 1
 
@@ -173,6 +180,18 @@ test_service() {
         return 1
     fi
 
+    # TCP health check — just verify the port accepts connections
+    if [[ "$health_type" == "tcp" ]]; then
+        if (echo >/dev/tcp/127.0.0.1/"$port") >/dev/null 2>&1; then
+            result_set "$sid" "ok"
+            return 0
+        fi
+        result_set "$sid" "fail"
+        ANY_FAIL=true
+        return 1
+    fi
+
+    # HTTP health check (default)
     if curl -sf --max-time "$timeout" "http://127.0.0.1:${port}${health}" >/dev/null 2>&1; then
         result_set "$sid" "ok"
         return 0
@@ -229,6 +248,13 @@ test_disk() {
 check_service() {
     local sid="$1"
     local name="${SERVICE_NAMES[$sid]:-$sid}"
+    local health_type="${SERVICE_HEALTH_TYPES[$sid]:-http}"
+
+    # Skip display for CLI tools
+    if [[ "$health_type" == "none" ]]; then
+        return 0
+    fi
+
     if test_service "$sid" 2>/dev/null; then
         log "  ${GREEN}✓${NC} $name - healthy"
         return 0
@@ -303,6 +329,8 @@ for sid in "${CORE_SIDS[@]}"; do
 
         if [[ "$status" == "ok" ]]; then
             log "  ${GREEN}✓${NC} $name - healthy"
+        elif [[ "$status" == "skipped" ]]; then
+            log "  ${CYAN}-${NC} $name - skipped (CLI tool)"
         else
             # Use container state for better error message
             case "$container_state" in
@@ -357,6 +385,8 @@ for sid in "${EXT_SIDS[@]}"; do
 
         if [[ "$status" == "ok" ]]; then
             log "  ${GREEN}✓${NC} $name - healthy"
+        elif [[ "$status" == "skipped" ]]; then
+            log "  ${CYAN}-${NC} $name - skipped (CLI tool)"
         else
             # Use container state for better error message
             case "$container_state" in
