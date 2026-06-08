@@ -269,6 +269,13 @@ check_service_async() {
     local sid="$1"
     local result_file="$2"
 
+    # Skip CLI tools (health_type=none)
+    local health_type="${SERVICE_HEALTH_TYPES[$sid]:-http}"
+    if [[ "$health_type" == "none" ]]; then
+        echo "skipped:$sid:" > "$result_file"
+        return 0
+    fi
+
     # Check container state first
     local container_state
     container_state=$(check_container_state "$sid")
