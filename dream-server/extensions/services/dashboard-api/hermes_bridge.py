@@ -420,9 +420,20 @@ async def _submit_on_connection(
                     "summary": payload.get("summary") if isinstance(payload.get("summary"), str) else None,
                 }
         elif event_type == "message.complete":
-            final_text = payload.get("text")
-            if not isinstance(final_text, str) or not final_text.strip():
+            # Workaround: upstream Hermes may return a turn with no final_response
+            # (empty/thinking-only/tool-terminated output under load).
+            # See: https://github.com/Light-Heart-Labs/DreamServer/issues/1497
+            final_text = payload.get("text") if isinstance(payload.get("text"), str) else ""
+            if not final_text.strip():
+                # Fall back to the accumulated delta chunks. If those are also
+                # empty (thinking-only or tool-terminated turn), log a warning
+                # and resolve with "" rather than raising or crashing.
                 final_text = "".join(chunks)
+                if not final_text.strip():
+                    logger.warning(
+                        "hermes-bridge: message.complete received with no text and no deltas "
+                        "(thinking-only or tool-terminated turn — resolving as empty string)"
+                    )
             conn.last_used = time.monotonic()
             yield {
                 "type": "complete",
@@ -519,8 +530,20 @@ async def submit_prompt(session_key: str, text: str) -> HermesReply:
             final_text = event.get("text", "") or final_text
             status = event.get("status") or "ok"
             warning = event.get("warning")
-    if not session_id and not final_text:
+    # Workaround: upstream Hermes may return a turn with no final_response
+    # (empty/thinking-only/tool-terminated output under load).
+    # See: https://github.com/Light-Heart-Labs/DreamServer/issues/1497
+    # A valid session_id with empty text is a thinking-only/tool-terminated
+    # turn — degrade gracefully to "" rather than raising. Only raise when
+    # we never got a session at all (the WS never completed the handshake).
+    if not session_id:
         raise HermesBridgeError("Hermes did not finish the response.")
+    if not final_text:
+        logger.warning(
+            "hermes-bridge: submit_prompt resolved with empty text for session %s "
+            "(thinking-only or tool-terminated turn — returning empty string)",
+            session_id,
+        )
     return HermesReply(session_id=session_id, text=final_text, status=status, warning=warning)
 
 
