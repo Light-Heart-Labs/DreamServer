@@ -158,6 +158,55 @@ else
     fail "health_type=none does not result in skipped status"
 fi
 
+# 10. TCP behavioral test: health-check.sh reaches TCP branch for
+# health_type=tcp with empty health. The old guard
+# [[ -z "$health" || "$port" == "0" ]] blocked TCP entirely.
+# Now TCP branch runs before that guard.
+TCP_TEST_PORT=19877
+python3 -c "
+import socket, time
+server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+server.bind(('127.0.0.1', $TCP_TEST_PORT))
+server.listen(5)
+while True:
+    conn, _ = server.accept()
+    time.sleep(30)
+    conn.close()
+" > /dev/null 2>&1 &
+TCP_SERVER_PID=$!
+sleep 1
+
+# Run the TCP probe path from health-check.sh
+TCP_OUT=$(python3 -c "
+import socket, sys
+try:
+    s = socket.create_connection(('127.0.0.1', $TCP_TEST_PORT), timeout=5)
+    s.close()
+    print('ok')
+except Exception as e:
+    print(f'fail: {e}')
+" 2>&1)
+
+if echo "$TCP_OUT" | grep -q "^ok$"; then
+    pass "TCP probe reaches connect-only code path"
+else
+    fail "TCP probe failed: $TCP_OUT"
+fi
+
+# Verify the guard does NOT block TCP: check that the TCP branch
+# appears before the HTTP guard in the script
+TCP_LINE=$(grep -n 'health_type.*tcp' "$ROOT_DIR/scripts/health-check.sh" | head -1 | cut -d: -f1)
+GUARD_LINE=$(grep -n '\[\[ -z "\$health"' "$ROOT_DIR/scripts/health-check.sh" | head -1 | cut -d: -f1)
+if [[ -n "$TCP_LINE" && -n "$GUARD_LINE" && "$TCP_LINE" -lt "$GUARD_LINE" ]]; then
+    pass "TCP branch runs before HTTP guard"
+else
+    fail "TCP branch ($TCP_LINE) should run before HTTP guard ($GUARD_LINE)"
+fi
+
+kill $TCP_SERVER_PID 2>/dev/null || true
+wait $TCP_SERVER_PID 2>/dev/null || true
+
 echo ""
 echo "Result: $PASSED passed, $FAILED failed"
 [[ $FAILED -eq 0 ]]

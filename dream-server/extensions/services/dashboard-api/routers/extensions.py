@@ -896,10 +896,13 @@ async def extensions_catalog(
 
     user_svc_configs = await asyncio.to_thread(get_user_services_cached, USER_EXTENSIONS_DIR)
 
-    # Only health-check extensions that declare a health endpoint.  Use a
-    # short per-probe timeout so one slow extension cannot stall the catalog
-    # response (frontend aborts at 8 s).
-    checkable = {sid: cfg for sid, cfg in user_svc_configs.items() if cfg.get("health")}
+    # Health-check user extensions so _compute_extension_status can distinguish
+    # "enabled" (healthy) from "stopped" (unhealthy / not running).
+    # Include extensions with a health endpoint OR health_type=tcp (port probe).
+    # Use a short per-probe timeout so one slow extension cannot stall the
+    # catalog response (frontend aborts at 8 s).
+    checkable = {sid: cfg for sid, cfg in user_svc_configs.items()
+                 if cfg.get("health") or cfg.get("health_type") == "tcp"}
     user_health_tasks = [
         check_service_health(sid, cfg, timeout=_CATALOG_HEALTH_TIMEOUT)
         for sid, cfg in checkable.items()

@@ -3485,7 +3485,7 @@ class TestHealthTypeNoneStatus:
         monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", user_dir)
         monkeypatch.setattr("routers.extensions.SERVICES", {})
 
-        ext = self._make_ext("none-ext", health_type="none", port=0)
+        ext = self._make_ext("none-ext", health_type="none", port=0, startup_check=True)
         status = _compute_extension_status(ext, {})
         assert status == "stopped"
 
@@ -3504,7 +3504,7 @@ class TestHealthTypeNoneStatus:
         monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", user_dir)
         monkeypatch.setattr("routers.extensions.SERVICES", {})
 
-        ext = self._make_ext("none-ext", health_type="none", port=0)
+        ext = self._make_ext("none-ext", health_type="none", port=0, startup_check=True)
         svc = ServiceStatus(id="none-ext", name="None Ext", port=0,
                             external_port=0, status="skipped")
         status = _compute_extension_status(ext, {"none-ext": svc})
@@ -3525,7 +3525,7 @@ class TestHealthTypeNoneStatus:
         monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", user_dir)
         monkeypatch.setattr("routers.extensions.SERVICES", {})
 
-        ext = self._make_ext("none-ext", health_type="none", port=0)
+        ext = self._make_ext("none-ext", health_type="none", port=0, startup_check=True)
         svc = ServiceStatus(id="none-ext", name="None Ext", port=0,
                             external_port=0, status="healthy")
         status = _compute_extension_status(ext, {"none-ext": svc})

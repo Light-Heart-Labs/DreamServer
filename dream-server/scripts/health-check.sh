@@ -185,8 +185,6 @@ test_service() {
         return 0
     fi
 
-    [[ -z "$health" || "$port" == "0" ]] && return 1
-
     # TCP health check with timeout — verify the port accepts connections.
     # Use a connect-only probe (no data written) so services that keep
     # sockets open waiting for client data are not falsely reported down.
@@ -205,6 +203,14 @@ except Exception:
             return 0
         fi
         result_set "$sid" "fail"
+        ANY_FAIL=true
+        return 1
+    fi
+
+    # HTTP health check (default) — requires a non-empty health path
+    [[ -z "$health" || "$port" == "0" ]] && return 1
+
+    if curl -sf --max-time "$timeout" "http://127.0.0.1:${port}${health}" >/dev/null 2>&1; then
         ANY_FAIL=true
         return 1
     fi

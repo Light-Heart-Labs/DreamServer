@@ -249,8 +249,18 @@ collect_extension_diagnostics() {
                     # CLI/one-shot service: no network probe, container running = healthy
                     health_status="healthy"
                 elif [[ "$health_type" == "tcp" ]]; then
-                    # TCP health check: verify port accepts connections
-                    if timeout "$health_timeout" bash -c "echo >/dev/tcp/127.0.0.1/$port" 2>/dev/null; then
+                    # TCP health check: verify port accepts connections.
+                    # Use connect-only probe (no data written) so services that
+                    # keep sockets open are not falsely reported down.
+                    if python3 -c "
+import socket, sys
+try:
+    s = socket.create_connection(('127.0.0.1', $port), timeout=$health_timeout)
+    s.close()
+    sys.exit(0)
+except Exception:
+    sys.exit(1)
+" 2>/dev/null; then
                         health_status="healthy"
                     else
                         health_status="unhealthy"
