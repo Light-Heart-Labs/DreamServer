@@ -187,10 +187,20 @@ test_service() {
 
     [[ -z "$health" || "$port" == "0" ]] && return 1
 
-    # TCP health check with timeout — verify the port accepts connections
+    # TCP health check with timeout — verify the port accepts connections.
+    # Use a connect-only probe (no data written) so services that keep
+    # sockets open waiting for client data are not falsely reported down.
     if [[ "$health_type" == "tcp" ]]; then
         local tcp_timeout="${timeout:-5}"
-        if timeout "$tcp_timeout" bash -c "echo >/dev/tcp/127.0.0.1/\"$port\"" 2>/dev/null; then
+        if python3 -c "
+import socket, sys
+try:
+    s = socket.create_connection(('127.0.0.1', $port), timeout=$tcp_timeout)
+    s.close()
+    sys.exit(0)
+except Exception:
+    sys.exit(1)
+" 2>/dev/null; then
             result_set "$sid" "ok"
             return 0
         fi

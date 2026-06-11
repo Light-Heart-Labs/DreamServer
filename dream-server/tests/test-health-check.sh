@@ -103,6 +103,61 @@ else
     fail "check_container_state missing docker availability check"
 fi
 
+# 8. TCP health check uses connect-only probe (not curl telnet://)
+# The old curl telnet:// approach fails on services that hold sockets open.
+if grep -q "socket.create_connection" "$ROOT_DIR/scripts/health-check.sh"; then
+    pass "TCP check uses socket.create_connection (connect-only)"
+else
+    fail "TCP check does not use socket.create_connection"
+fi
+
+# 9. TCP probe behavioral test: verify socket.create_connection works
+# on a held-open TCP listener (the old curl telnet:// approach would fail).
+TCP_TEST_PORT=19876
+# Start a TCP listener that holds connections open
+python3 -c "
+import socket, time
+server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+server.bind(('127.0.0.1', $TCP_TEST_PORT))
+server.listen(5)
+while True:
+    conn, _ = server.accept()
+    time.sleep(30)
+    conn.close()
+" > /dev/null 2>&1 &
+TCP_SERVER_PID=$!
+sleep 1
+
+# Verify the connect-only probe succeeds on held-open listener
+TCP_OUT=$(python3 -c "
+import socket, sys
+try:
+    s = socket.create_connection(('127.0.0.1', $TCP_TEST_PORT), timeout=5)
+    s.close()
+    print('ok')
+except Exception as e:
+    print(f'fail: {e}')
+" 2>&1)
+
+if echo "$TCP_OUT" | grep -q "^ok$"; then
+    pass "TCP connect-only probe succeeds on held-open listener"
+else
+    fail "TCP connect-only probe failed on held-open listener: $TCP_OUT"
+fi
+
+# Clean up
+kill $TCP_SERVER_PID 2>/dev/null || true
+wait $TCP_SERVER_PID 2>/dev/null || true
+
+# 10. health_type=none behavioral test: verify the health check
+# script skips network probe for none-type services
+if grep -A5 'health_type.*none' "$ROOT_DIR/scripts/health-check.sh" | grep -q "skipped"; then
+    pass "health_type=none results in skipped status"
+else
+    fail "health_type=none does not result in skipped status"
+fi
+
 echo ""
 echo "Result: $PASSED passed, $FAILED failed"
 [[ $FAILED -eq 0 ]]

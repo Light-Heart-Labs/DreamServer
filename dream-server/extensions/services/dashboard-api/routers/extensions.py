@@ -220,8 +220,9 @@ def _compute_extension_status(ext: dict, services_by_id: dict) -> str:
         svc = services_by_id.get(ext_id)
         health_type = _get_health_type(ext)
         if health_type == "none":
-            # health_type=none: no network probe, rely on container state
-            # If we have a service status and it's "skipped", treat as enabled
+            # health_type=none: no network probe, rely on service status.
+            # "skipped" means the health check intentionally did not probe;
+            # treat as enabled when the container is running.
             if svc and svc.status in ("skipped", "healthy"):
                 return "enabled"
             return "disabled"
@@ -241,9 +242,14 @@ def _compute_extension_status(ext: dict, services_by_id: dict) -> str:
             svc = services_by_id.get(ext_id)
             health_type = _get_health_type(ext)
             if health_type == "none":
+                # health_type=none: no network probe. Rely on service
+                # status ("skipped" from the health checker). Without
+                # service evidence, report stopped rather than disabled
+                # so the UI distinguishes "installed but not running"
+                # from "not installed at all".
                 if svc and svc.status in ("skipped", "healthy"):
                     return "enabled"
-                return "disabled"
+                return "stopped"
             if svc and svc.status == "healthy":
                 return "enabled"
             # HTTP 4xx/5xx from the health endpoint is the clearest "container

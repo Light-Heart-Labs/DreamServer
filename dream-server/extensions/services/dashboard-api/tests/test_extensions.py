@@ -3448,3 +3448,85 @@ class TestCallAgentErrorNarrowing:
         assert any(
             "stale-progress cleanup failed" in r.message for r in caplog.records
         )
+
+
+class TestHealthTypeNoneStatus:
+    """Verify health_type=none extensions report correct status."""
+
+    def _make_ext(self, ext_id, health_type="http", port=8080,
+                  startup_check=None, gpu_backends=None):
+        ext = {
+            "id": ext_id,
+            "name": ext_id.replace("-", " ").title(),
+            "description": f"Test {ext_id}",
+            "category": "optional",
+            "gpu_backends": gpu_backends or ["nvidia", "amd", "apple"],
+            "compose_file": "compose.yaml",
+            "depends_on": [],
+            "port": port,
+            "external_port_default": port,
+            "health_type": health_type,
+        }
+        if startup_check is not None:
+            ext["startup_check"] = startup_check
+        return ext
+
+    def test_user_ext_none_no_service_returns_stopped(self, monkeypatch, tmp_path):
+        """health_type=none user ext with no service status → stopped (not disabled)."""
+        from routers.extensions import _compute_extension_status
+
+        user_dir = tmp_path / "user"
+        ext_dir = user_dir / "none-ext"
+        ext_dir.mkdir(parents=True)
+        (ext_dir / "compose.yaml").write_text(
+            "services:\n  test:\n    image: alpine\n"
+        )
+
+        monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", user_dir)
+        monkeypatch.setattr("routers.extensions.SERVICES", {})
+
+        ext = self._make_ext("none-ext", health_type="none", port=0)
+        status = _compute_extension_status(ext, {})
+        assert status == "stopped"
+
+    def test_user_ext_none_skipped_service_returns_enabled(self, monkeypatch, tmp_path):
+        """health_type=none user ext with skipped service status → enabled."""
+        from routers.extensions import _compute_extension_status
+        from models import ServiceStatus
+
+        user_dir = tmp_path / "user"
+        ext_dir = user_dir / "none-ext"
+        ext_dir.mkdir(parents=True)
+        (ext_dir / "compose.yaml").write_text(
+            "services:\n  test:\n    image: alpine\n"
+        )
+
+        monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", user_dir)
+        monkeypatch.setattr("routers.extensions.SERVICES", {})
+
+        ext = self._make_ext("none-ext", health_type="none", port=0)
+        svc = ServiceStatus(id="none-ext", name="None Ext", port=0,
+                            external_port=0, status="skipped")
+        status = _compute_extension_status(ext, {"none-ext": svc})
+        assert status == "enabled"
+
+    def test_user_ext_none_healthy_service_returns_enabled(self, monkeypatch, tmp_path):
+        """health_type=none user ext with healthy service status → enabled."""
+        from routers.extensions import _compute_extension_status
+        from models import ServiceStatus
+
+        user_dir = tmp_path / "user"
+        ext_dir = user_dir / "none-ext"
+        ext_dir.mkdir(parents=True)
+        (ext_dir / "compose.yaml").write_text(
+            "services:\n  test:\n    image: alpine\n"
+        )
+
+        monkeypatch.setattr("routers.extensions.USER_EXTENSIONS_DIR", user_dir)
+        monkeypatch.setattr("routers.extensions.SERVICES", {})
+
+        ext = self._make_ext("none-ext", health_type="none", port=0)
+        svc = ServiceStatus(id="none-ext", name="None Ext", port=0,
+                            external_port=0, status="healthy")
+        status = _compute_extension_status(ext, {"none-ext": svc})
+        assert status == "enabled"

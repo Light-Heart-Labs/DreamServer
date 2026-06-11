@@ -328,3 +328,54 @@ class TestLoadExtensionManifests:
         assert "service.id is required" in errors[0]["error"]
         assert "no-id-svc" in errors[0]["file"]
         assert services == {}
+
+
+class TestHealthTypePropagation:
+    """Verify health_type is propagated from manifest to service config."""
+
+    def test_health_type_tcp_preserved(self, tmp_path):
+        svc_dir = tmp_path / "tcp-svc"
+        svc_dir.mkdir()
+        (svc_dir / "manifest.yaml").write_text(
+            "schema_version: dream.services.v1\n"
+            "service:\n"
+            "  id: tcp-svc\n"
+            "  name: TCP Service\n"
+            "  port: 9090\n"
+            "  health_type: tcp\n"
+            "  gpu_backends: [nvidia]\n"
+        )
+        services, _, _ = load_extension_manifests(tmp_path, "nvidia")
+        assert "tcp-svc" in services
+        assert services["tcp-svc"]["health_type"] == "tcp"
+
+    def test_health_type_none_preserved(self, tmp_path):
+        svc_dir = tmp_path / "none-svc"
+        svc_dir.mkdir()
+        (svc_dir / "manifest.yaml").write_text(
+            "schema_version: dream.services.v1\n"
+            "service:\n"
+            "  id: none-svc\n"
+            "  name: None Service\n"
+            "  port: 0\n"
+            "  health_type: none\n"
+            "  gpu_backends: [nvidia]\n"
+        )
+        services, _, _ = load_extension_manifests(tmp_path, "nvidia")
+        assert "none-svc" in services
+        assert services["none-svc"]["health_type"] == "none"
+
+    def test_health_type_defaults_to_http(self, tmp_path):
+        svc_dir = tmp_path / "default-svc"
+        svc_dir.mkdir()
+        (svc_dir / "manifest.yaml").write_text(
+            "schema_version: dream.services.v1\n"
+            "service:\n"
+            "  id: default-svc\n"
+            "  name: Default Service\n"
+            "  port: 8080\n"
+            "  gpu_backends: [nvidia]\n"
+        )
+        services, _, _ = load_extension_manifests(tmp_path, "nvidia")
+        assert "default-svc" in services
+        assert services["default-svc"]["health_type"] == "http"
