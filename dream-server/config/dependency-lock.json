@@ -290,6 +290,12 @@
       "reason": "NVIDIA llama.cpp image can be overridden for testing, but the shipped default is locked."
     },
     {
+      "path": "docker-compose.jetson.yml",
+      "value": "${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda-b9014}",
+      "default": "ghcr.io/ggml-org/llama.cpp:server-cuda-b9014",
+      "reason": "Jetson uses the CUDA llama.cpp server image on arm64/Tegra; the shipped default is locked and can be overridden for testing."
+    },
+    {
       "path": "docker-compose.cpu.yml",
       "value": "${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-b8248}",
       "default": "ghcr.io/ggml-org/llama.cpp:server-b8248",
