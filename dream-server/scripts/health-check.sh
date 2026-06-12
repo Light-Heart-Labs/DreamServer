@@ -211,12 +211,6 @@ except Exception:
     [[ -z "$health" || "$port" == "0" ]] && return 1
 
     if curl -sf --max-time "$timeout" "http://127.0.0.1:${port}${health}" >/dev/null 2>&1; then
-        ANY_FAIL=true
-        return 1
-    fi
-
-    # HTTP health check (default)
-    if curl -sf --max-time "$timeout" "http://127.0.0.1:${port}${health}" >/dev/null 2>&1; then
         result_set "$sid" "ok"
         return 0
     fi
