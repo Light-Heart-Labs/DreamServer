@@ -13,6 +13,7 @@ from lemonade_client import (
 def test_normalize_base_url_strips_api_suffixes():
     assert normalize_base_url("http://localhost:13305/api/v1") == "http://localhost:13305"
     assert normalize_base_url("http://engine:8080/v1") == "http://engine:8080"
+    assert normalize_base_url("http://engine:8080/api") == "http://engine:8080"
     assert normalize_base_url("http://engine:8080") == "http://engine:8080"
 
 

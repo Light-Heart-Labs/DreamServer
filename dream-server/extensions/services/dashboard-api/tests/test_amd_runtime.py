@@ -1135,6 +1135,54 @@ async def test_external_lemonade_probe_classifies_chat_failure(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_external_lemonade_probe_rejects_empty_chat_content(monkeypatch):
+    class FakeLemonadeClient:
+        def __init__(self, settings):
+            self.settings = settings
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc_info):
+            return None
+
+        async def health(self):
+            return {"status": "ok", "version": "10.7.0", "model_loaded": "Qwen3-0.6B-GGUF"}
+
+        async def models(self):
+            return [{"id": "Qwen3-0.6B-GGUF"}]
+
+        async def stats(self):
+            return {}
+
+        async def chat_completion(self, *_args, **_kwargs):
+            return {"choices": [{"message": {"content": ""}}]}
+
+    monkeypatch.setattr(gpu_router, "LemonadeClient", FakeLemonadeClient)
+    monkeypatch.setenv("LEMONADE_MODEL", "Qwen3-0.6B-GGUF")
+    monkeypatch.setenv("LLM_BACKEND", "")
+
+    result = await gpu_router._probe_external_lemonade_uncached(
+        "http://host.docker.internal:13305/api/v1",
+        "/api/v1",
+        active=True,
+    )
+
+    assert "chat_invalid_response" in result.warnings
+    assert _provider_capability(result.capabilities, "chat") == {
+        "name": "chat",
+        "status": "failed",
+        "required": True,
+        "detail": "invalid_response",
+        "recoveryHint": (
+            "Set LEMONADE_MODEL to a model id returned by Lemonade /models, "
+            "then retry the readiness probe."
+        ),
+    }
+    assert provider_capability_summary(result.capabilities) == (False, "blocked")
+
+
+@pytest.mark.asyncio
 async def test_external_lemonade_probe_marks_rag_embeddings_as_dream_owned(monkeypatch):
     class FakeLemonadeClient:
         def __init__(self, settings):
@@ -1179,6 +1227,59 @@ async def test_external_lemonade_probe_marks_rag_embeddings_as_dream_owned(monke
         "required": False,
         "detail": "handled_by_embeddings_service",
     }
+
+
+@pytest.mark.asyncio
+async def test_external_lemonade_probe_treats_provider_endpoint_urls_as_lemonade_owned(monkeypatch):
+    calls = []
+
+    class FakeLemonadeClient:
+        def __init__(self, settings):
+            self.settings = settings
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc_info):
+            return None
+
+        async def health(self):
+            return {"status": "ok", "version": "10.7.0", "model_loaded": "chat-model"}
+
+        async def models(self):
+            return [{"id": "chat-model"}, {"id": "embed-model", "labels": ["embeddings"]}]
+
+        async def stats(self):
+            return {}
+
+        async def chat_completion(self, *_args, **_kwargs):
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+        async def embeddings(self, model, text):
+            calls.append(("embeddings", model, text))
+            return {"data": [{"embedding": [0.1]}]}
+
+    monkeypatch.setattr(gpu_router, "LemonadeClient", FakeLemonadeClient)
+    monkeypatch.setenv("LEMONADE_MODEL", "chat-model")
+    monkeypatch.setenv("ENABLE_RAG", "true")
+    monkeypatch.setenv("EMBEDDING_MODEL", "embed-model")
+    monkeypatch.setenv("EMBEDDING_URL", "http://host.docker.internal:13305/api/v1/embeddings")
+    monkeypatch.setenv("LLM_BACKEND", "")
+
+    result = await gpu_router._probe_external_lemonade_uncached(
+        "http://host.docker.internal:13305/api/v1",
+        "/api/v1",
+        active=True,
+    )
+
+    assert result.warnings == []
+    assert _provider_capability(result.capabilities, "embeddings") == {
+        "name": "embeddings",
+        "status": "ok",
+        "required": True,
+        "detail": "embed-model",
+    }
+    assert calls == [("embeddings", "embed-model", "ping")]
 
 
 @pytest.mark.asyncio

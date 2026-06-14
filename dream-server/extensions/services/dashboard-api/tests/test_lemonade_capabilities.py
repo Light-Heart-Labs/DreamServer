@@ -4,6 +4,8 @@ from pydantic import ValidationError
 from lemonade_capabilities import (
     DEFAULT_EXTERNAL_LEMONADE_ACTIVE_PROBE_TIMEOUT,
     DEFAULT_EXTERNAL_LEMONADE_PROBE_TTL,
+    _chat_completion_ready,
+    _url_points_to_provider,
     external_lemonade_active_probe_timeout,
     external_lemonade_probe_cache_key,
     external_lemonade_probe_ttl,
@@ -76,6 +78,35 @@ def test_external_lemonade_probe_cache_key_tracks_provider_profile():
     )
 
     assert first != second
+
+
+def test_chat_completion_ready_requires_non_empty_assistant_content():
+    assert _chat_completion_ready({"choices": [{"message": {"content": "ok"}}]}) is True
+    assert _chat_completion_ready({"choices": [{"message": {"content": "  "}}]}) is False
+    assert _chat_completion_ready({"choices": [{"message": {}}]}) is False
+    assert _chat_completion_ready({"choices": []}) is False
+
+
+def test_chat_completion_ready_accepts_text_blocks_and_legacy_text():
+    assert _chat_completion_ready({"choices": [{"message": {"content": [{"type": "text", "text": "ok"}]}}]}) is True
+    assert _chat_completion_ready({"choices": [{"text": "ok"}]}) is True
+
+
+def test_url_points_to_provider_accepts_full_endpoint_urls():
+    api_base = "http://lemonade:13305/api/v1"
+
+    assert _url_points_to_provider("http://lemonade:13305", api_base, "/api/v1") is True
+    assert _url_points_to_provider("http://lemonade:13305/api/v1", api_base, "/api/v1") is True
+    assert _url_points_to_provider("http://lemonade:13305/api/v1/embeddings", api_base, "/api/v1") is True
+    assert _url_points_to_provider("http://lemonade:13305/v1/audio/speech", api_base, "/api/v1") is True
+
+
+def test_url_points_to_provider_rejects_other_services():
+    api_base = "http://lemonade:13305/api/v1"
+
+    assert _url_points_to_provider("http://lemonade:13306/api/v1/embeddings", api_base, "/api/v1") is False
+    assert _url_points_to_provider("http://embeddings:8000/api/v1/embeddings", api_base, "/api/v1") is False
+    assert _url_points_to_provider("http://lemonade:13305/embeddings-service", api_base, "/api/v1") is False
 
 
 def test_provider_capability_status_rejects_unknown_status():

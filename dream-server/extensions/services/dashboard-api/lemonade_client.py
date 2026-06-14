@@ -24,7 +24,7 @@ def normalize_base_url(base_url: str, api_base_path: str = DEFAULT_API_BASE_PATH
     """Return a Lemonade host base URL without an API suffix."""
     base = (base_url or DEFAULT_BASE_URL).strip().rstrip("/")
     api_path = _clean_path(api_base_path).rstrip("/")
-    for suffix in (api_path, "/api/v1", "/v1"):
+    for suffix in (api_path, "/api/v1", "/v1", "/api"):
         if suffix and base.lower().endswith(suffix.lower()):
             return base[: -len(suffix)].rstrip("/") or DEFAULT_BASE_URL
     return base

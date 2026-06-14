@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from typing import Any, Callable, Literal, NamedTuple, Optional
+from urllib.parse import urlsplit
 
 from lemonade_client import LemonadeClient, LemonadeClientError, LemonadeSettings, normalize_base_url
 
@@ -244,15 +245,48 @@ def _select_lemonade_probe_model(
 
 def _chat_completion_ready(payload: dict) -> bool:
     choices = payload.get("choices")
-    return isinstance(choices, list) and len(choices) > 0
+    if not isinstance(choices, list):
+        return False
+    for choice in choices:
+        if not isinstance(choice, dict):
+            continue
+        message = choice.get("message")
+        if isinstance(message, dict):
+            content = message.get("content")
+            if isinstance(content, str) and content.strip():
+                return True
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and str(block.get("text") or "").strip():
+                        return True
+        text = choice.get("text")
+        if isinstance(text, str) and text.strip():
+            return True
+    return False
+
+
+def _clean_api_path(path: str) -> str:
+    cleaned = f"/{str(path or '/api/v1').strip('/')}"
+    return cleaned.rstrip("/") or "/"
 
 
 def _url_points_to_provider(url: str, api_base: str, api_path: str) -> bool:
     if not url:
         return False
-    provider_base = normalize_base_url(api_base, api_path).rstrip("/").lower()
-    candidate_base = normalize_base_url(url, api_path).rstrip("/").lower()
-    return candidate_base == provider_base
+    provider = urlsplit(normalize_base_url(api_base, api_path))
+    candidate = urlsplit(url.strip())
+    if not candidate.scheme or not candidate.netloc:
+        candidate = urlsplit(normalize_base_url(url, api_path))
+
+    if (candidate.scheme.lower(), candidate.netloc.lower()) != (provider.scheme.lower(), provider.netloc.lower()):
+        return False
+
+    candidate_path = _clean_api_path(candidate.path or "/")
+    if candidate_path == "/":
+        return True
+
+    api_paths = {_clean_api_path(api_path), "/api/v1", "/v1"}
+    return any(candidate_path == path or candidate_path.startswith(f"{path}/") for path in api_paths)
 
 
 def _capability_service_owner(
