@@ -635,18 +635,12 @@ function Sparkline({ shape, accent, compact = false }) {
           <stop offset="0%" stopColor={accent} stopOpacity="0.42" />
           <stop offset="100%" stopColor={accent} stopOpacity="0.02" />
         </linearGradient>
-        <filter id={`${id}-glow`} x="-20%" y="-80%" width="140%" height="260%">
-          <feGaussianBlur stdDeviation="2.2" result="blur" />
-          <feMerge>
-            <feMergeNode in="blur" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
+
       </defs>
       {shape?.line ? (
         <>
           <path d={shape.area} fill={`url(#${id}-fill)`} />
-          <path d={shape.line} fill="none" stroke={`url(#${id}-line)`} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" filter={`url(#${id}-glow)`} />
+          <path d={shape.line} fill="none" stroke={`url(#${id}-line)`} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ filter: `drop-shadow(0 0 2.2px ${accent})` }} />
         </>
       ) : (
         <line x1="8" x2="118" y1="34" y2="34" stroke="rgba(255,255,255,0.12)" strokeDasharray="4 5" />
