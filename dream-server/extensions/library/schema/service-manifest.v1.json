@@ -3,14 +3,26 @@
   "$id": "https://dreamserver.ai/schemas/service-manifest.v1.json",
   "title": "Dream Server Service Manifest v1",
   "type": "object",
-  "required": ["schema_version"],
+  "required": ["schema_version", "service"],
   "properties": {
     "schema_version": {
       "const": "dream.services.v1"
     },
     "service": {
       "type": "object",
-      "required": ["id", "name", "port", "health", "description"],
+      "required": ["id", "name", "port", "type", "category"],
+      "allOf": [
+        {
+          "if": {
+            "required": ["host_network"],
+            "properties": {
+              "host_network": { "const": true }
+            }
+          },
+          "then": {},
+          "else": { "required": ["health"] }
+        }
+      ],
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
         "name": { "type": "string", "minLength": 1 },
@@ -33,6 +45,10 @@
         "port": { "type": "integer", "minimum": 0, "maximum": 65535 },
         "external_port_env": { "type": "string" },
         "external_port_default": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "host_network": {
+          "type": "boolean",
+          "description": "Whether this service joins the host network namespace instead of exposing a Docker-mapped HTTP health port. host_network services may omit service.health when readiness is represented by compose/native health checks."
+        },
         "health": {
           "type": "string",
           "minLength": 0,
@@ -41,7 +57,7 @@
         "type": { "type": "string", "enum": ["docker", "host-systemd"] },
         "gpu_backends": {
           "type": "array",
-          "items": { "type": "string", "enum": ["amd", "nvidia", "apple", "all", "none"] },
+          "items": { "type": "string", "enum": ["amd", "nvidia", "apple", "cpu", "all", "none"] },
           "minItems": 1
         },
         "compose_file": {
@@ -76,7 +92,7 @@
         },
         "description": {
           "type": "string",
-          "description": "Human-readable service description"
+          "description": "Optional human-readable service description. Bundled manifests commonly describe user-facing behavior in features[].description instead."
         },
         "setup_hook": {
           "type": "string",
@@ -113,7 +129,7 @@
           "priority": { "type": "integer", "minimum": 1 },
           "gpu_backends": {
             "type": "array",
-            "items": { "type": "string", "enum": ["amd", "nvidia", "apple", "all", "none"] }
+            "items": { "type": "string", "enum": ["amd", "nvidia", "apple", "cpu", "all", "none"] }
           }
         },
         "additionalProperties": true
