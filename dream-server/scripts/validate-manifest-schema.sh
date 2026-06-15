@@ -143,11 +143,28 @@ try:
     for backend in service.get("gpu_backends", []):
         if backend not in ["amd", "nvidia", "apple", "cpu", "none", "all"]:
             error(f"Invalid gpu_backend: {backend}")
+    if "gpu_backends" in service and not service.get("gpu_backends"):
+        error("service.gpu_backends must not be empty")
+
+    for env_var in service.get("env_vars", []):
+        if not isinstance(env_var, dict):
+            error("Invalid env_vars entry")
+            continue
+        if "key" not in env_var:
+            error("env_vars entry missing key")
 
     for feature in manifest.get("features", []) or []:
         if not isinstance(feature, dict):
             error("Invalid feature entry")
             continue
+        for field in ["id", "name", "description", "icon", "category", "requirements", "priority"]:
+            if field not in feature:
+                error(f"Missing feature.{field}")
+        if feature.get("id") and not re.match(r'^[a-z0-9][a-z0-9-]*$', str(feature["id"])):
+            error(f"Invalid feature.id format: {feature['id']}")
+        priority = feature.get("priority")
+        if priority is not None and (not isinstance(priority, int) or priority < 1):
+            error(f"Invalid feature.priority: {priority}")
         for backend in feature.get("gpu_backends", []):
             if backend not in ["amd", "nvidia", "apple", "cpu", "none", "all"]:
                 error(f"Invalid feature gpu_backend: {backend}")

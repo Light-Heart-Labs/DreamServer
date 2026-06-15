@@ -249,6 +249,25 @@ write_manifest "$TMP_DIR/bad/service-bad" "quantum"
 assert_failure "invalid service gpu backend is rejected" \
   env DREAM_MANIFEST_DIRS="$TMP_DIR/bad" bash "$VALIDATOR"
 
+write_manifest "$TMP_DIR/empty-service-gpu/service-empty-gpu" "all"
+python3 - "$TMP_DIR/empty-service-gpu/service-empty-gpu/manifest.yaml" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+lines = path.read_text().splitlines()
+for idx, line in enumerate(lines):
+    if line.strip() == "gpu_backends: [all]":
+        lines[idx] = line.replace("[all]", "[]")
+        break
+else:
+    raise SystemExit("service gpu_backends line not found")
+path.write_text("\n".join(lines) + "\n")
+PY
+assert_failure "empty service gpu_backends is rejected" \
+  env DREAM_MANIFEST_DIRS="$TMP_DIR/empty-service-gpu" bash "$VALIDATOR"
+assert_failure "empty service gpu_backends fails JSON schema" \
+  schema_validate_manifests "$TMP_DIR/empty-service-gpu/service-empty-gpu/manifest.yaml"
+
 write_manifest "$TMP_DIR/bad-feature/service-bad-feature" "all"
 python3 - "$TMP_DIR/bad-feature/service-bad-feature/manifest.yaml" <<'PY'
 from pathlib import Path
@@ -268,5 +287,57 @@ path.write_text("\n".join(lines) + "\n")
 PY
 assert_failure "invalid feature gpu backend is rejected" \
   env DREAM_MANIFEST_DIRS="$TMP_DIR/bad-feature" bash "$VALIDATOR"
+
+write_manifest "$TMP_DIR/bad-feature-required/service-bad-feature-required" "all"
+python3 - "$TMP_DIR/bad-feature-required/service-bad-feature-required/manifest.yaml" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+lines = [line for line in path.read_text().splitlines() if line.strip() != "description: Test feature"]
+path.write_text("\n".join(lines) + "\n")
+PY
+assert_failure "missing feature required field is rejected" \
+  env DREAM_MANIFEST_DIRS="$TMP_DIR/bad-feature-required" bash "$VALIDATOR"
+assert_failure "missing feature required field fails JSON schema" \
+  schema_validate_manifests "$TMP_DIR/bad-feature-required/service-bad-feature-required/manifest.yaml"
+
+write_manifest "$TMP_DIR/bad-feature-id/service-bad-feature-id" "all"
+python3 - "$TMP_DIR/bad-feature-id/service-bad-feature-id/manifest.yaml" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+text = path.read_text().replace("  - id: service-bad-feature-id", "  - id: service_bad_feature_id")
+path.write_text(text)
+PY
+assert_failure "invalid feature id is rejected" \
+  env DREAM_MANIFEST_DIRS="$TMP_DIR/bad-feature-id" bash "$VALIDATOR"
+assert_failure "invalid feature id fails JSON schema" \
+  schema_validate_manifests "$TMP_DIR/bad-feature-id/service-bad-feature-id/manifest.yaml"
+
+write_manifest "$TMP_DIR/bad-feature-priority/service-bad-feature-priority" "all"
+python3 - "$TMP_DIR/bad-feature-priority/service-bad-feature-priority/manifest.yaml" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+text = path.read_text().replace("    priority: 1", "    priority: 0")
+path.write_text(text)
+PY
+assert_failure "invalid feature priority is rejected" \
+  env DREAM_MANIFEST_DIRS="$TMP_DIR/bad-feature-priority" bash "$VALIDATOR"
+assert_failure "invalid feature priority fails JSON schema" \
+  schema_validate_manifests "$TMP_DIR/bad-feature-priority/service-bad-feature-priority/manifest.yaml"
+
+write_manifest "$TMP_DIR/bad-env-var/service-bad-env-var" "all"
+python3 - "$TMP_DIR/bad-env-var/service-bad-env-var/manifest.yaml" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+text = path.read_text().replace("features:\n", "  env_vars:\n    - description: Missing required key\nfeatures:\n")
+path.write_text(text)
+PY
+assert_failure "env var without key is rejected" \
+  env DREAM_MANIFEST_DIRS="$TMP_DIR/bad-env-var" bash "$VALIDATOR"
+assert_failure "env var without key fails JSON schema" \
+  schema_validate_manifests "$TMP_DIR/bad-env-var/service-bad-env-var/manifest.yaml"
 
 echo "validate-manifest-schema regression tests passed"
