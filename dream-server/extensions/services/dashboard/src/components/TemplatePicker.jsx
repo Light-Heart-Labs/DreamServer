@@ -6,6 +6,13 @@ import {
 
 const ICON_MAP = { MessageSquare, Image, Code, Shield, Layers, Package }
 
+const TEMPLATE_PANEL_STYLE = {
+  background:
+    'linear-gradient(180deg, rgba(18,18,25,0.94), rgba(8,8,16,0.96)), repeating-linear-gradient(90deg, transparent 0 47px, rgba(255,255,255,0.025) 47px 48px), repeating-linear-gradient(180deg, transparent 0 47px, rgba(255,255,255,0.025) 47px 48px)',
+  borderColor: 'rgba(255,255,255,0.08)',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.045), 0 18px 40px rgba(0,0,0,0.22)',
+}
+
 const fetchJson = async (url, options = {}) => {
   const c = new AbortController()
   const t = setTimeout(() => c.abort(), options.timeout || 30000)
@@ -56,6 +63,7 @@ export function TemplatePicker({ templates, onApplied, compact = false }) {
               disabled={disabled}
               aria-disabled={disabled}
               className={`${cardBase} ${cardByStatus}`}
+              style={!disabled ? TEMPLATE_PANEL_STYLE : undefined}
             >
               <div className="flex items-center gap-3 mb-2">
                 <div className={`p-2 rounded-lg ${hasErrors ? 'bg-red-500/10' : isApplied ? 'bg-green-500/10' : 'bg-theme-accent/10 group-hover:bg-theme-accent/20'} transition-colors`}>
@@ -174,6 +182,7 @@ export function TemplatePreview({ template, onClose, onApplied }) {
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
       <div
         className="bg-theme-card border border-theme-border rounded-xl p-6 max-w-lg mx-4 w-full"
+        style={TEMPLATE_PANEL_STYLE}
         onClick={e => e.stopPropagation()}
         role="dialog"
         aria-modal="true"

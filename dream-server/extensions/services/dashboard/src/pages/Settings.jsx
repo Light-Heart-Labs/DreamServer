@@ -1,16 +1,25 @@
 import {
-  Settings as SettingsIcon,
-  Server,
-  HardDrive,
-  RefreshCw,
-  Download,
-  Network,
-  FileText,
-  UserPlus,
-  CreditCard,
+  Activity,
+  ArrowUpRight,
+  Calendar,
+  ChevronDown,
   ChevronRight,
+  Clock3,
+  Crown,
+  CreditCard,
+  Database,
+  Download,
+  Gauge,
+  HardDrive,
+  Network,
+  RefreshCw,
+  Route,
+  Server,
+  Settings as SettingsIcon,
+  UserPlus,
+  WalletCards,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import EnvEditor from '../components/settings/EnvEditor'
 
@@ -47,10 +56,28 @@ const formatUptime = (secs = 0) => {
   return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`
 }
 
-const formatDateTime = (value) => {
+const formatInstallDate = (value) => {
   if (!value) return 'Unknown'
   const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString()
+  if (Number.isNaN(parsed.getTime())) return value
+  return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    + '  -  '
+    + parsed.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+}
+
+const formatCheckedAt = (value) => {
+  if (!value) return null
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed.toLocaleString()
+}
+
+const formatUsageSource = (source) => {
+  const status = source?.status
+  if (!status) return 'Usage source unavailable'
+  if (status === 'ok') return 'Token Spy connected'
+  if (status === 'partial') return 'Partial usage telemetry'
+  return titleCase(status)
 }
 
 const getErrorText = (err) => (
@@ -60,24 +87,77 @@ const getErrorText = (err) => (
 const getDashboardHost = () => (typeof window !== 'undefined' ? window.location.hostname : 'localhost')
 const getExternalUrl = (port) => (port ? `http://${getDashboardHost()}:${port}` : null)
 
-const ROUTE_GROUP_STYLES = {
-  inactive: { dot: 'bg-red-500', text: 'text-theme-text-secondary', line: 'rgba(239,68,68,0.26)' },
-  degraded: { dot: 'bg-amber-400', text: 'text-theme-text-secondary', line: 'rgba(245,158,11,0.24)' },
-  online: { dot: 'bg-emerald-400', text: 'text-theme-text-secondary', line: 'rgba(52,211,153,0.22)' },
+const todayKey = () => {
+  const now = new Date()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${now.getFullYear()}-${month}-${day}`
 }
 
-const routeSeverityOrder = { down: 0, unhealthy: 1, degraded: 2, unknown: 3, healthy: 4 }
-const sortRoutesBySeverity = (items) => [...(items || [])].sort((a, b) => (routeSeverityOrder[a.status] ?? 9) - (routeSeverityOrder[b.status] ?? 9))
+const formatCompact = (value) => {
+  const number = Number(value || 0)
+  if (number >= 1_000_000_000) return `${(number / 1_000_000_000).toFixed(1)}B`
+  if (number >= 1_000_000) return `${(number / 1_000_000).toFixed(2).replace(/\.00$/, '')}M`
+  if (number >= 1_000) return `${(number / 1_000).toFixed(1).replace(/\.0$/, '')}k`
+  return `${Math.round(number)}`
+}
+
+const titleCase = (value) => String(value || '')
+  .replace(/[_-]+/g, ' ')
+  .replace(/\b\w/g, char => char.toUpperCase())
 
 const matchesEnvSearch = (key, field, query) => {
   if (!query) return true
   return [key, field?.label, field?.description].filter(Boolean).join(' ').toLowerCase().includes(query)
 }
 
+const routeSeverityOrder = { down: 0, unhealthy: 1, degraded: 2, unknown: 3, healthy: 4 }
+const sortRoutesBySeverity = (items) => [...(items || [])].sort((a, b) => (routeSeverityOrder[a.status] ?? 9) - (routeSeverityOrder[b.status] ?? 9))
+const routeFilterDotClass = {
+  online: 'bg-emerald-400',
+  degraded: 'bg-amber-400',
+  inactive: 'bg-red-400',
+}
+
+const SETTINGS_CARD_STYLE = {
+  background:
+    'linear-gradient(180deg, rgba(18,18,25,0.94), rgba(8,8,16,0.96)), repeating-linear-gradient(90deg, transparent 0 47px, rgba(255,255,255,0.025) 47px 48px), repeating-linear-gradient(180deg, transparent 0 47px, rgba(255,255,255,0.025) 47px 48px)',
+  borderColor: 'rgba(255,255,255,0.08)',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.045), 0 18px 40px rgba(0,0,0,0.22)',
+}
+
+const ROUTE_DESCRIPTIONS = {
+  ape: 'Policy evaluation and enforcement',
+  comfyui: 'Text-to-image and image generation',
+  dashboard: 'Main dashboard and control center',
+  'dashboard-api': 'System status and metrics API',
+  hermes: 'Advanced agent console',
+  'hermes-proxy': 'Auth-gated Hermes LAN entry',
+  litellm: 'OpenAI-compatible model gateway',
+  'llama-server': 'Local inference backend',
+  'open-webui': 'Primary chat interface',
+  perplexica: 'Deep research and web synthesis',
+  searxng: 'Private metasearch backend',
+  'token-spy': 'Usage and token telemetry',
+  whisper: 'Speech-to-text service',
+  tts: 'Text-to-speech service',
+}
+
+const getServiceDescription = (service) => {
+  if (service?.description) return service.description
+  const id = String(service?.id || '').toLowerCase()
+  const name = String(service?.name || '').toLowerCase()
+  if (ROUTE_DESCRIPTIONS[id]) return ROUTE_DESCRIPTIONS[id]
+  if (ROUTE_DESCRIPTIONS[name]) return ROUTE_DESCRIPTIONS[name]
+  if (service?.category) return `${titleCase(service.category)} service`
+  return 'Service registered in the current Dream Server stack'
+}
+
 export default function Settings() {
   const [version, setVersion] = useState(null)
   const [storage, setStorage] = useState(null)
   const [services, setServices] = useState([])
+  const [usageReport, setUsageReport] = useState(null)
   const [envEditor, setEnvEditor] = useState(null)
   const [envValues, setEnvValues] = useState({})
   const [envValuesOriginal, setEnvValuesOriginal] = useState({})
@@ -89,9 +169,14 @@ export default function Settings() {
   const [envRevealSecrets, setEnvRevealSecrets] = useState({})
   const [envApplyPlan, setEnvApplyPlan] = useState(null)
   const [statusCache, setStatusCache] = useState(null)
+  const [setupStatus, setSetupStatus] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [notice, setNotice] = useState(null)
+  const [routeFilter, setRouteFilter] = useState('all')
+  const [routesExpanded, setRoutesExpanded] = useState(false)
+  const [envOpen, setEnvOpen] = useState(false)
+  const envEditorRef = useRef(null)
 
   useEffect(() => { fetchSettings() }, [])
 
@@ -115,9 +200,15 @@ export default function Settings() {
         latest: versionData.latest || null,
         update_available: Boolean(versionData.update_available && versionData.latest && versionData.current && versionData.current !== '0.0.0' && versionData.latest !== versionData.current),
         changelog_url: versionData.changelog_url || null,
-        checked_at: versionData.checked_at || null,
+        checked_at: versionData.checked_at || new Date().toISOString(),
+        update_check_ok: true,
       }))
-      if (announce) setNotice({ type: versionData.update_available ? 'warn' : 'info', text: versionData.update_available && versionData.latest ? `Update available: v${versionData.latest}` : 'You are already on the latest available release.' })
+      if (announce) {
+        setNotice({
+          type: versionData.update_available ? 'warn' : 'info',
+          text: versionData.update_available && versionData.latest ? `Update available: v${versionData.latest}` : 'You are already on the latest available release.',
+        })
+      }
     } catch (err) {
       if (announce) setNotice({ type: 'warn', text: `Could not check updates right now: ${getErrorText(err)}` })
     }
@@ -132,11 +223,16 @@ export default function Settings() {
   const fetchSettings = async () => {
     const failures = []
     try {
-      setLoading(true); setError(null); setNotice(null)
-      const [summaryResult, storageResult, envResult] = await Promise.allSettled([
+      setLoading(true)
+      setError(null)
+      setNotice(null)
+      const today = todayKey()
+      const [summaryResult, storageResult, envResult, usageResult, setupResult] = await Promise.allSettled([
         fetchPayload('/api/settings/summary', 10000),
         fetchPayload('/api/storage', 12000),
         fetchPayload('/api/settings/env', 10000),
+        fetchPayload(`/api/usage/report?start=${today}&end=${today}`, 10000),
+        fetchPayload('/api/setup/status', 8000),
       ])
 
       if (summaryResult.status === 'fulfilled') {
@@ -144,15 +240,24 @@ export default function Settings() {
         setStatusCache(statusData)
         setVersion({
           version: statusData.version || 'Unknown',
-          install_date: formatDateTime(statusData.install_date),
-          tier: statusData.tier,
+          install_date: formatInstallDate(statusData.install_date),
+          tier: titleCase(statusData.tier || 'Community'),
           uptime: formatUptime(statusData.uptime || 0),
         })
         setServices(statusData.services || [])
       } else failures.push(summaryResult.reason)
 
-      if (storageResult.status === 'fulfilled') setStorage(storageResult.value); else failures.push(storageResult.reason)
-      if (envResult.status === 'fulfilled') applyEnvEditorPayload(envResult.value); else failures.push(envResult.reason)
+      if (storageResult.status === 'fulfilled') setStorage(storageResult.value)
+      else failures.push(storageResult.reason)
+
+      if (envResult.status === 'fulfilled') applyEnvEditorPayload(envResult.value)
+      else failures.push(envResult.reason)
+
+      if (usageResult.status === 'fulfilled') setUsageReport(usageResult.value)
+      else setUsageReport(null)
+
+      if (setupResult.status === 'fulfilled') setSetupStatus(setupResult.value)
+      else setSetupStatus(null)
 
       if (failures.length === 3) setError(getErrorText(failures[0]))
       else if (failures.length > 0) setNotice({ type: 'warn', text: 'Some settings details are temporarily unavailable. Showing the data that loaded successfully.' })
@@ -163,6 +268,13 @@ export default function Settings() {
       setLoading(false)
     }
     void fetchVersionInfo()
+  }
+
+  const handleOpenEnvironmentEditor = () => {
+    setEnvOpen(true)
+    window.requestAnimationFrame(() => {
+      envEditorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
   }
 
   const handleSaveEnv = async () => {
@@ -205,7 +317,14 @@ export default function Settings() {
   const handleExportConfig = async () => {
     try {
       const data = statusCache || (await (await fetchJson('/api/status')).json())
-      const config = { exported_at: new Date().toISOString(), version: data.version, tier: data.tier, gpu: data.gpu, services: data.services?.map(s => ({ name: s.name, port: s.port, status: s.status })), model: data.model }
+      const config = {
+        exported_at: new Date().toISOString(),
+        version: data.version,
+        tier: data.tier,
+        gpu: data.gpu,
+        services: data.services?.map(s => ({ name: s.name, port: s.port, status: s.status })),
+        model: data.model,
+      }
       const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -219,115 +338,463 @@ export default function Settings() {
     }
   }
 
-  const routingGroups = [
-    { key: 'online', label: 'Online', tone: 'online', services: sortRoutesBySeverity(services).filter(service => service.status === 'healthy') },
-    { key: 'degraded', label: 'Degraded', tone: 'degraded', services: sortRoutesBySeverity(services).filter(service => service.status === 'degraded') },
-    { key: 'inactive', label: 'Inactive', tone: 'inactive', services: sortRoutesBySeverity(services).filter(service => ['down', 'unhealthy', 'unknown'].includes(service.status)) },
-  ]
-
   const envFields = envEditor?.fields || {}
-  const envSections = (envEditor?.sections || []).map(section => ({ ...section, keys: section.keys.filter(key => matchesEnvSearch(key, envFields[key], envSearch.trim().toLowerCase())) })).filter(section => section.keys.length > 0)
+  const envSections = (envEditor?.sections || [])
+    .map(section => ({ ...section, keys: section.keys.filter(key => matchesEnvSearch(key, envFields[key], envSearch.trim().toLowerCase())) }))
+    .filter(section => section.keys.length > 0)
   const activeEnvSection = envSections.find(section => section.id === envActiveSection) || envSections[0] || null
   const envDirty = JSON.stringify(envValues) !== JSON.stringify(envValuesOriginal)
-  const envIssueMap = envIssues.reduce((acc, issue) => { if (issue?.key) (acc[issue.key] ||= []).push(issue.message); return acc }, {})
+  const envIssueMap = envIssues.reduce((acc, issue) => {
+    if (issue?.key) (acc[issue.key] ||= []).push(issue.message)
+    return acc
+  }, {})
 
-  if (loading) return (
-    <div className="p-8 animate-pulse">
-      <div className="mb-8 flex items-start justify-between"><div><div className="h-8 bg-theme-card rounded w-1/3 mb-3" /><div className="h-4 bg-theme-card rounded w-80" /></div><div className="h-10 bg-theme-card rounded-lg w-28" /></div>
-      <div className="space-y-6 max-w-5xl">{[...Array(6)].map((_, i) => <div key={i} className="h-36 bg-theme-card rounded-xl" />)}</div>
-    </div>
-  )
+  const routeCounts = useMemo(() => {
+    const online = services.filter(service => service.status === 'healthy')
+    const degraded = services.filter(service => service.status === 'degraded')
+    const inactive = services.filter(service => ['down', 'unhealthy', 'unknown'].includes(service.status))
+    return { online, degraded, inactive }
+  }, [services])
+
+  if (loading) return <SettingsSkeleton />
 
   return (
-    <div className="p-8">
-      <div className="mb-8 flex items-center justify-between">
-        <div><h1 className="text-2xl font-bold text-theme-text">Settings</h1><p className="text-theme-text-muted mt-1">Configure your Dream Server installation.</p></div>
-        <button onClick={fetchSettings} className="text-sm text-theme-accent-light hover:text-theme-accent-light flex items-center gap-1.5 transition-colors"><RefreshCw size={14} />Refresh</button>
-      </div>
+    <div className="min-h-full px-5 py-7 sm:px-8 xl:px-12">
+      <SettingsPageHeader
+        onRefresh={fetchSettings}
+        onCheckUpdates={() => {
+          setNotice({ type: 'info', text: 'Checking for updates...' })
+          void fetchVersionInfo({ announce: true })
+        }}
+        onOpenEnvironment={handleOpenEnvironmentEditor}
+      />
 
-      {error ? <Banner tone="danger">{error} — <button className="underline" onClick={fetchSettings}>Retry</button></Banner> : null}
+      {error ? <Banner tone="danger">{error} - <button className="underline" onClick={fetchSettings}>Retry</button></Banner> : null}
       {notice ? <Banner tone={notice.type} onClose={() => setNotice(null)}>{notice.text}</Banner> : null}
 
-      <div className="max-w-5xl space-y-6 liquid-metal-sequence-grid liquid-metal-sequence-grid--services">
-        <SettingsSection title="System Identity" icon={Server}><div className="grid gap-4 sm:grid-cols-2"><InfoRow label="Version" value={version?.version || 'Unknown'} /><InfoRow label="Install Date" value={version?.install_date || 'Unknown'} /><InfoRow label="Tier" value={version?.tier || 'Community'} /><InfoRow label="Uptime" value={version?.uptime || 'Unknown'} /></div></SettingsSection>
+      <div className="mx-auto max-w-[1760px] space-y-5">
+        <SystemIdentityCard version={version} />
+        <AccountUsageCard usageReport={usageReport} />
+        <RemoteSetupCard setupStatus={setupStatus} />
+        <RoutingTableCard
+          services={services}
+          counts={routeCounts}
+          routeFilter={routeFilter}
+          onRouteFilterChange={setRouteFilter}
+          expanded={routesExpanded}
+          onToggleExpanded={() => setRoutesExpanded(current => !current)}
+        />
 
-        <SettingsSection title="Account" icon={SettingsIcon}>
-          <div className="divide-y divide-theme-border">
-            <SettingsNavRow
-              to="/usage"
-              icon={CreditCard}
-              label="Usage"
-              description="Token and request counts, model-level cost insights, and historical activity."
+        <div className="grid gap-4 lg:grid-cols-3">
+          <StorageCard storage={storage} />
+          <UpdatesCard version={version} onCheckUpdates={() => fetchVersionInfo({ announce: true })} />
+          <CommandsCard onExportConfig={handleExportConfig} />
+        </div>
+
+        {envOpen && envEditor ? (
+          <div ref={envEditorRef} className="pt-4">
+            <EnvEditor
+              editor={envEditor}
+              search={envSearch}
+              onSearchChange={setEnvSearch}
+              sections={envSections}
+              activeSection={activeEnvSection}
+              onSectionChange={setEnvActiveSection}
+              fields={envFields}
+              values={envValues}
+              issues={envIssues}
+              issueMap={envIssueMap}
+              revealedSecrets={envRevealSecrets}
+              onToggleReveal={(key) => setEnvRevealSecrets(current => ({ ...current, [key]: !current[key] }))}
+              onFieldChange={(key, value) => setEnvValues(current => ({ ...current, [key]: value }))}
+              onRefresh={fetchSettings}
+              onReload={() => fetchEnvEditor({ announce: true })}
+              onSave={handleSaveEnv}
+              onApply={handleApplyEnv}
+              dirty={envDirty}
+              saving={envSaving}
+              applyPlan={envApplyPlan}
+              applying={envApplying}
             />
           </div>
-        </SettingsSection>
-
-        <SettingsSection title="Remote Setup" icon={UserPlus}>
-          <div className="divide-y divide-theme-border">
-            <SettingsNavRow
-              to="/invites"
-              icon={UserPlus}
-              label="Setup / Owner"
-              description="Pre-stage a system for its intended owner, or create a temporary support invite."
-            />
-          </div>
-        </SettingsSection>
-
-        {services.length > 0 ? <SettingsSection title="Routing Table" icon={Network}><div className="space-y-3"><div className="flex flex-wrap items-center gap-2"><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-theme-text-muted/60">route surfaces</p><span className="rounded-full border border-white/10 bg-black/[0.12] px-2.5 py-1 text-[10px] font-mono uppercase tracking-[0.16em] text-theme-text">{getDashboardHost()}</span></div><div className="grid gap-3 xl:grid-cols-3">{routingGroups.map(group => <RoutingGroup key={group.key} {...group} />)}</div></div></SettingsSection> : null}
-
-        {envEditor ? <SettingsSection title="Environment Editor" icon={FileText}><EnvEditor editor={envEditor} search={envSearch} onSearchChange={setEnvSearch} sections={envSections} activeSection={activeEnvSection} onSectionChange={setEnvActiveSection} fields={envFields} values={envValues} issues={envIssues} issueMap={envIssueMap} revealedSecrets={envRevealSecrets} onToggleReveal={(key) => setEnvRevealSecrets(current => ({ ...current, [key]: !current[key] }))} onFieldChange={(key, value) => setEnvValues(current => ({ ...current, [key]: value }))} onReload={() => fetchEnvEditor({ announce: true })} onSave={handleSaveEnv} onApply={handleApplyEnv} dirty={envDirty} saving={envSaving} applyPlan={envApplyPlan} applying={envApplying} /></SettingsSection> : null}
-
-        <SettingsSection title="Storage" icon={HardDrive}><StorageBlock storage={storage} /></SettingsSection>
-        <SettingsSection title="Updates" icon={RefreshCw}><div className="flex items-center justify-between gap-4"><div><p className="text-theme-text">{version?.update_available && version?.latest ? `Update available: v${version.latest}` : `Installed version: v${version?.version || 'Unknown'}`}</p><p className="text-sm text-theme-text-muted">{version?.checked_at ? `Last checked: ${new Date(version.checked_at).toLocaleString()}` : 'Checks GitHub in the background to avoid blocking the page.'}</p></div><button onClick={() => { setNotice({ type: 'info', text: 'Checking for updates...' }); void fetchVersionInfo({ announce: true }) }} className="liquid-metal-button px-4 py-2 text-white rounded-lg text-sm flex items-center gap-2"><RefreshCw size={16} />Check for Updates</button></div></SettingsSection>
-        <SettingsSection title="Commands" icon={SettingsIcon}><ActionButton icon={Download} label="Export Configuration" description="Download your settings as a JSON file" onClick={handleExportConfig} /></SettingsSection>
+        ) : null}
       </div>
     </div>
   )
 }
 
-function SettingsSection({ title, icon: Icon, children }) { return <div className="liquid-metal-frame liquid-metal-sequence-card bg-theme-card border border-theme-border rounded-xl"><div className="flex items-center gap-3 p-4 border-b border-theme-border"><Icon size={20} className="text-theme-text-muted" /><h2 className="text-lg font-semibold text-theme-text">{title}</h2></div><div className="p-4">{children}</div></div> }
-function InfoRow({ label, value }) { return <div className="flex items-center justify-between py-2 gap-4"><span className="text-sm text-theme-text-muted">{label}</span><span className="text-sm text-theme-text font-medium font-mono text-right break-all">{value}</span></div> }
+function SettingsPageHeader({ onRefresh, onCheckUpdates, onOpenEnvironment }) {
+  return (
+    <header className="mx-auto mb-8 flex max-w-[1760px] flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+      <div>
+        <h1 className="text-3xl font-semibold tracking-[-0.01em] text-theme-text sm:text-4xl">Settings</h1>
+        <p className="mt-2 text-base text-theme-text-muted">Configure your Dream Server installation.</p>
+      </div>
+      <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+        <button onClick={onRefresh} className="order-first flex items-center gap-2 text-sm font-medium text-theme-accent-light hover:text-white lg:-mt-8">
+          <RefreshCw size={16} />
+          Refresh
+        </button>
+        <button onClick={onCheckUpdates} className="rounded-xl border border-white/15 bg-black/20 px-5 py-3 text-sm font-medium text-theme-text transition-colors hover:border-theme-accent/50 hover:text-white">
+          <span className="flex items-center gap-2"><RefreshCw size={15} />Check for Updates</span>
+        </button>
+        <button onClick={onOpenEnvironment} className="liquid-metal-button rounded-xl px-5 py-3 text-sm font-semibold text-white">
+          <span className="flex items-center gap-2">Open Environment Editor<ChevronRight size={16} /></span>
+        </button>
+      </div>
+    </header>
+  )
+}
+
+function SystemIdentityCard({ version }) {
+  const currentVersion = version?.version && version.version !== 'Unknown' ? `v${String(version.version).replace(/^v/i, '')}` : 'Unknown'
+  const versionBadge = version?.update_check_ok
+    ? (version?.update_available ? 'Update' : 'Latest')
+    : null
+  return (
+    <PremiumCard className="grid gap-6 p-5 lg:grid-cols-[minmax(300px,1.1fr)_2.5fr] lg:p-6">
+      <CardIntro icon={Server} title="System Identity" description="Core information about this Dream Server instance." />
+      <div className="grid gap-0 overflow-hidden rounded-2xl border border-white/[0.06] bg-black/[0.08] sm:grid-cols-2 xl:grid-cols-4">
+        <MetaTile icon={Server} label="Version" value={currentVersion} badge={versionBadge} />
+        <MetaTile icon={Calendar} label="Install Date" value={version?.install_date || 'Unknown'} />
+        <MetaTile icon={Crown} label="Tier" value={version?.tier || 'Community'} />
+        <MetaTile icon={Clock3} label="Uptime" value={version?.uptime || 'Unknown'} live />
+      </div>
+    </PremiumCard>
+  )
+}
+
+function AccountUsageCard({ usageReport }) {
+  const summary = usageReport?.summary || {}
+  const modelsUsed = Array.isArray(usageReport?.models) ? usageReport.models.length : 0
+  const hasActivity = Number(summary.requests || 0) > 0 || Number(summary.total_tokens || 0) > 0
+  const usageSource = formatUsageSource(usageReport?.source)
+  const lastActivity = hasActivity ? 'Today' : 'No activity today'
+  return (
+    <PremiumCard as={Link} to="/usage" className="group grid gap-6 p-5 lg:grid-cols-[minmax(300px,1fr)_minmax(260px,1.2fr)_2.2fr_auto] lg:items-center lg:p-6">
+      <CardIntro icon={CreditCard} title="Account" description="Usage, tokens, requests, and activity at a glance." />
+      <div className="rounded-2xl border border-white/10 bg-black/15 p-4">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-theme-text-muted">Usage Overview</p>
+        <p className="mt-2 text-sm leading-6 text-theme-text-muted">{usageSource}. Open the usage dashboard for the full period breakdown.</p>
+        <span className="mt-4 inline-flex items-center gap-2 rounded-lg border border-theme-accent/45 bg-theme-accent/10 px-3 py-2 text-sm font-medium text-theme-accent-light">
+          <Activity size={15} />
+          View Usage Dashboard
+        </span>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricTile icon={Gauge} label="Tokens (24h)" value={formatCompact(summary.total_tokens)} delta={hasActivity ? 'Live' : null} />
+        <MetricTile icon={Database} label="Requests (24h)" value={formatCompact(summary.requests)} delta={hasActivity ? 'Tracked' : null} />
+        <MetricTile icon={WalletCards} label="Models Used" value={formatCompact(modelsUsed)} delta={modelsUsed ? 'Tracked' : null} />
+        <MetricTile icon={Clock3} label="Last Activity" value={lastActivity} delta={hasActivity ? 'Tracked' : null} />
+      </div>
+      <ChevronRight size={22} className="hidden text-theme-text-muted transition-transform group-hover:translate-x-1 group-hover:text-white lg:block" />
+    </PremiumCard>
+  )
+}
+
+function RemoteSetupCard({ setupStatus }) {
+  const setupComplete = setupStatus ? !setupStatus.first_run : null
+  const setupLabel = setupComplete === null ? 'Setup status unavailable' : setupComplete ? 'Setup complete' : `Setup step ${setupStatus.step || 0}`
+  const personaLabel = setupStatus?.persona ? `Active persona: ${titleCase(setupStatus.persona)}` : 'No persona selected'
+
+  return (
+    <PremiumCard as={Link} to="/invites" className="group grid gap-6 p-5 lg:grid-cols-[minmax(300px,1fr)_1.7fr_auto] lg:items-center lg:p-6">
+      <CardIntro icon={UserPlus} title="Remote Setup" description="Manage owner and collaborator access for this installation." />
+      <div>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-theme-text-muted">Setup / Access</p>
+        <p className="mt-2 max-w-xl text-sm leading-6 text-theme-text-muted">{setupLabel}. {personaLabel}. Owner and collaborator access is managed with invite links.</p>
+        <span className="mt-4 inline-flex items-center gap-2 rounded-lg border border-theme-accent/45 bg-theme-accent/10 px-3 py-2 text-sm font-medium text-theme-accent-light">
+          <UserPlus size={15} />
+          Manage Invites
+        </span>
+      </div>
+      <ChevronRight size={22} className="hidden text-theme-text-muted transition-transform group-hover:translate-x-1 group-hover:text-white lg:block" />
+    </PremiumCard>
+  )
+}
+
+function RoutingTableCard({ services, counts, routeFilter, onRouteFilterChange, expanded, onToggleExpanded }) {
+  const allRoutes = sortRoutesBySeverity(services)
+  const filteredRoutes = routeFilter === 'online'
+    ? counts.online
+    : routeFilter === 'degraded'
+      ? counts.degraded
+      : routeFilter === 'inactive'
+        ? counts.inactive
+        : allRoutes
+  const visibleRoutes = expanded ? filteredRoutes : filteredRoutes.slice(0, 4)
+  const hiddenCount = Math.max(filteredRoutes.length - visibleRoutes.length, 0)
+
+  return (
+    <PremiumCard className="grid overflow-hidden lg:grid-cols-[340px_1fr]">
+      <div className="border-b border-white/[0.07] p-5 lg:border-b-0 lg:border-r lg:p-6">
+        <CardIntro icon={Route} title="Routing Table" description="Overview of route surfaces and their current status." />
+        <div className="mt-9">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-theme-text-muted">Route Surfaces</p>
+          <button className="mt-3 inline-flex items-center gap-3 rounded-full border border-white/12 bg-theme-accent/10 px-4 py-2 text-sm text-theme-text">
+            <span className="h-2 w-2 rounded-full bg-emerald-400" />
+            {getDashboardHost()}
+            <ChevronDown size={15} className="text-theme-text-muted" />
+          </button>
+        </div>
+      </div>
+      <div className="p-5 lg:p-6">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex flex-wrap gap-2">
+            {['all', 'online', 'degraded', 'inactive'].map(item => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => onRouteFilterChange(item)}
+                className={`rounded-full border px-4 py-2 text-sm capitalize transition-colors ${
+                  routeFilter === item
+                    ? 'border-theme-accent bg-theme-accent text-white shadow-[0_0_26px_rgba(157,0,255,0.28)]'
+                    : 'border-white/10 bg-black/10 text-theme-text-muted hover:text-white'
+                }`}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-4">
+            <p className="text-sm text-theme-text-muted">{services.length} routes total</p>
+            <Link to="/extensions/integrations" className="inline-flex items-center gap-2 rounded-lg border border-white/12 bg-black/15 px-4 py-2 text-sm text-theme-text hover:border-theme-accent/50">
+              View All Routes
+              <ChevronRight size={15} />
+            </Link>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-4 lg:grid-cols-3">
+          <RouteStatusCard tone="online" label="Online" count={counts.online.length} description="Healthy services in the current status cache" />
+          <RouteStatusCard tone="degraded" label="Degraded" count={counts.degraded.length} description="Services reporting degraded health" />
+          <RouteStatusCard tone="inactive" label="Inactive" count={counts.inactive.length} description="Down, unhealthy, or unknown services" />
+        </div>
+
+        <div className="mt-5">
+          <p className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-theme-text-muted">
+            <span className={`h-2 w-2 rounded-full ${routeFilter === 'all' ? 'bg-theme-accent' : routeFilterDotClass[routeFilter]}`} />
+            {routeFilter === 'all' ? 'All Routes' : `${titleCase(routeFilter)} Routes`}
+          </p>
+          <div className="overflow-hidden rounded-2xl border border-white/[0.07] bg-black/[0.12]">
+            {visibleRoutes.length > 0 ? visibleRoutes.map(service => (
+              <RouteRow key={`${service.id || service.name}-${service.port || 'internal'}`} service={service} />
+            )) : (
+              <div className="px-5 py-6 text-sm text-theme-text-muted">No routes match this filter.</div>
+            )}
+            {hiddenCount > 0 ? (
+              <button type="button" onClick={onToggleExpanded} className="flex w-full items-center gap-3 border-t border-white/[0.07] px-5 py-3 text-left text-sm text-theme-text-muted hover:bg-white/[0.03] hover:text-white">
+                <span className="text-lg leading-none">+</span>
+                {hiddenCount} more routes
+                <ChevronDown size={15} className={expanded ? 'rotate-180' : ''} />
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </PremiumCard>
+  )
+}
+
+function StorageCard({ storage }) {
+  const items = [['Models', storage?.models], ['Vector DB', storage?.vector_db], ['Total Data', storage?.total_data]]
+  return (
+    <UtilityCard icon={HardDrive} title="Storage" description="Data footprint across local model and runtime directories.">
+      <div className="space-y-4">
+        {items.map(([label, data]) => (
+          <div key={label}>
+            <div className="mb-2 flex items-center justify-between text-sm">
+              <span className="text-theme-text-muted">{label}</span>
+              <span className="font-medium text-theme-text">{data?.formatted || 'Unknown'}</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-white/[0.06]">
+              <div className="h-full rounded-full bg-gradient-to-r from-theme-accent to-purple-300" style={{ width: `${data?.percent || 0}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </UtilityCard>
+  )
+}
+
+function UpdatesCard({ version, onCheckUpdates }) {
+  const checkedAt = formatCheckedAt(version?.checked_at)
+  const updateText = version?.update_check_ok
+    ? (version?.update_available ? 'Update available' : 'Current release')
+    : 'Not checked yet'
+
+  return (
+    <UtilityCard icon={RefreshCw} title="Updates" description={checkedAt ? `Last checked ${checkedAt}` : 'Checks GitHub without blocking the page.'}>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <p className="text-lg font-semibold text-theme-text">{version?.update_available && version?.latest ? `v${version.latest}` : `v${version?.version || 'Unknown'}`}</p>
+          <p className="mt-1 text-sm text-theme-text-muted">{updateText}</p>
+        </div>
+        <button onClick={onCheckUpdates} className="rounded-lg border border-white/12 bg-black/20 px-3 py-2 text-sm text-theme-text hover:border-theme-accent/50">
+          Check
+        </button>
+      </div>
+    </UtilityCard>
+  )
+}
+
+function CommandsCard({ onExportConfig }) {
+  return (
+    <UtilityCard icon={SettingsIcon} title="Commands" description="Export and inspect your current install metadata.">
+      <button onClick={onExportConfig} className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-black/15 px-4 py-3 text-left hover:border-theme-accent/40">
+        <span className="flex items-center gap-3 text-sm font-medium text-theme-text"><Download size={17} />Export Configuration</span>
+        <ArrowUpRight size={16} className="text-theme-text-muted" />
+      </button>
+    </UtilityCard>
+  )
+}
+
+function CardIntro({ icon: Icon, title, description }) {
+  return (
+    <div className="flex min-w-0 items-start gap-5">
+      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-black/20 text-theme-accent-light shadow-[0_0_30px_rgba(157,0,255,0.16)]">
+        <Icon size={28} strokeWidth={1.8} />
+      </div>
+      <div className="pt-1">
+        <h2 className="text-xl font-semibold text-theme-text">{title}</h2>
+        <p className="mt-2 max-w-sm text-sm leading-6 text-theme-text-muted">{description}</p>
+      </div>
+    </div>
+  )
+}
+
+function MetaTile({ icon: Icon, label, value, badge, live = false }) {
+  return (
+    <div className="min-w-0 border-b border-white/[0.06] p-4 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0">
+      <div className="mb-3 flex items-center gap-3 text-theme-text-muted">
+        <Icon size={20} strokeWidth={1.8} />
+        <span className="text-[11px] font-semibold uppercase tracking-[0.2em]">{label}</span>
+      </div>
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="truncate text-lg font-semibold text-theme-text">{value}</span>
+        {badge ? <span className="rounded-full bg-theme-accent/25 px-2.5 py-1 text-xs font-medium text-theme-accent-light">{badge}</span> : null}
+        {live ? <span className="inline-flex items-center gap-1.5 rounded-full bg-theme-accent/15 px-2 py-1 text-xs font-medium text-theme-accent-light"><span className="h-1.5 w-1.5 rounded-full bg-theme-accent-light" />Live</span> : null}
+      </div>
+    </div>
+  )
+}
+
+function MetricTile({ icon: Icon, label, value, delta }) {
+  return (
+    <div className="min-w-0 border-white/[0.06] xl:border-l xl:pl-5">
+      <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-full bg-white/[0.06] text-theme-text-muted">
+        <Icon size={17} />
+      </div>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-theme-text-muted">{label}</p>
+      <div className="mt-2 flex items-baseline gap-2">
+        <p className="text-2xl font-semibold text-theme-text">{value}</p>
+        {delta ? <span className="text-xs font-medium text-emerald-400">{delta}</span> : null}
+      </div>
+    </div>
+  )
+}
+
+function RouteStatusCard({ tone, label, count, description }) {
+  const palette = {
+    online: 'border-emerald-400/25 text-emerald-300 shadow-[inset_3px_0_0_rgba(52,211,153,0.55)]',
+    degraded: 'border-amber-400/25 text-amber-300 shadow-[inset_3px_0_0_rgba(251,191,36,0.75)]',
+    inactive: 'border-red-400/25 text-red-300 shadow-[inset_3px_0_0_rgba(248,113,113,0.65)]',
+  }
+  return (
+    <div className={`rounded-2xl border bg-black/[0.12] p-5 ${palette[tone]}`}>
+      <div className="mb-3 flex items-center gap-2">
+        <span className={`h-2 w-2 rounded-full ${tone === 'online' ? 'bg-emerald-400' : tone === 'degraded' ? 'bg-amber-400' : 'bg-red-400'}`} />
+        <p className="text-sm font-semibold">{label}</p>
+      </div>
+      <p className="text-3xl font-semibold text-theme-text">{count}<span className="ml-2 text-sm font-normal text-theme-text-muted">routes</span></p>
+      <p className="mt-2 text-sm text-theme-text-muted">{description}</p>
+    </div>
+  )
+}
+
+function RouteRow({ service }) {
+  const href = getExternalUrl(service.port)
+  const healthy = service.status === 'healthy'
+  const degraded = service.status === 'degraded'
+  const dot = healthy ? 'bg-emerald-400' : degraded ? 'bg-amber-400' : 'bg-red-400'
+  const description = getServiceDescription(service)
+  const content = (
+    <>
+      <div className="flex min-w-0 items-center gap-4">
+        <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} />
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-theme-text">{service.name}</p>
+          <p className="truncate text-xs text-theme-text-muted">{description}</p>
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-4">
+        <span className="rounded-lg border border-theme-accent/35 bg-theme-accent/10 px-3 py-1 font-mono text-sm text-theme-accent-light">
+          {service.port ? `:${service.port}` : 'internal'}
+        </span>
+        <ChevronRight size={18} className="text-theme-text-muted" />
+      </div>
+    </>
+  )
+  const className = "flex items-center justify-between gap-4 border-b border-white/[0.055] px-5 py-3 last:border-b-0 hover:bg-white/[0.03]"
+  return href
+    ? <a href={href} target="_blank" rel="noopener noreferrer" className={className}>{content}</a>
+    : <div className={className}>{content}</div>
+}
+
+function UtilityCard({ icon: Icon, title, description, children }) {
+  return (
+    <PremiumCard className="p-5">
+      <div className="mb-5 flex items-start gap-4">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-theme-accent/10 text-theme-accent-light">
+          <Icon size={20} />
+        </div>
+        <div>
+          <h3 className="text-base font-semibold text-theme-text">{title}</h3>
+          <p className="mt-1 text-sm leading-6 text-theme-text-muted">{description}</p>
+        </div>
+      </div>
+      {children}
+    </PremiumCard>
+  )
+}
+
+function PremiumCard({ as: Component = 'div', className = '', children, style, ...props }) {
+  return (
+    <Component
+      className={`liquid-metal-frame rounded-2xl border ${className}`}
+      style={{ ...SETTINGS_CARD_STYLE, ...style }}
+      {...props}
+    >
+      {children}
+    </Component>
+  )
+}
 
 function Banner({ tone = 'info', children, onClose }) {
   const cls = tone === 'danger' ? 'border-red-500/20 bg-red-500/10 text-red-200' : tone === 'warn' ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-100' : 'border-theme-accent/20 bg-theme-accent/10 text-theme-text'
-  return <div className={`mb-6 rounded-xl border p-4 text-sm flex items-center justify-between ${cls}`}><span>{children}</span>{onClose ? <button onClick={onClose} className="ml-4 opacity-60 hover:opacity-100">×</button> : null}</div>
-}
-
-function RoutingGroup({ label, tone, services }) {
-  const styles = ROUTE_GROUP_STYLES[tone]
-  const [expanded, setExpanded] = useState(false)
-  const primary = tone === 'online'
-  const visible = primary ? (expanded ? services : services.slice(0, 4)) : (expanded ? services : [])
-  const hiddenCount = Math.max(services.length - visible.length, 0)
-  const summary = services.slice(0, 2).map(service => service.name).join(' · ')
-  return <div className="self-start rounded-2xl border bg-theme-card px-3 py-2.5" style={{ borderColor: 'rgba(255,255,255,0.08)', boxShadow: `inset 2px 0 0 ${styles.line}` }}><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><span className={`h-1.5 w-1.5 rounded-full ${styles.dot}`} /><p className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${styles.text}`}>{label}</p><span className="text-[10px] text-theme-text-muted/60">{services.length} {services.length === 1 ? 'route' : 'routes'}</span></div>{services.length > 0 ? <button type="button" onClick={() => setExpanded(current => !current)} className="text-[10px] font-mono uppercase tracking-[0.16em] text-theme-text-muted/65 transition-colors hover:text-theme-text">{expanded ? 'Collapse' : 'Show all'}</button> : null}</div>{visible.length > 0 ? <div className="mt-2 space-y-1">{visible.map(service => <RoutingRow key={`${tone}-${service.name}`} service={service} tone={tone} />)}{!expanded && hiddenCount > 0 ? <p className="px-1 pt-0.5 text-[10px] uppercase tracking-[0.14em] text-theme-text-muted/45">+{hiddenCount} more</p> : null}</div> : services.length === 0 ? <p className="mt-2 text-[10px] uppercase tracking-[0.14em] text-theme-text-muted/40">Clear</p> : <div className="mt-1.5 min-h-[1.75rem]"><p className="truncate text-[10px] uppercase tracking-[0.14em] text-theme-text-muted/52">{summary}{services.length > 2 ? ` +${services.length - 2} more` : ''}</p></div>}</div>
-}
-
-function RoutingRow({ service, tone }) {
-  const styles = ROUTE_GROUP_STYLES[tone]
-  const href = getExternalUrl(service.port)
-  return <div className="flex items-center justify-between gap-3 rounded-lg border border-white/6 bg-black/[0.1] px-2 py-1.5"><div className="flex min-w-0 items-center gap-2"><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${styles.dot}`} /><span className="truncate text-[11px] font-medium text-theme-text">{service.name}</span></div><div className="flex shrink-0 items-center gap-2 text-[9px] text-theme-text-muted/75">{href ? <a className="font-mono uppercase tracking-[0.14em] text-theme-accent-light hover:text-theme-text transition-colors" href={href} target="_blank" rel="noopener noreferrer">:{service.port}</a> : <span className="font-mono uppercase tracking-[0.14em]">internal</span>}</div></div>
-}
-
-function StorageBlock({ storage }) {
-  const items = [['Models', storage?.models], ['Vector Database', storage?.vector_db], ['Total Data', storage?.total_data]]
-  return <div className="space-y-4">{items.map(([label, data]) => <div key={label}><div className="flex items-center justify-between text-sm mb-2"><span className="text-theme-text-muted">{label}</span><span className="text-theme-text">{data?.formatted || 'Unknown'}</span></div><div className="liquid-metal-progress-track h-2 rounded-full overflow-hidden"><div className="h-full liquid-metal-progress-fill rounded-full" style={{ width: `${data?.percent || 0}%` }} /></div></div>)}</div>
-}
-
-function ActionButton({ icon: Icon, label, description, onClick }) { return <button onClick={onClick} className="w-full flex items-center gap-4 p-3 rounded-lg transition-colors hover:bg-theme-surface-hover"><Icon size={20} className="text-theme-text-muted" /><div className="text-left"><p className="text-sm text-theme-text font-medium">{label}</p><p className="text-xs text-theme-text-muted">{description}</p></div></button> }
-
-// Settings → sub-page link row. Mirrors the visual shape of ActionButton
-// but renders a router <Link> so navigation works without an onClick handler
-// and the route gets registered with the SPA's history/scroll restoration.
-function SettingsNavRow({ to, icon: Icon, label, description }) {
   return (
-    <Link to={to} className="flex items-center gap-4 p-3 rounded-lg transition-colors hover:bg-theme-surface-hover">
-      <Icon size={20} className="text-theme-text-muted" />
-      <div className="flex-1 text-left">
-        <p className="text-sm text-theme-text font-medium">{label}</p>
-        <p className="text-xs text-theme-text-muted">{description}</p>
+    <div className={`mx-auto mb-6 flex max-w-[1760px] items-center justify-between rounded-2xl border p-4 text-sm ${cls}`}>
+      <span>{children}</span>
+      {onClose ? <button onClick={onClose} className="ml-4 opacity-60 hover:opacity-100">x</button> : null}
+    </div>
+  )
+}
+
+function SettingsSkeleton() {
+  return (
+    <div className="px-5 py-7 sm:px-8 xl:px-12">
+      <div className="mx-auto max-w-[1760px] animate-pulse">
+        <div className="mb-8 flex items-start justify-between">
+          <div>
+            <div className="mb-3 h-10 w-56 rounded-xl bg-theme-card" />
+            <div className="h-4 w-80 rounded-lg bg-theme-card" />
+          </div>
+          <div className="h-11 w-72 rounded-xl bg-theme-card" />
+        </div>
+        <div className="space-y-5">
+          {[...Array(4)].map((_, index) => <div key={index} className="h-32 rounded-2xl bg-theme-card" />)}
+        </div>
       </div>
-      <ChevronRight size={16} className="text-theme-text-muted/60" />
-    </Link>
+    </div>
   )
 }

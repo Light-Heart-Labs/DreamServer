@@ -15,6 +15,19 @@ export { getTemplateStatus }
 // API/backend services with no user-facing web UI — show badge instead of port link.
 const HEADLESS_EXTENSIONS = new Set(['embeddings', 'tts', 'whisper', 'privacy-shield'])
 
+const EXTENSIONS_PANEL_STYLE = {
+  background:
+    'linear-gradient(180deg, rgba(18,18,25,0.94), rgba(8,8,16,0.96)), repeating-linear-gradient(90deg, transparent 0 47px, rgba(255,255,255,0.025) 47px 48px), repeating-linear-gradient(180deg, transparent 0 47px, rgba(255,255,255,0.025) 47px 48px)',
+  borderColor: 'rgba(255,255,255,0.08)',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.045), 0 18px 40px rgba(0,0,0,0.22)',
+}
+
+const EXTENSIONS_MODAL_STYLE = {
+  background:
+    'linear-gradient(180deg, rgba(18,18,25,0.98), rgba(8,8,16,0.98)), repeating-linear-gradient(90deg, transparent 0 47px, rgba(255,255,255,0.022) 47px 48px), repeating-linear-gradient(180deg, transparent 0 47px, rgba(255,255,255,0.022) 47px 48px)',
+  borderColor: 'rgba(255,255,255,0.08)',
+}
+
 // Auth: nginx injects "Authorization: Bearer ${DASHBOARD_API_KEY}" via
 // proxy_set_header for all /api/ requests (see nginx.conf).  All fetches
 // use relative URLs so they route through the nginx proxy which adds the
@@ -344,7 +357,7 @@ export default function Extensions() {
             Browse and discover add-on services.
           </p>
         </div>
-        <div className="liquid-metal-frame liquid-metal-frame--soft flex items-center gap-4 text-xs text-theme-text-muted font-mono bg-theme-card border border-theme-border rounded-lg px-3 py-2">
+        <div className="liquid-metal-frame liquid-metal-frame--soft flex items-center gap-4 text-xs text-theme-text-muted font-mono border rounded-lg px-3 py-2" style={EXTENSIONS_PANEL_STYLE}>
           {catalog?.agent_available !== undefined && (
             <div className="flex items-center gap-1.5">
               <span className={`w-1.5 h-1.5 rounded-full ${catalog.agent_available ? 'bg-emerald-400' : 'bg-red-500'}`} />
@@ -372,7 +385,7 @@ export default function Extensions() {
       )}
 
       {/* Summary bar */}
-      <div className="bg-theme-card border border-theme-border rounded-xl p-4 mb-6 liquid-metal-frame liquid-metal-frame--soft">
+      <div className="border rounded-xl p-4 mb-6 liquid-metal-frame liquid-metal-frame--soft" style={EXTENSIONS_PANEL_STYLE}>
         <div className="flex items-center gap-6 text-sm">
           <SummaryItem label="Total" value={summary.total || extensions.length} color="bg-theme-text-muted" />
           <SummaryItem label="Installed" value={summary.installed ?? 0} color="bg-green-500" />
@@ -388,7 +401,7 @@ export default function Extensions() {
             <div className="flex items-center justify-center w-6 h-6 rounded-full border border-theme-border bg-theme-bg/80 text-theme-text-muted cursor-help transition-colors group-hover/legend:text-theme-text group-hover/legend:border-theme-text-muted">
               <Info size={13} />
             </div>
-            <div className="pointer-events-none absolute top-[calc(100%+0.5rem)] right-0 z-50 w-96 rounded-lg border border-theme-border bg-theme-card/95 px-4 py-3 opacity-0 shadow-2xl transition-all duration-150 translate-y-1 group-hover/legend:translate-y-0 group-hover/legend:opacity-100">
+            <div className="pointer-events-none absolute top-[calc(100%+0.5rem)] right-0 z-50 w-96 rounded-lg border px-4 py-3 opacity-0 shadow-2xl transition-all duration-150 translate-y-1 group-hover/legend:translate-y-0 group-hover/legend:opacity-100" style={EXTENSIONS_MODAL_STYLE}>
               <h4 className="text-[10px] font-semibold text-theme-text-secondary uppercase tracking-[0.18em] mb-2.5">Status Legend</h4>
               <div className="grid grid-cols-[5.5rem_1fr] gap-y-2 gap-x-3 items-baseline">
                 {Object.entries(STATUS_DESCRIPTIONS).map(([key, desc]) => (
@@ -520,7 +533,7 @@ export default function Extensions() {
       {/* Confirmation dialog */}
       {confirm && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setConfirm(null)}>
-          <div className="bg-theme-card border border-theme-border rounded-xl p-6 max-w-md mx-4 shadow-2xl" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Confirm action">
+          <div className="border rounded-xl p-6 max-w-md mx-4 shadow-2xl" style={EXTENSIONS_MODAL_STYLE} onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Confirm action">
             <h3 className="text-base font-semibold text-theme-text mb-2">
               {confirm.action === 'uninstall' ? 'Remove' : confirm.action === 'purge' ? 'Purge Data' : confirm.action.charAt(0).toUpperCase() + confirm.action.slice(1)} Extension
             </h3>
@@ -557,10 +570,10 @@ export default function Extensions() {
       {/* Toast notification */}
       {toast && (
         <div className={`fixed bottom-6 right-6 z-50 rounded-xl border p-4 text-[11px] max-w-sm shadow-2xl ${
-          toast.type === 'error' ? 'border-red-500/20 bg-theme-card/95 text-red-300' :
-          toast.type === 'info' ? 'border-theme-accent/20 bg-theme-card/95 text-theme-accent-light' :
-          'border-green-500/20 bg-theme-card/95 text-green-300'
-        }`}>
+          toast.type === 'error' ? 'border-red-500/20 text-red-300' :
+          toast.type === 'info' ? 'border-theme-accent/20 text-theme-accent-light' :
+          'border-green-500/20 text-green-300'
+        }`} style={EXTENSIONS_MODAL_STYLE}>
           <div className="flex items-center justify-between gap-3">
             <span className="leading-relaxed">{toast.text}</span>
             <button onClick={() => setToast(null)} className="text-theme-text-muted/45 hover:text-theme-text-secondary transition-colors">×</button>
@@ -609,7 +622,7 @@ function StatusBadge({ status, statusStyle, ext, gpuBackend, onConsole }) {
     <div className="relative group/status z-[1] hover:z-[60]" data-tooltip>
       {badge}
       {tooltip && (
-        <div className="pointer-events-none absolute top-full right-0 z-[60] mt-1.5 w-48 rounded-lg border border-theme-border bg-theme-card/95 px-3 py-2 text-[11px] leading-4 text-theme-text-secondary opacity-0 shadow-2xl transition-all duration-150 translate-y-1 group-hover/status:translate-y-0 group-hover/status:opacity-100">
+        <div className="pointer-events-none absolute top-full right-0 z-[60] mt-1.5 w-48 rounded-lg border px-3 py-2 text-[11px] leading-4 text-theme-text-secondary opacity-0 shadow-2xl transition-all duration-150 translate-y-1 group-hover/status:translate-y-0 group-hover/status:opacity-100" style={EXTENSIONS_MODAL_STYLE}>
           {tooltip}
         </div>
       )}
@@ -639,9 +652,9 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
   const showInstall = status === 'not_installed' && ext.installable
 
   return (
-    <div className={`bg-theme-card border rounded-xl transition-all liquid-metal-frame liquid-metal-sequence-card flex flex-col ${
+    <div className={`border rounded-xl transition-all liquid-metal-frame liquid-metal-sequence-card flex flex-col ${
       isCore ? 'border-theme-border/60 opacity-70' : 'border-theme-border'
-    }`}>
+    }`} style={EXTENSIONS_PANEL_STYLE}>
       {/* Card body */}
       <div className="p-4 pb-3 flex-1">
         <div className="flex items-start justify-between mb-2">
@@ -746,7 +759,7 @@ function ExtensionCard({ ext, gpuBackend, agentAvailable, onDetails, onConsole, 
       })()}
 
       {/* Card footer */}
-      <div className="border-t border-theme-border/40 px-4 py-2.5 flex items-center justify-between bg-theme-bg/30">
+      <div className="border-t border-theme-border/40 px-4 py-2.5 flex items-center justify-between bg-black/20">
         <div className="flex gap-1.5">
           {showInstall && (
             <button
@@ -890,12 +903,13 @@ function DetailModal({ ext, gpuBackend, onClose }) {
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
       <div
-        className="bg-theme-card border border-theme-border rounded-xl w-full max-w-lg max-h-[80vh] overflow-y-auto mx-4"
+        className="border rounded-xl w-full max-w-lg max-h-[80vh] overflow-y-auto mx-4"
+        style={EXTENSIONS_MODAL_STYLE}
         onClick={e => e.stopPropagation()}
         role="dialog" aria-modal="true" aria-label={ext.name}
       >
         {/* Header */}
-        <div className="sticky top-0 bg-theme-card border-b border-theme-border p-4 flex items-center justify-between rounded-t-xl">
+        <div className="sticky top-0 border-b border-theme-border p-4 flex items-center justify-between rounded-t-xl bg-black/35 backdrop-blur">
           <div className="flex items-center gap-3">
             <Icon size={22} className="text-theme-text-muted" />
             <div>
@@ -919,22 +933,22 @@ function DetailModal({ ext, gpuBackend, onClose }) {
 
           {/* Info grid */}
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <div className="bg-theme-card/50 rounded-lg p-3">
+            <div className="rounded-lg border border-white/[0.055] bg-black/20 p-3">
               <span className="text-theme-text-muted text-xs block mb-1">Port</span>
               <span className="text-theme-text font-mono">{ext.external_port_default || ext.port || '—'}</span>
             </div>
-            <div className="bg-theme-card/50 rounded-lg p-3">
+            <div className="rounded-lg border border-white/[0.055] bg-black/20 p-3">
               <span className="text-theme-text-muted text-xs block mb-1">GPU</span>
               <span className="text-theme-text">{ext.gpu_backends?.join(', ') || 'none'}</span>
               {isIncompatible && gpuBackend && (
                 <span className="text-orange-400 text-[10px] block mt-1">Your system: {gpuBackend}</span>
               )}
             </div>
-            <div className="bg-theme-card/50 rounded-lg p-3">
+            <div className="rounded-lg border border-white/[0.055] bg-black/20 p-3">
               <span className="text-theme-text-muted text-xs block mb-1">Category</span>
               <span className="text-theme-text">{ext.category || '—'}</span>
             </div>
-            <div className="bg-theme-card/50 rounded-lg p-3">
+            <div className="rounded-lg border border-white/[0.055] bg-black/20 p-3">
               <span className="text-theme-text-muted text-xs block mb-1">Health</span>
               <span className="text-theme-text font-mono text-xs">{ext.health_endpoint || '—'}</span>
             </div>
@@ -946,7 +960,7 @@ function DetailModal({ ext, gpuBackend, onClose }) {
               <h4 className="text-xs font-medium text-theme-text-muted uppercase tracking-wider mb-2">Dependencies</h4>
               <div className="flex flex-wrap gap-2">
                 {deps.map(dep => (
-                  <span key={dep} className="bg-theme-card text-theme-text-muted rounded px-2 py-1 text-xs">{dep}</span>
+                    <span key={dep} className="rounded border border-white/[0.055] bg-black/20 px-2 py-1 text-xs text-theme-text-muted">{dep}</span>
                 ))}
               </div>
             </div>
@@ -956,7 +970,7 @@ function DetailModal({ ext, gpuBackend, onClose }) {
           {envVars.length > 0 && (
             <div>
               <h4 className="text-xs font-medium text-theme-text-muted uppercase tracking-wider mb-2">Environment Variables</h4>
-              <div className="bg-theme-card/50 rounded-lg overflow-hidden">
+              <div className="overflow-hidden rounded-lg border border-white/[0.055] bg-black/20">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-theme-border">
@@ -1145,7 +1159,8 @@ function ConsoleModal({ ext, onClose }) {
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={onClose}>
       <div
-        className="bg-theme-bg border border-theme-border rounded-xl w-full max-w-3xl h-[70vh] flex flex-col mx-4"
+        className="border rounded-xl w-full max-w-3xl h-[70vh] flex flex-col mx-4"
+        style={EXTENSIONS_MODAL_STYLE}
         onClick={e => e.stopPropagation()}
         role="dialog" aria-modal="true" aria-label={`${ext.name} logs`}
       >
@@ -1211,7 +1226,7 @@ function ConsoleModal({ ext, onClose }) {
           {!atBottom && (
             <button
               onClick={scrollToBottom}
-              className="absolute bottom-2 right-4 bg-theme-card border border-theme-border text-theme-text-muted hover:text-theme-text rounded-full px-3 py-1 text-xs shadow-lg transition-colors"
+              className="absolute bottom-2 right-4 border border-theme-border bg-black/50 text-theme-text-muted hover:text-theme-text rounded-full px-3 py-1 text-xs shadow-lg transition-colors"
             >
               ↓ Jump to bottom
             </button>
@@ -1240,7 +1255,7 @@ function CopyableCommand({ command }) {
   }
 
   return (
-    <div className="group flex items-center justify-between bg-theme-card rounded px-3 py-1.5 font-mono text-sm text-theme-text-secondary">
+    <div className="group flex items-center justify-between rounded border border-white/[0.055] bg-black/20 px-3 py-1.5 font-mono text-sm text-theme-text-secondary">
       <span className="truncate mr-2">{command}</span>
       <button
         onClick={handleCopy}

@@ -31,6 +31,14 @@ function setStorageValue(storage, key, value) {
   }
 }
 
+function isNarrowViewport() {
+  try {
+    return globalThis.matchMedia?.('(max-width: 767px)')?.matches === true
+  } catch {
+    return false
+  }
+}
+
 function App() {
   const location = useLocation()
   const isTalkHost = typeof window !== 'undefined' && window.location.hostname.startsWith('talk.')
@@ -54,12 +62,27 @@ function App() {
   // API call fails, so the normal app shell is the safe default.
   const { firstRun, refresh: refreshFirstRun } = useFirstRun()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    return getStorageValue(globalThis.localStorage, 'dream-sidebar-collapsed') === 'true'
+    const stored = getStorageValue(globalThis.localStorage, 'dream-sidebar-collapsed')
+    if (stored !== null) return stored === 'true'
+    return isNarrowViewport()
   })
 
   useEffect(() => {
     setStorageValue(globalThis.localStorage, 'dream-sidebar-collapsed', String(sidebarCollapsed))
   }, [sidebarCollapsed])
+
+  useEffect(() => {
+    const media = globalThis.matchMedia?.('(max-width: 767px)')
+    if (!media) return undefined
+
+    const collapseForNarrowViewport = () => {
+      if (media.matches) setSidebarCollapsed(true)
+    }
+
+    collapseForNarrowViewport()
+    media.addEventListener?.('change', collapseForNarrowViewport)
+    return () => media.removeEventListener?.('change', collapseForNarrowViewport)
+  }, [])
 
   const dismissFirstRun = useCallback(() => {
     // SetupWizard's saveConfig has already POSTed /api/setup/complete; we
