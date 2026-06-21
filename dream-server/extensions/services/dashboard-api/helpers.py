@@ -433,11 +433,12 @@ async def check_service_health(
 
         response_time = None
         status = "unknown"
+        connect_timeout = (timeout.total or timeout.connect or 5) if timeout is not None else 5
         try:
             start = asyncio.get_event_loop().time()
             reader, writer = await asyncio.wait_for(
                 asyncio.open_connection(host, health_port),
-                timeout=5,
+                timeout=connect_timeout,
             )
             response_time = (asyncio.get_event_loop().time() - start) * 1000
             writer.close()

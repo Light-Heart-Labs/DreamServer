@@ -294,8 +294,12 @@ class TestUserExtensionStatus:
         assert ext["id"] == "my-ext"
         assert ext["status"] == "enabled"
 
-    def test_user_ext_compose_yaml_tcp_enabled(self, test_client, monkeypatch, tmp_path):
-        """User extension with health_type: tcp and compose.yaml → enabled."""
+    @pytest.mark.parametrize("mock_status, expected_status", [
+        ("healthy", "enabled"),
+        ("down", "stopped"),
+    ])
+    def test_user_ext_compose_yaml_tcp_probed(self, test_client, monkeypatch, tmp_path, mock_status, expected_status):
+        """User extension with health_type: tcp is actively probed."""
         user_dir = tmp_path / "user"
         ext_dir = user_dir / "my-ext"
         ext_dir.mkdir(parents=True)
@@ -316,20 +320,40 @@ class TestUserExtensionStatus:
                 "name": "My Extension",
             }
         }
-        with patch("helpers.get_cached_services", return_value=None):
-            with patch("user_extensions.get_user_services_cached",
-                       return_value=user_services):
-                with patch("helpers.get_all_services", new_callable=AsyncMock,
-                           return_value=[]):
-                    resp = test_client.get(
-                        "/api/extensions/catalog",
-                        headers=test_client.auth_headers,
-                    )
 
-        assert resp.status_code == 200
-        ext = resp.json()["extensions"][0]
-        assert ext["id"] == "my-ext"
-        assert ext["status"] == "enabled"
+        mock_result = ServiceStatus(id="my-ext", name="My Extension", status=mock_status, port=10200, external_port=10200)
+
+        # Test /api/extensions/catalog
+        with patch("helpers.get_cached_services", return_value=None):
+            with patch("user_extensions.get_user_services_cached", return_value=user_services):
+                with patch("helpers.get_all_services", new_callable=AsyncMock, return_value=[]):
+                    with patch("helpers.check_service_health", new_callable=AsyncMock, return_value=mock_result) as mock_probe:
+                        resp = test_client.get(
+                            "/api/extensions/catalog",
+                            headers=test_client.auth_headers,
+                        )
+                        assert resp.status_code == 200
+                        ext = resp.json()["extensions"][0]
+                        assert ext["id"] == "my-ext"
+                        assert ext["status"] == expected_status
+                        mock_probe.assert_awaited_once()
+                        assert mock_probe.call_args[0][0] == "my-ext"
+
+        # Test /api/extensions/{service_id}
+        with patch("helpers.get_cached_services", return_value=None):
+            with patch("user_extensions.get_user_services_cached", return_value=user_services):
+                with patch("helpers.get_all_services", new_callable=AsyncMock, return_value=[]):
+                    with patch("helpers.check_service_health", new_callable=AsyncMock, return_value=mock_result) as mock_probe:
+                        resp = test_client.get(
+                            "/api/extensions/my-ext",
+                            headers=test_client.auth_headers,
+                        )
+                        assert resp.status_code == 200
+                        ext = resp.json()
+                        assert ext["id"] == "my-ext"
+                        assert ext["status"] == expected_status
+                        mock_probe.assert_awaited_once()
+                        assert mock_probe.call_args[0][0] == "my-ext"
 
     def test_user_ext_compose_yaml_none_cli_installed(self, test_client, monkeypatch, tmp_path):
         """User extension with health_type: none and port 0 → cli_installed."""
