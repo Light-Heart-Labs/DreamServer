@@ -40,6 +40,14 @@ class _DirSizeCache:
     def set(self, path: Path, value: float):
         self._store[str(path.resolve())] = (time.monotonic() + self._ttl, value)
 
+    def invalidate(self, key: str) -> None:
+        """Remove a single cached entry (no-op if missing or expired)."""
+        self._store.pop(key, None)
+
+    def clear(self) -> None:
+        """Drop every cached entry."""
+        self._store.clear()
+
 
 _dir_size_cache = _DirSizeCache()
 
