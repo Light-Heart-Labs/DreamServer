@@ -20,27 +20,25 @@ const mockBrave = http.createServer((req, res) => {
 mockBrave.listen(0, '127.0.0.1', async () => {
   const upstreamPort = mockBrave.address().port;
   const proxyPort = upstreamPort + 1; // Just pick a different port
-  
+
   const env = {
     ...process.env,
     BRAVE_SEARCH_API_KEY: 'dummy',
     BRAVE_SEARCH_PORT_INTERNAL: String(proxyPort),
     BRAVE_SEARCH_UPSTREAM_URL: `http://127.0.0.1:${upstreamPort}`
   };
-  
+
   const proxy = spawn('node', [proxyScript], { env });
-  
+
   // Wait for proxy to start
   await new Promise(r => setTimeout(r, 1000));
-  
-  let exitCode = 0;
-  
+
   try {
     // 1. Test /v1/search
     const v1Res = await fetch(`http://127.0.0.1:${proxyPort}/v1/search?q=test`);
     if (!v1Res.ok) throw new Error(`v1 failed: ${v1Res.status}`);
     const v1Data = await v1Res.json();
-    
+
     if (!v1Data.query || !Array.isArray(v1Data.results) || v1Data.results[0].snippet !== "Test snippet") {
       throw new Error(`v1 shape contract failed: ${JSON.stringify(v1Data)}`);
     }
@@ -50,11 +48,11 @@ mockBrave.listen(0, '127.0.0.1', async () => {
     const sRes = await fetch(`http://127.0.0.1:${proxyPort}/search?format=json&q=test`);
     if (!sRes.ok) throw new Error(`searxng failed: ${sRes.status}`);
     const sData = await sRes.json();
-    
+
     if (
-      !sData.query || 
-      sData.number_of_results !== 1 || 
-      !Array.isArray(sData.results) || 
+      !sData.query ||
+      sData.number_of_results !== 1 ||
+      !Array.isArray(sData.results) ||
       sData.results[0].content !== "Test snippet" ||
       sData.results[0].engine !== "brave" ||
       sData.results[0].category !== "general"
@@ -62,13 +60,17 @@ mockBrave.listen(0, '127.0.0.1', async () => {
       throw new Error(`searxng shape contract failed: ${JSON.stringify(sData)}`);
     }
     console.log("✅ /search?format=json contract passed");
-    
+
   } catch (err) {
     console.error("❌ Test failed:", err);
-    exitCode = 1;
+    process.exitCode = 1;
   } finally {
-    proxy.kill();
-    mockBrave.close();
-    process.exit(exitCode);
+    mockBrave.close(() => {
+      proxy.on('close', () => {
+        // Deterministic shutdown complete. Event loop is empty,
+        // Node will exit cleanly with process.exitCode.
+      });
+      proxy.kill();
+    });
   }
 });
