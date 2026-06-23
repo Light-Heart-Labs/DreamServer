@@ -58,7 +58,10 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method !== "GET" || parsed.pathname !== "/v1/search") {
+  const isV1 = parsed.pathname === "/v1/search";
+  const isSearxng = parsed.pathname === "/search" && parsed.searchParams.get("format") === "json";
+
+  if (req.method !== "GET" || (!isV1 && !isSearxng)) {
     send(res, 404, { error: "not_found" });
     return;
   }
@@ -112,7 +115,23 @@ const server = http.createServer(async (req, res) => {
     }))
     .filter((r) => r.url.length > 0);
 
-  send(res, 200, { query, results });
+  if (isSearxng) {
+    const searxngResults = results.map(r => ({
+      title: r.title,
+      url: r.url,
+      content: r.snippet,
+      engine: "brave",
+      score: 1,
+      category: "general"
+    }));
+    send(res, 200, {
+      query,
+      number_of_results: searxngResults.length,
+      results: searxngResults
+    });
+  } else {
+    send(res, 200, { query, results });
+  }
 });
 
 server.listen(PORT, () => {
