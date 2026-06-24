@@ -202,27 +202,55 @@ class TokenSummary(BaseModel):
 # --- Token storage helpers (file-backed, locked) ---
 
 
+def _magic_link_store_candidates() -> list[Path]:
+    return [
+        DATA_DIR / "auth" / "magic-links.json",
+        DATA_DIR / "config" / "auth" / "magic-links.json",
+    ]
+
+
+def _writable_store_path() -> Path:
+    """Return the normal token store, or a writable config-backed fallback."""
+    last_error: OSError | None = None
+    for path in _magic_link_store_candidates():
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            probe = path.parent / ".write-test"
+            probe.write_text("", encoding="utf-8")
+            try:
+                probe.unlink()
+            except OSError:
+                pass
+            if path != TOKEN_STORE_PATH:
+                logger.warning("magic-link store falling back to %s", path)
+            return path
+        except OSError as exc:
+            last_error = exc
+    assert last_error is not None
+    raise last_error
+
+
 def _ensure_store() -> dict:
     """Load the token store, creating an empty one if missing."""
-    AUTH_DIR.mkdir(parents=True, exist_ok=True)
-    if not TOKEN_STORE_PATH.exists():
+    store_path = _writable_store_path()
+    if not store_path.exists():
         return {"tokens": []}
     try:
-        return json.loads(TOKEN_STORE_PATH.read_text(encoding="utf-8"))
+        return json.loads(store_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         # Corrupted store — start fresh rather than blocking generation.
-        logger.exception("magic-link store unreadable at %s; starting fresh", TOKEN_STORE_PATH)
+        logger.exception("magic-link store unreadable at %s; starting fresh", store_path)
         return {"tokens": []}
 
 
 def _write_store(store: dict) -> None:
     """Persist the store atomically (write-tmp + rename)."""
-    AUTH_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = TOKEN_STORE_PATH.with_suffix(".json.tmp")
+    store_path = _writable_store_path()
+    tmp = store_path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(store, indent=2), encoding="utf-8")
-    tmp.replace(TOKEN_STORE_PATH)
+    tmp.replace(store_path)
     try:
-        TOKEN_STORE_PATH.chmod(0o600)
+        store_path.chmod(0o600)
     except OSError:
         # Best-effort; some filesystems (Docker volumes) don't honor chmod.
         pass

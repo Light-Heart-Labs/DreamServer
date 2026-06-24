@@ -928,3 +928,22 @@ def test_qr_endpoint_returns_data_url_when_qrcode_installed(magic_link_client):
     else:
         assert resp.status_code == 503
         assert "qrcode" in resp.json()["detail"].lower()
+
+
+def test_store_falls_back_when_primary_parent_is_unwritable(
+    magic_link_module, tmp_path, monkeypatch,
+):
+    """Docker Desktop can expose /data as non-writable while /data/config works."""
+    blocked_parent = tmp_path / "auth-blocked"
+    blocked_parent.write_text("not a directory", encoding="utf-8")
+    fallback_store = tmp_path / "config" / "auth" / "magic-links.json"
+    monkeypatch.setattr(
+        magic_link_module,
+        "_magic_link_store_candidates",
+        lambda: [blocked_parent / "magic-links.json", fallback_store],
+    )
+
+    magic_link_module._write_store({"tokens": []})
+
+    assert fallback_store.exists()
+    assert magic_link_module._ensure_store() == {"tokens": []}

@@ -29,6 +29,7 @@ validate_core_recreate_ids = _mod.validate_core_recreate_ids
 invalidate_compose_cache = _mod.invalidate_compose_cache
 _post_install_core_recreate = _mod._post_install_core_recreate
 _split_nmcli_terse = _mod._split_nmcli_terse
+_request_server_shutdown = _mod._request_server_shutdown
 
 
 def can_create_symlinks(tmp_path: Path) -> bool:
@@ -40,6 +41,33 @@ def can_create_symlinks(tmp_path: Path) -> bool:
     except (OSError, NotImplementedError):
         return False
     return link.is_symlink()
+
+
+class TestHostAgentShutdown:
+
+    def test_signal_shutdown_runs_from_helper_thread(self, monkeypatch):
+        calls = []
+
+        class FakeServer:
+            def shutdown(self):
+                calls.append("shutdown")
+
+        class FakeThread:
+            def __init__(self, target, name=None, daemon=None):
+                calls.append(("thread", name, daemon))
+                self._target = target
+
+            def start(self):
+                calls.append("start")
+                self._target()
+
+        monkeypatch.setattr(_mod.threading, "Thread", FakeThread)
+
+        _request_server_shutdown(FakeServer(), signum=15)
+
+        assert ("thread", "dream-host-agent-shutdown", True) in calls
+        assert "start" in calls
+        assert "shutdown" in calls
 
 
 class TestResolveAgentBindAddr:

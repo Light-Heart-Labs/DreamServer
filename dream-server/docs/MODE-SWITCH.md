@@ -27,7 +27,10 @@ dream restart
 
 ## How It Works
 
-One env var (`LLM_API_URL`) controls where all services send LLM requests. Three modes are user-selectable via `dream mode`; a fourth (`lemonade`) is auto-configured by the installer on AMD hardware — see [Lemonade Mode](#lemonade-mode-amd--auto-configured) below.
+One env var (`LLM_API_URL`) controls where all services send LLM requests.
+Three modes are user-selectable via `dream mode`; a fourth (`lemonade`) is
+auto-configured by the installer on AMD hardware today. The maintainer contract
+for provider modes lives in [Engine Provider Modes](ENGINE-PROVIDER-MODES.md).
 
 | Mode | `LLM_API_URL` | `DREAM_MODE` | LiteLLM config |
 |------|---------------|--------------|-----------------|
@@ -105,6 +108,8 @@ For AMD Strix Halo performance tuning (GRUB, kernel module, sysctl settings), se
 
 Existing Lemonade SDK installs on Linux AMD hosts can be wrapped without letting
 Dream Server manage the Lemonade runtime. See [Lemonade SDK Compatibility](LEMONADE-SDK-COMPAT.md).
+Future Lemonade work should follow the provider-mode contract rather than
+adding one-off installer or dashboard paths.
 
 ---
 

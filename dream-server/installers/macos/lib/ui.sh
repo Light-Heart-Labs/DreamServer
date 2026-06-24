@@ -73,7 +73,11 @@ download_with_progress() {
     local url="$1"
     local destination="$2"
     local label="${3:-Downloading}"
-    local max_retries="${4:-3}"
+    local max_retries="${4:-${DREAM_MODEL_DOWNLOAD_RETRIES:-8}}"
+
+    case "$max_retries" in
+        ''|*[!0-9]*|0) max_retries=8 ;;
+    esac
 
     local part_file="${destination}.part"
     local connect_timeout="${DREAM_DOWNLOAD_CONNECT_TIMEOUT:-30}"
@@ -83,7 +87,8 @@ download_with_progress() {
 
     while [[ $attempt -le $max_retries ]]; do
         if [[ $attempt -gt 1 ]]; then
-            local wait_time=$((2 ** (attempt - 1)))  # Exponential backoff: 2, 4, 8 seconds
+            local wait_time=$((2 ** (attempt - 1)))
+            [[ "$wait_time" -gt 60 ]] && wait_time=60
             ai "Retry attempt $attempt of $max_retries (waiting ${wait_time}s)..."
             sleep $wait_time
         else

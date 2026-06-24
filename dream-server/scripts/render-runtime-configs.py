@@ -90,8 +90,8 @@ def render_litellm_lemonade(inputs: RenderInputs) -> RenderedFile:
 litellm_settings:
   drop_params: true
   set_verbose: false
-  request_timeout: 120
-  stream_timeout: 60
+  request_timeout: 900
+  stream_timeout: 900
 """
     return RenderedFile("litellm-lemonade", "config/litellm/lemonade.yaml", content)
 

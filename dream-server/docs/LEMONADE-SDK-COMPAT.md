@@ -3,6 +3,8 @@
 Dream Server's Linux installer can wrap an existing Lemonade SDK install instead
 of starting its own managed Lemonade runtime. This is intended for AMD Linux
 systems where Lemonade is already installed, configured, and serving models.
+The longer-term contract for making Lemonade a supported provider mode across
+platforms is defined in [Engine Provider Modes](ENGINE-PROVIDER-MODES.md).
 
 ## Install Around Existing Lemonade
 
@@ -136,6 +138,12 @@ the Lemonade API port manually.
 If you expose Lemonade beyond localhost, set `LEMONADE_API_KEY` or
 `LEMONADE_ADMIN_API_KEY` in Lemonade and pass the matching key to Dream Server
 with `--lemonade-api-key`.
+
+`dream doctor` warns when external Lemonade is host-routed from Docker without a
+user-provided Lemonade API key. The installer-generated
+`LITELLM_LEMONADE_API_KEY=sk-dream-lemonade-*` value is only the key LiteLLM
+sends upstream; it does not prove that the Lemonade daemon requires
+authentication.
 
 ## Managed vs External
 

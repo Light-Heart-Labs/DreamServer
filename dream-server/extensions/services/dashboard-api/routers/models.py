@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 import urllib.request
 import urllib.error
@@ -42,7 +43,7 @@ router = APIRouter(tags=["models"])
 _LIBRARY_PATH = Path(INSTALL_DIR) / "config" / "model-library.json"
 _MODELS_DIR = Path(DATA_DIR) / "models"
 _ENV_PATH = Path(INSTALL_DIR) / ".env"
-_MODEL_DISCOVERY_TIMEOUT_SECONDS = float(os.environ.get("DASHBOARD_MODEL_DISCOVERY_TIMEOUT", "5.0"))
+_MODEL_DISCOVERY_TIMEOUT_SECONDS = float(os.environ.get("DASHBOARD_MODEL_DISCOVERY_TIMEOUT", "15.0"))
 _GPU_VRAM_EXCEPTIONS = (
     ImportError,
     FileNotFoundError,
@@ -57,6 +58,11 @@ except ImportError:
     pynvml = None
 else:
     _GPU_VRAM_EXCEPTIONS = _GPU_VRAM_EXCEPTIONS + (pynvml.NVMLError,)
+
+
+def _local_model_name_from_gguf(gguf_file: str) -> str:
+    name = re.sub(r"[^A-Za-z0-9._-]+", "-", Path(gguf_file).stem).strip("-._")
+    return name or "local-gguf"
 
 
 def _load_library() -> list[dict]:
@@ -79,7 +85,7 @@ def _scan_downloaded_models() -> dict[str, int]:
         return downloaded
     try:
         for f in _MODELS_DIR.iterdir():
-            if f.is_file() and f.suffix == ".gguf" and not f.name.endswith(".part"):
+            if _is_final_gguf_file(f):
                 try:
                     downloaded[f.name] = f.stat().st_size
                 except OSError:
@@ -87,6 +93,13 @@ def _scan_downloaded_models() -> dict[str, int]:
     except OSError as exc:
         logger.warning("Failed to scan models directory: %s", exc)
     return downloaded
+
+
+def _is_final_gguf_file(path: Path) -> bool:
+    try:
+        return path.is_file() and path.name.lower().endswith(".gguf") and path.stat().st_size > 0
+    except OSError:
+        return False
 
 
 def _read_active_model() -> Optional[str]:
@@ -384,6 +397,87 @@ def _find_model_in_library(model_id: str) -> Optional[dict]:
     return None
 
 
+def _local_gguf_filename_from_id(model_id: str) -> str | None:
+    """Map a dashboard fallback model ID to a local GGUF filename."""
+    token = str(model_id or "").strip()
+    if token.lower().startswith("extra."):
+        token = token[6:]
+    if not token or any(sep in token for sep in ("/", "\\", "\x00")):
+        return None
+    filename = token if token.lower().endswith(".gguf") else f"{token}.gguf"
+    if filename.lower().endswith(".part") or Path(filename).name != filename:
+        return None
+    return filename
+
+
+def _resolve_local_gguf_filename(model_id: str) -> str | None:
+    candidate = _local_gguf_filename_from_id(model_id)
+    if not candidate or not _MODELS_DIR.is_dir():
+        return None
+
+    candidate_lower = candidate.lower()
+    candidate_stem = Path(candidate).stem.lower()
+    exact_matches: list[Path] = []
+    stem_matches: list[Path] = []
+    try:
+        for path in _MODELS_DIR.iterdir():
+            if not _is_final_gguf_file(path):
+                continue
+            if path.name.lower() == candidate_lower:
+                exact_matches.append(path)
+            elif path.stem.lower() == candidate_stem:
+                stem_matches.append(path)
+    except OSError as exc:
+        logger.warning("Failed to resolve local GGUF %s: %s", model_id, exc)
+        return None
+
+    matches = exact_matches or stem_matches
+    if len(matches) == 1:
+        return matches[0].name
+    if len(matches) > 1:
+        logger.warning("Ambiguous local GGUF model id %s matched %s", model_id, [p.name for p in matches])
+    return None
+
+
+def _find_local_gguf_model(model_id: str) -> Optional[dict]:
+    """Return a synthetic activation record for a manually installed GGUF."""
+    gguf_file = _resolve_local_gguf_filename(model_id)
+    if not gguf_file:
+        return None
+    models_dir = _MODELS_DIR.resolve()
+    target = (_MODELS_DIR / gguf_file).resolve()
+    if not target.is_relative_to(models_dir) or not _is_final_gguf_file(target):
+        return None
+
+    context_length = 32768
+    for key in ("MAX_CONTEXT", "CTX_SIZE"):
+        try:
+            value = int(
+                read_env_file_value(key, INSTALL_DIR)
+                or read_env_value(key, INSTALL_DIR)
+                or 0
+            )
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            context_length = value
+            break
+
+    model_name = _local_model_name_from_gguf(gguf_file)
+    return {
+        "id": model_name,
+        "gguf_file": gguf_file,
+        "llm_model_name": model_name,
+        "context_length": context_length,
+        "runtime_profiles": [],
+        "local": True,
+    }
+
+
+def _find_loadable_model(model_id: str) -> Optional[dict]:
+    return _find_model_in_library(model_id) or _find_local_gguf_model(model_id)
+
+
 def _find_normalized_model(model_id: str) -> Optional[dict]:
     return find_catalog_model(load_model_catalog(INSTALL_DIR), model_id, None)
 
@@ -643,9 +737,9 @@ def cancel_download(api_key: str = Depends(verify_api_key)):
 @router.post("/api/models/{model_id}/load")
 def load_model(model_id: str, api_key: str = Depends(verify_api_key)):
     """Activate a model — update config and restart llama-server."""
-    model = _find_model_in_library(model_id)
+    model = _find_loadable_model(model_id)
     if model is None:
-        raise HTTPException(status_code=404, detail=f"Model '{model_id}' not found in library")
+        raise HTTPException(status_code=404, detail=f"Model '{model_id}' not found in library or local GGUF files")
 
     already_active, loaded_model = _already_active_model(model_id, model)
     if already_active:

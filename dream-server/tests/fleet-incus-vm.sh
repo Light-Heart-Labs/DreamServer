@@ -22,7 +22,7 @@ declare -a TARGETS=()
 
 declare -A IMAGES=(
     [ubuntu2404]="images:ubuntu/24.04"
-    [fedora42]="images:fedora/42"
+    [fedora42]="images:almalinux/10"
     [rocky9]="images:rockylinux/9"
     [arch]="images:archlinux/current"
     [opensuse]="images:opensuse/tumbleweed"
@@ -38,7 +38,7 @@ declare -A EXPECTED_PKG=(
 
 declare -A LABELS=(
     [ubuntu2404]="Ubuntu 24.04 LTS"
-    [fedora42]="Fedora 42"
+    [fedora42]="AlmaLinux 10 dnf VM"
     [rocky9]="Rocky Linux 9"
     [arch]="Arch Linux current"
     [opensuse]="openSUSE Tumbleweed"
@@ -99,6 +99,9 @@ Options:
 
 Default matrix:
   ubuntu2404 fedora42 rocky9 arch opensuse
+  (fedora42 currently uses an AlmaLinux dnf VM because the Incus public
+   image remote no longer advertises Fedora VM aliases; Fedora remains
+   covered by tests/fleet-multi-distro.sh container breadth.)
 
 Aliases:
   ubuntu/24.04, fedora/42, rockylinux/9, archlinux/current,

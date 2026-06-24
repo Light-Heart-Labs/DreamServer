@@ -22,7 +22,7 @@ matches the work in front of them.
 | Install on Apple Silicon | [MACOS-QUICKSTART.md](MACOS-QUICKSTART.md) | [MODEL-MANAGEMENT.md](MODEL-MANAGEMENT.md), [TROUBLESHOOTING.md](TROUBLESHOOTING.md) |
 | Debug a broken install | [DREAM-DOCTOR.md](DREAM-DOCTOR.md) | [INSTALL-TROUBLESHOOTING.md](INSTALL-TROUBLESHOOTING.md), [SUPPORT-BUNDLE.md](SUPPORT-BUNDLE.md) |
 | Change installer behavior | [INSTALLER-ARCHITECTURE.md](INSTALLER-ARCHITECTURE.md) | [BACKEND-CONTRACT.md](BACKEND-CONTRACT.md), [PREFLIGHT-ENGINE.md](PREFLIGHT-ENGINE.md) |
-| Change model routing | [MODEL-MANAGEMENT.md](MODEL-MANAGEMENT.md) | [MODE-SWITCH.md](MODE-SWITCH.md), [BACKEND-CONTRACT.md](BACKEND-CONTRACT.md) |
+| Change model routing | [MODEL-MANAGEMENT.md](MODEL-MANAGEMENT.md) | [MODE-SWITCH.md](MODE-SWITCH.md), [ENGINE-PROVIDER-MODES.md](ENGINE-PROVIDER-MODES.md), [BACKEND-CONTRACT.md](BACKEND-CONTRACT.md) |
 | Add or harden a service | [EXTENSIONS.md](EXTENSIONS.md) | [../extensions/CATALOG.md](../extensions/CATALOG.md), [../extensions/schema/README.md](../extensions/schema/README.md) |
 | Build a custom edition or fork | [FORKABILITY.md](FORKABILITY.md) | [RELEASE_CHANNELS.md](RELEASE_CHANNELS.md), [BUILD-ON-DREAM-SERVER.md](BUILD-ON-DREAM-SERVER.md), [OFFLINE_AND_MIRRORING.md](OFFLINE_AND_MIRRORING.md), [VALIDATION_REPRODUCIBILITY.md](VALIDATION_REPRODUCIBILITY.md) |
 | Review a PR | [../CONTRIBUTING.md](../CONTRIBUTING.md) | [HIGH_RISK_CHANGE_MAP.md](HIGH_RISK_CHANGE_MAP.md), [TESTING.md](TESTING.md), [RELEASE_VALIDATION.md](RELEASE_VALIDATION.md), [VALIDATION-MATRIX.md](VALIDATION-MATRIX.md) |
@@ -53,7 +53,7 @@ canonical source and treat older recipes as context.
 
 | Status | Meaning | Examples |
 |--------|---------|----------|
-| Canonical contract | Defines behavior reviewers should enforce | [HIGH_RISK_CHANGE_MAP.md](HIGH_RISK_CHANGE_MAP.md), [INSTALLER_PHASE_CONTRACTS.md](INSTALLER_PHASE_CONTRACTS.md), [COMPOSE_RESOLVER_CONTRACTS.md](COMPOSE_RESOLVER_CONTRACTS.md), [RELEASE_VALIDATION.md](RELEASE_VALIDATION.md) |
+| Canonical contract | Defines behavior reviewers should enforce | [HIGH_RISK_CHANGE_MAP.md](HIGH_RISK_CHANGE_MAP.md), [INSTALLER_PHASE_CONTRACTS.md](INSTALLER_PHASE_CONTRACTS.md), [COMPOSE_RESOLVER_CONTRACTS.md](COMPOSE_RESOLVER_CONTRACTS.md), [ENGINE-PROVIDER-MODES.md](ENGINE-PROVIDER-MODES.md), [RELEASE_VALIDATION.md](RELEASE_VALIDATION.md) |
 | Operator guide | Helps users install, operate, or troubleshoot | [../QUICKSTART.md](../QUICKSTART.md), [DREAM-DOCTOR.md](DREAM-DOCTOR.md), [TROUBLESHOOTING.md](TROUBLESHOOTING.md), [POST-INSTALL-CHECKLIST.md](POST-INSTALL-CHECKLIST.md) |
 | Maintainer runbook | Explains how to preserve or release the project | [MAINTAINER_RUNBOOK.md](MAINTAINER_RUNBOOK.md), [FORKABILITY.md](FORKABILITY.md), [OFFLINE_AND_MIRRORING.md](OFFLINE_AND_MIRRORING.md), [VALIDATION_REPRODUCIBILITY.md](VALIDATION_REPRODUCIBILITY.md) |
 | Deep dive | Explains a subsystem or design area | [INSTALLER-ARCHITECTURE.md](INSTALLER-ARCHITECTURE.md), [BACKEND-CONTRACT.md](BACKEND-CONTRACT.md), [DREAM_CLI_DECOMPOSITION.md](DREAM_CLI_DECOMPOSITION.md) |
@@ -111,6 +111,7 @@ canonical source and treat older recipes as context.
 | [DREAM_CLI_DECOMPOSITION.md](DREAM_CLI_DECOMPOSITION.md) | Maintainers / CLI contributors | Behavior-preserving plan for splitting the large Bash operator CLI without a risky rewrite |
 | [INTEGRATION-GUIDE.md](INTEGRATION-GUIDE.md) | Developers | Connect apps via OpenAI SDK, LangChain, n8n |
 | [BACKEND-CONTRACT.md](BACKEND-CONTRACT.md) | Developers | Backend runtime contract JSON schema |
+| [ENGINE-PROVIDER-MODES.md](ENGINE-PROVIDER-MODES.md) | Maintainers / backend reviewers | Provider mode contract for local, cloud, hybrid, and Lemonade-backed installs |
 | [INSTALLER_PHASE_CONTRACTS.md](INSTALLER_PHASE_CONTRACTS.md) | Maintainers / installer reviewers | Phase ownership, inputs, outputs, idempotency, and validation expectations |
 | [COMPOSE_RESOLVER_CONTRACTS.md](COMPOSE_RESOLVER_CONTRACTS.md) | Maintainers / backend reviewers | Compose layer rules for services, hardware overlays, modes, dependencies, and ports |
 | [HERMES.md](HERMES.md) | Developers / operators | Default Hermes Agent packaging, security posture, and operations |

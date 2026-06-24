@@ -810,8 +810,7 @@ def _check_agent_health() -> bool:
 @contextlib.contextmanager
 def _extensions_lock():
     """Acquire an exclusive file lock for extension mutations."""
-    lock_path = Path(DATA_DIR) / ".extensions-lock"
-    lock_path.touch(exist_ok=True)
+    lock_path = _extensions_lock_path()
     lockfile = open(lock_path, "a+b")
     try:
         if fcntl is not None:
@@ -833,6 +832,29 @@ def _extensions_lock():
                 msvcrt.locking(lockfile.fileno(), msvcrt.LK_UNLCK, 1)
         finally:
             lockfile.close()
+
+
+def _extensions_lock_candidates() -> list[Path]:
+    data_path = Path(DATA_DIR)
+    return [
+        data_path / ".extensions-lock",
+        data_path / "config" / ".extensions-lock",
+    ]
+
+
+def _extensions_lock_path() -> Path:
+    last_error: OSError | None = None
+    for lock_path in _extensions_lock_candidates():
+        try:
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            lock_path.touch(exist_ok=True)
+            if lock_path != Path(DATA_DIR) / ".extensions-lock":
+                logger.warning("extensions lock falling back to %s", lock_path)
+            return lock_path
+        except OSError as exc:
+            last_error = exc
+    assert last_error is not None
+    raise last_error
 
 
 @router.get("/api/extensions/catalog")
@@ -1189,7 +1211,9 @@ def _install_from_library(service_id: str) -> None:
                 )
 
     USER_EXTENSIONS_DIR.mkdir(parents=True, exist_ok=True)
-    tmpdir = tempfile.mkdtemp(dir=str(USER_EXTENSIONS_DIR.parent))
+    tmp_parent = USER_EXTENSIONS_DIR / ".tmp"
+    tmp_parent.mkdir(parents=True, exist_ok=True)
+    tmpdir = tempfile.mkdtemp(prefix=f".{service_id}-", dir=str(tmp_parent))
     try:
         staged = Path(tmpdir) / service_id
         _copytree_safe(source, staged)

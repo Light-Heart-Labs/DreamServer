@@ -7,10 +7,10 @@ services:
       - no-new-privileges:true
     environment:
       - WHISPER__TTL=86400
-    # Use a shell wrapper to wait for the bind-mounted entrypoint to
-    # become visible.  On fast compose-up the container can start before
-    # the mount is ready, causing transient "permission denied" errors.
-    entrypoint: ["/bin/sh", "-c", "until [ -x /app/docker-entrypoint.sh ]; do sleep 0.5; done; exec /app/docker-entrypoint.sh"]
+    # Use a shell wrapper to wait for the bind-mounted entrypoint to become
+    # visible, then run it through sh. Windows bind mounts can expose scripts
+    # without a usable executable bit even when the file is readable.
+    entrypoint: ["/bin/sh", "-c", "until [ -f /app/docker-entrypoint.sh ]; do sleep 0.5; done; exec /bin/sh /app/docker-entrypoint.sh"]
     volumes:
       - ./data/whisper:/home/ubuntu/.cache/huggingface/hub:z
       - ./extensions/services/whisper/docker-entrypoint.sh:/app/docker-entrypoint.sh:ro,z

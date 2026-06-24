@@ -29,7 +29,8 @@ def settings_env_fixture(tmp_path, monkeypatch):
         "# ════════════════════════════════\n"
         "OPENAI_API_KEY=\n"
         "LLM_BACKEND=local\n"
-        "WEBUI_AUTH=true\n",
+        "WEBUI_AUTH=true\n"
+        "# LLAMA_ARG_N_CPU_MOE=25\n",
         encoding="utf-8",
     )
 
@@ -53,6 +54,11 @@ def settings_env_fixture(tmp_path, monkeypatch):
                         "type": "boolean",
                         "description": "Require login for the WebUI.",
                         "default": True,
+                    },
+                    "LLAMA_ARG_N_CPU_MOE": {
+                        "type": "integer",
+                        "description": "Optional llama.cpp MoE tuning knob.",
+                        "minimum": 0,
                     },
                 },
             }
@@ -87,7 +93,7 @@ def settings_env_fixture(tmp_path, monkeypatch):
 
     from main import _cache
 
-    _cache._store.clear()
+    _cache.clear()
 
     return {
         "install_root": install_root,
@@ -258,6 +264,50 @@ def test_api_settings_env_save_returns_llama_apply_plan(test_client, settings_en
     assert "llama-server" in payload["applyPlan"]["summary"]
 
 
+def test_api_settings_env_preserves_commented_empty_llama_args(test_client, settings_env_fixture):
+    env_path = settings_env_fixture["env_path"]
+
+    response = test_client.put(
+        "/api/settings/env",
+        headers=test_client.auth_headers,
+        json={
+            "mode": "form",
+            "values": {
+                "LLM_BACKEND": "cloud",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    updated_lines = env_path.read_text(encoding="utf-8").splitlines()
+    assert "# LLAMA_ARG_N_CPU_MOE=25" in updated_lines
+    assert not any(line.startswith("LLAMA_ARG_N_CPU_MOE=") for line in updated_lines)
+
+
+def test_api_settings_env_unsets_empty_existing_llama_arg(test_client, settings_env_fixture):
+    env_path = settings_env_fixture["env_path"]
+    env_path.write_text(
+        env_path.read_text(encoding="utf-8") + "LLAMA_ARG_N_CPU_MOE=30\n",
+        encoding="utf-8",
+    )
+
+    response = test_client.put(
+        "/api/settings/env",
+        headers=test_client.auth_headers,
+        json={
+            "mode": "form",
+            "values": {
+                "LLAMA_ARG_N_CPU_MOE": "",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    updated_lines = env_path.read_text(encoding="utf-8").splitlines()
+    assert "# LLAMA_ARG_N_CPU_MOE=25" in updated_lines
+    assert not any(line.startswith("LLAMA_ARG_N_CPU_MOE=") for line in updated_lines)
+
+
 def test_api_settings_env_apply_calls_host_agent(test_client, monkeypatch):
     captured = {}
 
@@ -316,17 +366,42 @@ def test_settings_apply_plan_maps_hermes_env_keys():
         "HERMES_LANGUAGE": "en",
         "HERMES_PROXY_PORT": "9120",
         "DREAM_AUTH_UPSTREAM": "dream-dashboard-api:3002",
+        "WHATSAPP_ENABLED": "false",
+        "SEARXNG_URL": "http://searxng:8080",
     }
     updated = {
         "HERMES_LANGUAGE": "pt",
         "HERMES_PROXY_PORT": "9121",
         "DREAM_AUTH_UPSTREAM": "dashboard-api:3002",
+        "WHATSAPP_ENABLED": "true",
+        "SEARXNG_URL": "http://search:8080",
     }
 
     plan = _compute_env_apply_plan(previous, updated)
 
     assert plan["status"] == "ready"
     assert plan["services"] == ["hermes", "hermes-proxy"]
+    assert plan["manualKeys"] == []
+
+
+def test_settings_apply_plan_maps_agent_and_proxy_env_keys():
+    from settings import _compute_env_apply_plan
+
+    previous = {
+        "APE_STRICT_MODE": "false",
+        "DREAM_PROXY_PORT": "80",
+        "OPENCLAW_DANGEROUSLY_DISABLE_DEVICE_AUTH": "",
+    }
+    updated = {
+        "APE_STRICT_MODE": "true",
+        "DREAM_PROXY_PORT": "8080",
+        "OPENCLAW_DANGEROUSLY_DISABLE_DEVICE_AUTH": "true",
+    }
+
+    plan = _compute_env_apply_plan(previous, updated)
+
+    assert plan["status"] == "ready"
+    assert plan["services"] == ["ape", "dream-proxy", "openclaw"]
     assert plan["manualKeys"] == []
 
 
@@ -437,6 +512,8 @@ def test_render_env_preserves_commented_key_absent_from_values(commented_example
         "OPENAI_API_KEY",
         "TOGETHER_API_KEY",
         "LIVEKIT_API_KEY",
+        "AUDIO_STT_OPENAI_API_KEY",
+        "AUDIO_TTS_OPENAI_API_KEY",
     ],
 )
 def test_production_schema_marks_provider_api_keys_secret(key):
@@ -453,3 +530,20 @@ def test_production_schema_marks_provider_api_keys_secret(key):
     entry = schema["properties"].get(key)
     assert entry is not None, f"schema missing entry for {key}"
     assert entry.get("secret") is True, f"{key} must have 'secret': true in .env.schema.json"
+
+
+def test_env_example_keys_are_present_in_schema():
+    """Every documented .env.example key should be editable in Settings."""
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parents[4]
+    schema = json.loads((root / ".env.schema.json").read_text(encoding="utf-8"))
+    example = (root / ".env.example").read_text(encoding="utf-8")
+    documented_keys = {
+        match.group(1)
+        for match in re.finditer(r"^\s*#?\s*([A-Z][A-Z0-9_]+)=", example, flags=re.MULTILINE)
+    }
+    schema_keys = set(schema.get("properties", {}))
+
+    assert documented_keys - schema_keys == set()

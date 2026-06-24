@@ -106,6 +106,21 @@ function Get-WindowsLocalLlmEndpoint {
         $llmBackend = $llmBackend.ToLowerInvariant()
     }
 
+    $amdInferenceRuntime = Get-WindowsDreamEnvValue -EnvMap $EnvMap -Keys @("AMD_INFERENCE_RUNTIME") -Default ""
+    if (-not [string]::IsNullOrWhiteSpace($amdInferenceRuntime)) {
+        $amdInferenceRuntime = $amdInferenceRuntime.ToLowerInvariant()
+    }
+
+    $amdInferenceLocation = Get-WindowsDreamEnvValue -EnvMap $EnvMap -Keys @("AMD_INFERENCE_LOCATION") -Default ""
+    if (-not [string]::IsNullOrWhiteSpace($amdInferenceLocation)) {
+        $amdInferenceLocation = $amdInferenceLocation.ToLowerInvariant()
+    }
+
+    $amdInferenceRuntimeMode = Get-WindowsDreamEnvValue -EnvMap $EnvMap -Keys @("AMD_INFERENCE_RUNTIME_MODE") -Default ""
+    if (-not [string]::IsNullOrWhiteSpace($amdInferenceRuntimeMode)) {
+        $amdInferenceRuntimeMode = $amdInferenceRuntimeMode.ToLowerInvariant()
+    }
+
     if ($UseLemonade -or $resolvedNativeBackend -eq "lemonade" -or $llmBackend -eq "lemonade") {
         return @{
             Name = "LLM (Lemonade)"
@@ -118,7 +133,15 @@ function Get-WindowsLocalLlmEndpoint {
         }
     }
 
-    if ($resolvedNativeBackend -eq "llama-server" -or (-not $CloudMode -and $resolvedGpuBackend -eq "amd")) {
+    $usesNativeHostLlamaServer = (-not $CloudMode -and (
+        $resolvedGpuBackend -eq "amd" -or
+        $amdInferenceRuntimeMode -eq "windows-llama-server-fallback" -or
+        ($resolvedNativeBackend -eq "llama-server" -and
+            $amdInferenceRuntime -eq "llama-server" -and
+            $amdInferenceLocation -eq "host")
+    ))
+
+    if ($usesNativeHostLlamaServer) {
         return @{
             Name = "LLM (llama-server)"
             Backend = "native-llama-server"

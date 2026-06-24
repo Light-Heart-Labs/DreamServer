@@ -186,8 +186,10 @@ assert_contains "$win_installer" 'Invoke-WindowsSttModelDownloadTrigger' "Window
 assert_contains "$win_installer" '--max-time 30 -X POST' "Windows installer STT preload should use a bounded curl trigger"
 assert_contains "$win_installer" 'Wait-WindowsSttModelCached -ModelUrl' "Windows installer should poll STT cache readiness after triggering download"
 assert_not_contains "$win_installer" 'Invoke-WebRequest -Method POST -Uri "\$whisperUrl/v1/models/\$sttModelEncoded" -TimeoutSec 600' "Windows installer should not block on the long STT preload POST"
-assert_contains "$win_installer" 'nohup bash "\$bashScript"' "Windows installer should detach the full-model upgrade from the installer process tree"
-assert_contains "$win_installer" '< /dev/null &' "Windows installer full-model upgrade should close stdin and background the launcher"
+assert_contains "$win_installer" 'exec bash "\$bashScript"' "Windows model-upgrade task should own the real full-model upgrade process"
+assert_not_contains "$win_installer" 'nohup bash "\$bashScript"' "Windows model-upgrade task should not report success before the full-model upgrade exits"
+assert_not_contains "$win_installer" 'disown "\$pid"' "Windows model-upgrade task should not orphan the full-model upgrade process"
+assert_contains "$win_installer" '< /dev/null' "Windows installer full-model upgrade should close stdin"
 assert_contains "$win_installer" 'model-upgrade.pid' "Windows installer should record the background model-upgrade PID"
 assert_contains "$win_installer" 'DreamServerModelUpgrade' "Windows installer should launch full-model upgrade through a separate scheduled task"
 python3 - "$win_installer" >"$tmpdir/windows-upgrade-launcher.out" <<'PY'
@@ -200,18 +202,39 @@ end = text.index("if (Test-Path -LiteralPath $upgradePidFile)", start)
 block = text[start:end]
 if "Start-Process -FilePath $bashPath" in block or "-Wait" in block:
     raise SystemExit("model upgrade launcher stays in the installer process tree")
+if 'nohup bash "$bashScript"' in block or 'disown "$pid"' in block:
+    raise SystemExit("model upgrade task detaches from the process it is meant to supervise")
 for needle in (
     "New-ScheduledTaskAction -Execute $bashPath",
+    "$upgradeSettings = New-ScheduledTaskSettingsSet",
+    "-AllowStartIfOnBatteries",
+    "-DontStopIfGoingOnBatteries",
+    "-StartWhenAvailable",
+    "-ExecutionTimeLimit ([TimeSpan]::Zero)",
     "Register-ScheduledTask -TaskName $upgradeTaskName",
+    "-Settings $upgradeSettings",
     "Start-ScheduledTask -TaskName $upgradeTaskName",
 ):
     if needle not in block:
         raise SystemExit(f"model upgrade launcher missing {needle}")
 if "while ($scheduled -and -not (Test-Path -LiteralPath $upgradePidFile)" not in text:
     raise SystemExit("model upgrade launcher does not poll for PID handoff")
-print("windows-upgrade-launcher-detached")
+wrapper_start = text.index('$wrapperContent = @"')
+wrapper_end = text.index('"@', wrapper_start)
+wrapper = text[wrapper_start:wrapper_end]
+if 'echo "$`$"' not in wrapper and 'echo "`$`$"' not in wrapper:
+    raise SystemExit("model upgrade wrapper does not record its supervising PID")
+if 'exec bash "$bashScript"' not in wrapper:
+    raise SystemExit("model upgrade wrapper does not exec the real upgrade")
+print("windows-upgrade-launcher-supervised")
 PY
-assert_contains "$tmpdir/windows-upgrade-launcher.out" 'windows-upgrade-launcher-detached' "Windows installer should not wait for the full-model launcher wrapper"
+assert_contains "$tmpdir/windows-upgrade-launcher.out" 'windows-upgrade-launcher-supervised' "Windows installer should supervise the full-model upgrade in the scheduled task"
+win_phase04="installers/windows/phases/04-requirements.ps1"
+assert_contains "$win_phase04" 'function Stop-WindowsDreamLemonadePortConflicts' "Windows requirements phase should stop native Lemonade conflicts"
+assert_contains "$win_phase04" 'Native Lemonade is running but this install uses Docker-backed inference' "Windows requirements phase should explain non-AMD Lemonade conflicts"
+assert_contains "$win_phase04" '\$gpuInfo\.Backend -eq "amd" -and -not \$cloudMode' "Windows requirements phase should preserve AMD/Lemonade native runtime"
+assert_contains "$win_phase04" 'Stop-Process -Id \(\[int\]\$_proc\.ProcessId\)' "Windows requirements phase should stop detected Lemonade processes"
+assert_contains "$win_phase04" 'Stop-WindowsDreamLemonadePortConflicts `' "Windows requirements phase should run Lemonade cleanup before port scan"
 assert_contains "installers/windows/dream.ps1" 'Invoke-DreamSttModelDownloadTrigger' "dream.ps1 repair voice should trigger STT preload through a bounded helper"
 assert_not_contains "installers/windows/dream.ps1" 'Invoke-WebRequest -Method POST -Uri \$voice\.SttModelUrl -TimeoutSec 3600' "dream.ps1 repair voice should not block on the long STT preload POST"
 
@@ -246,6 +269,10 @@ win_phase06="installers/windows/phases/06-directories.ps1"
 assert_contains "$win_phase06" 'extensions\\library\\services' "Windows phase 06 does not search the source extension library"
 assert_contains "$win_phase06" 'data\\extensions-library' "Windows phase 06 does not stage data/extensions-library"
 assert_contains "$win_phase06" 'Extensions library copied to data/extensions-library' "Windows phase 06 does not report extension library copy success"
+assert_contains "$win_phase06" 'extensions\\services\\hermes-proxy\\Caddyfile' "Windows phase 06 should clean malformed Hermes proxy Caddyfile directories before compose"
+assert_contains "$win_phase06" 'extensions\\services\\dream-proxy\\Caddyfile' "Windows phase 06 should clean malformed Dream proxy Caddyfile directories before compose"
+assert_contains "$win_phase06" 'extensions\\services\\whisper\\docker-entrypoint.sh' "Windows phase 06 should clean malformed Whisper entrypoint directories before compose"
+assert_contains "$win_phase06" 'extensions\\services\\perplexica\\docker-entrypoint.sh' "Windows phase 06 should clean malformed Perplexica entrypoint directories before compose"
 
 echo "[contract] Python resolver can select a module-capable fallback"
 pybin="$tmpdir/python-module-fallback"

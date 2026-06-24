@@ -648,6 +648,57 @@ def _model_file_ready(path: Path) -> bool:
         return False
 
 
+def _local_model_name_from_gguf(gguf_file: str) -> str:
+    name = re.sub(r"[^A-Za-z0-9._-]+", "-", Path(gguf_file).stem).strip("-._")
+    return name or "local-gguf"
+
+
+def _local_gguf_filename_from_id(model_id: str) -> str | None:
+    """Map a Dashboard/local model id to a safe GGUF filename candidate."""
+    token = str(model_id or "").strip()
+    if token.lower().startswith("extra."):
+        token = token[6:]
+    if not token or any(sep in token for sep in ("/", "\\", "\x00")):
+        return None
+    filename = token if token.lower().endswith(".gguf") else f"{token}.gguf"
+    if filename.lower().endswith(".part") or Path(filename).name != filename:
+        return None
+    return filename
+
+
+def _resolve_local_gguf_filename(model_id: str, models_dir: Path) -> str | None:
+    """Resolve a local GGUF id to the exact on-disk filename.
+
+    Dashboard fallback entries use the file stem as the public id. Preserve
+    exact filename case when the extension is `.GGUF` or otherwise mixed-case.
+    """
+    candidate = _local_gguf_filename_from_id(model_id)
+    if not candidate or not models_dir.is_dir():
+        return None
+
+    candidate_lower = candidate.lower()
+    candidate_stem = Path(candidate).stem.lower()
+    exact_matches: list[Path] = []
+    stem_matches: list[Path] = []
+    try:
+        for path in models_dir.iterdir():
+            if not path.is_file() or not path.name.lower().endswith(".gguf"):
+                continue
+            if path.name.lower() == candidate_lower:
+                exact_matches.append(path)
+            elif path.stem.lower() == candidate_stem:
+                stem_matches.append(path)
+    except OSError:
+        return None
+
+    matches = exact_matches or stem_matches
+    if len(matches) == 1:
+        return matches[0].name
+    if len(matches) > 1:
+        logger.warning("Ambiguous local GGUF model id %s matched %s", model_id, [p.name for p in matches])
+    return None
+
+
 def _read_progress_status(service_id: str) -> str | None:
     """Return the ``status`` field of the progress file, or None if absent/unreadable.
 
@@ -3051,7 +3102,7 @@ class AgentHandler(BaseHTTPRequestHandler):
             downloaded = {}
             if models_dir.is_dir():
                 for f in models_dir.iterdir():
-                    if f.is_file() and f.suffix == ".gguf" and not f.name.endswith(".part"):
+                    if f.name.lower().endswith(".gguf") and _model_file_ready(f):
                         try:
                             downloaded[f.name] = f.stat().st_size
                         except OSError:
@@ -3424,6 +3475,37 @@ class AgentHandler(BaseHTTPRequestHandler):
     def _do_model_activate(self, model_id: str):
         """Inner activate logic — called with _model_activate_lock held."""
         import time
+
+        def local_gguf_model_from_id(raw_model_id: str) -> dict | None:
+            models_dir = INSTALL_DIR / "data" / "models"
+            gguf_file = _resolve_local_gguf_filename(raw_model_id, models_dir)
+            if not gguf_file:
+                return None
+            target = (models_dir / gguf_file).resolve()
+            if not target.is_relative_to(models_dir.resolve()) or not target.is_file():
+                return None
+
+            env_values = load_env(INSTALL_DIR / ".env")
+            context_length = 32768
+            for key in ("MAX_CONTEXT", "CTX_SIZE"):
+                try:
+                    value = int(env_values.get(key) or 0)
+                except (TypeError, ValueError):
+                    continue
+                if value > 0:
+                    context_length = value
+                    break
+
+            llm_model_name = _local_model_name_from_gguf(gguf_file)
+            return {
+                "id": llm_model_name,
+                "gguf_file": gguf_file,
+                "llm_model_name": llm_model_name,
+                "context_length": context_length,
+                "runtime_profiles": [],
+                "local": True,
+            }
+
         # Look up model in library
         library_path = INSTALL_DIR / "config" / "model-library.json"
         model = None
@@ -3437,8 +3519,10 @@ class AgentHandler(BaseHTTPRequestHandler):
             except (json.JSONDecodeError, OSError):
                 pass
         if model is None:
-            json_response(self, 404, {"error": f"Model '{model_id}' not found in library"})
-            return
+            model = local_gguf_model_from_id(model_id)
+            if model is None:
+                json_response(self, 404, {"error": f"Model '{model_id}' not found in library or local GGUF files"})
+                return
 
         gguf_file = model.get("gguf_file", "")
         llm_model_name = model.get("llm_model_name", model_id)
@@ -3451,8 +3535,8 @@ class AgentHandler(BaseHTTPRequestHandler):
         if not target.is_relative_to(models_dir.resolve()):
             json_response(self, 400, {"error": "Invalid model file path"})
             return
-        if not target.exists():
-            json_response(self, 400, {"error": f"Model file not downloaded: {gguf_file}"})
+        if not _model_file_ready(target):
+            json_response(self, 400, {"error": f"Model file not downloaded or empty: {gguf_file}"})
             return
 
         env_path = INSTALL_DIR / ".env"
@@ -3506,6 +3590,24 @@ class AgentHandler(BaseHTTPRequestHandler):
                 llama_server_image = runtime_profile.get("llama_server_image") or llama_server_image
                 runtime_env = runtime_profile.get("env") if isinstance(runtime_profile.get("env"), dict) else {}
 
+            def _context_from_env_key(key: str) -> int:
+                try:
+                    return int(env_pre.get(key) or 0)
+                except (TypeError, ValueError):
+                    return 0
+
+            hermes_context_floor = max(_context_from_env_key("MAX_CONTEXT"), _context_from_env_key("CTX_SIZE"))
+            try:
+                hermes_live_exists_for_context = hermes_live_config.exists()
+            except PermissionError:
+                hermes_live_exists_for_context = False
+            if hermes_context_floor > context_length and hermes_live_exists_for_context:
+                # A Hermes-enabled install may intentionally raise llama.cpp's
+                # context above the catalog/profile value. Do not let dashboard
+                # model activation silently lower Hermes back under its own
+                # 64K minimum.
+                context_length = hermes_context_floor
+
             # Save rollback snapshot
             env_backup = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
             ini_backup = models_ini.read_text(encoding="utf-8") if models_ini.exists() else ""
@@ -3550,6 +3652,8 @@ class AgentHandler(BaseHTTPRequestHandler):
                     "LLAMA_ARG_N_CPU_MOE",
                     "LLAMA_ARG_NO_CACHE_PROMPT",
                     "LLAMA_ARG_CHECKPOINT_EVERY_N_TOKENS",
+                    "LLAMA_ARG_SPEC_TYPE",
+                    "LLAMA_ARG_SPEC_DRAFT_N_MAX",
                 }
                 if runtime_profile:
                     for key, value in runtime_env.items():
@@ -3566,6 +3670,8 @@ class AgentHandler(BaseHTTPRequestHandler):
                     "LLAMA_ARG_N_CPU_MOE",
                     "LLAMA_ARG_NO_CACHE_PROMPT",
                     "LLAMA_ARG_CHECKPOINT_EVERY_N_TOKENS",
+                    "LLAMA_ARG_SPEC_TYPE",
+                    "LLAMA_ARG_SPEC_DRAFT_N_MAX",
                     "LLAMA_SERVER_IMAGE",
                 }
                 remove_keys.difference_update(updates)
@@ -3610,8 +3716,18 @@ class AgentHandler(BaseHTTPRequestHandler):
             except PermissionError:
                 hermes_live_exists = None
             hermes_base_url = "http://litellm:4000/v1" if windows_host_lemonade else None
-            hermes_live_patched = _patch_hermes_model_config(hermes_live_config, hermes_model_name, base_url=hermes_base_url)
-            hermes_template_patched = _patch_hermes_model_config(hermes_template_config, hermes_model_name, base_url=hermes_base_url)
+            hermes_live_patched = _patch_hermes_model_config(
+                hermes_live_config,
+                hermes_model_name,
+                base_url=hermes_base_url,
+                context_length=context_length,
+            )
+            hermes_template_patched = _patch_hermes_model_config(
+                hermes_template_config,
+                hermes_model_name,
+                base_url=hermes_base_url,
+                context_length=context_length,
+            )
             # Restart Hermes only when its persisted live config changed, or
             # when no persisted config exists and a patched template can seed
             # the next start. If live config is container-owned and unreadable,
@@ -4161,15 +4277,20 @@ def _write_lemonade_config(install_dir: Path, gguf_file: str):
         "litellm_settings:\n"
         "  drop_params: true\n"
         "  set_verbose: false\n"
-        "  request_timeout: 120\n"
-        "  stream_timeout: 60\n"
+        "  request_timeout: 900\n"
+        "  stream_timeout: 900\n"
     )
     config_path.write_text(content, encoding="utf-8")
     logger.info("Wrote lemonade.yaml for model: extra.%s", gguf_file)
 
 
-def _patch_hermes_model_config(path: Path, model_name: str, base_url: str | None = None) -> bool:
-    """Patch `model.default` and optionally `model.base_url` in Hermes config.
+def _patch_hermes_model_config(
+    path: Path,
+    model_name: str,
+    base_url: str | None = None,
+    context_length: int | None = None,
+) -> bool:
+    """Patch model routing fields in Hermes config.
 
     Hermes copies the template once into data/hermes/config.yaml and then uses
     the persisted copy as source of truth. Patch both when present so current
@@ -4215,6 +4336,12 @@ def _patch_hermes_model_config(path: Path, model_name: str, base_url: str | None
         if base_url and in_model_block and re.match(r"^\s+base_url:\s*", line):
             indent = line[:len(line) - len(line.lstrip())]
             new_line = f'{indent}base_url: "{base_url}"'
+            new_lines.append(new_line)
+            changed = changed or new_line != line
+            continue
+        if context_length and re.match(r"^\s+context_length:\s*", line):
+            indent = line[:len(line) - len(line.lstrip())]
+            new_line = f"{indent}context_length: {int(context_length)}"
             new_lines.append(new_line)
             changed = changed or new_line != line
             continue
@@ -4620,6 +4747,22 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
 
 
+def _request_server_shutdown(server, signum=None):
+    """Ask serve_forever() to exit from a helper thread.
+
+    HTTPServer.shutdown() deadlocks when called from the same thread that is
+    running serve_forever(). Python signal handlers run on the main thread, so
+    the SIGTERM path must bounce the shutdown request to another thread.
+    """
+    if signum is not None:
+        logger.info("Received signal %s; shutting down", signum)
+    threading.Thread(
+        target=server.shutdown,
+        name="dream-host-agent-shutdown",
+        daemon=True,
+    ).start()
+
+
 def main():
     global INSTALL_DIR, DATA_DIR, AGENT_API_KEY, GPU_BACKEND, TIER, GPU_COUNT, CORE_SERVICE_IDS
     global USER_EXTENSIONS_DIR, EXTENSIONS_DIR, DREAM_VERSION
@@ -4691,7 +4834,8 @@ def main():
     bind_addr = _resolve_agent_bind_addr(env)
 
     server = ThreadedHTTPServer((bind_addr, port), AgentHandler)
-    signal.signal(signal.SIGTERM, lambda *_: server.shutdown())
+    signal.signal(signal.SIGTERM, lambda signum, _frame: _request_server_shutdown(server, signum))
+    signal.signal(signal.SIGINT, lambda signum, _frame: _request_server_shutdown(server, signum))
     logger.info("Dream Host Agent v%s listening on %s:%d", VERSION, bind_addr, port)
     if bind_addr == "0.0.0.0":
         logger.info(

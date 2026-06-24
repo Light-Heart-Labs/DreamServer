@@ -134,7 +134,7 @@ async def run_setup_diagnostics(api_key: str = Depends(verify_api_key)):
                 ]
                 for name, url in services:
                     try:
-                        async with session.get(url, timeout=5) as resp:
+                        async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
                             if resp.status == 200:
                                 yield f"\u2713 {name}: {resp.status}\n"
                             else:

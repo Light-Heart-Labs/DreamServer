@@ -43,6 +43,7 @@ stop_block="$(awk '
 
 service_guard_line="$(line_of 'if (-not $Service) {')"
 agent_stop_line="$(line_of 'Invoke-Agent -Action "stop"')"
+opencode_stop_line="$(line_of 'Stop-DreamOpenCodeRuntime')"
 native_stop_line="$(line_of 'Stop-NativeInferenceServer')"
 test_install_line="$(line_of 'Test-Install')"
 compose_down_line="$(line_of '-ComposeArgs @("down")')"
@@ -59,6 +60,12 @@ else
     fail "host agent must stop before Test-Install can fail on Docker Desktop"
 fi
 
+if [[ -n "$opencode_stop_line" && -n "$test_install_line" && "$opencode_stop_line" -lt "$test_install_line" ]]; then
+    pass "OpenCode stops before Docker-dependent Test-Install"
+else
+    fail "OpenCode must stop before reinstall cleanup can delete install logs"
+fi
+
 if [[ -n "$native_stop_line" && -n "$test_install_line" && "$native_stop_line" -lt "$test_install_line" ]]; then
     pass "native inference stops before Docker-dependent Test-Install"
 else
@@ -69,6 +76,15 @@ if [[ -n "$agent_stop_line" && -n "$compose_down_line" && "$agent_stop_line" -lt
     pass "host agent stops before docker compose down"
 else
     fail "host agent should not wait for docker compose down"
+fi
+
+if grep -q 'function Stop-DreamOpenCodeRuntime' "$DREAM_PS1" \
+    && grep -q '\$script:OPENCODE_PORT' "$DREAM_PS1" \
+    && grep -q '\$script:OPENCODE_EXE' "$DREAM_PS1" \
+    && grep -q 'ParentProcessId' "$DREAM_PS1"; then
+    pass "OpenCode stop helper is scoped to Dream OpenCode process trees"
+else
+    fail "OpenCode stop helper should target Dream OpenCode by port, binary, and launcher parent"
 fi
 
 echo ""

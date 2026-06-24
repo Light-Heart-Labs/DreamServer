@@ -5,7 +5,9 @@
 EXTENSIONS_DIR="${SCRIPT_DIR:-$(pwd)}/extensions/services"
 _SR_LOADED=false
 _SR_FAILED=false
-_SR_CACHE="/tmp/dream-service-registry.$$.sh"
+# Created on demand in sr_load() via mktemp. Its contents are sourced as bash,
+# so a predictable /tmp path would be a local code-injection vector.
+_SR_CACHE=""
 
 # Caching for compose flags (session-level)
 _SR_COMPOSE_FLAGS_CACHE=""
@@ -79,6 +81,11 @@ sr_load() {
             return 0
         fi
     fi
+
+    # Create the cache as a race-safe, private (mode 0600) temp file. Its
+    # contents are sourced as bash below, so a predictable /tmp name would be a
+    # local code-injection vector (symlink / TOCTOU race).
+    _SR_CACHE="$(mktemp "${TMPDIR:-/tmp}/dream-service-registry.XXXXXX")" || _SR_CACHE=""
 
     if ! "$PYTHON_CMD" - "$EXTENSIONS_DIR" <<'PYEOF' > "$_SR_CACHE"
 import yaml, sys, os

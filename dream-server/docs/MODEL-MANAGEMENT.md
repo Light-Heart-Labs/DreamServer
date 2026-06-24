@@ -1,8 +1,8 @@
 # Model Management
 
 Dream Server runs local language models as GGUF files from `data/models/`.
-The recommended path is the Dashboard Models page; manual model swaps are
-possible, but they are an operator workflow today.
+The recommended path is the Dashboard Models page. Manual model swaps are also
+available for headless maintenance and advanced operator workflows.
 
 ## Recommended: Dashboard Models Page
 
@@ -14,6 +14,7 @@ From there you can:
 - Check approximate model size, VRAM requirement, context length, and specialty.
 - Download a catalog model into `data/models/`.
 - Load a downloaded model.
+- Load a manually copied single-file GGUF discovered in `data/models/`.
 - Delete a downloaded catalog model.
 
 When a catalog model is loaded, Dream Server updates the active GGUF settings
@@ -78,8 +79,9 @@ grep -E "^(LLM_MODEL|GGUF_FILE|CTX_SIZE|MAX_CONTEXT)=" ~/dream-server/.env
 
 Hermes requires at least a 64K context window. Installer bootstrap mode uses
 `65536` for the fast-start model, then switches `.env`, llama-server, and
-Hermes config to the full model context, usually `131072`, when the background
-download completes.
+Hermes config to the model selector's chosen full-model context when the
+background download completes. Larger tiers may use `131072`; constrained tiers
+can remain at a smaller selected context.
 
 ## Manual: Download a Catalog Model
 
@@ -101,10 +103,26 @@ curl -L \
 Then open Dashboard -> Models. If the filename matches a catalog entry, the
 model should appear as downloaded and you can load it from the Dashboard.
 
-## Manual: Bring Your Own GGUF
+## Bring Your Own GGUF
 
-Custom GGUFs are supported by the underlying stack, but not yet as a polished
-Dashboard import flow. Treat this as an operator procedure.
+For a single local `.gguf`, the normal flow is:
+
+1. Copy the file into `data/models/`.
+2. Open Dashboard -> Models.
+3. Load the local entry.
+
+The Dashboard updates `.env`, `config/llama-server/models.ini`, and the active
+runtime routing before restarting the inference service.
+
+On Lemonade installs, loading a model directly inside the Lemonade app only
+changes Lemonade's current runtime state. It does not update Dream Server's
+`.env` or LiteLLM routing. Open WebUI talks through Dream Server/LiteLLM, so
+its next chat can ask for the persisted Dream Server model and Lemonade may
+unload the model you opened manually. Use Dashboard -> Models -> Load when you
+want Open WebUI and other Dream Server clients to keep using the local GGUF.
+
+Use the manual procedure below only if you cannot access the Dashboard or need
+to repair an install by hand.
 
 1. Download the GGUF into `data/models/`.
 

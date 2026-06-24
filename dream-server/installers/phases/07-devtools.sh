@@ -191,7 +191,7 @@ else
         "${LLM_MODEL}": {
           "name": "${LLM_MODEL}",
           "limit": {
-            "context": ${MAX_CONTEXT:-131072},
+            "context": ${MAX_CONTEXT:-65536},
             "output": 32768
           }
         }
@@ -245,17 +245,21 @@ OPENCODE_EOF
             SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
             mkdir -p "$SYSTEMD_USER_DIR"
 
-            svc_tmp="/tmp/opencode-web.service.$$"
-            cp "$INSTALL_DIR/opencode/opencode-web.service" "$svc_tmp"
-            # Escape sed special chars to prevent injection from path values
-            _home_esc=$(printf '%s\n' "$HOME" | sed 's/[&/\]/\\&/g')
-            _opencode_bin_esc=$(printf '%s\n' "$OPENCODE_BIN" | sed 's/[&/\]/\\&/g')
-            _opencode_bin_dir_esc=$(printf '%s\n' "$(dirname "$OPENCODE_BIN")" | sed 's/[&/\]/\\&/g')
-            _sed_i "s|__HOME__|${_home_esc}|g" "$svc_tmp"
-            _sed_i "s|__OPENCODE_BIN__|${_opencode_bin_esc}|g" "$svc_tmp"
-            _sed_i "s|__OPENCODE_BIN_DIR__|${_opencode_bin_dir_esc}|g" "$svc_tmp"
-            cp "$svc_tmp" "$SYSTEMD_USER_DIR/opencode-web.service"
-            rm -f "$svc_tmp"
+            svc_tmp="$(mktemp "${TMPDIR:-/tmp}/opencode-web.service.XXXXXX")" || svc_tmp=""
+            if [[ -z "$svc_tmp" ]]; then
+                ai_warn "Failed to create secure temp file for opencode-web.service; skipping user-level unit install"
+            else
+                cp "$INSTALL_DIR/opencode/opencode-web.service" "$svc_tmp"
+                # Escape sed special chars to prevent injection from path values
+                _home_esc=$(printf '%s\n' "$HOME" | sed 's/[&/\]/\\&/g')
+                _opencode_bin_esc=$(printf '%s\n' "$OPENCODE_BIN" | sed 's/[&/\]/\\&/g')
+                _opencode_bin_dir_esc=$(printf '%s\n' "$(dirname "$OPENCODE_BIN")" | sed 's/[&/\]/\\&/g')
+                _sed_i "s|__HOME__|${_home_esc}|g" "$svc_tmp"
+                _sed_i "s|__OPENCODE_BIN__|${_opencode_bin_esc}|g" "$svc_tmp"
+                _sed_i "s|__OPENCODE_BIN_DIR__|${_opencode_bin_dir_esc}|g" "$svc_tmp"
+                cp "$svc_tmp" "$SYSTEMD_USER_DIR/opencode-web.service"
+                rm -f "$svc_tmp"
+            fi
 
             systemctl --user daemon-reload 2>/dev/null || true
             systemctl --user enable --now opencode-web.service >> "$LOG_FILE" 2>&1 && \
@@ -319,26 +323,30 @@ if [[ -f "$INSTALL_DIR/bin/dream-host-agent.py" ]]; then
             fi
 
             if [[ -f "$INSTALL_DIR/scripts/systemd/dream-host-agent.service" ]]; then
-                svc_tmp="/tmp/dream-host-agent.service.$$"
-                cp "$INSTALL_DIR/scripts/systemd/dream-host-agent.service" "$svc_tmp"
-                # Substitute placeholders — use sed directly with | delimiter
-                # (paths contain / but never |, so | is a safe delimiter).
-                # Dual-form for BSD/GNU sed compatibility.
-                sed -i "s|__INSTALL_DIR__|${INSTALL_DIR}|g" "$svc_tmp" 2>/dev/null || \
-                    sed -i '' "s|__INSTALL_DIR__|${INSTALL_DIR}|g" "$svc_tmp"
-                sed -i "s|__HOME__|${HOME}|g" "$svc_tmp" 2>/dev/null || \
-                    sed -i '' "s|__HOME__|${HOME}|g" "$svc_tmp"
-                sed -i "s|__PYTHON3__|${AGENT_PYTHON}|g" "$svc_tmp" 2>/dev/null || \
-                    sed -i '' "s|__PYTHON3__|${AGENT_PYTHON}|g" "$svc_tmp"
-                sed -i "s|__INSTALL_USER__|${_agent_user}|g" "$svc_tmp" 2>/dev/null || \
-                    sed -i '' "s|__INSTALL_USER__|${_agent_user}|g" "$svc_tmp"
-                # Verify placeholders were actually rendered
-                if grep -q '__INSTALL_DIR__\|__HOME__\|__PYTHON3__\|__INSTALL_USER__' "$svc_tmp"; then
-                    ai_warn "Host agent systemd unit has unrendered placeholders — check $svc_tmp"
+                svc_tmp="$(mktemp "${TMPDIR:-/tmp}/dream-host-agent.service.XXXXXX")" || svc_tmp=""
+                if [[ -z "$svc_tmp" ]]; then
+                    ai_warn "Failed to create secure temp file for dream-host-agent.service; skipping systemd unit install"
                 else
-                    sudo install -m 644 "$svc_tmp" /etc/systemd/system/dream-host-agent.service
+                    cp "$INSTALL_DIR/scripts/systemd/dream-host-agent.service" "$svc_tmp"
+                    # Substitute placeholders — use sed directly with | delimiter
+                    # (paths contain / but never |, so | is a safe delimiter).
+                    # Dual-form for BSD/GNU sed compatibility.
+                    sed -i "s|__INSTALL_DIR__|${INSTALL_DIR}|g" "$svc_tmp" 2>/dev/null || \
+                        sed -i '' "s|__INSTALL_DIR__|${INSTALL_DIR}|g" "$svc_tmp"
+                    sed -i "s|__HOME__|${HOME}|g" "$svc_tmp" 2>/dev/null || \
+                        sed -i '' "s|__HOME__|${HOME}|g" "$svc_tmp"
+                    sed -i "s|__PYTHON3__|${AGENT_PYTHON}|g" "$svc_tmp" 2>/dev/null || \
+                        sed -i '' "s|__PYTHON3__|${AGENT_PYTHON}|g" "$svc_tmp"
+                    sed -i "s|__INSTALL_USER__|${_agent_user}|g" "$svc_tmp" 2>/dev/null || \
+                        sed -i '' "s|__INSTALL_USER__|${_agent_user}|g" "$svc_tmp"
+                    # Verify placeholders were actually rendered
+                    if grep -q '__INSTALL_DIR__\|__HOME__\|__PYTHON3__\|__INSTALL_USER__' "$svc_tmp"; then
+                        ai_warn "Host agent systemd unit has unrendered placeholders — check $svc_tmp"
+                    else
+                        sudo install -m 644 "$svc_tmp" /etc/systemd/system/dream-host-agent.service
+                    fi
+                    rm -f "$svc_tmp"
                 fi
-                rm -f "$svc_tmp"
             fi
             sudo systemctl daemon-reload 2>/dev/null || true
             # Pipe through tee (matching the file's existing sudo+log idiom at L31-45)
@@ -443,35 +451,39 @@ if [[ -f "$INSTALL_DIR/bin/dream-mdns.py" ]] && [[ "$(uname -s)" == "Linux" ]]; 
                 _agent_user="$(whoami)"
             fi
         fi
-        svc_tmp="/tmp/dream-mdns.service.$$"
-        cp "$INSTALL_DIR/scripts/systemd/dream-mdns.service" "$svc_tmp"
-        sed -i "s|__INSTALL_DIR__|${INSTALL_DIR}|g" "$svc_tmp" 2>/dev/null || \
-            sed -i '' "s|__INSTALL_DIR__|${INSTALL_DIR}|g" "$svc_tmp"
-        sed -i "s|__HOME__|${HOME}|g" "$svc_tmp" 2>/dev/null || \
-            sed -i '' "s|__HOME__|${HOME}|g" "$svc_tmp"
-        sed -i "s|__PYTHON3__|${MDNS_PYTHON}|g" "$svc_tmp" 2>/dev/null || \
-            sed -i '' "s|__PYTHON3__|${MDNS_PYTHON}|g" "$svc_tmp"
-        sed -i "s|__INSTALL_USER__|${_agent_user}|g" "$svc_tmp" 2>/dev/null || \
-            sed -i '' "s|__INSTALL_USER__|${_agent_user}|g" "$svc_tmp"
-        if grep -q '__INSTALL_DIR__\|__HOME__\|__PYTHON3__\|__INSTALL_USER__' "$svc_tmp"; then
-            ai_warn "dream-mdns systemd unit has unrendered placeholders — check $svc_tmp"
+        svc_tmp="$(mktemp "${TMPDIR:-/tmp}/dream-mdns.service.XXXXXX")" || svc_tmp=""
+        if [[ -z "$svc_tmp" ]]; then
+            ai_warn "Failed to create secure temp file for dream-mdns.service; skipping systemd unit install"
         else
-            sudo install -m 644 "$svc_tmp" /etc/systemd/system/dream-mdns.service
-            sudo systemctl daemon-reload 2>/dev/null || true
-            if sudo systemctl enable --now dream-mdns.service 2>&1 | tee -a "$LOG_FILE" >/dev/null; then
-                _device_name="$(grep -E '^DREAM_DEVICE_NAME=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || true)"
-                _device_name="${_device_name:-dream}"
-                # Be honest about what mDNS does on its own: it publishes the
-                # name. Whether that name LOADS anything in a browser depends
-                # on dream-proxy being on :80 and DREAM_PROXY_BIND=0.0.0.0. Those
-                # are operator choices made elsewhere (and surfaced in the
-                # first-boot wizard); don't claim the URL works yet.
-                ai_ok "Dream mDNS announcer installed — '${_device_name}.local' now resolves on the LAN"
-                ai "  Enable dream-proxy (DREAM_PROXY_BIND defaults to 0.0.0.0) to make http://${_device_name}.local serve chat. See docs/DREAM-PROXY.md."
+            cp "$INSTALL_DIR/scripts/systemd/dream-mdns.service" "$svc_tmp"
+            sed -i "s|__INSTALL_DIR__|${INSTALL_DIR}|g" "$svc_tmp" 2>/dev/null || \
+                sed -i '' "s|__INSTALL_DIR__|${INSTALL_DIR}|g" "$svc_tmp"
+            sed -i "s|__HOME__|${HOME}|g" "$svc_tmp" 2>/dev/null || \
+                sed -i '' "s|__HOME__|${HOME}|g" "$svc_tmp"
+            sed -i "s|__PYTHON3__|${MDNS_PYTHON}|g" "$svc_tmp" 2>/dev/null || \
+                sed -i '' "s|__PYTHON3__|${MDNS_PYTHON}|g" "$svc_tmp"
+            sed -i "s|__INSTALL_USER__|${_agent_user}|g" "$svc_tmp" 2>/dev/null || \
+                sed -i '' "s|__INSTALL_USER__|${_agent_user}|g" "$svc_tmp"
+            if grep -q '__INSTALL_DIR__\|__HOME__\|__PYTHON3__\|__INSTALL_USER__' "$svc_tmp"; then
+                ai_warn "dream-mdns systemd unit has unrendered placeholders — check $svc_tmp"
             else
-                ai_warn "Dream mDNS announcer failed to start (non-fatal — device is still reachable by IP)"
+                sudo install -m 644 "$svc_tmp" /etc/systemd/system/dream-mdns.service
+                sudo systemctl daemon-reload 2>/dev/null || true
+                if sudo systemctl enable --now dream-mdns.service 2>&1 | tee -a "$LOG_FILE" >/dev/null; then
+                    _device_name="$(grep -E '^DREAM_DEVICE_NAME=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || true)"
+                    _device_name="${_device_name:-dream}"
+                    # Be honest about what mDNS does on its own: it publishes the
+                    # name. Whether that name LOADS anything in a browser depends
+                    # on dream-proxy being on :80 and DREAM_PROXY_BIND=0.0.0.0. Those
+                    # are operator choices made elsewhere (and surfaced in the
+                    # first-boot wizard); don't claim the URL works yet.
+                    ai_ok "Dream mDNS announcer installed — '${_device_name}.local' now resolves on the LAN"
+                    ai "  Enable dream-proxy (DREAM_PROXY_BIND defaults to 0.0.0.0) to make http://${_device_name}.local serve chat. See docs/DREAM-PROXY.md."
+                else
+                    ai_warn "Dream mDNS announcer failed to start (non-fatal — device is still reachable by IP)"
+                fi
             fi
+            rm -f "$svc_tmp"
         fi
-        rm -f "$svc_tmp"
     fi
 fi

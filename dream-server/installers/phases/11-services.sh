@@ -656,7 +656,11 @@ MODELS_INI_EOF
                 _hermes_base_url="http://litellm:4000/v1"
                 _hermes_api_key="${LITELLM_KEY:-}"
             fi
-            _hermes_context="${MAX_CONTEXT:-131072}"
+            _hermes_context="${MAX_CONTEXT:-65536}"
+            _hermes_request_timeout=180
+            if [[ "${DREAM_MODE:-local}" != "cloud" ]] && { [[ "${GPU_BACKEND:-}" == "amd" ]] || _phase11_external_lemonade; }; then
+                _hermes_request_timeout=900
+            fi
             _hermes_patcher="$INSTALL_DIR/scripts/patch-hermes-config.py"
             if [[ -n "$_python_cmd" && -f "$_hermes_patcher" ]]; then
                 _hermes_patcher_args=("$_hermes_tpl" --model "$_hermes_model" --context-length "$_hermes_context")
@@ -666,6 +670,7 @@ MODELS_INI_EOF
                 if [[ -n "$_hermes_api_key" ]]; then
                     _hermes_patcher_args+=(--api-key "$_hermes_api_key")
                 fi
+                _hermes_patcher_args+=(--request-timeout-seconds "$_hermes_request_timeout")
                 "$_python_cmd" "$_hermes_patcher" "${_hermes_patcher_args[@]}" >>"$LOG_FILE" 2>&1 || \
                     warn "Hermes config patcher failed for $_hermes_tpl"
             else
@@ -673,6 +678,7 @@ MODELS_INI_EOF
                     -e "s|^  default: \"qwen3.5-9b\"|  default: \"$_hermes_model\"|" \
                     -e "s|^  context_length: .*|  context_length: ${_hermes_context}|" \
                     -e "s|^    context_length: .*|    context_length: ${_hermes_context}|" \
+                    -e "s|^    request_timeout_seconds: 180[[:space:]]*$|    request_timeout_seconds: ${_hermes_request_timeout}|" \
                     "$_hermes_tpl" 2>>"$LOG_FILE" && rm -f "${_hermes_tpl}.bak"
             fi
             if grep -q "^  default: \"$_hermes_model\"$" "$_hermes_tpl" && \

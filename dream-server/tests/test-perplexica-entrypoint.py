@@ -13,6 +13,7 @@ ENV_SCHEMA = ROOT / ".env.schema.json"
 SERVICE_DIR = ROOT / "extensions" / "services" / "perplexica"
 COMPOSE = SERVICE_DIR / "compose.yaml"
 ENTRYPOINT = SERVICE_DIR / "docker-entrypoint.sh"
+WHISPER_COMPOSE = ROOT / "extensions" / "services" / "whisper" / "compose.yaml"
 
 
 def test_compose_uses_dreamserver_entrypoint() -> None:
@@ -20,7 +21,20 @@ def test_compose_uses_dreamserver_entrypoint() -> None:
     assert "PERPLEXICA_SCRAPE_URL_MAX_CHARS=${PERPLEXICA_SCRAPE_URL_MAX_CHARS:-30000}" in compose
     assert "/app/dream-entrypoint.sh" in compose
     assert "./extensions/services/perplexica/docker-entrypoint.sh:/app/dream-entrypoint.sh:ro" in compose
-    assert 'exec /app/dream-entrypoint.sh \\"$@\\"' in compose
+    assert 'exec /bin/sh /app/dream-entrypoint.sh \\"$@\\"' in compose
+
+
+def test_bind_mounted_entrypoints_do_not_require_executable_bit() -> None:
+    service_entrypoints = (
+        (COMPOSE, "/app/dream-entrypoint.sh", 'exec /bin/sh /app/dream-entrypoint.sh \\"$@\\"'),
+        (WHISPER_COMPOSE, "/app/docker-entrypoint.sh", "exec /bin/sh /app/docker-entrypoint.sh"),
+    )
+    for compose_path, mounted_script, shell_exec in service_entrypoints:
+        compose = compose_path.read_text(encoding="utf-8")
+        assert f"until [ -f {mounted_script} ]" in compose
+        assert f"until [ -x {mounted_script} ]" not in compose
+        assert shell_exec in compose
+        assert f"exec {mounted_script}" not in compose
 
 
 def test_entrypoint_patches_scrape_url_result_content() -> None:
@@ -65,6 +79,7 @@ def test_entrypoint_falls_back_to_node_server_when_no_args() -> None:
 
 if __name__ == "__main__":
     test_compose_uses_dreamserver_entrypoint()
+    test_bind_mounted_entrypoints_do_not_require_executable_bit()
     test_entrypoint_patches_scrape_url_result_content()
     test_env_schema_allows_scrape_cap_override()
     test_compose_restores_image_command()

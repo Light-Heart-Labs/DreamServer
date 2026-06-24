@@ -147,6 +147,8 @@ class AmdRuntimeStatus(BaseModel):
     healthUrl: Optional[str] = None
     health: Optional[str] = None
     version: str = "unknown"
+    loadedModel: Optional[str] = None
+    modelCount: Optional[int] = None
     capabilities: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 

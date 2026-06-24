@@ -54,6 +54,12 @@ def test_fetch_loaded_model_uses_configured_llm_url(monkeypatch):
     assert seen_urls == ["http://host.docker.internal:8080/api/v1/health"]
 
 
+def test_default_model_discovery_timeout_covers_slow_local_runtime():
+    import routers.models as models_router
+
+    assert models_router._MODEL_DISCOVERY_TIMEOUT_SECONDS >= 10.0
+
+
 def test_fetch_loaded_model_falls_back_to_models_when_lemonade_health_empty(monkeypatch):
     import routers.models as models_router
 
@@ -532,3 +538,97 @@ def test_load_model_delegates_when_loaded_backend_is_not_ready(test_client, monk
         "body": {"model_id": "qwen3.5-9b-q4"},
         "timeout": 600,
     }
+
+
+def test_load_model_delegates_local_gguf_without_catalog_entry(test_client, monkeypatch, tmp_path):
+    models_router, install_dir, data_dir = _patch_model_router_paths(monkeypatch, tmp_path)
+    _write_model_library(install_dir, [])
+    (data_dir / "models" / "OpenAI-20B-NEO-CODE-DI-Uncensored-Q8_0.gguf").write_text(
+        "model",
+        encoding="utf-8",
+    )
+    (install_dir / ".env").write_text("MAX_CONTEXT=65536\n", encoding="utf-8")
+    monkeypatch.setattr(
+        models_router,
+        "_call_agent_model",
+        lambda path, body, timeout=30: {"status": "activated", "path": path, "body": body, "timeout": timeout},
+    )
+
+    resp = test_client.post(
+        "/api/models/OpenAI-20B-NEO-CODE-DI-Uncensored-Q8_0/load",
+        headers=test_client.auth_headers,
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "status": "activated",
+        "path": "/v1/model/activate",
+        "body": {"model_id": "OpenAI-20B-NEO-CODE-DI-Uncensored-Q8_0"},
+        "timeout": 600,
+    }
+
+
+def test_local_gguf_scan_keeps_mixed_case_and_skips_empty(monkeypatch, tmp_path):
+    models_router, install_dir, data_dir = _patch_model_router_paths(monkeypatch, tmp_path)
+    _write_model_library(install_dir, [])
+    (data_dir / "models" / "MixedCaseModel.GGUF").write_text("model", encoding="utf-8")
+    (data_dir / "models" / "empty.gguf").write_text("", encoding="utf-8")
+    (data_dir / "models" / "partial.gguf.part").write_text("partial", encoding="utf-8")
+
+    assert models_router._scan_downloaded_models() == {
+        "MixedCaseModel.GGUF": len("model"),
+    }
+
+
+def test_load_model_resolves_local_gguf_by_stem_with_mixed_case_extension(
+    test_client,
+    monkeypatch,
+    tmp_path,
+):
+    models_router, install_dir, data_dir = _patch_model_router_paths(monkeypatch, tmp_path)
+    _write_model_library(install_dir, [])
+    (data_dir / "models" / "MixedCaseModel.GGUF").write_text("model", encoding="utf-8")
+    monkeypatch.setattr(
+        models_router,
+        "_call_agent_model",
+        lambda path, body, timeout=30: {"status": "activated", "path": path, "body": body, "timeout": timeout},
+    )
+
+    resp = test_client.post(
+        "/api/models/MixedCaseModel/load",
+        headers=test_client.auth_headers,
+    )
+
+    assert resp.status_code == 200
+    assert models_router._find_loadable_model("MixedCaseModel")["gguf_file"] == "MixedCaseModel.GGUF"
+    assert resp.json() == {
+        "status": "activated",
+        "path": "/v1/model/activate",
+        "body": {"model_id": "MixedCaseModel"},
+        "timeout": 600,
+    }
+
+
+def test_local_gguf_model_uses_safe_logical_id_for_spaced_filename(monkeypatch, tmp_path):
+    models_router, install_dir, data_dir = _patch_model_router_paths(monkeypatch, tmp_path)
+    _write_model_library(install_dir, [])
+    (data_dir / "models" / "My Custom Model.Q8_0.GGUF").write_text("model", encoding="utf-8")
+
+    model = models_router._find_loadable_model("My Custom Model.Q8_0")
+
+    assert model["gguf_file"] == "My Custom Model.Q8_0.GGUF"
+    assert model["id"] == "My-Custom-Model.Q8_0"
+    assert model["llm_model_name"] == "My-Custom-Model.Q8_0"
+
+
+def test_load_model_rejects_local_gguf_path_separators(test_client, monkeypatch, tmp_path):
+    models_router, install_dir, data_dir = _patch_model_router_paths(monkeypatch, tmp_path)
+    _write_model_library(install_dir, [])
+    (data_dir / "models" / "nested.gguf").write_text("model", encoding="utf-8")
+
+    resp = test_client.post(
+        "/api/models/..%5Cnested/load",
+        headers=test_client.auth_headers,
+    )
+
+    assert resp.status_code == 404

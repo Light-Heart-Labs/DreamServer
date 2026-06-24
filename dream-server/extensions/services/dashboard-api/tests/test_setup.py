@@ -217,3 +217,60 @@ def test_get_persona_info_not_found(test_client, setup_config_dir):
     """GET /api/setup/persona/<unknown> returns 404."""
     resp = test_client.get("/api/setup/persona/unknown-persona", headers=test_client.auth_headers)
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Diagnostics fallback timeout type
+# ---------------------------------------------------------------------------
+
+
+def test_diagnostics_fallback_uses_client_timeout(test_client, monkeypatch):
+    """The fallback health-check loop must pass aiohttp.ClientTimeout, not a bare int."""
+    import aiohttp
+    import routers.setup as setup_router
+
+    # Ensure the diagnostic script does NOT exist so we hit the fallback path
+    monkeypatch.setattr(setup_router, "INSTALL_DIR", "/nonexistent-path")
+
+    # Provide at least one service so the health-check loop body executes
+    monkeypatch.setattr(setup_router, "SERVICES", {
+        "fake-svc": {"name": "Fake", "host": "localhost", "port": 1, "health": "/"}
+    })
+
+    captured_timeouts = []
+
+    class FakeResponse:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+    class FakeSession:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        def get(self, url, **kwargs):
+            timeout = kwargs.get("timeout")
+            captured_timeouts.append(timeout)
+            return FakeResponse()
+
+    monkeypatch.setattr(aiohttp, "ClientSession", FakeSession)
+
+    resp = test_client.post("/api/setup/test", headers=test_client.auth_headers)
+    assert resp.status_code == 200
+
+    # Verify at least one request was made and all timeouts are ClientTimeout instances
+    assert len(captured_timeouts) > 0, "Expected at least one health check request"
+    for t in captured_timeouts:
+        assert isinstance(t, aiohttp.ClientTimeout), (
+            f"Expected aiohttp.ClientTimeout but got {type(t).__name__}: {t}"
+        )

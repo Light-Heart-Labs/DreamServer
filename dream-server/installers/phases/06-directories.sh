@@ -999,8 +999,8 @@ model_list:
 litellm_settings:
   drop_params: true
   set_verbose: false
-  request_timeout: 120
-  stream_timeout: 60
+  request_timeout: 900
+  stream_timeout: 900
 LITELLM_EOF
         fi
         if [[ -n "$_lemonade_model_id" ]]; then

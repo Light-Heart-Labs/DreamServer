@@ -106,6 +106,18 @@ jobs:
             done
           }
 
+          configure_zypper_ci_network() {
+            mkdir -p /etc/zypp/zypp.conf.d
+            {
+              printf '%s\n' '[main]'
+              printf '%s\n' 'download.transfer_timeout = 600'
+              printf '%s\n' 'download.connect_timeout = 120'
+              printf '%s\n' 'download.min_download_speed = 0'
+              printf '%s\n' 'download.max_silent_tries = 3'
+              printf '%s\n' 'download.max_concurrent_connections = 2'
+            } >/etc/zypp/zypp.conf.d/99-dreamserver-ci-network.conf
+          }
+
           if command -v apt-get &>/dev/null; then
             apt-get update -qq && apt-get install -y -qq ca-certificates git curl
           elif command -v dnf &>/dev/null; then
@@ -114,6 +126,7 @@ jobs:
             prepare_pacman_keyrings
             retry pacman -Syyu --noconfirm --needed ca-certificates git curl
           elif command -v zypper &>/dev/null; then
+            configure_zypper_ci_network
             retry zypper --non-interactive --gpg-auto-import-keys refresh
             retry zypper --non-interactive install -y ca-certificates git curl
           fi

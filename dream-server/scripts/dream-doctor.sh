@@ -318,6 +318,17 @@ if [[ "$DOCKER_DAEMON" == "true" ]] && docker ps --format '{{.Names}}' 2>/dev/nu
     [[ -n "$HERMES_SLASH_WORKER_COUNT" ]] || HERMES_SLASH_WORKER_COUNT="0"
 fi
 
+DREAM_MANAGED_CONTAINER_COUNT="0"
+DREAM_RUNNING_CONTAINER_COUNT="0"
+if [[ "$DOCKER_DAEMON" == "true" ]]; then
+    DREAM_MANAGED_CONTAINER_COUNT="$(
+        docker ps -a --format '{{.Names}}' 2>/dev/null | grep -c '^dream-' || true
+    )"
+    DREAM_RUNNING_CONTAINER_COUNT="$(
+        docker ps --format '{{.Names}}' 2>/dev/null | grep -c '^dream-' || true
+    )"
+fi
+
 # Collect extension diagnostics if service registry loaded
 EXT_DIAGNOSTICS="[]"
 if [[ "${#SERVICE_IDS[@]}" -gt 0 ]]; then
@@ -332,7 +343,7 @@ elif command -v python >/dev/null 2>&1; then
     PYTHON_CMD="python"
 fi
 
-"$PYTHON_CMD" - "$CAP_FILE" "$PREFLIGHT_FILE" "$REPORT_FILE" "$DOCKER_CLI" "$DOCKER_DAEMON" "$COMPOSE_CLI" "$DASHBOARD_HTTP" "$WEBUI_HTTP" "$_DASHBOARD_PORT" "$_WEBUI_PORT" "$EXT_DIAGNOSTICS" "$STT_MODEL_CACHED" "$STT_MODEL_NAME" "$STT_RECOVERY_HINT" "$TTS_HTTP" "$TTS_PORT" "$DGX_SPARK_GPU" "$DGX_SPARK_GPU_NAME" "$DGX_SPARK_COMPUTE_CAP" "$LLAMA_CUDA_ARCHS" "$DGX_SPARK_CUDA_ARCH_STATUS" "$DGX_SPARK_CUDA_ARCH_MESSAGE" "$HERMES_SLASH_WORKER_COUNT" "$HERMES_SLASH_WORKER_MAX_COUNT" "$ROOT_DIR" <<'PY'
+"$PYTHON_CMD" - "$CAP_FILE" "$PREFLIGHT_FILE" "$REPORT_FILE" "$DOCKER_CLI" "$DOCKER_DAEMON" "$COMPOSE_CLI" "$DASHBOARD_HTTP" "$WEBUI_HTTP" "$_DASHBOARD_PORT" "$_WEBUI_PORT" "$EXT_DIAGNOSTICS" "$STT_MODEL_CACHED" "$STT_MODEL_NAME" "$STT_RECOVERY_HINT" "$TTS_HTTP" "$TTS_PORT" "$DGX_SPARK_GPU" "$DGX_SPARK_GPU_NAME" "$DGX_SPARK_COMPUTE_CAP" "$LLAMA_CUDA_ARCHS" "$DGX_SPARK_CUDA_ARCH_STATUS" "$DGX_SPARK_CUDA_ARCH_MESSAGE" "$HERMES_SLASH_WORKER_COUNT" "$HERMES_SLASH_WORKER_MAX_COUNT" "$DREAM_MANAGED_CONTAINER_COUNT" "$DREAM_RUNNING_CONTAINER_COUNT" "$ROOT_DIR" <<'PY'
 import json
 import os
 import pathlib
@@ -340,9 +351,9 @@ import re
 import shlex
 import sys
 from datetime import datetime, timezone
-from urllib import error, request
+from urllib import error, parse, request
 
-cap_file, preflight_file, report_file, docker_cli, docker_daemon, compose_cli, dashboard_http, webui_http, dashboard_port, webui_port, ext_diagnostics_json, stt_cached, stt_model_name, stt_recovery, tts_http, tts_port, dgx_spark_gpu, dgx_spark_gpu_name, dgx_spark_compute_cap, llama_cuda_archs, dgx_spark_arch_status, dgx_spark_arch_message, hermes_slash_worker_count, hermes_slash_worker_max_count, root_dir_arg = sys.argv[1:]
+cap_file, preflight_file, report_file, docker_cli, docker_daemon, compose_cli, dashboard_http, webui_http, dashboard_port, webui_port, ext_diagnostics_json, stt_cached, stt_model_name, stt_recovery, tts_http, tts_port, dgx_spark_gpu, dgx_spark_gpu_name, dgx_spark_compute_cap, llama_cuda_archs, dgx_spark_arch_status, dgx_spark_arch_message, hermes_slash_worker_count, hermes_slash_worker_max_count, dream_managed_container_count, dream_running_container_count, root_dir_arg = sys.argv[1:]
 
 cap = json.load(open(cap_file, "r", encoding="utf-8"))
 pre = json.load(open(preflight_file, "r", encoding="utf-8"))
@@ -563,6 +574,47 @@ def _truthy(value):
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _int_arg(value):
+    try:
+        return int(str(value or "0").strip())
+    except ValueError:
+        return 0
+
+
+def _mtime(path):
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0
+
+
+def _source_mentions_zero_containers(text):
+    lowered = text.lower()
+    return (
+        "docker compose did not create any managed containers" in lowered
+        or "zero managed containers" in lowered
+    )
+
+
+def _zero_container_failure_is_stale(failure_sources, compose_launch_path):
+    if docker_daemon != "true":
+        return False
+    if _int_arg(dream_managed_container_count) <= 0 or _int_arg(dream_running_container_count) <= 0:
+        return False
+    if not compose_launch_path.exists():
+        return False
+
+    zero_source_mtimes = [
+        _mtime(path)
+        for path, text in failure_sources
+        if path and _source_mentions_zero_containers(text)
+    ]
+    if not zero_source_mtimes:
+        return False
+
+    return _mtime(compose_launch_path) > max(zero_source_mtimes)
+
+
 def _env_file_values():
     env_path = root_dir / ".env"
     if not env_path.exists():
@@ -614,6 +666,29 @@ def _looks_like_local_llama_route(value):
         or "127.0.0.1:11434" in lowered
         or "host.docker.internal:11434" in lowered
     )
+
+
+def _url_host(value):
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    candidate = raw if "://" in raw else f"http://{raw}"
+    try:
+        return (parse.urlparse(candidate).hostname or "").strip().lower()
+    except ValueError:
+        return ""
+
+
+def _is_loopback_host(host):
+    return host in {"localhost", "127.0.0.1", "::1"}
+
+
+def _is_host_gateway(host):
+    return host in {"host.docker.internal", "gateway.docker.internal"}
+
+
+def _looks_like_installer_generated_lemonade_key(value):
+    return str(value or "").strip().startswith("sk-dream-lemonade-")
 
 
 def _source(path):
@@ -670,6 +745,18 @@ def _collect_inference_contract():
         or (
             env_get("AMD_INFERENCE_RUNTIME").strip().lower() == "lemonade"
             and env_get("AMD_INFERENCE_MANAGED").strip().lower() == "false"
+        )
+    )
+    lemonade_base_url = env_get("LEMONADE_BASE_URL", "")
+    lemonade_container_base_url = env_get("LEMONADE_CONTAINER_BASE_URL", "")
+    lemonade_base_host = _url_host(lemonade_base_url)
+    lemonade_container_host = _url_host(lemonade_container_base_url)
+    lemonade_auth_configured = any(
+        value and not _looks_like_installer_generated_lemonade_key(value)
+        for value in (
+            env_get("LEMONADE_API_KEY", ""),
+            env_get("LEMONADE_ADMIN_API_KEY", ""),
+            env_get("LITELLM_LEMONADE_API_KEY", ""),
         )
     )
 
@@ -773,6 +860,24 @@ def _collect_inference_contract():
                     f"External Lemonade is configured, but LLM_API_URL points at local llama-server ({llm_api_url}).",
                 )
             )
+        host_routed_lemonade = _is_host_gateway(lemonade_container_host)
+        network_lemonade = lemonade_base_host and not _is_loopback_host(lemonade_base_host)
+        if (host_routed_lemonade or network_lemonade) and not lemonade_auth_configured:
+            detail = (
+                "External Lemonade is routed through "
+                f"{lemonade_container_base_url or lemonade_base_url or 'an unknown host route'} "
+                "without a user-provided Lemonade API key. If the Lemonade daemon is bound "
+                "beyond loopback so Docker can reach it, that same daemon may also be reachable "
+                "from the LAN."
+            )
+            issues.append(
+                _inference_issue(
+                    "DS-RUNTIME-EXTERNAL-LEMONADE-UNAUTHENTICATED-HOST-ROUTE",
+                    "warn",
+                    ".env",
+                    detail,
+                )
+            )
 
     if dream_mode == "local" and not lemonade_external:
         if compose_flags_exists and cloud_overlay:
@@ -804,6 +909,7 @@ def _collect_inference_contract():
         "DS-RUNTIME-EXTERNAL-LEMONADE-CLOUD-OVERLAY-MISSING": "External Lemonade is missing the cloud compose overlay",
         "DS-RUNTIME-EXTERNAL-LEMONADE-OVERLAY-MISSING": "External Lemonade is missing its compose overlay",
         "DS-RUNTIME-EXTERNAL-LEMONADE-LOCAL-ROUTE": "External Lemonade still routes clients to local llama-server",
+        "DS-RUNTIME-EXTERNAL-LEMONADE-UNAUTHENTICATED-HOST-ROUTE": "External Lemonade host route has no user-provided API key",
         "DS-RUNTIME-LOCAL-CLOUD-OVERLAY": "Local mode still has the cloud compose overlay",
         "DS-RUNTIME-LOCAL-LITELLM-ROUTE": "Local mode routes through LiteLLM unexpectedly",
     }
@@ -831,6 +937,11 @@ def _collect_inference_contract():
         ],
         "DS-RUNTIME-EXTERNAL-LEMONADE-LOCAL-ROUTE": [
             "Route external Lemonade clients through LiteLLM, usually http://litellm:4000.",
+        ],
+        "DS-RUNTIME-EXTERNAL-LEMONADE-UNAUTHENTICATED-HOST-ROUTE": [
+            "Configure Lemonade with LEMONADE_API_KEY or LEMONADE_ADMIN_API_KEY, then reinstall with --lemonade-api-key.",
+            "Prefer binding Lemonade to a host-only or Docker-reachable interface instead of exposing it broadly on 0.0.0.0.",
+            "Keep firewall rules scoped to the Docker network subnet when host-routed Lemonade is required.",
         ],
         "DS-RUNTIME-LOCAL-CLOUD-OVERLAY": [
             "Regenerate compose flags for local mode so local inference starts normally.",
@@ -870,6 +981,8 @@ def _collect_inference_contract():
             "cloud_overlay": cloud_overlay,
             "lemonade_external_overlay": lemonade_external_overlay,
             "local_inference_overlay": local_inference_overlay,
+            "lemonade_auth_configured": lemonade_auth_configured,
+            "lemonade_host_routed": _is_host_gateway(lemonade_container_host),
         },
         "issues": issues,
         "issue_counts": {
@@ -950,6 +1063,10 @@ def _collect_install_artifacts():
             if latest_report
             else {"path": None, "exists": False}
         ),
+        "current_dream_containers": {
+            "managed": _int_arg(dream_managed_container_count),
+            "running": _int_arg(dream_running_container_count),
+        },
     }
 
 
@@ -1048,7 +1165,9 @@ def _collect_install_diagnoses(artifacts):
             )
 
         lowered = combined_failure_text.lower()
-        if "docker compose did not create any managed containers" in lowered or "zero managed containers" in lowered:
+        if _source_mentions_zero_containers(
+            combined_failure_text
+        ) and not _zero_container_failure_is_stale(failure_sources, compose_launch_path):
             diagnoses.append(
                 _diagnosis(
                     "DS-COMPOSE-ZERO-CONTAINERS",

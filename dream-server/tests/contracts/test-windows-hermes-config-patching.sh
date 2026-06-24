@@ -95,7 +95,23 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 7. The root Windows install.ps1 entrypoint must propagate failures from the
+# 7. Windows local inference needs a longer Hermes provider timeout than the
+#    shared template default. The helper must expose a timeout parameter and
+#    both installer paths must pass the Windows-local value.
+# ---------------------------------------------------------------------------
+if grep -q '\[int\]\$RequestTimeoutSeconds = 180' "$PHASE" \
+   && grep -q 'request_timeout_seconds: \$RequestTimeoutSeconds' "$PHASE" \
+   && grep -q '\$_hermesRequestTimeout = \$' "$PHASE" \
+   && grep -q '\$hermesRequestTimeout = \$' "$MONO" \
+   && grep -q -- '-RequestTimeoutSeconds \$_hermesRequestTimeout' "$PHASE" \
+   && grep -q -- '-RequestTimeoutSeconds \$hermesRequestTimeout' "$MONO"; then
+    pass "Windows Hermes config patching applies the local provider timeout"
+else
+    fail "Windows Hermes config patching must pass the local provider timeout into template and live config"
+fi
+
+# ---------------------------------------------------------------------------
+# 8. The root Windows install.ps1 entrypoint must propagate failures from the
 #    delegated Windows installer. The fleet harness and public docs call the
 #    root script, so fail-loud checks are useless if the wrapper always exits 0.
 # ---------------------------------------------------------------------------

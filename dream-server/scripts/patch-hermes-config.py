@@ -65,6 +65,16 @@ def _has_key(lines: list[str], block: tuple[int, int], key: str, indent: int) ->
     return any(pattern.match(lines[idx]) for idx in range(block[0] + 1, block[1]))
 
 
+def _key_value(lines: list[str], block: tuple[int, int], key: str, indent: int) -> str | None:
+    prefix = " " * indent
+    pattern = re.compile(rf"^{prefix}{re.escape(key)}:\s*(.*?)\s*(?:#.*)?$")
+    for idx in range(block[0] + 1, block[1]):
+        match = pattern.match(lines[idx])
+        if match:
+            return match.group(1).strip()
+    return None
+
+
 def _ensure_model(lines: list[str], model: str | None, base_url: str | None, context_length: int | None, api_key: str | None = None) -> None:
     block = _top_level_block(lines, "model")
     if block is None:
@@ -98,6 +108,9 @@ def _ensure_provider_timeout(lines: list[str], provider: str = "custom", timeout
     35B-class models. Existing configs from older Dream installs are missing
     providers.custom.request_timeout_seconds, so add it on migration. If the
     operator already tuned the provider timeout, leave their value untouched.
+    Passing a non-default timeout updates only Dream's shipped 180s default,
+    which lets platform installers tune slow local backends without replacing
+    an operator's custom value.
     """
 
     block = _top_level_block(lines, "providers")
@@ -123,7 +136,10 @@ def _ensure_provider_timeout(lines: list[str], provider: str = "custom", timeout
         ]
         return
 
-    if not _has_key(lines, provider_block, "request_timeout_seconds", 4):
+    existing = _key_value(lines, provider_block, "request_timeout_seconds", 4)
+    if existing is None:
+        _set_key(lines, provider_block, "request_timeout_seconds", str(timeout_seconds), 4)
+    elif timeout_seconds != 180 and existing == "180":
         _set_key(lines, provider_block, "request_timeout_seconds", str(timeout_seconds), 4)
 
 
@@ -236,13 +252,20 @@ def _ensure_whatsapp_bridge(lines: list[str]) -> None:
     _set_key(lines, extra, "bridge_port", "3010", 6)
 
 
-def patch_config(path: Path, model: str | None, base_url: str | None, context_length: int | None, api_key: str | None = None) -> bool:
+def patch_config(
+    path: Path,
+    model: str | None,
+    base_url: str | None,
+    context_length: int | None,
+    api_key: str | None = None,
+    request_timeout_seconds: int = 180,
+) -> bool:
     original = path.read_text(encoding="utf-8")
     trailing_newline = original.endswith("\n")
     lines = original.splitlines()
 
     _ensure_model(lines, model, base_url, context_length, api_key)
-    _ensure_provider_timeout(lines)
+    _ensure_provider_timeout(lines, timeout_seconds=request_timeout_seconds)
     _ensure_auxiliary(lines, context_length)
     _ensure_whatsapp_bridge(lines)
     _ensure_compression(lines)
@@ -263,11 +286,19 @@ def main() -> int:
     parser.add_argument("--base-url")
     parser.add_argument("--api-key", help="Bearer token Hermes uses to call the LLM (needed when routing through litellm)")
     parser.add_argument("--context-length", type=int)
+    parser.add_argument("--request-timeout-seconds", type=int, default=180)
     args = parser.parse_args()
 
     if not args.path.exists():
         return 0
-    changed = patch_config(args.path, args.model, args.base_url, args.context_length, args.api_key)
+    changed = patch_config(
+        args.path,
+        args.model,
+        args.base_url,
+        args.context_length,
+        args.api_key,
+        args.request_timeout_seconds,
+    )
     print("changed" if changed else "unchanged")
     return 0
 

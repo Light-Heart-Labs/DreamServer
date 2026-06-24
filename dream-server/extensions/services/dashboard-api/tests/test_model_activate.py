@@ -165,6 +165,20 @@ class TestWriteLemonadeConfig:
         assert "enable_thinking: false" in content
         assert 'model_name: "*"' in content
         assert "drop_params: true" in content
+        assert "request_timeout: 900" in content
+        assert "stream_timeout: 900" in content
+
+    def test_fallback_writer_keeps_long_model_timeouts(self, monkeypatch, tmp_path):
+        litellm_dir = tmp_path / "config" / "litellm"
+        litellm_dir.mkdir(parents=True)
+        monkeypatch.setattr(_mod, "_render_runtime_config", lambda *args, **kwargs: False)
+
+        _write_lemonade_config(tmp_path, "fallback-model.gguf")
+
+        content = (litellm_dir / "lemonade.yaml").read_text()
+        assert "model: openai/extra.fallback-model.gguf" in content
+        assert "request_timeout: 900" in content
+        assert "stream_timeout: 900" in content
 
     def test_reads_lemonade_key_from_env_file_when_process_env_unset(
         self, monkeypatch, tmp_path,
@@ -223,6 +237,33 @@ class TestPatchHermesModelConfig:
         assert '  default: "new-model.gguf"' in text
         assert '  provider: "custom"' in text
         assert '  default: "leave-me"' in text
+
+    def test_updates_context_and_base_url(self, tmp_path):
+        config = tmp_path / "config.yaml"
+        config.write_text(
+            "model:\n"
+            "  default: \"old-model\"\n"
+            "  provider: \"custom\"\n"
+            "  base_url: \"http://host.docker.internal:8080/v1\"\n"
+            "  context_length: 32768\n"
+            "auxiliary:\n"
+            "  compression:\n"
+            "    context_length: 32768\n",
+            encoding="utf-8",
+        )
+
+        assert _patch_hermes_model_config(
+            config,
+            "new-model.gguf",
+            base_url="http://llama-server:8080/v1",
+            context_length=131072,
+        ) is True
+
+        text = config.read_text(encoding="utf-8")
+        assert '  default: "new-model.gguf"' in text
+        assert '  base_url: "http://llama-server:8080/v1"' in text
+        assert "  context_length: 131072" in text
+        assert "    context_length: 131072" in text
 
     def test_missing_file_is_noop(self, tmp_path):
         assert _patch_hermes_model_config(tmp_path / "missing.yaml", "model.gguf") is False
@@ -456,6 +497,166 @@ class TestModelActivateRollback:
         assert "LLM_MODEL=new-model" in env_path.read_text(encoding="utf-8")
         assert "filename = new-model.gguf" in models_ini.read_text(encoding="utf-8")
 
+    def test_activation_accepts_local_gguf_without_catalog_entry(self, tmp_path, monkeypatch):
+        install_dir, env_path, _env_text, models_ini, _ini_text, _yaml, _yaml_text = (
+            _write_model_activation_fixture(tmp_path)
+        )
+        (install_dir / "config" / "model-library.json").write_text(
+            json.dumps({"models": []}),
+            encoding="utf-8",
+        )
+        (install_dir / "data" / "models" / "Research.Model-Q8_0.gguf").write_text(
+            "model",
+            encoding="utf-8",
+        )
+        env_path.write_text(
+            "GPU_BACKEND=nvidia\n"
+            "GGUF_FILE=old-model.gguf\n"
+            "LLM_MODEL=old-model\n"
+            "MAX_CONTEXT=65536\n"
+            "LLAMA_ARG_SPEC_TYPE=draft-mtp\n"
+            "LLAMA_ARG_SPEC_DRAFT_N_MAX=3\n"
+            "OLLAMA_PORT=8080\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+        monkeypatch.delenv("DREAM_HOST_INSTALL_DIR", raising=False)
+        monkeypatch.setattr(_mod.time, "sleep", lambda _seconds: None)
+        monkeypatch.setattr(_mod, "_compose_restart_llama_server", lambda _env: None)
+
+        def fake_run(cmd, **_kwargs):
+            stdout = '{"status":"ok"}' if cmd and cmd[0] == "curl" else ""
+            return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+        handler = _ResponseHandler()
+
+        _mod.AgentHandler._do_model_activate(handler, "Research.Model-Q8_0")
+
+        assert handler.response_code == 200
+        assert handler.parse_response() == {"status": "activated", "model_id": "Research.Model-Q8_0"}
+        env_text = env_path.read_text(encoding="utf-8")
+        assert "GGUF_FILE=Research.Model-Q8_0.gguf" in env_text
+        assert "LLM_MODEL=Research.Model-Q8_0" in env_text
+        assert "CTX_SIZE=65536" in env_text
+        assert "LLAMA_ARG_SPEC_TYPE=" not in env_text
+        assert "LLAMA_ARG_SPEC_DRAFT_N_MAX=" not in env_text
+        assert "filename = Research.Model-Q8_0.gguf" in models_ini.read_text(encoding="utf-8")
+
+    def test_activation_resolves_local_gguf_by_stem_with_mixed_case_extension(
+        self, tmp_path, monkeypatch,
+    ):
+        install_dir, env_path, _env_text, models_ini, _ini_text, _yaml, _yaml_text = (
+            _write_model_activation_fixture(tmp_path)
+        )
+        (install_dir / "config" / "model-library.json").write_text(
+            json.dumps({"models": []}),
+            encoding="utf-8",
+        )
+        (install_dir / "data" / "models" / "MixedCaseModel.GGUF").write_text(
+            "model",
+            encoding="utf-8",
+        )
+        env_path.write_text(
+            "GPU_BACKEND=nvidia\n"
+            "GGUF_FILE=old-model.gguf\n"
+            "LLM_MODEL=old-model\n"
+            "MAX_CONTEXT=32768\n"
+            "OLLAMA_PORT=8080\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+        monkeypatch.delenv("DREAM_HOST_INSTALL_DIR", raising=False)
+        monkeypatch.setattr(_mod.time, "sleep", lambda _seconds: None)
+        monkeypatch.setattr(_mod, "_compose_restart_llama_server", lambda _env: None)
+
+        def fake_run(cmd, **_kwargs):
+            stdout = '{"status":"ok"}' if cmd and cmd[0] == "curl" else ""
+            return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+        handler = _ResponseHandler()
+
+        _mod.AgentHandler._do_model_activate(handler, "MixedCaseModel")
+
+        assert handler.response_code == 200
+        env_text = env_path.read_text(encoding="utf-8")
+        assert "GGUF_FILE=MixedCaseModel.GGUF" in env_text
+        assert "LLM_MODEL=MixedCaseModel" in env_text
+        assert "filename = MixedCaseModel.GGUF" in models_ini.read_text(encoding="utf-8")
+
+    def test_activation_sanitizes_local_llm_model_name_for_spaced_filename(
+        self, tmp_path, monkeypatch,
+    ):
+        install_dir, env_path, _env_text, models_ini, _ini_text, _yaml, _yaml_text = (
+            _write_model_activation_fixture(tmp_path)
+        )
+        (install_dir / "config" / "model-library.json").write_text(
+            json.dumps({"models": []}),
+            encoding="utf-8",
+        )
+        (install_dir / "data" / "models" / "My Custom Model.Q8_0.GGUF").write_text(
+            "model",
+            encoding="utf-8",
+        )
+        env_path.write_text(
+            "GPU_BACKEND=nvidia\n"
+            "GGUF_FILE=old-model.gguf\n"
+            "LLM_MODEL=old-model\n"
+            "MAX_CONTEXT=32768\n"
+            "OLLAMA_PORT=8080\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+        monkeypatch.delenv("DREAM_HOST_INSTALL_DIR", raising=False)
+        monkeypatch.setattr(_mod.time, "sleep", lambda _seconds: None)
+        monkeypatch.setattr(_mod, "_compose_restart_llama_server", lambda _env: None)
+
+        def fake_run(cmd, **_kwargs):
+            stdout = '{"status":"ok"}' if cmd and cmd[0] == "curl" else ""
+            return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+        handler = _ResponseHandler()
+
+        _mod.AgentHandler._do_model_activate(handler, "My Custom Model.Q8_0")
+
+        assert handler.response_code == 200
+        env_text = env_path.read_text(encoding="utf-8")
+        assert "GGUF_FILE=My Custom Model.Q8_0.GGUF" in env_text
+        assert "LLM_MODEL=My-Custom-Model.Q8_0" in env_text
+        assert "[My-Custom-Model.Q8_0]" in models_ini.read_text(encoding="utf-8")
+        assert "filename = My Custom Model.Q8_0.GGUF" in models_ini.read_text(encoding="utf-8")
+
+    def test_activation_rejects_empty_local_gguf_before_restart(self, tmp_path, monkeypatch):
+        install_dir, _env_path, _env_text, _models_ini, _ini_text, _yaml, _yaml_text = (
+            _write_model_activation_fixture(tmp_path)
+        )
+        (install_dir / "config" / "model-library.json").write_text(
+            json.dumps({"models": []}),
+            encoding="utf-8",
+        )
+        (install_dir / "data" / "models" / "EmptyLocal.gguf").write_text(
+            "",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+
+        def fail_restart(_env):
+            raise AssertionError("empty GGUF should be rejected before restart")
+
+        monkeypatch.setattr(_mod, "_compose_restart_llama_server", fail_restart)
+        handler = _ResponseHandler()
+
+        _mod.AgentHandler._do_model_activate(handler, "EmptyLocal")
+
+        assert handler.response_code == 400
+        assert "not downloaded or empty" in handler.parse_response()["error"]
+
     def test_amd_activation_rewrites_lemonade_yaml_with_env_file_key(
         self, tmp_path, monkeypatch,
     ):
@@ -586,6 +787,58 @@ class TestModelActivateRollback:
         assert '  default: "new-model.gguf"' in hermes_template.read_text(encoding="utf-8")
         assert ["docker", "restart", "dream-hermes"] in calls
 
+    def test_activation_preserves_hermes_context_from_env(self, tmp_path, monkeypatch):
+        install_dir, env_path, _env_text, _models_ini, _ini_text, _yaml, _yaml_text = (
+            _write_model_activation_fixture(tmp_path)
+        )
+        env_path.write_text(
+            "GPU_BACKEND=nvidia\n"
+            "GGUF_FILE=old-model.gguf\n"
+            "LLM_MODEL=old-model\n"
+            "CTX_SIZE=131072\n"
+            "MAX_CONTEXT=131072\n"
+            "OLLAMA_PORT=8080\n",
+            encoding="utf-8",
+        )
+        hermes_live = install_dir / "data" / "hermes" / "config.yaml"
+        hermes_template = install_dir / "extensions" / "services" / "hermes" / "cli-config.yaml.template"
+        hermes_live.parent.mkdir(parents=True)
+        hermes_template.parent.mkdir(parents=True)
+        hermes_text = (
+            "model:\n"
+            "  default: \"old-model\"\n"
+            "  provider: \"custom\"\n"
+            "  base_url: \"http://host.docker.internal:8080/v1\"\n"
+            "  context_length: 32768\n"
+            "auxiliary:\n"
+            "  compression:\n"
+            "    context_length: 32768\n"
+        )
+        hermes_live.write_text(hermes_text, encoding="utf-8")
+        hermes_template.write_text(hermes_text, encoding="utf-8")
+
+        monkeypatch.setattr(_mod, "INSTALL_DIR", install_dir)
+        monkeypatch.delenv("DREAM_HOST_INSTALL_DIR", raising=False)
+        monkeypatch.setattr(_mod.time, "sleep", lambda _seconds: None)
+        monkeypatch.setattr(_mod, "_compose_restart_llama_server", lambda _env: None)
+
+        def fake_run(cmd, **_kwargs):
+            stdout = '{"status": "ok"}' if cmd and cmd[0] == "curl" else ""
+            return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+        monkeypatch.setattr(_mod.subprocess, "run", fake_run)
+        handler = _ResponseHandler()
+
+        _mod.AgentHandler._do_model_activate(handler, "target-model")
+
+        assert handler.response_code == 200
+        env_text = env_path.read_text(encoding="utf-8")
+        assert "MAX_CONTEXT=131072" in env_text
+        assert "CTX_SIZE=131072" in env_text
+        assert "  context_length: 131072" in hermes_live.read_text(encoding="utf-8")
+        assert "    context_length: 131072" in hermes_live.read_text(encoding="utf-8")
+        assert '  base_url: "http://host.docker.internal:8080/v1"' in hermes_live.read_text(encoding="utf-8")
+
     def test_activation_skips_hermes_restart_when_live_config_unreadable(self, tmp_path, monkeypatch):
         install_dir, _env_path, _env_text, _models_ini, _ini_text, _yaml, _yaml_text = (
             _write_model_activation_fixture(tmp_path)
@@ -655,6 +908,8 @@ class TestModelActivateRollback:
                         "LLAMA_ARG_N_CPU_MOE": "30",
                         "LLAMA_ARG_NO_CACHE_PROMPT": "1",
                         "LLAMA_ARG_CHECKPOINT_EVERY_N_TOKENS": "-1",
+                        "LLAMA_ARG_SPEC_TYPE": "draft-mtp",
+                        "LLAMA_ARG_SPEC_DRAFT_N_MAX": "3",
                     },
                 }],
             }]
@@ -684,6 +939,8 @@ class TestModelActivateRollback:
         assert "LLAMA_ARG_CACHE_TYPE_V=turbo3" in env_text
         assert "LLAMA_ARG_N_CPU_MOE=30" in env_text
         assert "LLAMA_ARG_CHECKPOINT_EVERY_N_TOKENS=-1" in env_text
+        assert "LLAMA_ARG_SPEC_TYPE=draft-mtp" in env_text
+        assert "LLAMA_ARG_SPEC_DRAFT_N_MAX=3" in env_text
 
     def test_unexpected_failure_rolls_back_all_config_backups(self, tmp_path, monkeypatch):
         install_dir, env_path, env_text, models_ini, ini_text, lemonade_yaml, lemonade_text = (

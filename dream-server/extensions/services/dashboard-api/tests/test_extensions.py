@@ -437,6 +437,35 @@ class TestInstallExtension:
         assert data["action"] == "installed"
         assert (user_dir / "my-ext" / "compose.yaml").exists()
 
+    def test_install_stages_tmp_under_user_extensions_dir(
+        self, test_client, monkeypatch, tmp_path,
+    ):
+        """Library installs must not require write access to the /data mount root."""
+        import tempfile
+
+        lib_dir = _setup_library_ext(tmp_path, "my-ext")
+        user_dir = tmp_path / "user"
+        _patch_mutation_config(monkeypatch, tmp_path, lib_dir=lib_dir,
+                               user_dir=user_dir)
+
+        captured = {}
+        real_mkdtemp = tempfile.mkdtemp
+
+        def fake_mkdtemp(*args, **kwargs):
+            captured["dir"] = Path(kwargs["dir"])
+            return real_mkdtemp(*args, **kwargs)
+
+        monkeypatch.setattr("routers.extensions.tempfile.mkdtemp", fake_mkdtemp)
+
+        resp = test_client.post(
+            "/api/extensions/my-ext/install",
+            headers=test_client.auth_headers,
+        )
+
+        assert resp.status_code == 200
+        assert captured["dir"] == user_dir / ".tmp"
+        assert (user_dir / "my-ext" / "compose.yaml").exists()
+
     def test_install_already_installed_409(self, test_client, monkeypatch, tmp_path):
         """409 when extension is already installed."""
         lib_dir = _setup_library_ext(tmp_path, "my-ext")
@@ -3448,3 +3477,22 @@ class TestCallAgentErrorNarrowing:
         assert any(
             "stale-progress cleanup failed" in r.message for r in caplog.records
         )
+
+
+def test_extensions_lock_falls_back_when_data_root_is_unwritable(
+    tmp_path, monkeypatch,
+):
+    """Extension installs should still lock when /data itself is not writable."""
+    from routers import extensions as ext_module
+
+    blocked_parent = tmp_path / "blocked-parent"
+    blocked_parent.write_text("not a directory", encoding="utf-8")
+    fallback_lock = tmp_path / "config" / ".extensions-lock"
+    monkeypatch.setattr(
+        ext_module,
+        "_extensions_lock_candidates",
+        lambda: [blocked_parent / ".extensions-lock", fallback_lock],
+    )
+
+    with ext_module._extensions_lock():
+        assert fallback_lock.exists()

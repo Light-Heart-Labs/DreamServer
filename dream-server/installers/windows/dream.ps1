@@ -641,6 +641,71 @@ function Stop-DreamNativeProcessId {
     }
 }
 
+function Stop-DreamOpenCodeRuntime {
+    $opencodeExe = $script:OPENCODE_EXE
+    $opencodePort = [string]$script:OPENCODE_PORT
+    $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+    $byPid = @{}
+    foreach ($proc in $processes) {
+        if ($null -ne $proc.ProcessId) {
+            $byPid[[int]$proc.ProcessId] = $proc
+        }
+    }
+
+    $pidsToStop = @{}
+    foreach ($proc in $processes) {
+        $exe = [string]$proc.ExecutablePath
+        $cmd = [string]$proc.CommandLine
+        $isDreamOpenCode = $false
+
+        if ($exe -and $opencodeExe -and $exe.Equals($opencodeExe, [StringComparison]::OrdinalIgnoreCase)) {
+            $isDreamOpenCode = (
+                $cmd -match '(?i)\bweb\b' -and
+                $cmd -match ('(?i)--port\s+' + [regex]::Escape($opencodePort))
+            )
+        }
+
+        if (-not $isDreamOpenCode) { continue }
+
+        $pidsToStop[[int]$proc.ProcessId] = $true
+
+        $parentId = [int]$proc.ParentProcessId
+        if ($parentId -gt 0 -and $byPid.ContainsKey($parentId)) {
+            $parent = $byPid[$parentId]
+            $parentName = [string]$parent.Name
+            $parentCmd = [string]$parent.CommandLine
+            $isHiddenLauncher = (
+                $parentName -match '^(powershell|pwsh|wscript|cscript)(\.exe)?$' -and
+                (
+                    $parentName -match '^(wscript|cscript)(\.exe)?$' -or
+                    $parentCmd -match '(?i)-EncodedCommand' -or
+                    $parentCmd -match '(?i)-WindowStyle\s+Hidden'
+                )
+            )
+            if ($isHiddenLauncher) {
+                $pidsToStop[$parentId] = $true
+            }
+        }
+    }
+
+    foreach ($listener in @(Get-NetTCPConnection -LocalPort $script:OPENCODE_PORT -State Listen -ErrorAction SilentlyContinue)) {
+        $ownerId = [int]$listener.OwningProcess
+        if ($ownerId -le 0 -or -not $byPid.ContainsKey($ownerId)) { continue }
+        $owner = $byPid[$ownerId]
+        $exe = [string]$owner.ExecutablePath
+        if ($exe -and $opencodeExe -and $exe.Equals($opencodeExe, [StringComparison]::OrdinalIgnoreCase)) {
+            $pidsToStop[$ownerId] = $true
+        }
+    }
+
+    if ($pidsToStop.Count -eq 0) { return }
+
+    foreach ($pidValue in @($pidsToStop.Keys)) {
+        Stop-DreamNativeProcessId -ProcessId ([int]$pidValue)
+    }
+    Write-AISuccess "OpenCode stopped ($($pidsToStop.Count) process(es))"
+}
+
 function Stop-DreamLemonadeRuntime {
     try { Stop-ScheduledTask -TaskName $script:LEMONADE_TASK_NAME -ErrorAction SilentlyContinue } catch { }
     try { Unregister-ScheduledTask -TaskName $script:LEMONADE_TASK_NAME -Confirm:$false -ErrorAction SilentlyContinue } catch { }
@@ -998,6 +1063,7 @@ function Invoke-Stop {
                 Stop-NativeInferenceServer
             }
             Invoke-Agent -Action "stop"
+            Stop-DreamOpenCodeRuntime
         } finally {
             Pop-Location
         }

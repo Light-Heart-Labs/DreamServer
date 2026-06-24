@@ -68,6 +68,7 @@ from settings import (
     _ENV_ASSIGNMENT_RE, _ENV_COMMENTED_ASSIGNMENT_RE, _SETTINGS_APPLY_ALLOWED_SERVICES, _parse_env_text, _read_env_map_from_path,
     _slugify,
     _build_env_fields, _validate_env_values, _serialize_form_values,
+    _empty_value_unsets_env_key,
     _compute_env_apply_plan,
     _check_host_agent_available,
 )
@@ -98,6 +99,14 @@ class TTLCache:
 
     def set(self, key: str, value: object, ttl: float):
         self._store[key] = (time.monotonic() + ttl, value)
+
+    def invalidate(self, key: str) -> None:
+        """Remove a single cache entry."""
+        self._store.pop(key, None)
+
+    def clear(self) -> None:
+        """Remove all cache entries."""
+        self._store.clear()
 
 
 _cache = TTLCache()
@@ -802,7 +811,7 @@ def _render_env_from_values(values: dict[str, str]) -> str:
 
 def _clear_settings_caches():
     for key in ("settings_summary", "settings_env", "status"):
-        _cache._store.pop(key, None)
+        _cache.invalidate(key)
 
 
 def _call_agent_core_recreate(service_ids: list[str]) -> dict[str, Any]:
@@ -922,6 +931,9 @@ def _prepare_env_save(payload: dict[str, Any]) -> tuple[str, list[dict[str, Any]
 
     normalized_values = _serialize_form_values(submitted_values, base_fields, current_values)
     merged_values = {**current_values, **normalized_values}
+    for key, field in base_fields.items():
+        if _empty_value_unsets_env_key(key, field) and str(merged_values.get(key, "")).strip() == "":
+            merged_values.pop(key, None)
     merged_fields = _build_env_fields(schema_properties, required_keys, merged_values)
     issues = _validate_env_values(merged_values, merged_fields)
     apply_plan = _compute_env_apply_plan(current_values, merged_values)

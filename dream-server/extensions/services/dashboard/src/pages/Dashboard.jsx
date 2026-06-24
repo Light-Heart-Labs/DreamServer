@@ -1100,13 +1100,7 @@ const OverviewChart = memo(function OverviewChart({
             <stop offset="58%" stopColor={fill} stopOpacity="0.24" />
             <stop offset="100%" stopColor={fill} stopOpacity="0" />
           </linearGradient>
-          <filter id={`overview-glow-${chartId}`} x="-20%" y="-35%" width="140%" height="170%">
-            <feGaussianBlur stdDeviation="4" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
+
         </defs>
 
         {[36, 72, 108, 144, 160].map((y) => (
@@ -1147,7 +1141,7 @@ const OverviewChart = memo(function OverviewChart({
             stroke={`url(#overview-line-${chartId})`}
             strokeWidth="3"
             strokeLinecap="round"
-            filter={`url(#overview-glow-${chartId})`}
+            style={{ filter: `drop-shadow(0 0 4px ${accent})` }}
           />
         ) : (
           <text

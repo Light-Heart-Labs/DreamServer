@@ -182,6 +182,52 @@ else
     fail "summary does not count diagnosis blockers"
 fi
 
+FAKE_BIN="$TMP_DIR/fake-bin"
+mkdir -p "$FAKE_BIN"
+cat > "$FAKE_BIN/docker" <<'DOCKER'
+#!/usr/bin/env bash
+case "${1:-}" in
+    info)
+        exit 0
+        ;;
+    compose)
+        if [[ "${2:-}" == "version" ]]; then
+            echo "Docker Compose version v2.fake"
+            exit 0
+        fi
+        ;;
+    ps)
+        if [[ "$*" == *"--format"* ]]; then
+            printf '%s\n' dream-dashboard dream-webui dream-llama-server
+        fi
+        exit 0
+        ;;
+    inspect)
+        echo running
+        exit 0
+        ;;
+    logs)
+        exit 0
+        ;;
+esac
+exit 0
+DOCKER
+chmod +x "$FAKE_BIN/docker"
+touch -t 202001010000 "$INSTALL_REPORT_PATH" "$COMPOSE_UP_PATH" "$INSTALL_LOG_PATH"
+touch -t 202001010001 "$LAUNCH_PATH"
+
+if (cd "$ROOT_DIR" && PATH="$FAKE_BIN:$PATH" bash scripts/dream-doctor.sh "$REPORT" >/dev/null 2>&1); then
+    pass "dream-doctor runs with recovered stale zero-container artifact"
+else
+    fail "dream-doctor failed with recovered stale zero-container artifact"
+fi
+
+if jq -e '.diagnoses[] | select(.id == "DS-COMPOSE-ZERO-CONTAINERS")' "$REPORT" >/dev/null; then
+    fail "stale zero-container diagnosis still blocks a recovered install"
+else
+    pass "stale zero-container diagnosis is suppressed after recovered install"
+fi
+
 if jq -e '.runtime.inference_contract.issue_counts.blockers >= 3 and .summary.runtime_contract_blockers >= 3' "$REPORT" >/dev/null; then
     pass "runtime inference contract counts cloud/local mismatch blockers"
 else
@@ -192,6 +238,62 @@ if jq -e '.autofix_hints[] | select(contains("known-good DreamServer version"))'
     pass "diagnosis next steps feed autofix hints"
 else
     fail "diagnosis next steps missing from autofix hints"
+fi
+
+cat > "$ENV_PATH" <<'ENV'
+DREAM_MODE=lemonade
+GPU_BACKEND=amd
+LLM_API_URL=http://litellm:4000
+HERMES_LLM_BASE_URL=http://litellm:4000/v1
+LEMONADE_EXTERNAL=true
+LEMONADE_BASE_URL=http://localhost:13305
+LEMONADE_CONTAINER_BASE_URL=http://host.docker.internal:13305
+LITELLM_LEMONADE_API_KEY=sk-dream-lemonade-fixture
+AMD_INFERENCE_RUNTIME=lemonade
+AMD_INFERENCE_MANAGED=false
+AMD_INFERENCE_RUNTIME_MODE=external-lemonade
+ENV
+cat > "$FLAGS_PATH" <<'FLAGS'
+-f docker-compose.base.yml -f docker-compose.cloud.yml -f docker-compose.lemonade-external.yml
+FLAGS
+
+if (cd "$ROOT_DIR" && bash scripts/dream-doctor.sh "$REPORT" >/dev/null 2>&1); then
+    pass "dream-doctor runs with external Lemonade fixture"
+else
+    fail "dream-doctor failed with external Lemonade fixture"
+fi
+
+if jq -e '.diagnoses[] | select(.id == "DS-RUNTIME-EXTERNAL-LEMONADE-UNAUTHENTICATED-HOST-ROUTE")' "$REPORT" >/dev/null; then
+    pass "external Lemonade host route without user API key is diagnosed"
+else
+    fail "external Lemonade host route without user API key was not diagnosed"
+fi
+
+cat > "$ENV_PATH" <<'ENV'
+DREAM_MODE=lemonade
+GPU_BACKEND=amd
+LLM_API_URL=http://litellm:4000
+HERMES_LLM_BASE_URL=http://litellm:4000/v1
+LEMONADE_EXTERNAL=true
+LEMONADE_BASE_URL=http://localhost:13305
+LEMONADE_CONTAINER_BASE_URL=http://host.docker.internal:13305
+LEMONADE_API_KEY=sk-user-lemonade-fixture
+LITELLM_LEMONADE_API_KEY=sk-user-lemonade-fixture
+AMD_INFERENCE_RUNTIME=lemonade
+AMD_INFERENCE_MANAGED=false
+AMD_INFERENCE_RUNTIME_MODE=external-lemonade
+ENV
+
+if (cd "$ROOT_DIR" && bash scripts/dream-doctor.sh "$REPORT" >/dev/null 2>&1); then
+    pass "dream-doctor runs with authenticated external Lemonade fixture"
+else
+    fail "dream-doctor failed with authenticated external Lemonade fixture"
+fi
+
+if jq -e '.diagnoses[] | select(.id == "DS-RUNTIME-EXTERNAL-LEMONADE-UNAUTHENTICATED-HOST-ROUTE")' "$REPORT" >/dev/null; then
+    fail "authenticated external Lemonade fixture still emitted unauthenticated route diagnosis"
+else
+    pass "user API key suppresses unauthenticated external Lemonade diagnosis"
 fi
 
 echo ""

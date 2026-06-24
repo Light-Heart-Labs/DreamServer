@@ -488,8 +488,183 @@ restart_windows_lemonade_with_full_model() {
     return 1
 }
 
+restart_windows_native_llama_server_with_full_model() {
+    is_windows_bash || return 1
+
+    local runtime managed runtime_mode location ps_cmd
+    runtime="$(read_env_value AMD_INFERENCE_RUNTIME | tr '[:upper:]' '[:lower:]')"
+    managed="$(read_env_value AMD_INFERENCE_MANAGED | tr '[:upper:]' '[:lower:]')"
+    runtime_mode="$(read_env_value AMD_INFERENCE_RUNTIME_MODE | tr '[:upper:]' '[:lower:]')"
+    location="$(read_env_value AMD_INFERENCE_LOCATION | tr '[:upper:]' '[:lower:]')"
+    [[ "$runtime_mode" == "windows-llama-server-fallback" || ( "$runtime" == "llama-server" && "$location" == "host" ) ]] || return 1
+    [[ "$managed" == "false" || "$location" == "external" ]] && return 1
+
+    ps_cmd="$(windows_ps_command)"
+    [[ -n "$ps_cmd" ]] || {
+        log "WARNING: no PowerShell executable found; cannot restart native Windows llama-server."
+        return 1
+    }
+
+    local pid_file llama_exe model_path rollback_model_path log_path bind_addr ctx_size llama_port reasoning reasoning_fmt
+    pid_file="$INSTALL_DIR/data/llama-server.pid"
+    llama_exe="$INSTALL_DIR/llama-server/llama-server.exe"
+    model_path="$MODELS_DIR/$FULL_GGUF_FILE"
+    rollback_model_path="$MODELS_DIR/$BOOTSTRAP_GGUF_FILE"
+    log_path="$INSTALL_DIR/data/llama-server.log"
+    bind_addr="$(read_env_value BIND_ADDRESS)"
+    [[ -n "$bind_addr" ]] || bind_addr="127.0.0.1"
+    ctx_size="$(read_env_value CTX_SIZE)"
+    [[ -n "$ctx_size" ]] || ctx_size="$(read_env_value MAX_CONTEXT)"
+    [[ -n "$ctx_size" ]] || ctx_size="$FULL_MAX_CONTEXT"
+    llama_port="$(read_env_value AMD_INFERENCE_PORT)"
+    [[ -n "$llama_port" ]] || llama_port="8080"
+    reasoning="$(read_env_value LLAMA_REASONING)"
+    [[ -n "$reasoning" ]] || reasoning="off"
+    case "$reasoning" in
+        off) reasoning_fmt="none" ;;
+        on)  reasoning_fmt="deepseek" ;;
+        *)   reasoning_fmt="$reasoning" ;;
+    esac
+
+    [[ -f "$llama_exe" ]] || {
+        log "WARNING: llama-server.exe not found at $llama_exe. Cannot hot-swap native Windows llama-server."
+        return 1
+    }
+    [[ -f "$model_path" ]] || {
+        log "WARNING: full model not found at $model_path. Cannot hot-swap native Windows llama-server."
+        return 1
+    }
+
+    log "Restarting native Windows llama-server with full model..."
+    DREAM_WIN_PID_FILE="$(windows_path "$pid_file")" \
+    DREAM_WIN_LLAMA_EXE="$(windows_path "$llama_exe")" \
+    DREAM_WIN_MODEL_PATH="$(windows_path "$model_path")" \
+    DREAM_WIN_ROLLBACK_MODEL_PATH="$(windows_path "$rollback_model_path")" \
+    DREAM_WIN_LOG_PATH="$(windows_path "$log_path")" \
+    DREAM_WIN_BIND_ADDR="$bind_addr" \
+    DREAM_WIN_LLAMA_PORT="$llama_port" \
+    DREAM_WIN_CTX_SIZE="$ctx_size" \
+    DREAM_WIN_REASONING_FORMAT="$reasoning_fmt" \
+    DREAM_WIN_FLASH_ATTN="$(read_env_value LLAMA_ARG_FLASH_ATTN)" \
+    DREAM_WIN_CACHE_TYPE_K="$(read_env_value LLAMA_ARG_CACHE_TYPE_K)" \
+    DREAM_WIN_CACHE_TYPE_V="$(read_env_value LLAMA_ARG_CACHE_TYPE_V)" \
+    DREAM_WIN_N_CPU_MOE="$(read_env_value LLAMA_ARG_N_CPU_MOE)" \
+    DREAM_WIN_PARALLEL="$(read_env_value LLAMA_PARALLEL)" \
+    DREAM_WIN_CHECKPOINT_EVERY_N_TOKENS="$(read_env_value LLAMA_ARG_CHECKPOINT_EVERY_N_TOKENS)" \
+    DREAM_WIN_NO_CACHE_PROMPT="$(read_env_value LLAMA_ARG_NO_CACHE_PROMPT)" \
+    DREAM_WIN_SPEC_TYPE="$(read_env_value LLAMA_ARG_SPEC_TYPE)" \
+    DREAM_WIN_SPEC_DRAFT_N_MAX="$(read_env_value LLAMA_ARG_SPEC_DRAFT_N_MAX)" \
+    "$ps_cmd" -NoProfile -ExecutionPolicy Bypass -Command '
+        $ErrorActionPreference = "Stop"
+
+        function Stop-DreamProcessId {
+            param([int]$ProcessId)
+            Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+            for ($i = 0; $i -lt 30; $i++) {
+                $old = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+                if (-not $old) { return }
+                Start-Sleep -Milliseconds 500
+            }
+        }
+
+        function Stop-DreamLlamaListeners {
+            param([int]$Port)
+            $deadline = (Get-Date).AddSeconds(20)
+            do {
+                $listeners = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+                foreach ($listener in $listeners) {
+                    if ($listener.OwningProcess -gt 0) {
+                        $proc = Get-CimInstance Win32_Process -Filter ("ProcessId = {0}" -f [int]$listener.OwningProcess) -ErrorAction SilentlyContinue
+                        if ($proc -and (
+                            ($proc.Name -like "llama-server*") -or
+                            ($proc.ExecutablePath -and $proc.ExecutablePath.Equals($env:DREAM_WIN_LLAMA_EXE, [StringComparison]::OrdinalIgnoreCase)) -or
+                            ($proc.CommandLine -and $proc.CommandLine.IndexOf("llama-server", [StringComparison]::OrdinalIgnoreCase) -ge 0)
+                        )) {
+                            Stop-DreamProcessId -ProcessId ([int]$listener.OwningProcess)
+                        }
+                    }
+                }
+                if ($listeners.Count -eq 0) { return }
+                Start-Sleep -Milliseconds 500
+            } while ((Get-Date) -lt $deadline)
+        }
+
+        function Start-DreamLlama {
+            param([string]$ModelPath)
+
+            $args = @(
+                "--model", $ModelPath,
+                "--host", $env:DREAM_WIN_BIND_ADDR,
+                "--port", $env:DREAM_WIN_LLAMA_PORT,
+                "--n-gpu-layers", "999",
+                "--ctx-size", $env:DREAM_WIN_CTX_SIZE,
+                "--reasoning-format", $env:DREAM_WIN_REASONING_FORMAT,
+                "--metrics"
+            )
+            if ($env:DREAM_WIN_FLASH_ATTN) { $args += @("--flash-attn", $env:DREAM_WIN_FLASH_ATTN) }
+            if ($env:DREAM_WIN_CACHE_TYPE_K) { $args += @("--cache-type-k", $env:DREAM_WIN_CACHE_TYPE_K) }
+            if ($env:DREAM_WIN_CACHE_TYPE_V) { $args += @("--cache-type-v", $env:DREAM_WIN_CACHE_TYPE_V) }
+            if ($env:DREAM_WIN_N_CPU_MOE) { $args += @("--n-cpu-moe", $env:DREAM_WIN_N_CPU_MOE) }
+            if ($env:DREAM_WIN_PARALLEL) { $args += @("--parallel", $env:DREAM_WIN_PARALLEL) }
+            if ($env:DREAM_WIN_CHECKPOINT_EVERY_N_TOKENS) { $args += @("--checkpoint-every-n-tokens", $env:DREAM_WIN_CHECKPOINT_EVERY_N_TOKENS) }
+            if ($env:DREAM_WIN_NO_CACHE_PROMPT -and $env:DREAM_WIN_NO_CACHE_PROMPT -notin @("0", "false", "off", "no")) { $args += @("--no-cache-prompt") }
+            if ($env:DREAM_WIN_SPEC_TYPE) { $args += @("--spec-type", $env:DREAM_WIN_SPEC_TYPE) }
+            if ($env:DREAM_WIN_SPEC_DRAFT_N_MAX) { $args += @("--spec-draft-n-max", $env:DREAM_WIN_SPEC_DRAFT_N_MAX) }
+
+            New-Item -ItemType Directory -Path (Split-Path -Parent $env:DREAM_WIN_PID_FILE) -Force | Out-Null
+            New-Item -ItemType Directory -Path (Split-Path -Parent $env:DREAM_WIN_LOG_PATH) -Force | Out-Null
+            $proc = Start-Process -FilePath $env:DREAM_WIN_LLAMA_EXE `
+                -ArgumentList $args -WindowStyle Hidden -RedirectStandardOutput $env:DREAM_WIN_LOG_PATH -RedirectStandardError ($env:DREAM_WIN_LOG_PATH + ".err") -PassThru
+            Set-Content -LiteralPath $env:DREAM_WIN_PID_FILE -Value $proc.Id
+            return $proc
+        }
+
+        function Wait-DreamLlamaHealth {
+            param([int]$ProcessId, [int]$Port)
+            for ($i = 0; $i -lt 60; $i++) {
+                $proc = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+                if (-not $proc) { return $false }
+                try {
+                    $resp = Invoke-WebRequest -Uri ("http://127.0.0.1:{0}/health" -f $Port) -TimeoutSec 5 -UseBasicParsing
+                    if ([int]$resp.StatusCode -eq 200) { return $true }
+                } catch { }
+                Start-Sleep -Seconds 5
+            }
+            return $false
+        }
+
+        $pidPath = $env:DREAM_WIN_PID_FILE
+        if (Test-Path $pidPath) {
+            $rawPid = (Get-Content -LiteralPath $pidPath -Raw).Trim()
+            if ($rawPid -match "^\d+$") {
+                Stop-DreamProcessId -ProcessId ([int]$rawPid)
+            }
+            Remove-Item -LiteralPath $pidPath -Force -ErrorAction SilentlyContinue
+        }
+
+        $port = [int]$env:DREAM_WIN_LLAMA_PORT
+        Stop-DreamLlamaListeners -Port $port
+
+        $fullProc = Start-DreamLlama -ModelPath $env:DREAM_WIN_MODEL_PATH
+        if (Wait-DreamLlamaHealth -ProcessId ([int]$fullProc.Id) -Port $port) { exit 0 }
+
+        Stop-DreamProcessId -ProcessId ([int]$fullProc.Id)
+        if ($env:DREAM_WIN_ROLLBACK_MODEL_PATH -and (Test-Path $env:DREAM_WIN_ROLLBACK_MODEL_PATH)) {
+            $rollbackProc = Start-DreamLlama -ModelPath $env:DREAM_WIN_ROLLBACK_MODEL_PATH
+            [void](Wait-DreamLlamaHealth -ProcessId ([int]$rollbackProc.Id) -Port $port)
+        }
+        exit 1
+    ' >/dev/null 2>&1 || {
+        log "WARNING: native Windows llama-server restart failed."
+        return 1
+    }
+
+    log "SUCCESS: native Windows llama-server running with ${FULL_GGUF_FILE}"
+    return 0
+}
+
 patch_hermes_yaml_with_sed() {
-    local path="$1" model="$2" context_length="$3" base_url="${4:-}"
+    local path="$1" model="$2" context_length="$3" base_url="${4:-}" request_timeout_seconds="${5:-180}"
     [[ -f "$path" ]] || return 1
 
     local model_sed base_url_sed
@@ -501,6 +676,9 @@ patch_hermes_yaml_with_sed() {
         -e "s|^  context_length: .*|  context_length: ${context_length}|"
         -e "s|^    context_length: .*|    context_length: ${context_length}|"
     )
+    if [[ "$request_timeout_seconds" =~ ^[0-9]+$ && "$request_timeout_seconds" != "180" ]]; then
+        sed_args+=(-e "s|^    request_timeout_seconds: 180[[:space:]]*$|    request_timeout_seconds: ${request_timeout_seconds}|")
+    fi
     if [[ -n "$base_url" ]]; then
         sed_args+=(-e "s|^  base_url: \".*\"[[:space:]]*$|  base_url: \"${base_url_sed}\"|")
     fi
@@ -520,35 +698,50 @@ patch_hermes_yaml_with_sed() {
 }
 
 patch_hermes_model_after_swap() {
-    local gpu_backend llm_backend hermes_base_url old_model new_model tpl
-    gpu_backend="$(read_env_value GPU_BACKEND | tr '[:upper:]' '[:lower:]')"
+    local runtime llm_backend hermes_base_url old_model new_model tpl live live_host_patch_failed hermes_request_timeout
+    runtime="$(read_env_value AMD_INFERENCE_RUNTIME | tr '[:upper:]' '[:lower:]')"
     llm_backend="$(read_env_value LLM_BACKEND | tr '[:upper:]' '[:lower:]')"
     hermes_base_url="$(read_env_value HERMES_LLM_BASE_URL)"
     old_model="$BOOTSTRAP_GGUF_FILE"
     new_model="$FULL_GGUF_FILE"
-    if [[ "$gpu_backend" == "amd" || "$llm_backend" == "lemonade" ]]; then
+    if [[ "$runtime" == "lemonade" || "$llm_backend" == "lemonade" ]]; then
         old_model="extra.$BOOTSTRAP_GGUF_FILE"
         new_model="extra.$FULL_GGUF_FILE"
     fi
 
     log "Patching Hermes config after full-model swap: ${old_model} -> ${new_model}"
+    hermes_request_timeout=180
+    if is_windows_bash || [[ "$runtime" == "lemonade" || "$llm_backend" == "lemonade" ]]; then
+        hermes_request_timeout=900
+    fi
 
     tpl="$INSTALL_DIR/extensions/services/hermes/cli-config.yaml.template"
     if [[ -f "$tpl" ]]; then
-        if ! patch_hermes_yaml_with_sed "$tpl" "$new_model" "$FULL_MAX_CONTEXT" "$hermes_base_url"; then
+        if ! patch_hermes_yaml_with_sed "$tpl" "$new_model" "$FULL_MAX_CONTEXT" "$hermes_base_url" "$hermes_request_timeout"; then
             log "ERROR: Could not patch ${tpl} after full-model swap."
             return 1
         fi
     fi
 
+    live="$INSTALL_DIR/data/hermes/config.yaml"
+    live_host_patch_failed=false
+    if [[ -f "$live" ]]; then
+        if ! patch_hermes_yaml_with_sed "$live" "$new_model" "$FULL_MAX_CONTEXT" "$hermes_base_url" "$hermes_request_timeout"; then
+            live_host_patch_failed=true
+            log "WARNING: Could not patch ${live} after full-model swap; will try the container copy if Hermes is running."
+        fi
+    fi
+
     if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-hermes --format '{{.Names}}' 2>/dev/null | grep -q dream-hermes; then
-        local live_patch old_model_sed new_model_sed hermes_base_url_sed
-        old_model_sed="$(printf '%s' "$old_model" | sed 's/[\\&|]/\\&/g')"
+        local live_patch new_model_sed hermes_base_url_sed
         new_model_sed="$(printf '%s' "$new_model" | sed 's/[\\&|]/\\&/g')"
         hermes_base_url_sed="$(printf '%s' "$hermes_base_url" | sed 's/[\\&|]/\\&/g')"
-        live_patch="sed -i -e 's|^  default: \"${old_model_sed}\"|  default: \"${new_model_sed}\"|' -e 's|^  context_length: .*|  context_length: ${FULL_MAX_CONTEXT}|' -e 's|^    context_length: .*|    context_length: ${FULL_MAX_CONTEXT}|'"
+        live_patch="sed -i -e 's|^  default: \".*\"[[:space:]]*$|  default: \"${new_model_sed}\"|' -e 's|^  context_length: .*|  context_length: ${FULL_MAX_CONTEXT}|' -e 's|^    context_length: .*|    context_length: ${FULL_MAX_CONTEXT}|'"
         if [[ -n "$hermes_base_url" ]]; then
             live_patch="${live_patch} -e 's|^  base_url: \".*\"|  base_url: \"${hermes_base_url_sed}\"|'"
+        fi
+        if [[ "$hermes_request_timeout" != "180" ]]; then
+            live_patch="${live_patch} -e 's|^    request_timeout_seconds: 180[[:space:]]*$|    request_timeout_seconds: ${hermes_request_timeout}|'"
         fi
         live_patch="${live_patch} /opt/data/config.yaml"
         $DOCKER_CMD exec dream-hermes sh -c \
@@ -560,9 +753,69 @@ patch_hermes_model_after_swap() {
             log "ERROR: Could not restart Hermes after full-model swap."
             return 1
         }
+    elif [[ "$live_host_patch_failed" == "true" ]]; then
+        log "ERROR: Could not patch Hermes live config after full-model swap."
+        return 1
     fi
 
     return 0
+}
+
+refresh_windows_native_litellm_local_config_after_swap() {
+    is_windows_bash || return 0
+
+    local runtime runtime_mode location managed
+    runtime="$(read_env_value AMD_INFERENCE_RUNTIME | tr '[:upper:]' '[:lower:]')"
+    runtime_mode="$(read_env_value AMD_INFERENCE_RUNTIME_MODE | tr '[:upper:]' '[:lower:]')"
+    location="$(read_env_value AMD_INFERENCE_LOCATION | tr '[:upper:]' '[:lower:]')"
+    managed="$(read_env_value AMD_INFERENCE_MANAGED | tr '[:upper:]' '[:lower:]')"
+
+    [[ "$managed" != "false" && "$location" == "host" ]] || return 0
+    [[ "$runtime_mode" == "windows-llama-server-fallback" || "$runtime" == "llama-server" ]] || return 0
+
+    local litellm_dir litellm_config native_port native_api_base model_sed
+    litellm_dir="$INSTALL_DIR/config/litellm"
+    litellm_config="$litellm_dir/local.yaml"
+    native_port="$(read_env_value AMD_INFERENCE_PORT)"
+    [[ -n "$native_port" ]] || native_port="8080"
+    native_api_base="http://host.docker.internal:${native_port}/v1"
+    model_sed="${FULL_GGUF_FILE//\"/\\\"}"
+
+    log "Updating LiteLLM local config for native Windows llama-server: ${FULL_GGUF_FILE}"
+    mkdir -p "$litellm_dir" || return 1
+    cat > "$litellm_config" << LITELLM_NATIVE_LOCAL_EOF
+model_list:
+  - model_name: default
+    litellm_params:
+      model: openai/${model_sed}
+      api_base: ${native_api_base}
+      api_key: not-needed
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+
+  - model_name: "*"
+    litellm_params:
+      model: openai/*
+      api_base: ${native_api_base}
+      api_key: not-needed
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false
+  request_timeout: 900
+  stream_timeout: 900
+LITELLM_NATIVE_LOCAL_EOF
+
+    if [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-litellm --format '{{.Names}}' 2>/dev/null | grep -q dream-litellm; then
+        $DOCKER_CMD restart dream-litellm 2>&1 || log "WARNING: LiteLLM restart failed after native Windows config refresh (non-fatal)"
+    fi
 }
 
 refresh_lemonade_after_bootstrap_cleanup() {
@@ -846,16 +1099,23 @@ if [[ -n "$FULL_GGUF_SHA256" ]]; then
 fi
 
 _windows_lemonade_swap_applies=false
+_windows_native_llama_swap_applies=false
 if is_windows_bash; then
     _runtime_for_swap="$(read_env_value AMD_INFERENCE_RUNTIME | tr '[:upper:]' '[:lower:]')"
     _backend_for_swap="$(read_env_value LLM_BACKEND | tr '[:upper:]' '[:lower:]')"
+    _managed_for_swap="$(read_env_value AMD_INFERENCE_MANAGED | tr '[:upper:]' '[:lower:]')"
+    _runtime_mode_for_swap="$(read_env_value AMD_INFERENCE_RUNTIME_MODE | tr '[:upper:]' '[:lower:]')"
+    _location_for_swap="$(read_env_value AMD_INFERENCE_LOCATION | tr '[:upper:]' '[:lower:]')"
     if [[ "$_runtime_for_swap" == "lemonade" || "$_backend_for_swap" == "lemonade" ]]; then
         _windows_lemonade_swap_applies=true
+    elif [[ "$_managed_for_swap" != "false" && "$_location_for_swap" != "external" ]] \
+        && [[ "$_runtime_mode_for_swap" == "windows-llama-server-fallback" || ( "$_runtime_for_swap" == "llama-server" && "$_location_for_swap" == "host" ) ]]; then
+        _windows_native_llama_swap_applies=true
     fi
 fi
 
-if [[ "$_windows_lemonade_swap_applies" == "true" ]]; then
-    log "Snapshotting active Windows Lemonade model config before full-model swap..."
+if [[ "$_windows_lemonade_swap_applies" == "true" || "$_windows_native_llama_swap_applies" == "true" ]]; then
+    log "Snapshotting active Windows model config before full-model swap..."
     if ! snapshot_active_model_config; then
         discard_active_model_config_snapshot
         write_status "failed" 100 "$TOTAL_BYTES" "$TOTAL_BYTES" 0 \
@@ -948,6 +1208,31 @@ if [[ "$_windows_lemonade_swap_applies" == "true" ]]; then
         restore_bootstrap_model_after_windows_swap_failure || log "WARNING: could not restore bootstrap model; inspect $BOOTSTRAP_PATH"
         write_status "failed" 100 "$TOTAL_BYTES" "$TOTAL_BYTES" 0 \
             "Model downloaded and verified, but native Windows Lemonade did not load it after swap (registration timeout). Previous active model config restored and bootstrap model kept; re-run to retry the swap."
+        exit 1
+    fi
+elif [[ "$_windows_native_llama_swap_applies" == "true" ]]; then
+    if restart_windows_native_llama_server_with_full_model; then
+        if ! patch_hermes_model_after_swap; then
+            log "Restoring previous active model config after Hermes patch failure..."
+            restore_active_model_config || log "WARNING: could not restore active model config; inspect $ENV_FILE and $MODELS_INI"
+            write_status "failed" 100 "$TOTAL_BYTES" "$TOTAL_BYTES" 0 \
+                "Full model downloaded and loaded in native Windows llama-server, but the Hermes config patch failed after swap. Previous active model config restored; re-run to retry."
+            exit 1
+        fi
+        if ! refresh_windows_native_litellm_local_config_after_swap; then
+            log "Restoring previous active model config after LiteLLM config refresh failure..."
+            restore_active_model_config || log "WARNING: could not restore active model config; inspect $ENV_FILE and $MODELS_INI"
+            write_status "failed" 100 "$TOTAL_BYTES" "$TOTAL_BYTES" 0 \
+                "Full model downloaded and loaded in native Windows llama-server, but the LiteLLM local config refresh failed after swap. Previous active model config restored; re-run to retry."
+            exit 1
+        fi
+        HOT_SWAP_VERIFIED=true
+        discard_active_model_config_snapshot
+    else
+        log "Restoring previous active model config after native Windows llama-server swap timeout..."
+        restore_active_model_config || log "WARNING: could not restore active model config; inspect $ENV_FILE and $MODELS_INI"
+        write_status "failed" 100 "$TOTAL_BYTES" "$TOTAL_BYTES" 0 \
+            "Model downloaded and verified, but native Windows llama-server did not load it after swap. Previous active model config restored and bootstrap model kept; re-run to retry the swap."
         exit 1
     fi
 elif [[ -n "$DOCKER_CMD" ]] && $DOCKER_CMD ps --filter name=dream-llama-server --format '{{.Names}}' 2>/dev/null | grep -q dream-llama-server; then
@@ -1234,8 +1519,8 @@ model_list:
 litellm_settings:
   drop_params: true
   set_verbose: false
-  request_timeout: 120
-  stream_timeout: 60
+  request_timeout: 900
+  stream_timeout: 900
 LITELLM_UPGRADE_EOF
             fi
             unset _renderer_ok _renderer_script _renderer_py _lemonade_api_base _amd_location _amd_port
@@ -1279,11 +1564,13 @@ LITELLM_UPGRADE_EOF
         # surfaces as "Hermes works on Tower2/Mac but every prompt 404s on
         # Strix Halo" after a bootstrap-to-full swap.
         #
-        # Two files to keep in sync:
-        #   1. /opt/data/config.yaml inside the container — the live config
-        #      Hermes reads at startup. Owned by container UID; patch via
-        #      `docker exec` so we don't need host sudo.
-        #   2. extensions/services/hermes/cli-config.yaml.template — the
+        # Three files/views to keep in sync:
+        #   1. data/hermes/config.yaml on the host — the bind-mounted live
+        #      config that persists across Hermes restarts.
+        #   2. /opt/data/config.yaml inside the container — the same live
+        #      config from Hermes's view. Patch via docker exec too so Linux
+        #      container-owned files can still be recovered.
+        #   3. extensions/services/hermes/cli-config.yaml.template — the
         #      source Hermes copies into /opt/data on first start. Updating
         #      it keeps subsequent down-and-up cycles correct.
         # Lemonade prefixes the served model id with "extra."; llama.cpp
@@ -1291,41 +1578,53 @@ LITELLM_UPGRADE_EOF
         # added in installers/phases/11-services.sh.
         _hermes_old_model="$BOOTSTRAP_GGUF_FILE"
         _hermes_new_model="$FULL_GGUF_FILE"
+        _hermes_base_url="$(read_env_value HERMES_LLM_BASE_URL)"
         _gpu_backend_for_hermes=$(grep -E '^GPU_BACKEND=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"\047\r' || echo "")
         if [[ "$_gpu_backend_for_hermes" == "amd" ]]; then
             _hermes_old_model="extra.$BOOTSTRAP_GGUF_FILE"
             _hermes_new_model="extra.$FULL_GGUF_FILE"
         fi
         log "Patching Hermes config: model.default $_hermes_old_model -> $_hermes_new_model"
+        _hermes_request_timeout=180
+        _hermes_llm_backend_for_timeout="$(read_env_value LLM_BACKEND | tr '[:upper:]' '[:lower:]')"
+        if is_windows_bash || [[ "$_gpu_backend_for_hermes" == "amd" || "$_hermes_llm_backend_for_timeout" == "lemonade" ]]; then
+            _hermes_request_timeout=900
+        fi
 
         # Template on host (user-owned, no sudo needed). Patch this even when
         # Hermes is stopped so future container creates do not copy the stale
         # bootstrap model id.
         _hermes_tpl="$INSTALL_DIR/extensions/services/hermes/cli-config.yaml.template"
         if [[ -f "$_hermes_tpl" ]]; then
-            _hermes_patcher="$INSTALL_DIR/scripts/patch-hermes-config.py"
-            _python_cmd="$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)"
-            if [[ -n "$_python_cmd" && -f "$_hermes_patcher" ]]; then
-                if ! "$_python_cmd" "$_hermes_patcher" "$_hermes_tpl" \
-                    --model "$_hermes_new_model" \
-                    --context-length "$FULL_MAX_CONTEXT" 2>&1; then
-                    log "WARNING: Could not patch ${_hermes_tpl} with patch-hermes-config.py (non-fatal — operator can hand-edit before restarting Hermes)"
-                fi
-            elif sed -i.bak \
-                -e "s|^  default: \"${_hermes_old_model}\"|  default: \"${_hermes_new_model}\"|" \
-                -e "s|^  context_length: .*|  context_length: ${FULL_MAX_CONTEXT}|" \
-                -e "s|^    context_length: .*|    context_length: ${FULL_MAX_CONTEXT}|" \
-                "$_hermes_tpl" 2>&1; then
-                rm -f "${_hermes_tpl}.bak"
+            if ! patch_hermes_yaml_with_sed "$_hermes_tpl" "$_hermes_new_model" "$FULL_MAX_CONTEXT" "$_hermes_base_url" "$_hermes_request_timeout"; then
+                log "WARNING: Could not patch ${_hermes_tpl} (non-fatal; operator can hand-edit before restarting Hermes)"
+            fi
+        fi
+
+        _hermes_live="$INSTALL_DIR/data/hermes/config.yaml"
+        _hermes_live_host_patched=false
+        if [[ -f "$_hermes_live" ]]; then
+            if patch_hermes_yaml_with_sed "$_hermes_live" "$_hermes_new_model" "$FULL_MAX_CONTEXT" "$_hermes_base_url" "$_hermes_request_timeout"; then
+                _hermes_live_host_patched=true
             else
-                log "WARNING: Could not patch ${_hermes_tpl} (non-fatal — operator can hand-edit before restarting Hermes)"
+                log "WARNING: Could not patch ${_hermes_live} on host (non-fatal if container patch below succeeds)"
             fi
         fi
 
         if $DOCKER_CMD ps --filter name=dream-hermes --format '{{.Names}}' 2>/dev/null | grep -q dream-hermes; then
             # Live config inside the running container (owned by container UID).
+            _hermes_new_model_sed="$(printf '%s' "$_hermes_new_model" | sed 's/[\\&|]/\\&/g')"
+            _hermes_base_url_sed="$(printf '%s' "$_hermes_base_url" | sed 's/[\\&|]/\\&/g')"
+            _hermes_live_patch="sed -i -e 's|^  default: \".*\"[[:space:]]*$|  default: \"${_hermes_new_model_sed}\"|' -e 's|^  context_length: .*|  context_length: ${FULL_MAX_CONTEXT}|' -e 's|^    context_length: .*|    context_length: ${FULL_MAX_CONTEXT}|'"
+            if [[ -n "$_hermes_base_url" ]]; then
+                _hermes_live_patch="${_hermes_live_patch} -e 's|^  base_url: \".*\"|  base_url: \"${_hermes_base_url_sed}\"|'"
+            fi
+            if [[ "$_hermes_request_timeout" != "180" ]]; then
+                _hermes_live_patch="${_hermes_live_patch} -e 's|^    request_timeout_seconds: 180[[:space:]]*$|    request_timeout_seconds: ${_hermes_request_timeout}|'"
+            fi
+            _hermes_live_patch="${_hermes_live_patch} -e 's|^  enabled: .*|  enabled: true|' -e 's|^  threshold: .*|  threshold: 0.75|' -e 's|^  target_ratio: .*|  target_ratio: 0.50|' -e 's|^  protect_last_n: .*|  protect_last_n: 40|' /opt/data/config.yaml"
             $DOCKER_CMD exec dream-hermes sh -c \
-                "sed -i -e 's|^  default: \"${_hermes_old_model}\"|  default: \"${_hermes_new_model}\"|' -e 's|^  context_length: .*|  context_length: ${FULL_MAX_CONTEXT}|' -e 's|^    context_length: .*|    context_length: ${FULL_MAX_CONTEXT}|' -e 's|^  enabled: .*|  enabled: true|' -e 's|^  threshold: .*|  threshold: 0.75|' -e 's|^  target_ratio: .*|  target_ratio: 0.50|' -e 's|^  protect_last_n: .*|  protect_last_n: 40|' /opt/data/config.yaml" 2>&1 || \
+                "$_hermes_live_patch" 2>&1 || \
                 log "WARNING: Could not patch Hermes /opt/data/config.yaml (non-fatal — operator can hand-edit and 'docker restart dream-hermes')"
             log "Restarting Hermes to pick up model change..."
             $DOCKER_CMD restart dream-hermes 2>&1 || log "WARNING: Hermes restart failed (non-fatal — hand-restart with 'docker restart dream-hermes')"
@@ -1391,26 +1690,8 @@ LITELLM_UPGRADE_EOF
                 log "WARNING: Hermes did not respond on /api/status within 60s; skipping system-prompt warm-up."
             fi
         else
-            # If Hermes is stopped, its persisted /opt/data mount may still
-            # exist on the host. Patch it when writable; otherwise the template
-            # update above still protects first-time/fresh data starts.
-            _hermes_live="$INSTALL_DIR/data/hermes/config.yaml"
-            if [[ -f "$_hermes_live" ]]; then
-                if [[ -n "${_python_cmd:-}" && -f "${_hermes_patcher:-}" ]]; then
-                    if ! "$_python_cmd" "$_hermes_patcher" "$_hermes_live" \
-                        --model "$_hermes_new_model" \
-                        --context-length "$FULL_MAX_CONTEXT" 2>&1; then
-                        log "WARNING: Could not patch ${_hermes_live} with patch-hermes-config.py (non-fatal — operator can hand-edit and restart Hermes)"
-                    fi
-                elif sed -i.bak \
-                    -e "s|^  default: \"${_hermes_old_model}\"|  default: \"${_hermes_new_model}\"|" \
-                    -e "s|^  context_length: .*|  context_length: ${FULL_MAX_CONTEXT}|" \
-                    -e "s|^    context_length: .*|    context_length: ${FULL_MAX_CONTEXT}|" \
-                    "$_hermes_live" 2>&1; then
-                    rm -f "${_hermes_live}.bak"
-                else
-                    log "WARNING: Could not patch ${_hermes_live} (non-fatal — operator can hand-edit and restart Hermes)"
-                fi
+            if [[ -f "$_hermes_live" && "$_hermes_live_host_patched" != "true" ]]; then
+                log "WARNING: Hermes is stopped and ${_hermes_live} could not be patched; operator can hand-edit and restart Hermes"
             fi
         fi
         sync_windows_opencode_config
@@ -1591,8 +1872,9 @@ if curl -sf --max-time 3 "${_perplexica_url}/api/config" >/dev/null 2>&1; then
         # On NVIDIA/Apple/CPU, llama.cpp serves under the bare model id —
         # Phase 12 picks the friendly LLM_MODEL string, so do the same.
         _px_model="$FULL_LLM_MODEL"
-        _gpu_backend_for_perplexica=$(grep -E '^GPU_BACKEND=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"\047\r' || echo "")
-        if [[ "$_gpu_backend_for_perplexica" == "amd" ]]; then
+        _runtime_for_perplexica=$(grep -E '^AMD_INFERENCE_RUNTIME=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"\047\r' | tr '[:upper:]' '[:lower:]' || echo "")
+        _llm_backend_for_perplexica=$(grep -E '^LLM_BACKEND=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"\047\r' | tr '[:upper:]' '[:lower:]' || echo "")
+        if [[ "$_runtime_for_perplexica" == "lemonade" || "$_llm_backend_for_perplexica" == "lemonade" ]]; then
             _px_model="extra.$FULL_GGUF_FILE"
         fi
         _litellm_key=$(grep -E '^LITELLM_KEY=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '"\047\r' || echo "no-key")

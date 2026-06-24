@@ -97,7 +97,7 @@ OPENCLAW_EXPLICIT=false
 ALL_FEATURES=false
 CLOUD_MODE=false
 NO_BOOTSTRAP=false
-HERMES_CONTEXT_SIZE=131072
+HERMES_CONTEXT_SIZE=65536
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -796,7 +796,10 @@ fi
 
 if $ENABLE_HERMES && ! $CLOUD_MODE; then
     if [[ "${MAX_CONTEXT:-0}" =~ ^[0-9]+$ ]] && (( MAX_CONTEXT < HERMES_CONTEXT_SIZE )); then
-        ai_warn "Hermes enabled: increasing macOS llama context from ${MAX_CONTEXT} to ${HERMES_CONTEXT_SIZE} (128K)."
+        ai_warn "Hermes enabled: increasing macOS llama context from ${MAX_CONTEXT} to ${HERMES_CONTEXT_SIZE} (64K floor)."
+        if [[ -n "${MODEL_RECOMMENDATION_REASON:-}" ]]; then
+            MODEL_RECOMMENDATION_REASON="${MODEL_RECOMMENDATION_REASON} Hermes requires at least 64K context, so runtime context was raised to ${HERMES_CONTEXT_SIZE}."
+        fi
         MAX_CONTEXT="$HERMES_CONTEXT_SIZE"
     fi
 fi

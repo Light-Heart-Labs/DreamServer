@@ -107,7 +107,9 @@ The model file must already be downloaded. If it isn't, pre-fetch it first:
 ```
 
 ### Can I use my own GGUF model?
-Yes. Drop the `.gguf` file into `data/models/`, then update `.env`:
+Yes. Drop the single `.gguf` file into `data/models/`, then open Dashboard ->
+Models and load the local entry. For headless maintenance or older installs,
+update `.env`:
 ```bash
 GGUF_FILE=my-model.gguf
 LLM_MODEL=my-model
@@ -117,6 +119,11 @@ Restart the inference server:
 docker compose restart llama-server
 ```
 The model will load in ~30-120 seconds depending on size. If it fails, Dream Server automatically rolls back to the previous model.
+
+On Lemonade installs, load the model through Dream Server rather than only
+opening it in the Lemonade app. The Lemonade app can load the file for direct
+testing, but Open WebUI uses Dream Server's persisted LiteLLM route and may
+switch Lemonade back to the configured/default model on the next chat.
 
 ### What models are available?
 The installer auto-selects based on your GPU, but you can switch between any tier:

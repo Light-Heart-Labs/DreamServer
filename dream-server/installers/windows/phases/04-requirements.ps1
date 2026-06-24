@@ -69,6 +69,73 @@ function Test-WindowsPortInUse {
     return @{ InUse = $false; ProcessName = ""; ProcessId = 0 }
 }
 
+function Get-WindowsDreamLemonadeProcesses {
+    <#
+    .SYNOPSIS
+        Return native Lemonade processes that can reserve Dream Server host ports.
+    #>
+    $knownNames = @("LemonadeServer.exe", "lemonade-server.exe", "lemonade-router.exe")
+    try {
+        return @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+            ($knownNames -contains $_.Name) -or
+            ($_.ExecutablePath -and (
+                $_.ExecutablePath -match '\\lemonade_server\\bin\\' -or
+                $_.ExecutablePath -match '\\Lemonade Server\\bin\\' -or
+                $_.ExecutablePath -match '\\\.cache\\lemonade\\bin\\'
+            ))
+        } | Select-Object ProcessId, Name, ExecutablePath, CommandLine)
+    } catch {
+        return @()
+    }
+}
+
+function Stop-WindowsDreamLemonadePortConflicts {
+    <#
+    .SYNOPSIS
+        Stop native Lemonade when this install is not using Lemonade inference.
+    #>
+    param(
+        [switch]$UseNativeLemonade,
+        [switch]$NonInteractive,
+        [switch]$Force
+    )
+
+    if ($UseNativeLemonade) { return }
+
+    $_lemonadeProcesses = @(Get-WindowsDreamLemonadeProcesses)
+    if ($_lemonadeProcesses.Count -eq 0) { return }
+
+    $_pidList = ($_lemonadeProcesses | ForEach-Object { "$($_.Name) PID $($_.ProcessId)" }) -join ", "
+    Write-AIWarn "Native Lemonade is running but this install uses Docker-backed inference."
+    Write-AI "  Lemonade can reserve localhost ports used by Dream services, including Whisper STT."
+    Write-AI "  Detected: $_pidList"
+
+    $_shouldStop = $true
+    if (-not $NonInteractive -and -not $Force) {
+        $_choice = Read-Host "  Stop native Lemonade for this Dream Server session? [Y/n]"
+        $_shouldStop = ($_choice -notmatch "^[nN]")
+    }
+
+    if (-not $_shouldStop) {
+        Write-AIWarn "Native Lemonade left running. Docker service readiness may fail on localhost ports."
+        return
+    }
+
+    foreach ($_proc in $_lemonadeProcesses) {
+        if ($_proc.ProcessId -gt 0) {
+            Stop-Process -Id ([int]$_proc.ProcessId) -Force -ErrorAction SilentlyContinue
+        }
+    }
+    Start-Sleep -Seconds 2
+
+    $_remaining = @(Get-WindowsDreamLemonadeProcesses)
+    if ($_remaining.Count -gt 0) {
+        Write-AIWarn "Could not fully stop native Lemonade. Port conflicts may remain."
+    } else {
+        Write-AISuccess "Native Lemonade stopped for Docker-backed install"
+    }
+}
+
 # ── Tier-specific RAM requirements ────────────────────────────────────────────
 $_minRamGB = switch ($selectedTier) {
     "NV_ULTRA"   { 96 }
@@ -133,6 +200,15 @@ if ($selectedTier -notin @("0", "CLOUD") -and $gpuInfo.Backend -eq "none") {
     Write-AI "  Inference will fall back to CPU (very slow for larger models)."
     Write-AI "  Consider --Cloud for API mode, or --Tier 0 for CPU-optimized inference."
 }
+
+# Native Lemonade legitimately belongs to Windows AMD/Lemonade installs. On
+# Docker-backed NVIDIA/CPU installs it can shadow localhost ports such as 9000
+# and make healthy Docker services look dead from the Windows host.
+$_usesNativeLemonade = ($gpuInfo.Backend -eq "amd" -and -not $cloudMode)
+Stop-WindowsDreamLemonadePortConflicts `
+    -UseNativeLemonade:$_usesNativeLemonade `
+    -NonInteractive:$nonInteractive `
+    -Force:$force
 
 # ── Port conflict detection ───────────────────────────────────────────────────
 # Build list of ports to check based on enabled features.

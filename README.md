@@ -333,7 +333,10 @@ If the new model isn't downloaded yet, pre-fetch it first:
 dream model swap T3                    # Then swap (restarts llama-server)
 ```
 
-Already have a GGUF you want to use? Drop it in `data/models/`, update `GGUF_FILE` and `LLM_MODEL` in `.env`, and restart with the CLI:
+Already have a GGUF you want to use? Drop the single `.gguf` file in
+`data/models/`, then open Dashboard -> Models and load the local entry. For
+older installs or headless maintenance, update `GGUF_FILE` and `LLM_MODEL` in
+`.env`, then restart with the CLI:
 
 ```bash
 dream restart llm

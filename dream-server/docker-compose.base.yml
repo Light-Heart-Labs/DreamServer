@@ -142,16 +142,16 @@ services:
         {"type":"seed","key":"seed","node_ids":["3"]},
         {"type":"n","key":"batch_size","node_ids":["5"]}]
       # ── Speech-to-Text (Whisper) ──
-      AUDIO_STT_ENGINE: "openai"
-      AUDIO_STT_OPENAI_API_BASE_URL: "http://whisper:8000/v1"
-      AUDIO_STT_OPENAI_API_KEY: ""
+      AUDIO_STT_ENGINE: "${AUDIO_STT_ENGINE:-openai}"
+      AUDIO_STT_OPENAI_API_BASE_URL: "${AUDIO_STT_OPENAI_API_BASE_URL:-http://whisper:8000/v1}"
+      AUDIO_STT_OPENAI_API_KEY: "${AUDIO_STT_OPENAI_API_KEY:-}"
       AUDIO_STT_MODEL: "${AUDIO_STT_MODEL:-Systran/faster-whisper-base}"
       # ── Text-to-Speech (Kokoro) ──
-      AUDIO_TTS_ENGINE: "openai"
-      AUDIO_TTS_OPENAI_API_BASE_URL: "http://tts:8880/v1"
-      AUDIO_TTS_OPENAI_API_KEY: ""
-      AUDIO_TTS_MODEL: "kokoro"
-      AUDIO_TTS_VOICE: "af_heart"
+      AUDIO_TTS_ENGINE: "${AUDIO_TTS_ENGINE:-openai}"
+      AUDIO_TTS_OPENAI_API_BASE_URL: "${AUDIO_TTS_OPENAI_API_BASE_URL:-http://tts:8880/v1}"
+      AUDIO_TTS_OPENAI_API_KEY: "${AUDIO_TTS_OPENAI_API_KEY:-}"
+      AUDIO_TTS_MODEL: "${AUDIO_TTS_MODEL:-kokoro}"
+      AUDIO_TTS_VOICE: "${AUDIO_TTS_VOICE:-af_heart}"
       TZ: "${TIMEZONE:-UTC}"
     volumes:
       - ./data/open-webui:/app/backend/data:z
@@ -245,6 +245,11 @@ services:
       # DREAM_TALK_VISION_KEY.
       - DREAM_TALK_VISION_URL=${DREAM_TALK_VISION_URL:-http://llama-server:8080${LLM_API_BASE_PATH:-/v1}}
       - DREAM_TALK_VISION_KEY=${DREAM_TALK_VISION_KEY:-}
+      # Local models can take several minutes to produce the first useful
+      # Dream Talk frame on cold sessions. Keep the dashboard-api bridge aligned
+      # with Hermes/LiteLLM long-model timeouts so Talk does not 502 while the
+      # underlying agent is still working.
+      - DREAM_TALK_HERMES_TIMEOUT=${DREAM_TALK_HERMES_TIMEOUT:-900}
       # Model id of the vision-capable variant. Defaults to the user.*
       # name we register on AMD install (Qwen3.6-35B-A3B + mmproj-F16).
       - DREAM_TALK_VISION_MODEL=${DREAM_TALK_VISION_MODEL:-user.Qwen3.6-35B-A3B-Vision}

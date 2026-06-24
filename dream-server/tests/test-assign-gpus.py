@@ -9,11 +9,11 @@ FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures/topology_json")
 def fixture_path(name):
     return os.path.join(FIXTURES_DIR, name)
 
-def run(topology_path, model_size_mb):
-    result = subprocess.run(
-        [sys.executable, SCRIPT, "--topology", topology_path, "--model-size", str(model_size_mb)],
-        capture_output=True, text=True,
-    )
+def run(topology_path, model_size_mb, enabled_services=None):
+    cmd = [sys.executable, SCRIPT, "--topology", topology_path, "--model-size", str(model_size_mb)]
+    if enabled_services is not None:
+        cmd += ["--enabled-services", enabled_services]
+    result = subprocess.run(cmd, capture_output=True, text=True)
     output = None
     if result.returncode == 0:
         output = json.loads(result.stdout)["gpu_assignment"]
@@ -67,6 +67,34 @@ class TestSingleGpu:
     def test_no_topology_analysis_needed(self):
         rc, out, _ = run(self.TOPO, 10000)
         assert rc == 0
+
+
+# ── 1 GPU — custom --enabled-services ─────────────────────────────────────────
+
+class TestSingleGpuEnabledServices:
+    """Regression: the single-GPU path must not crash when --enabled-services
+    omits llama_server, and must still assign llama_server (as the multi-GPU
+    path does)."""
+    TOPO = fixture_path("nvidia_smi_topo_matrix_1gpu_pcie.json")
+    UUID = "GPU-12345678-1234-1234-1234-123456789012"
+
+    def test_omitting_llama_server_does_not_crash(self):
+        rc, _, stderr = run(self.TOPO, 10000, enabled_services="whisper,embeddings")
+        assert rc == 0, stderr
+
+    def test_llama_server_assigned_even_when_omitted(self):
+        _, out, _ = run(self.TOPO, 10000, enabled_services="whisper,embeddings")
+        assert out["services"]["llama_server"]["gpus"] == [self.UUID]
+        assert parallelism(out)["mode"] == "none"
+
+    def test_only_requested_services_plus_llama(self):
+        _, out, _ = run(self.TOPO, 10000, enabled_services="whisper,embeddings")
+        assert set(out["services"]) == {"llama_server", "whisper", "embeddings"}
+
+    def test_explicit_llama_server_unchanged(self):
+        _, out, _ = run(self.TOPO, 10000, enabled_services="llama_server,whisper")
+        assert set(out["services"]) == {"llama_server", "whisper"}
+        assert out["services"]["whisper"]["gpus"] == [self.UUID]
 
 
 # ── 2 GPU — rank-first means PHB pair always wins over single GPU ─────────────

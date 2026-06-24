@@ -22,6 +22,14 @@ function Write-Utf8NoBom {
         [string]$Path,
         [string]$Content
     )
+    $parent = Split-Path -Parent $Path
+    if (-not [string]::IsNullOrWhiteSpace($parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+    if (Test-Path -LiteralPath $Path -PathType Container) {
+        Remove-Item -LiteralPath $Path -Recurse -Force
+        Write-AIWarn "Removed malformed $Path directory from a previous partial install."
+    }
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($Path, $Content, $utf8NoBom)
 }
@@ -517,6 +525,39 @@ LANGFUSE_INIT_USER_PASSWORD=$langfuseInitUserPassword
     }
     Write-Utf8NoBom -Path $envPath -Content $envContent
 
+    if ($effectiveDreamMode -eq "local") {
+        $litellmDir = Join-Path (Join-Path $InstallDir "config") "litellm"
+        $localModel = $(if ($TierConfig.GgufFile) { $TierConfig.GgufFile } else { $TierConfig.LlmModel })
+        $localApiBase = "$llmApiUrl$llmApiBasePath"
+        $localConfig = @"
+model_list:
+  - model_name: default
+    litellm_params:
+      model: openai/$localModel
+      api_base: $localApiBase
+      api_key: sk-dream-hermes-local
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+
+  - model_name: "*"
+    litellm_params:
+      model: openai/$localModel
+      api_base: $localApiBase
+      api_key: sk-dream-hermes-local
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false
+  request_timeout: 900
+  stream_timeout: 900
+"@
+        Write-Utf8NoBom -Path (Join-Path $litellmDir "local.yaml") -Content $localConfig
+    }
+
     if ($windowsAmdLemonade) {
         $litellmDir = Join-Path (Join-Path $InstallDir "config") "litellm"
         New-Item -ItemType Directory -Path $litellmDir -Force | Out-Null
@@ -546,8 +587,8 @@ model_list:
 litellm_settings:
   drop_params: true
   set_verbose: false
-  request_timeout: 120
-  stream_timeout: 60
+  request_timeout: 900
+  stream_timeout: 900
 "@
         Write-Utf8NoBom -Path (Join-Path $litellmDir "lemonade.yaml") -Content $lemonadeConfig
     }

@@ -340,13 +340,14 @@ if ($dryRun) {
                 if (-not (Test-Path $hermesLive)) {
                     Copy-Item -Path $hermesTemplate -Destination $hermesLive -Force
                 }
-                $patchedHermesTemplate = Update-HermesConfigFile -Path $hermesTemplate -Model $hermesModel -BaseUrl $hermesBaseUrl -ContextLength ([int]$tierConfig.MaxContext) -LemonadeCompact:($gpuInfo.Backend -eq "amd")
-                $patchedHermesLive = Update-HermesConfigFile -Path $hermesLive -Model $hermesModel -BaseUrl $hermesBaseUrl -ContextLength ([int]$tierConfig.MaxContext) -LemonadeCompact:($gpuInfo.Backend -eq "amd")
+                $hermesRequestTimeout = $(if ($cloudMode) { 180 } else { 900 })
+                $patchedHermesTemplate = Update-HermesConfigFile -Path $hermesTemplate -Model $hermesModel -BaseUrl $hermesBaseUrl -ContextLength ([int]$tierConfig.MaxContext) -RequestTimeoutSeconds $hermesRequestTimeout -LemonadeCompact:($gpuInfo.Backend -eq "amd")
+                $patchedHermesLive = Update-HermesConfigFile -Path $hermesLive -Model $hermesModel -BaseUrl $hermesBaseUrl -ContextLength ([int]$tierConfig.MaxContext) -RequestTimeoutSeconds $hermesRequestTimeout -LemonadeCompact:($gpuInfo.Backend -eq "amd")
                 if (-not ($patchedHermesTemplate -and $patchedHermesLive)) {
                     Write-AIError "Failed to patch Hermes config for Windows runtime (model=$hermesModel, base_url=$hermesBaseUrl)"
                     exit 1
                 }
-                Write-AISuccess "Patched Hermes config for bootstrap model (model=$hermesModel, context=$($tierConfig.MaxContext))"
+                Write-AISuccess "Patched Hermes config for bootstrap model (model=$hermesModel, context=$($tierConfig.MaxContext), request_timeout=${hermesRequestTimeout}s)"
             }
         }
 
@@ -578,6 +579,45 @@ if ($dryRun) {
                     $envContent = $envContent -replace "(?m)^AMD_INFERENCE_MANAGED=.*$", "AMD_INFERENCE_MANAGED=true"
                     [System.IO.File]::WriteAllText($envPath, $envContent, (New-Object System.Text.UTF8Encoding($false)))
                     Write-AISuccess "Patched .env for llama-server backend"
+
+                    $nativeModel = ([regex]::Match($envContent, "(?m)^GGUF_FILE=([^\r\n]+)\r?$")).Groups[1].Value.Trim().Trim('"').Trim("'")
+                    if ([string]::IsNullOrWhiteSpace($nativeModel)) { $nativeModel = $tierConfig.GgufFile }
+                    $nativePort = ([regex]::Match($envContent, "(?m)^AMD_INFERENCE_PORT=([^\r\n]+)\r?$")).Groups[1].Value.Trim().Trim('"').Trim("'")
+                    if ([string]::IsNullOrWhiteSpace($nativePort)) { $nativePort = "8080" }
+                    $nativeApiBase = "http://host.docker.internal:$nativePort/v1"
+                    $litellmDir = Join-Path (Join-Path $installDir "config") "litellm"
+                    New-Item -ItemType Directory -Path $litellmDir -Force | Out-Null
+                    $litellmLocal = @"
+model_list:
+  - model_name: default
+    litellm_params:
+      model: openai/$nativeModel
+      api_base: $nativeApiBase
+      api_key: not-needed
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+
+  - model_name: "*"
+    litellm_params:
+      model: openai/*
+      api_base: $nativeApiBase
+      api_key: not-needed
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false
+  request_timeout: 900
+  stream_timeout: 900
+"@
+                    [System.IO.File]::WriteAllText((Join-Path $litellmDir "local.yaml"), $litellmLocal, (New-Object System.Text.UTF8Encoding($false)))
+                    Write-AISuccess "Patched LiteLLM local config for native llama-server"
                 }
             }
         }
@@ -1099,18 +1139,16 @@ if ($dryRun) {
 
                 # Write a temp wrapper script to avoid Windows/PowerShell quoting
                 # issues. Empty arguments (e.g., SHA256 for some tiers) get lost
-                # during command-line parsing. The wrapper exits immediately after
-                # nohup detaches the long download, so installer automation is not
-                # held open by the background curl/process handles.
+                # during command-line parsing. The Scheduled Task owns the long
+                # upgrade process directly; Start-ScheduledTask returns immediately,
+                # while the task state/result keep reflecting the real download.
                 $wrapperScript = Join-Path $logDir "bootstrap-run.sh"
                 $wrapperContent = @"
 #!/bin/bash
 set -uo pipefail
 mkdir -p "`$(dirname "$bashUpgradeLog")"
-nohup bash "$bashScript" "$bashInstallDir" "$($fullTierConfig.GgufFile)" "$($fullTierConfig.GgufUrl)" "$($fullTierConfig.GgufSha256)" "$($fullTierConfig.LlmModel)" "$($fullTierConfig.MaxContext)" > "$bashUpgradeLog" 2> "$bashUpgradeErrLog" < /dev/null &
-pid=`$!
-echo "`$pid" > "$bashUpgradePidFile"
-disown "`$pid" 2>/dev/null || true
+echo "`$`$" > "$bashUpgradePidFile"
+exec bash "$bashScript" "$bashInstallDir" "$($fullTierConfig.GgufFile)" "$($fullTierConfig.GgufUrl)" "$($fullTierConfig.GgufSha256)" "$($fullTierConfig.LlmModel)" "$($fullTierConfig.MaxContext)" > "$bashUpgradeLog" 2> "$bashUpgradeErrLog" < /dev/null
 "@
                 [System.IO.File]::WriteAllText($wrapperScript, $wrapperContent.Replace("`r`n", "`n"), (New-Object System.Text.UTF8Encoding($false)))
 
@@ -1125,10 +1163,14 @@ disown "`$pid" 2>/dev/null || true
 
                         $upgradeAction = New-ScheduledTaskAction -Execute $bashPath -Argument ('"{0}"' -f $wrapperScript)
                         $upgradeTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1)
+                        $upgradeSettings = New-ScheduledTaskSettingsSet `
+                            -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+                            -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero)
                         $upgradePrincipal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
                         Register-ScheduledTask -TaskName $upgradeTaskName `
                             -Action $upgradeAction `
                             -Trigger $upgradeTrigger `
+                            -Settings $upgradeSettings `
                             -Principal $upgradePrincipal `
                             -Description "Dream Server background model upgrade" `
                             -Force | Out-Null

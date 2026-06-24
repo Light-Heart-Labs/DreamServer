@@ -32,6 +32,10 @@ grep -q 'openai/Qwen3-0.6B-GGUF' <<<"$rendered" \
 grep -q 'host.docker.internal:13305/api/v1' <<<"$rendered" \
   || { echo "[FAIL] renderer must use supplied Lemonade API base"; exit 1; }
 
+echo "[contract] external Lemonade Dream Talk timeout is long enough for full models"
+grep -q 'DREAM_TALK_HERMES_TIMEOUT=${DREAM_TALK_HERMES_TIMEOUT:-900}' docker-compose.lemonade-external.yml \
+  || { echo "[FAIL] external Lemonade overlay must set DREAM_TALK_HERMES_TIMEOUT=900"; exit 1; }
+
 echo "[contract] installer discovers external Lemonade model and avoids stale fallbacks"
 grep -q '_phase06_discover_lemonade_model' installers/phases/06-directories.sh \
   || { echo "[FAIL] phase 06 must discover the model served by external Lemonade"; exit 1; }
@@ -77,6 +81,12 @@ grep -q 'LiteLLM external Lemonade gateway' dream-preflight.sh \
   || { echo "[FAIL] dream-preflight must label the external Lemonade LiteLLM route"; exit 1; }
 grep -q 'dream-litellm' dream-preflight.sh \
   || { echo "[FAIL] dream-preflight must check dream-litellm for external Lemonade"; exit 1; }
+
+echo "[contract] doctor warns on unauthenticated host-routed external Lemonade"
+grep -q 'DS-RUNTIME-EXTERNAL-LEMONADE-UNAUTHENTICATED-HOST-ROUTE' scripts/dream-doctor.sh \
+  || { echo "[FAIL] dream-doctor must warn when external Lemonade is host-routed without a user API key"; exit 1; }
+grep -q 'sk-dream-lemonade-' scripts/dream-doctor.sh \
+  || { echo "[FAIL] dream-doctor must distinguish installer-generated LiteLLM provider keys from user Lemonade API keys"; exit 1; }
 
 echo "[contract] resolver selects cloud + external overlay instead of managed AMD overlay"
 resolved="$(LEMONADE_EXTERNAL=true DREAM_MODE=lemonade \

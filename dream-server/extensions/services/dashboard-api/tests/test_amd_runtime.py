@@ -11,6 +11,20 @@ def _patch_probe(monkeypatch, health="reachable", version="unknown", warning=Non
     )
 
 
+def _patch_external_probe(
+    monkeypatch,
+    health="reachable",
+    version="unknown",
+    warnings=None,
+    loaded_model="Qwen3-0.6B-GGUF",
+    model_count=1,
+):
+    async def _fake_probe(_api_base, _api_path):
+        return health, version, list(warnings or []), loaded_model, model_count
+
+    monkeypatch.setattr(gpu_router, "_probe_external_lemonade", _fake_probe)
+
+
 def test_amd_runtime_not_amd(monkeypatch, test_client):
     monkeypatch.setenv("GPU_BACKEND", "nvidia")
 
@@ -104,7 +118,7 @@ def test_amd_runtime_external_lemonade_uses_container_base_url(monkeypatch, test
     monkeypatch.setenv("AMD_INFERENCE_MANAGED", "false")
     monkeypatch.setenv("LEMONADE_CONTAINER_BASE_URL", "http://host.docker.internal:13305/api/v1")
     monkeypatch.setenv("LLM_API_BASE_PATH", "/api/v1")
-    _patch_probe(monkeypatch, version="10.2.0")
+    _patch_external_probe(monkeypatch, version="10.2.0", loaded_model="Qwen3-0.6B-GGUF", model_count=2)
 
     response = test_client.get("/api/gpu/amd-runtime", headers=test_client.auth_headers)
 
@@ -119,7 +133,39 @@ def test_amd_runtime_external_lemonade_uses_container_base_url(monkeypatch, test
     assert payload["apiBase"] == "http://host.docker.internal:13305/api/v1"
     assert payload["healthUrl"] == "http://host.docker.internal:13305/api/v1/health"
     assert payload["version"] == "10.2.0"
+    assert payload["loadedModel"] == "Qwen3-0.6B-GGUF"
+    assert payload["modelCount"] == 2
     assert payload["capabilities"] == ["auto"]
+
+
+def test_amd_runtime_external_lemonade_surfaces_adapter_warnings(monkeypatch, test_client):
+    monkeypatch.setenv("GPU_BACKEND", "amd")
+    monkeypatch.setenv("AMD_INFERENCE_RUNTIME", "lemonade")
+    monkeypatch.setenv("AMD_INFERENCE_BACKEND", "auto")
+    monkeypatch.setenv("AMD_INFERENCE_LOCATION", "host")
+    monkeypatch.setenv("AMD_INFERENCE_PORT", "13305")
+    monkeypatch.setenv("AMD_INFERENCE_SUPPORTED_BACKENDS", "auto")
+    monkeypatch.setenv("AMD_INFERENCE_RUNTIME_MODE", "external-lemonade")
+    monkeypatch.setenv("AMD_INFERENCE_MANAGED", "false")
+    monkeypatch.setenv("LEMONADE_CONTAINER_BASE_URL", "http://host.docker.internal:13305/api/v1")
+    monkeypatch.setenv("LLM_API_BASE_PATH", "/api/v1")
+    _patch_external_probe(
+        monkeypatch,
+        health="unhealthy",
+        version="unknown",
+        warnings=["health_auth_rejected"],
+        loaded_model=None,
+        model_count=None,
+    )
+
+    response = test_client.get("/api/gpu/amd-runtime", headers=test_client.auth_headers)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["health"] == "unhealthy"
+    assert payload["warnings"] == ["health_auth_rejected"]
+    assert "loadedModel" not in payload
+    assert "modelCount" not in payload
 
 
 def test_amd_runtime_windows_host_llama_server_fallback(monkeypatch, test_client):

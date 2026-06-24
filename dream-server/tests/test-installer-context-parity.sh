@@ -62,12 +62,12 @@ assert_grep "installers/windows/lib/tier-map.ps1" 'BOOTSTRAP_MAX_CONTEXT[[:space
 
 echo ""
 echo "Hermes target context:"
-assert_grep "installers/phases/03-features.sh" 'HERMES_CONTEXT_SIZE=.*131072' \
-    "Linux Hermes target context is 128K"
-assert_grep "installers/macos/install-macos.sh" '^HERMES_CONTEXT_SIZE=131072$' \
-    "macOS Hermes target context is 128K"
-assert_grep "installers/windows/phases/03-features.ps1" 'hermesContextSize[[:space:]]*=[[:space:]]*131072' \
-    "Windows Hermes target context is 128K"
+assert_grep "installers/phases/03-features.sh" 'HERMES_CONTEXT_SIZE=.*65536' \
+    "Linux Hermes target context floor is 64K"
+assert_grep "installers/macos/install-macos.sh" '^HERMES_CONTEXT_SIZE=65536$' \
+    "macOS Hermes target context floor is 64K"
+assert_grep "installers/windows/phases/03-features.ps1" 'hermesContextSize[[:space:]]*=[[:space:]]*65536' \
+    "Windows Hermes target context floor is 64K"
 
 echo ""
 echo ".env context parity:"
@@ -99,12 +99,16 @@ assert_grep "installers/windows/install-windows.ps1" 'CTX_SIZE=\$\(\$tierConfig\
 
 echo ""
 echo "Hermes config patch paths:"
-assert_grep "installers/phases/11-services.sh" '_hermes_context="\$\{MAX_CONTEXT:-131072\}"' \
-    "Linux Hermes patcher uses selected context"
+assert_grep "installers/phases/11-services.sh" '_hermes_context="\$\{MAX_CONTEXT:-65536\}"' \
+    "Linux Hermes patcher uses selected context with 64K fallback"
 assert_grep "installers/phases/11-services.sh" '--context-length "\$_hermes_context"' \
     "Linux Hermes patcher receives context length"
 assert_grep "installers/macos/install-macos.sh" '--context-length "\$MAX_CONTEXT"' \
     "macOS Hermes patcher receives context length"
+assert_grep "installers/macos/dream-macos.sh" 'ENV_CTX_SIZE:-65536' \
+    "macOS native llama restart defaults to 64K context"
+assert_grep "installers/phases/07-devtools.sh" '"context": \$\{MAX_CONTEXT:-65536\}' \
+    "Linux OpenCode config defaults to 64K context"
 assert_not_grep "installers/macos/install-macos.sh" '\$LOG_FILE' \
     "macOS installer uses DS_LOG_FILE, not undefined LOG_FILE"
 assert_grep "installers/windows/install-windows.ps1" 'Update-HermesConfigFile.*ContextLength \(\[int\]\$tierConfig\.MaxContext\)' \
@@ -149,6 +153,22 @@ pass "Hermes patcher updates model.context_length"
 grep -q '^    request_timeout_seconds: 180$' "$tmp_hermes" \
     || fail "Hermes patcher writes local provider request timeout"
 pass "Hermes patcher writes local provider request timeout"
+
+tmp_hermes_windows="$(mktemp)"
+cat > "$tmp_hermes_windows" <<'HERMES_WINDOWS_EOF'
+model:
+  default: "old-model"
+providers:
+  custom:
+    request_timeout_seconds: 180
+HERMES_WINDOWS_EOF
+
+"$python_cmd" scripts/patch-hermes-config.py "$tmp_hermes_windows" \
+    --request-timeout-seconds 900 >/dev/null
+
+grep -q '^    request_timeout_seconds: 900$' "$tmp_hermes_windows" \
+    || fail "Hermes patcher upgrades Dream default provider timeout when requested"
+pass "Hermes patcher upgrades Dream default provider timeout when requested"
 grep -q '^    context_length: 65536$' "$tmp_hermes" \
     || fail "Hermes patcher writes auxiliary compression context"
 pass "Hermes patcher writes auxiliary compression context"
@@ -180,7 +200,8 @@ compression:
   threshold: 0.75
 HERMES_CUSTOM_EOF
 
-"$python_cmd" scripts/patch-hermes-config.py "$tmp_hermes_custom" >/dev/null
+"$python_cmd" scripts/patch-hermes-config.py "$tmp_hermes_custom" \
+    --request-timeout-seconds 900 >/dev/null
 
 grep -q '^    enabled: true$' "$tmp_hermes_custom" \
     || fail "Hermes patcher preserves user-enabled WhatsApp"

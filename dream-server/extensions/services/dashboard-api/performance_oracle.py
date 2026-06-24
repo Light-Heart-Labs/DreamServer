@@ -33,6 +33,11 @@ def normalize_key(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "-", str(value or "").lower()).strip("-")
 
 
+def local_model_id(value: Any) -> str:
+    name = re.sub(r"[^A-Za-z0-9._-]+", "-", str(value or "")).strip("-._")
+    return name or "local-gguf"
+
+
 def _list_value(value: Any) -> list[str]:
     if value is None:
         return []
@@ -900,7 +905,14 @@ def build_models_payload(gpu_info: Optional[GPUInfo], loaded_model: Optional[str
             for name, value in downloaded_files_override.items()
         }
     else:
-        downloaded_files = {p.name.lower(): p for p in models_dir.glob("*.gguf")} if models_dir.exists() else {}
+        downloaded_files = {}
+        if models_dir.exists():
+            for p in models_dir.iterdir():
+                try:
+                    if p.is_file() and p.name.lower().endswith(".gguf") and p.stat().st_size > 0:
+                        downloaded_files[p.name.lower()] = p
+                except OSError:
+                    continue
 
     gpu_data = None
     free_gb = 0.0
@@ -1024,7 +1036,7 @@ def build_models_payload(gpu_info: Optional[GPUInfo], loaded_model: Optional[str
             continue
         size_mb = path.stat().st_size / (1024 * 1024)
         fallback = {
-            "id": path.stem,
+            "id": local_model_id(path.stem),
             "name": path.stem,
             "gguf": path.name,
             "size_mb": size_mb,

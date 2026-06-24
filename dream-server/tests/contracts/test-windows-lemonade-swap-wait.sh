@@ -168,6 +168,8 @@ fi
 # ---------------------------------------------------------------------------
 if grep -q 'hermes_base_url="$(read_env_value HERMES_LLM_BASE_URL)"' "$SCRIPT" \
    && grep -q 'patch_hermes_yaml_with_sed "$tpl" "$new_model" "$FULL_MAX_CONTEXT" "$hermes_base_url"' "$SCRIPT" \
+   && grep -q 'patch_hermes_yaml_with_sed "$live" "$new_model" "$FULL_MAX_CONTEXT" "$hermes_base_url"' "$SCRIPT" \
+   && grep -q 'patch_hermes_yaml_with_sed "$_hermes_live" "$_hermes_new_model" "$FULL_MAX_CONTEXT" "$_hermes_base_url"' "$SCRIPT" \
    && grep -q 'hermes_base_url_sed="$(printf' "$SCRIPT" \
    && grep -q 'base_url: \\"${hermes_base_url_sed}\\"' "$SCRIPT"; then
     pass "post-swap Hermes patch preserves HERMES_LLM_BASE_URL in template and live config"

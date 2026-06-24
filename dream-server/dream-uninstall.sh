@@ -235,7 +235,11 @@ unset _dream_uninstall_orphan_pids _pid
 # Remove system-mode dream-host-agent unit (migrated from --user mode).
 # Idempotent — no-op if the unit was never installed (e.g. older user-mode installs).
 if systemctl is-enabled dream-host-agent.service >/dev/null 2>&1; then
-    sudo systemctl disable --now dream-host-agent.service 2>/dev/null || true
+    if ! timeout 20s sudo systemctl disable --now dream-host-agent.service 2>/dev/null; then
+        log_warn "dream-host-agent did not stop cleanly; forcing service shutdown"
+        sudo systemctl kill -s SIGKILL dream-host-agent.service 2>/dev/null || true
+        timeout 10s sudo systemctl disable dream-host-agent.service 2>/dev/null || true
+    fi
 fi
 sudo rm -f /etc/systemd/system/dream-host-agent.service 2>/dev/null || true
 sudo systemctl daemon-reload 2>/dev/null || true

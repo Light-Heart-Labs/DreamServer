@@ -465,6 +465,11 @@ def main():
         services = {}
         for s in enabled_services:
             services[s] = ServiceAssignment(gpus=[gpu])
+        # llama_server always runs on the single GPU, even when the caller's
+        # --enabled-services list omits it. This mirrors the multi-GPU path,
+        # where assign_services() assigns llama_server unconditionally; without
+        # it, the line below raised KeyError: 'llama_server'.
+        services.setdefault("llama_server", ServiceAssignment(gpus=[gpu]))
         services["llama_server"].parallelism = parallelism
         result = AssignmentResult(strategy="single", services=services)
         print(json.dumps(build_output(result), indent=2))

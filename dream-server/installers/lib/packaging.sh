@@ -70,6 +70,33 @@ _pkg_prepare_pacman_keyrings() {
     done
 }
 
+_pkg_configure_zypper_ci_network() {
+    [[ "$PKG_MANAGER" == "zypper" ]] || return 0
+    [[ -n "${GITHUB_ACTIONS:-}" || -n "${CI:-}" ]] || return 0
+
+    local conf_dir="/etc/zypp/zypp.conf.d"
+    local conf_file="${conf_dir}/99-dreamserver-ci-network.conf"
+    local tmp
+
+    tmp="$(mktemp "${TMPDIR:-/tmp}/dreamserver-zypp-ci-network.XXXXXX")" || return 0
+
+    cat >"$tmp" <<'EOF'
+[main]
+download.transfer_timeout = 600
+download.connect_timeout = 120
+download.min_download_speed = 0
+download.max_silent_tries = 3
+download.max_concurrent_connections = 2
+EOF
+
+    _pkg_run mkdir -p "$conf_dir" 2>>"$LOG_FILE" || {
+        rm -f "$tmp"
+        return 0
+    }
+    _pkg_run cp "$tmp" "$conf_file" 2>>"$LOG_FILE" || true
+    rm -f "$tmp"
+}
+
 # Detect the system's package manager from /etc/os-release
 # Sets: PKG_MANAGER, DISTRO_ID, DISTRO_ID_LIKE
 detect_pkg_manager() {
@@ -133,7 +160,7 @@ pkg_update() {
         apt)    _pkg_run apt-get update -qq 2>>"$LOG_FILE" ;;
         dnf)    _pkg_run dnf check-update -q 2>>"$LOG_FILE" || true ;;  # returns 100 if updates available
         pacman) _pkg_prepare_pacman_keyrings; _pkg_retry pacman -Syyu --noconfirm 2>>"$LOG_FILE" ;;  # full sync+upgrade (partial -Sy is unsafe)
-        zypper) _pkg_retry zypper --non-interactive --gpg-auto-import-keys refresh 2>>"$LOG_FILE" ;;
+        zypper) _pkg_configure_zypper_ci_network; _pkg_retry zypper --non-interactive --gpg-auto-import-keys refresh 2>>"$LOG_FILE" ;;
         xbps)   _pkg_run xbps-install -S 2>>"$LOG_FILE" ;;
         apk)    _pkg_run apk update 2>>"$LOG_FILE" ;;
         *)      warn "Cannot update package index: unknown package manager '$PKG_MANAGER'" ;;
@@ -159,7 +186,7 @@ pkg_install() {
         apt)    _pkg_run apt-get install -y -qq "${pkgs[@]}" 2>>"$LOG_FILE" ;;
         dnf)    _pkg_run dnf install -y -q "${pkgs[@]}" 2>>"$LOG_FILE" ;;
         pacman) _pkg_prepare_pacman_keyrings; _pkg_retry pacman -S --noconfirm --needed "${pkgs[@]}" 2>>"$LOG_FILE" ;;
-        zypper) _pkg_retry zypper --non-interactive install -y "${pkgs[@]}" 2>>"$LOG_FILE" ;;
+        zypper) _pkg_configure_zypper_ci_network; _pkg_retry zypper --non-interactive install -y "${pkgs[@]}" 2>>"$LOG_FILE" ;;
         xbps)   _pkg_run xbps-install -y "${pkgs[@]}" 2>>"$LOG_FILE" ;;
         apk)    _pkg_run apk add --no-progress "${pkgs[@]}" 2>>"$LOG_FILE" ;;
         *)      warn "Cannot install packages: unknown package manager '$PKG_MANAGER'. Install manually: ${pkgs[*]}" ; return 1 ;;

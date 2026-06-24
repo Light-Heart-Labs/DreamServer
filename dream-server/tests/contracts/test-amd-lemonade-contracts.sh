@@ -81,11 +81,36 @@ echo "[contract] Lemonade LiteLLM config has no master_key"
 if [[ -f config/litellm/lemonade.yaml ]]; then
     if grep -q 'master_key' config/litellm/lemonade.yaml; then
         fail "lemonade.yaml: must not contain master_key"
+    elif ! grep -q 'request_timeout: 900' config/litellm/lemonade.yaml \
+        || ! grep -q 'stream_timeout: 900' config/litellm/lemonade.yaml; then
+        fail "lemonade.yaml: must keep long-model proxy timeouts at 900s"
     else
-        pass "lemonade.yaml: no master_key"
+        pass "lemonade.yaml: no master_key and long-model proxy timeouts"
     fi
 else
     fail "lemonade.yaml: file missing"
+fi
+
+# ---------------------------------------------------------------------------
+# 5b. Linux AMD/Lemonade keeps Hermes provider timeout long enough for full models
+# ---------------------------------------------------------------------------
+echo "[contract] Linux Lemonade Hermes timeout is lifted from the Dream default"
+if grep -q '_hermes_request_timeout=900' installers/phases/11-services.sh \
+   && grep -q -- '--request-timeout-seconds "$_hermes_request_timeout"' installers/phases/11-services.sh \
+   && grep -q 'is_windows_bash || \[\[ "$runtime" == "lemonade" || "$llm_backend" == "lemonade" \]\]' scripts/bootstrap-upgrade.sh \
+   && grep -q 'is_windows_bash || \[\[ "$_gpu_backend_for_hermes" == "amd" || "$_hermes_llm_backend_for_timeout" == "lemonade" \]\]' scripts/bootstrap-upgrade.sh; then
+    pass "Linux Lemonade Hermes provider timeout is upgraded to 900s"
+else
+    fail "Linux Lemonade Hermes config must pass --request-timeout-seconds 900 at install and after bootstrap swap"
+fi
+
+echo "[contract] Lemonade Dream Talk keeps the same long-model timeout"
+if grep -q 'DREAM_TALK_HERMES_TIMEOUT=${DREAM_TALK_HERMES_TIMEOUT:-900}' docker-compose.amd.yml \
+   && grep -q 'DREAM_TALK_HERMES_TIMEOUT=${DREAM_TALK_HERMES_TIMEOUT:-900}' docker-compose.lemonade-external.yml \
+   && grep -q 'DREAM_TALK_HERMES_TIMEOUT=${DREAM_TALK_HERMES_TIMEOUT:-900}' installers/windows/docker-compose.windows-amd.yml; then
+    pass "Lemonade Dream Talk Hermes timeout is upgraded to 900s"
+else
+    fail "Lemonade Dream Talk must set DREAM_TALK_HERMES_TIMEOUT=900 in AMD, external, and Windows AMD overlays"
 fi
 
 # ---------------------------------------------------------------------------
@@ -154,6 +179,24 @@ if python3 scripts/render-runtime-configs.py \
     pass "LiteLLM Lemonade config maps default/wildcard to extra.\${GGUF_FILE}"
 else
     fail "LiteLLM Lemonade config must map selected GGUF to openai/extra.\${GGUF_FILE}"
+fi
+if python3 scripts/render-runtime-configs.py \
+        --surface litellm-lemonade \
+        --dream-mode lemonade \
+        --gpu-backend amd \
+        --gguf-file contract-selected.gguf \
+        --lemonade-api-base http://llama-server:8080/api/v1 \
+    | grep -q 'request_timeout: 900' \
+    && python3 scripts/render-runtime-configs.py \
+        --surface litellm-lemonade \
+        --dream-mode lemonade \
+        --gpu-backend amd \
+        --gguf-file contract-selected.gguf \
+        --lemonade-api-base http://llama-server:8080/api/v1 \
+    | grep -q 'stream_timeout: 900'; then
+    pass "LiteLLM Lemonade config keeps long-model proxy timeouts at 900s"
+else
+    fail "LiteLLM Lemonade config must set request_timeout and stream_timeout to 900s"
 fi
 if grep -q '_prewarm_model="extra.${GGUF_FILE}"' installers/phases/12-health.sh; then
     pass "Phase 12 prewarms AMD Lemonade using extra.\${GGUF_FILE}"
@@ -379,6 +422,9 @@ if command -v pwsh >/dev/null 2>&1; then
         if ($litellmText -match "api_base: http://llama-server:8080/api/v1") {
             throw "Windows AMD Lemonade LiteLLM config must not route to in-container llama-server"
         }
+        if ($litellmText -notmatch "(?m)^  request_timeout: 900$" -or $litellmText -notmatch "(?m)^  stream_timeout: 900$") {
+            throw "Windows AMD Lemonade LiteLLM config must keep long-model proxy timeouts at 900s"
+        }
 
         Set-Content -LiteralPath (Join-Path $installDir ".env") -Value "WHISPER_PORT=9000`n" -NoNewline
         New-DreamEnv -InstallDir $installDir -TierConfig $tier -Tier "SH" -GpuBackend "amd" -AmdInferenceRuntime "lemonade" -AmdInferenceLocation "host" | Out-Null
@@ -403,7 +449,52 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 17b. Linux AMD/Lemonade avoids host port 9000 collision with Whisper
+# 17b. Windows local mode always generates LiteLLM's local.yaml
+# ---------------------------------------------------------------------------
+echo "[contract] Windows local mode generates LiteLLM config"
+if command -v pwsh >/dev/null 2>&1; then
+    _ps_tmp="${TMPDIR:-/tmp}"
+    if ROOT_DIR="$ROOT_DIR" TEMP="$_ps_tmp" USERPROFILE="$_ps_tmp" pwsh -NoProfile -Command '
+        $ErrorActionPreference = "Stop"
+        function Write-AIWarn { param([string]$Message) Write-Host "WARN: $Message" }
+        . (Join-Path $env:ROOT_DIR "installers/windows/lib/env-generator.ps1")
+        $installDir = Join-Path $env:TEMP "dream-env-generator-windows-local-contract"
+        Remove-Item -LiteralPath $installDir -Recurse -Force -ErrorAction SilentlyContinue
+        New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+        $litellmDir = Join-Path (Join-Path $installDir "config") "litellm"
+        New-Item -ItemType Directory -Path (Join-Path $litellmDir "local.yaml") -Force | Out-Null
+        $tier = @{
+            TierName = "Windows NVIDIA"
+            LlmModel = "test-model"
+            GgufFile = "test-local.gguf"
+            MaxContext = 4096
+        }
+        New-DreamEnv -InstallDir $installDir -TierConfig $tier -Tier "3" -GpuBackend "nvidia" -DreamMode "local" | Out-Null
+        $localConfig = Join-Path $litellmDir "local.yaml"
+        if (-not (Test-Path -LiteralPath $localConfig -PathType Leaf)) {
+            throw "Expected Windows local installs to generate config/litellm/local.yaml as a file"
+        }
+        $localText = Get-Content -LiteralPath $localConfig -Raw
+        if ($localText -notmatch "model: openai/test-local\.gguf") {
+            throw "Expected local LiteLLM config to route the selected GGUF model"
+        }
+        if ($localText -notmatch "api_base: http://llama-server:8080/v1") {
+            throw "Expected Windows NVIDIA local LiteLLM config to route through llama-server:8080/v1"
+        }
+        if ($localText -notmatch "(?m)^  request_timeout: 900$" -or $localText -notmatch "(?m)^  stream_timeout: 900$") {
+            throw "Windows local LiteLLM config must keep long-model proxy timeouts at 900s"
+        }
+    '; then
+        pass "env-generator.ps1: Windows local writes local.yaml and repairs malformed bind-mount directories"
+    else
+        fail "env-generator.ps1: Windows local LiteLLM config contract failed"
+    fi
+else
+    pass "env-generator.ps1: Windows local LiteLLM runtime test skipped (pwsh unavailable)"
+fi
+
+# ---------------------------------------------------------------------------
+# 17c. Linux AMD/Lemonade avoids host port 9000 collision with Whisper
 # ---------------------------------------------------------------------------
 echo "[contract] Linux AMD/Lemonade avoids Whisper port 9000"
 if grep -q 'AMD/Lemonade detected; reserving host port 9000' installers/phases/04-requirements.sh \

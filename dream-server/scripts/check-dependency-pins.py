@@ -25,6 +25,7 @@ VAR_RE = re.compile(
     r"\$\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)(?:(?P<op>:-|-)(?P<default>[^}]+))?\}"
     r"|\$(?P<plain>[A-Za-z_][A-Za-z0-9_]*)"
 )
+EPHEMERAL_SHA_TAG_RE = re.compile(r"^sha-[0-9a-f]{7,64}$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -58,8 +59,8 @@ def _clean_value(value: str) -> str:
     return value.strip()
 
 
-def _rel(path: Path) -> str:
-    return path.relative_to(ROOT).as_posix()
+def _rel(path: Path, root: Path = ROOT) -> str:
+    return path.relative_to(root).as_posix()
 
 
 def _resolve_vars(value: str, defaults: dict[str, str]) -> str:
@@ -75,7 +76,7 @@ def _resolve_vars(value: str, defaults: dict[str, str]) -> str:
     return VAR_RE.sub(replace, value)
 
 
-def _compose_image_refs(path: Path) -> list[ImageRef]:
+def _compose_image_refs(path: Path, root: Path = ROOT) -> list[ImageRef]:
     refs: list[ImageRef] = []
     for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         match = IMAGE_RE.match(_strip_inline_comment(line))
@@ -84,7 +85,7 @@ def _compose_image_refs(path: Path) -> list[ImageRef]:
         raw = _clean_value(match.group("value"))
         refs.append(
             ImageRef(
-                path=_rel(path),
+                path=_rel(path, root),
                 line=line_no,
                 raw=raw,
                 value=_resolve_vars(raw, {}),
@@ -106,7 +107,7 @@ def _dockerfile_from_value(line: str) -> str | None:
     return _clean_value(tokens[0])
 
 
-def _dockerfile_image_refs(path: Path) -> list[ImageRef]:
+def _dockerfile_image_refs(path: Path, root: Path = ROOT) -> list[ImageRef]:
     refs: list[ImageRef] = []
     defaults: dict[str, str] = {}
     for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
@@ -119,7 +120,7 @@ def _dockerfile_image_refs(path: Path) -> list[ImageRef]:
             continue
         refs.append(
             ImageRef(
-                path=_rel(path),
+                path=_rel(path, root),
                 line=line_no,
                 raw=raw,
                 value=_resolve_vars(raw, defaults),
@@ -129,10 +130,9 @@ def _dockerfile_image_refs(path: Path) -> list[ImageRef]:
     return refs
 
 
-def candidate_files(root: Path = ROOT) -> list[Path]:
-    files: set[Path] = set(root.glob("docker-compose*.yml"))
-    files.update(root.glob("docker-compose*.yaml"))
-    for base in (root / "installers", root / "extensions" / "services"):
+def _image_ref_files(bases: Iterable[Path]) -> set[Path]:
+    files: set[Path] = set()
+    for base in bases:
         if not base.exists():
             continue
         for path in base.rglob("*"):
@@ -143,17 +143,37 @@ def candidate_files(root: Path = ROOT) -> list[Path]:
                 "docker-compose"
             ):
                 files.add(path)
+    return files
+
+
+def candidate_files(root: Path = ROOT) -> list[Path]:
+    files: set[Path] = set(root.glob("docker-compose*.yml"))
+    files.update(root.glob("docker-compose*.yaml"))
+    files.update(_image_ref_files((root / "installers", root / "extensions" / "services")))
     return sorted(files)
 
 
-def discover_image_refs(root: Path = ROOT) -> list[ImageRef]:
+def extension_library_candidate_files(root: Path = ROOT) -> list[Path]:
+    files = _image_ref_files((root / "extensions" / "library" / "services",))
+    return sorted(files)
+
+
+def _image_refs_from_files(files: Iterable[Path], root: Path) -> list[ImageRef]:
     refs: list[ImageRef] = []
-    for path in candidate_files(root):
+    for path in files:
         if path.name.startswith("Dockerfile"):
-            refs.extend(_dockerfile_image_refs(path))
+            refs.extend(_dockerfile_image_refs(path, root))
         else:
-            refs.extend(_compose_image_refs(path))
+            refs.extend(_compose_image_refs(path, root))
     return refs
+
+
+def discover_image_refs(root: Path = ROOT) -> list[ImageRef]:
+    return _image_refs_from_files(candidate_files(root), root)
+
+
+def discover_extension_library_image_refs(root: Path = ROOT) -> list[ImageRef]:
+    return _image_refs_from_files(extension_library_candidate_files(root), root)
 
 
 def _key(item: dict[str, object]) -> tuple[str, str]:
@@ -178,6 +198,19 @@ def _has_tag_or_digest(value: str) -> bool:
 
 def _is_variable_ref(value: str) -> bool:
     return "$" in value
+
+
+def _is_ephemeral_sha_tag(value: str) -> bool:
+    tag = _image_tag(value)
+    return tag is not None and EPHEMERAL_SHA_TAG_RE.match(tag) is not None
+
+
+def _ephemeral_sha_tag_error(ref: ImageRef) -> str:
+    location = f"{ref.path}:{ref.line}"
+    return (
+        f"{location}: ephemeral sha-* image tags are not release-stable; "
+        f"pin to a retained version tag or @sha256 digest: {ref.value}"
+    )
 
 
 def _arg_default_present(path: Path, arg: str, default: str) -> bool:
@@ -281,6 +314,9 @@ def validate_refs(refs: Iterable[ImageRef], lock: dict[str, object], root: Path 
             if (ref.path, ref.value) not in latest_allow:
                 errors.append(f"{location}: latest tag requires allow_latest: {ref.value}")
 
+        if _is_ephemeral_sha_tag(ref.value) and not _has_digest(ref.value):
+            errors.append(_ephemeral_sha_tag_error(ref))
+
         if (ref.path, ref.value) not in entry_keys and (ref.path, ref.value) not in latest_allow:
             errors.append(f"{location}: image ref is not recorded in dependency-lock.json: {ref.value}")
 
@@ -288,6 +324,14 @@ def validate_refs(refs: Iterable[ImageRef], lock: dict[str, object], root: Path 
         if (path, value) not in discovered_keys:
             errors.append(f"lock entry is stale or undiscovered: {path} -> {value}")
 
+    return errors
+
+
+def validate_ephemeral_sha_tags(refs: Iterable[ImageRef]) -> list[str]:
+    errors: list[str] = []
+    for ref in refs:
+        if _is_ephemeral_sha_tag(ref.value) and not _has_digest(ref.value):
+            errors.append(_ephemeral_sha_tag_error(ref))
     return errors
 
 
@@ -303,6 +347,7 @@ def check(path: Path = LOCK_PATH, root: Path = ROOT) -> list[str]:
     lock = load_lock(path)
     errors = _validate_lock_shape(lock, root)
     errors.extend(validate_refs(discover_image_refs(root), lock, root))
+    errors.extend(validate_ephemeral_sha_tags(discover_extension_library_image_refs(root)))
     return errors
 
 

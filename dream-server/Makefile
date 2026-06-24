@@ -19,6 +19,8 @@ lint: ## Syntax check all shell scripts + Python compile check
 test: ## Run unit and contract tests
 	@echo "=== Tier map tests ==="
 	@bash tests/test-tier-map.sh
+	@bash tests/test-installer-context-parity.sh
+	@bash tests/test-hermes-context-floor.sh
 	@echo ""
 	@echo "=== Installer contracts ==="
 	@bash tests/contracts/test-installer-contracts.sh
@@ -28,6 +30,7 @@ test: ## Run unit and contract tests
 	@echo ""
 	@echo "=== Linux install preflight ==="
 	@bash tests/test-linux-install-preflight.sh
+	@bash tests/test-linux-host-agent-stop.sh
 	@echo ""
 	@echo "=== AMD/Lemonade contracts ==="
 	@bash tests/contracts/test-amd-lemonade-contracts.sh
@@ -61,6 +64,9 @@ test: ## Run unit and contract tests
 	@echo ""
 	@echo "=== macOS dream-host-agent bootstrap verification ==="
 	@bash tests/test-macos-host-agent-verification.sh
+	@echo ""
+	@echo "=== macOS model download retry contract ==="
+	@bash tests/test-macos-download-retries.sh
 	@echo ""
 	@echo "=== fleet-multi-distro keep-going on docker pull failure ==="
 	@bash tests/test-fleet-multi-distro-keep-going.sh

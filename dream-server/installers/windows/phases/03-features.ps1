@@ -140,9 +140,12 @@ if ($enableComfyui -and $selectedTier -eq "CLOUD") {
 }
 
 if ($enableHermes -and -not $cloudMode) {
-    $hermesContextSize = 131072
+    $hermesContextSize = 65536
     if ([int]$tierConfig.MaxContext -lt $hermesContextSize) {
-        Write-AIWarn "Hermes enabled: increasing llama context from $($tierConfig.MaxContext) to $hermesContextSize (128K)."
+        Write-AIWarn "Hermes enabled: increasing llama context from $($tierConfig.MaxContext) to $hermesContextSize (64K floor)."
+        if ($tierConfig.ContainsKey("RecommendationReason") -and $tierConfig.RecommendationReason) {
+            $tierConfig.RecommendationReason = "$($tierConfig.RecommendationReason) Hermes requires at least 64K context, so runtime context was raised to $hermesContextSize."
+        }
         $tierConfig.MaxContext = $hermesContextSize
     }
 }

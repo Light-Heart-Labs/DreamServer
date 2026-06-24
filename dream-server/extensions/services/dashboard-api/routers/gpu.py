@@ -24,6 +24,7 @@ from gpu import (
 )
 from models import GPUInfo, IndividualGPU, MultiGPUStatus
 from models import AmdRuntimeStatus
+from lemonade_client import LemonadeClient, LemonadeClientError, LemonadeSettings, normalize_base_url
 
 logger = logging.getLogger(__name__)
 
@@ -219,13 +220,16 @@ def _env_bool(name: str) -> bool:
     return _clean_env(name).lower() in {"1", "true", "yes", "on"}
 
 
-def _runtime_base_url(runtime: str, location: str, port: int) -> str:
-    external_lemonade = (
+def _external_lemonade_active() -> bool:
+    return (
         _env_bool("LEMONADE_EXTERNAL")
         or _clean_env("AMD_INFERENCE_RUNTIME_MODE").lower() == "external-lemonade"
         or _clean_env("AMD_INFERENCE_MANAGED").lower() == "false"
     )
-    if runtime == "lemonade" and external_lemonade:
+
+
+def _runtime_base_url(runtime: str, location: str, port: int) -> str:
+    if runtime == "lemonade" and _external_lemonade_active():
         external_base = _clean_env("LEMONADE_CONTAINER_BASE_URL") or _clean_env("LEMONADE_BASE_URL")
         if external_base:
             external_base = external_base.rstrip("/")
@@ -284,6 +288,47 @@ def _probe_amd_health(health_url: str) -> tuple[str, str, Optional[str]]:
     if 200 <= int(status) < 300:
         return "reachable", version, None
     return "unhealthy", version, f"health_http_{status}"
+
+
+def _external_lemonade_warning(prefix: str, exc: LemonadeClientError) -> str:
+    if exc.kind == "provider_unreachable":
+        return f"{prefix}_unreachable"
+    return f"{prefix}_{exc.kind}"
+
+
+def _loaded_model_from_health(payload: dict) -> Optional[str]:
+    for key in ("model_loaded", "loaded_model", "active_model", "model"):
+        value = payload.get(key)
+        if value:
+            return str(value)
+    return None
+
+
+async def _probe_external_lemonade(api_base: str, api_path: str) -> tuple[str, str, list[str], Optional[str], Optional[int]]:
+    settings = LemonadeSettings(
+        base_url=normalize_base_url(api_base, api_path),
+        api_base_path=api_path,
+        api_key=_clean_env("LEMONADE_API_KEY") or _clean_env("LITELLM_LEMONADE_API_KEY"),
+        timeout=2.0,
+    )
+    warnings: list[str] = []
+
+    async with LemonadeClient(settings=settings) as client:
+        try:
+            health_payload = await client.health()
+        except LemonadeClientError as exc:
+            status = "unreachable" if exc.kind in {"provider_unreachable", "timeout"} else "unhealthy"
+            return status, "unknown", [_external_lemonade_warning("health", exc)], None, None
+
+        version = str(health_payload.get("version") or "unknown")
+        loaded_model = _loaded_model_from_health(health_payload)
+        model_count: Optional[int] = None
+        try:
+            model_count = len(await client.models())
+        except LemonadeClientError as exc:
+            warnings.append(_external_lemonade_warning("models", exc))
+
+    return "reachable", version, warnings, loaded_model, model_count
 
 
 # ============================================================================
@@ -422,9 +467,15 @@ async def amd_runtime():
     base_url = _runtime_base_url(runtime, location, port)
     api_base = _join_url(base_url, api_path)
     health_url = _join_url(base_url, _runtime_health_path(runtime, api_path))
-    health, version, health_warning = await asyncio.to_thread(_probe_amd_health, health_url)
-    if health_warning:
-        warnings.append(health_warning)
+    loaded_model: Optional[str] = None
+    model_count: Optional[int] = None
+    if runtime == "lemonade" and _external_lemonade_active():
+        health, version, probe_warnings, loaded_model, model_count = await _probe_external_lemonade(api_base, api_path)
+        warnings.extend(probe_warnings)
+    else:
+        health, version, health_warning = await asyncio.to_thread(_probe_amd_health, health_url)
+        if health_warning:
+            warnings.append(health_warning)
 
     return AmdRuntimeStatus(
         available=True,
@@ -440,6 +491,8 @@ async def amd_runtime():
         healthUrl=health_url,
         health=health,
         version=version,
+        loadedModel=loaded_model,
+        modelCount=model_count,
         capabilities=supported_backends,
         warnings=warnings,
     )

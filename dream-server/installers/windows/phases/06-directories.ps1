@@ -55,12 +55,17 @@ $_dirs = @(
     (Join-Path $_configDir "litellm"),
     (Join-Path $_configDir "openclaw"),
     (Join-Path $_configDir "llama-server"),
+    (Join-Path $_dataDir "auth"),
+    (Join-Path $_dataDir "config"),
+    (Join-Path $_dataDir "config-backups"),
+    (Join-Path $_dataDir "extension-progress"),
     (Join-Path $_dataDir "open-webui"),
     (Join-Path $_dataDir "whisper"),
     (Join-Path $_dataDir "tts"),
     (Join-Path $_dataDir "n8n"),
     (Join-Path $_dataDir "qdrant"),
     (Join-Path $_dataDir "models"),
+    (Join-Path $_dataDir "user-extensions"),
     (Join-Path $_dataDir "extensions-library"),
     (Join-Path $_dataDir "comfyui"),
     (Join-Path $_dataDir "perplexica"),
@@ -85,8 +90,15 @@ $_expectedRegularFiles = @(
     ".env",
     ".env.example",
     ".env.schema.json",
+    "config\litellm\local.yaml",
+    "config\litellm\lemonade.yaml",
+    "data\.extensions-lock",
     "extensions\services\hermes\cli-config.yaml.template",
     "extensions\services\hermes\SOUL.md.template",
+    "extensions\services\hermes-proxy\Caddyfile",
+    "extensions\services\dream-proxy\Caddyfile",
+    "extensions\services\whisper\docker-entrypoint.sh",
+    "extensions\services\perplexica\docker-entrypoint.sh",
     "data\persona\SOUL.md"
 )
 foreach ($_expectedFileName in $_expectedRegularFiles) {
@@ -96,6 +108,26 @@ foreach ($_expectedFileName in $_expectedRegularFiles) {
         Write-AIWarn "Removed malformed $_expectedFileName directory from a previous partial install."
     }
 }
+
+$_containerWritableDirs = @(
+    $_dataDir,
+    (Join-Path $_dataDir "auth"),
+    (Join-Path $_dataDir "config"),
+    (Join-Path $_dataDir "config-backups"),
+    (Join-Path $_dataDir "extension-progress"),
+    (Join-Path $_dataDir "n8n"),
+    (Join-Path $_dataDir "user-extensions")
+)
+foreach ($_writableDir in $_containerWritableDirs) {
+    if (Test-Path -LiteralPath $_writableDir -PathType Container) {
+        & icacls $_writableDir /grant "*S-1-1-0:(OI)(CI)M" /T /C /Q | Out-Null
+    }
+}
+$_extensionsLock = Join-Path $_dataDir ".extensions-lock"
+if (-not (Test-Path -LiteralPath $_extensionsLock -PathType Leaf)) {
+    New-Item -ItemType File -Path $_extensionsLock -Force | Out-Null
+}
+& icacls $_extensionsLock /grant "*S-1-1-0:M" /C /Q | Out-Null
 
 # ── Copy source tree (skip if running in-place) ───────────────────────────────
 if ($sourceRoot -ne $installDir) {
@@ -274,6 +306,7 @@ function Update-HermesConfigFile {
         [string]$Model,
         [string]$BaseUrl,
         [int]$ContextLength,
+        [int]$RequestTimeoutSeconds = 180,
         [switch]$LemonadeCompact
     )
 
@@ -285,6 +318,26 @@ function Update-HermesConfigFile {
     $content = $content -replace '(?m)^  base_url: ".*"\r?$', "  base_url: `"$BaseUrl`""
     $content = $content -replace '(?m)^  context_length: .+\r?$', "  context_length: $ContextLength"
     $content = $content -replace '(?m)^    context_length: .+\r?$', "    context_length: $ContextLength"
+    if ($RequestTimeoutSeconds -lt 1) { $RequestTimeoutSeconds = 180 }
+
+    $timeoutMatch = [regex]::Match($content, '(?m)^    request_timeout_seconds:\s*(\d+)\s*$')
+    if ($timeoutMatch.Success) {
+        if ($timeoutMatch.Groups[1].Value -eq "180" -and $RequestTimeoutSeconds -ne 180) {
+            $content = [regex]::Replace(
+                $content,
+                '(?m)^    request_timeout_seconds:\s*180\s*$',
+                "    request_timeout_seconds: $RequestTimeoutSeconds"
+            )
+        }
+    } elseif ($content -match '(?m)^  custom:\s*$') {
+        $content = $content -replace '(?m)^  custom:\s*$', "  custom:`n    request_timeout_seconds: $RequestTimeoutSeconds"
+    } elseif ($content -match '(?m)^providers:\s*$') {
+        $content = $content -replace '(?m)^providers:\s*$', "providers:`n  custom:`n    request_timeout_seconds: $RequestTimeoutSeconds"
+    } elseif ($content -match '(?m)^auxiliary:\s*$') {
+        $content = $content -replace '(?m)^auxiliary:\s*$', "providers:`n  custom:`n    request_timeout_seconds: $RequestTimeoutSeconds`n`nauxiliary:"
+    } else {
+        $content += "`nproviders:`n  custom:`n    request_timeout_seconds: $RequestTimeoutSeconds`n"
+    }
 
     if ($content -notmatch '(?m)^auxiliary:\s*$') {
         if ($content -match '(?m)^terminal:\s*$') {
@@ -462,14 +515,15 @@ if ($enableHermes) {
     if (-not (Test-Path $_hermesLive)) {
         Copy-Item -Path $_hermesTemplate -Destination $_hermesLive -Force
     }
-    $_patchedHermesTemplate = Update-HermesConfigFile -Path $_hermesTemplate -Model $_hermesModel -BaseUrl $_hermesBaseUrl -ContextLength ([int]$tierConfig.MaxContext) -LemonadeCompact:($gpuInfo.Backend -eq "amd")
-    $_patchedHermesLive = Update-HermesConfigFile -Path $_hermesLive -Model $_hermesModel -BaseUrl $_hermesBaseUrl -ContextLength ([int]$tierConfig.MaxContext) -LemonadeCompact:($gpuInfo.Backend -eq "amd")
+    $_hermesRequestTimeout = $(if ($cloudMode) { 180 } else { 900 })
+    $_patchedHermesTemplate = Update-HermesConfigFile -Path $_hermesTemplate -Model $_hermesModel -BaseUrl $_hermesBaseUrl -ContextLength ([int]$tierConfig.MaxContext) -RequestTimeoutSeconds $_hermesRequestTimeout -LemonadeCompact:($gpuInfo.Backend -eq "amd")
+    $_patchedHermesLive = Update-HermesConfigFile -Path $_hermesLive -Model $_hermesModel -BaseUrl $_hermesBaseUrl -ContextLength ([int]$tierConfig.MaxContext) -RequestTimeoutSeconds $_hermesRequestTimeout -LemonadeCompact:($gpuInfo.Backend -eq "amd")
     if (-not ($_patchedHermesTemplate -and $_patchedHermesLive)) {
         Write-AIError "Failed to patch Hermes config for Windows runtime (model=$_hermesModel, base_url=$_hermesBaseUrl)"
         exit 1
     }
     Invoke-HermesSoulRefresh -InstallRoot $installDir
-    Write-AISuccess "Patched Hermes config (model=$_hermesModel, context=$($tierConfig.MaxContext))"
+    Write-AISuccess "Patched Hermes config (model=$_hermesModel, context=$($tierConfig.MaxContext), request_timeout=${_hermesRequestTimeout}s)"
 }
 
 # ── Generate SearXNG config ───────────────────────────────────────────────────
