@@ -95,7 +95,11 @@ The installer auto-selects the best model for your unified memory:
 | 48 GB | 3 | Qwen3 30B-A3B (MoE, Q4_K_M) | 32768 |
 | 64+ GB | 4 | Qwen3 30B-A3B (MoE, Q4_K_M) | 131072 |
 
-When Hermes is enabled, the macOS installer promotes the active local context to 128K for the full model. If bootstrap mode is used, the first-run bootstrap model starts at 64K so Hermes is usable while the full model downloads.
+When Hermes is enabled, the macOS installer enforces a 64K minimum for the active
+local context. If bootstrap mode is used, the first-run bootstrap model starts at
+64K so the agent is usable while the full model downloads; after the swap, the
+full model keeps the model selector's chosen context, which may be 128K on
+larger tiers.
 
 Override: `./install.sh --tier 3`
 

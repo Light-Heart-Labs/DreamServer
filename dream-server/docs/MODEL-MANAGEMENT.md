@@ -79,8 +79,9 @@ grep -E "^(LLM_MODEL|GGUF_FILE|CTX_SIZE|MAX_CONTEXT)=" ~/dream-server/.env
 
 Hermes requires at least a 64K context window. Installer bootstrap mode uses
 `65536` for the fast-start model, then switches `.env`, llama-server, and
-Hermes config to the full model context, usually `131072`, when the background
-download completes.
+Hermes config to the model selector's chosen full-model context when the
+background download completes. Larger tiers may use `131072`; constrained tiers
+can remain at a smaller selected context.
 
 ## Manual: Download a Catalog Model
 

@@ -191,7 +191,7 @@ else
         "${LLM_MODEL}": {
           "name": "${LLM_MODEL}",
           "limit": {
-            "context": ${MAX_CONTEXT:-131072},
+            "context": ${MAX_CONTEXT:-65536},
             "output": 32768
           }
         }

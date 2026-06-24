@@ -19,6 +19,8 @@ lint: ## Syntax check all shell scripts + Python compile check
 test: ## Run unit and contract tests
 	@echo "=== Tier map tests ==="
 	@bash tests/test-tier-map.sh
+	@bash tests/test-installer-context-parity.sh
+	@bash tests/test-hermes-context-floor.sh
 	@echo ""
 	@echo "=== Installer contracts ==="
 	@bash tests/contracts/test-installer-contracts.sh

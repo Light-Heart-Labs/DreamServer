@@ -93,7 +93,11 @@ The first start takes a minute — image is ~3GB, Hermes runs its `skills_sync.p
 ## Defaults Dream Server applies
 
 - **Provider:** `custom` (OpenAI-compatible) pointing at `llama-server:8080/v1`
-- **Context:** Hermes requires at least 64K tokens. Local installers run the bootstrap model at 64K so Hermes works immediately, then move the full model and Hermes config to 128K after the background model upgrade completes.
+- **Context:** Hermes requires at least 64K tokens. Local installers run the
+  bootstrap model at 64K so the agent works immediately, then move the full model
+  and config to the model selector's chosen context after the background model
+  upgrade completes. Large-context tiers still use 128K when they select a
+  128K-capable model; constrained tiers can remain at a smaller context.
 - **Compression:** enabled at `compression.threshold: 0.50` with `target_ratio: 0.20` so long sessions compact before the backend hard-rejects an over-window request.
 - **Model name:** `qwen3.5-9b` (Dream Server's default LLM — to switch models, edit `model.default` in `data/hermes/config.yaml` after first start; there is no env-var hook for this)
 - **Persona (`SOUL.md`):** a generalist Dream-Server-aware persona (see `extensions/services/hermes/SOUL.md.template`)
@@ -241,7 +245,7 @@ grep -E "^(CTX_SIZE|MAX_CONTEXT)=" .env
 grep -n "context_length\|threshold\|target_ratio" data/hermes/config.yaml
 ```
 
-For Hermes, `CTX_SIZE` / `MAX_CONTEXT`, `model.context_length`, and `auxiliary.compression.context_length` should be at least `65536`. Fresh local installs use `65536` during bootstrap and `131072` after the full model swap.
+For Hermes, `CTX_SIZE` / `MAX_CONTEXT`, `model.context_length`, and `auxiliary.compression.context_length` should be at least `65536`. Fresh local installs use `65536` during bootstrap, then keep the model selector's chosen full-model context after the swap. On larger tiers that may be `131072`; on constrained tiers it can stay lower.
 
 ### Sessions / memories / skills disappeared after upgrade
 

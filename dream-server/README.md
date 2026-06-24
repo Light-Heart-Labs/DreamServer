@@ -77,7 +77,11 @@ By default, Dream Server uses **bootstrap mode** for instant gratification:
 
 No more staring at download bars. Start playing immediately.
 
-Hermes-enabled installs keep this fast-start path: the bootstrap model runs at a 64K context floor so Hermes can start cleanly, then the background full-model swap promotes the local context target to 128K.
+Hermes-enabled installs keep this fast-start path: the bootstrap model runs at a
+64K context floor so the agent can start cleanly, then the background full-model
+swap keeps the tier selector's chosen context for the full model. On capable
+tiers that may still be 128K; constrained tiers stay at the smaller selected
+context instead of being forced higher.
 
 Model download, switching, and manual GGUF notes: [docs/MODEL-MANAGEMENT.md](docs/MODEL-MANAGEMENT.md)
 
@@ -142,7 +146,9 @@ See [`docs/WINDOWS-QUICKSTART.md`](docs/WINDOWS-QUICKSTART.md) for details.
 
 The installer **automatically detects your GPU**, assigns a hardware tier, then uses the versioned catalog selector to choose the best installable GGUF for the detected memory envelope. Linux and macOS call `scripts/select-model.py`; Windows uses the PowerShell selector in `installers/windows/lib/tier-map.ps1`. Both read `config/model-library.json`, and the final choice is written to `.env` as `LLM_MODEL`, `GGUF_FILE`, `MAX_CONTEXT`, and `MODEL_RECOMMENDATION_*`.
 
-`MODEL_PROFILE=qwen` is the default non-Gemma catalog profile, so the effective model can be Qwen, Phi, or DeepSeek depending on fit. `MODEL_PROFILE=gemma4` and `MODEL_PROFILE=auto` are also supported where the tier map has Gemma 4 GGUFs available. When Hermes is enabled, installers keep the bootstrap model at 64K context and promote the full local model context to 128K where supported.
+`MODEL_PROFILE=qwen` is the default non-Gemma catalog profile, so the effective model can be Qwen, Phi, or DeepSeek depending on fit. `MODEL_PROFILE=gemma4` and `MODEL_PROFILE=auto` are also supported where the tier map has Gemma 4 GGUFs available. When Hermes is enabled, installers enforce a 64K minimum context for the active local model, then preserve the model selector's full-model context.
+
+Large-context tiers still use 128K where the selected tier/model supports it.
 
 The examples below are current catalog-selector outputs for common hardware envelopes. Exact installs can differ with detected VRAM/RAM, host architecture, existing downloads, or explicit profile overrides. Throughput still needs a local benchmark after first launch.
 

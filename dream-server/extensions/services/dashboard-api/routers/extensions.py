@@ -1211,7 +1211,9 @@ def _install_from_library(service_id: str) -> None:
                 )
 
     USER_EXTENSIONS_DIR.mkdir(parents=True, exist_ok=True)
-    tmpdir = tempfile.mkdtemp(dir=str(USER_EXTENSIONS_DIR.parent))
+    tmp_parent = USER_EXTENSIONS_DIR / ".tmp"
+    tmp_parent.mkdir(parents=True, exist_ok=True)
+    tmpdir = tempfile.mkdtemp(prefix=f".{service_id}-", dir=str(tmp_parent))
     try:
         staged = Path(tmpdir) / service_id
         _copytree_safe(source, staged)

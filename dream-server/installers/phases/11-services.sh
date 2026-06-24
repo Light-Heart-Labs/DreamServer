@@ -656,7 +656,7 @@ MODELS_INI_EOF
                 _hermes_base_url="http://litellm:4000/v1"
                 _hermes_api_key="${LITELLM_KEY:-}"
             fi
-            _hermes_context="${MAX_CONTEXT:-131072}"
+            _hermes_context="${MAX_CONTEXT:-65536}"
             _hermes_request_timeout=180
             if [[ "${DREAM_MODE:-local}" != "cloud" ]] && { [[ "${GPU_BACKEND:-}" == "amd" ]] || _phase11_external_lemonade; }; then
                 _hermes_request_timeout=900

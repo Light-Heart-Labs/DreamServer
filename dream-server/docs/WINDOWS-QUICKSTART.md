@@ -93,7 +93,12 @@ First user becomes admin. Start chatting immediately.
 
 ## Bootstrap Mode (Faster Start)
 
-The installer automatically uses bootstrap mode when applicable — a small model (~1.5 GB) downloads first so you can start chatting within 2 minutes, while the full model downloads in the background. Hermes-enabled installs run that bootstrap model at a 64K context floor, then promote the full local model context to 128K after the swap. No extra flags needed.
+The installer automatically uses bootstrap mode when applicable — a small model
+(~1.5 GB) downloads first so you can start chatting within 2 minutes, while the
+full model downloads in the background. Hermes-enabled installs run that
+bootstrap model at a 64K context floor, then keep the model selector's chosen
+full-model context after the swap. Large-context tiers still use 128K when they
+select it; constrained machines can stay lower. No extra flags needed.
 
 ---
 
