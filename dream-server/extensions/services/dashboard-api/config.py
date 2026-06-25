@@ -52,6 +52,21 @@ def _read_manifest_file(path: Path) -> dict[str, Any]:
     return data
 
 
+def _manifest_bool(value: Any, default: bool) -> bool:
+    """Normalize manifest booleans without treating "false" as truthy."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    return bool(value)
+
+
 def load_extension_manifests(
     manifest_dir: Path, gpu_backend: str,
 ) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]], list[dict[str, str]]]:
@@ -126,11 +141,11 @@ def load_extension_manifests(
                     "health": service.get("health", "/health"),
                     "name": service.get("name", service_id),
                     "ui_path": service.get("ui_path", "/"),
-                    "external_link": bool(service.get("external_link", True)),
+                    "external_link": _manifest_bool(service.get("external_link"), True),
                     "container_name": service.get("container_name", f"dream-{service_id}"),
                     "depends_on": service.get("depends_on", []),
                     "category": service.get("category", "optional"),
-                    "host_network": bool(service.get("host_network", False)),
+                    "host_network": _manifest_bool(service.get("host_network"), False),
                     "setup_hook": service.get("setup_hook", ""),
                     "hooks": service.get("hooks", {}),
                     "gpu_backends": service.get("gpu_backends", []),

@@ -488,6 +488,45 @@ class TestExternalLinks:
         assert "open-webui" in link_ids
         assert "litellm" not in link_ids
 
+    def test_external_links_preserve_docs_paths_and_exclude_raw_backends(self, test_client, monkeypatch):
+        import config
+        monkeypatch.setattr(config, "SERVICES", {
+            "ape": {
+                "name": "APE (Agent Policy Engine)",
+                "port": 7890,
+                "external_port": 7890,
+                "health": "/health",
+                "ui_path": "/docs",
+                "host": "ape",
+            },
+            "embeddings": {
+                "name": "TEI (Embeddings)",
+                "port": 80,
+                "external_port": 8090,
+                "health": "/health",
+                "ui_path": "/docs",
+                "host": "embeddings",
+            },
+            "llama-server": {
+                "name": "llama-server (LLM Inference)",
+                "port": 8080,
+                "external_port": 8080,
+                "health": "/health",
+                "ui_path": "/",
+                "host": "llama-server",
+                "external_link": False,
+            },
+        })
+        monkeypatch.setattr("main.SERVICES", config.SERVICES)
+
+        resp = test_client.get("/api/external-links", headers=test_client.auth_headers)
+
+        assert resp.status_code == 200
+        links = {link["id"]: link for link in resp.json()}
+        assert links["ape"]["ui_path"] == "/docs"
+        assert links["embeddings"]["ui_path"] == "/docs"
+        assert "llama-server" not in links
+
 
 # --- /api/storage ---
 

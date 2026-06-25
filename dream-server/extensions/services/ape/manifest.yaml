@@ -13,7 +13,7 @@ service:
   external_port_env: APE_PORT
   external_port_default: 7890
   health: /health
-  ui_path: /
+  ui_path: /docs
   type: docker
   gpu_backends: [all]
   compose_file: compose.yaml
