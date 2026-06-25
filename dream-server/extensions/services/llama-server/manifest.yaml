@@ -15,6 +15,7 @@ service:
   external_port_default: 8080
   health: /health
   ui_path: /
+  external_link: false
   health_timeout: 15
   type: docker
   gpu_backends: [amd, nvidia]

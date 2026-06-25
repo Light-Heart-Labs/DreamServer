@@ -5,7 +5,7 @@ import logging
 import pytest
 
 import config
-from config import _detect_container_default_gateway, load_extension_manifests, _read_manifest_file
+from config import _detect_container_default_gateway, load_extension_manifests, _manifest_bool, _read_manifest_file
 
 
 VALID_MANIFEST = """\
@@ -144,6 +144,39 @@ class TestLoadExtensionManifests:
         services, _, _ = load_extension_manifests(tmp_path, "nvidia")
 
         assert services["host-network-service"]["host_network"] is True
+
+    def test_preserves_external_link_false(self, tmp_path):
+        svc_dir = tmp_path / "api-only-service"
+        svc_dir.mkdir()
+        (svc_dir / "manifest.yaml").write_text(
+            "schema_version: dream.services.v1\n"
+            "service:\n"
+            "  id: api-only-service\n"
+            "  name: API Only Service\n"
+            "  port: 9191\n"
+            "  external_link: false\n"
+        )
+
+        services, _, _ = load_extension_manifests(tmp_path, "nvidia")
+
+        assert services["api-only-service"]["external_link"] is False
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            (None, True),
+            (False, False),
+            (True, True),
+            ("false", False),
+            ("no", False),
+            ("0", False),
+            ("true", True),
+            ("yes", True),
+            ("1", True),
+        ],
+    )
+    def test_manifest_bool_accepts_yaml_and_env_style_values(self, raw, expected):
+        assert _manifest_bool(raw, True) is expected
 
     def test_skips_wrong_schema_version(self, tmp_path):
         svc_dir = tmp_path / "old-service"
