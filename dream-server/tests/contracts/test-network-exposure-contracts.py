@@ -133,6 +133,7 @@ def test_dashboard_csp_allows_dream_talk_tts_blob_audio() -> None:
 
 def test_openclaw_stays_deprecated_optional_and_token_gated() -> None:
     manifest = read(SERVICES / "openclaw" / "manifest.yaml")
+    compose = read(SERVICES / "openclaw" / "compose.yaml")
     docs = read(ROOT / "docs" / "OPENCLAW-INTEGRATION.md")
     policy = json.loads(read(POLICY))["services"]["openclaw"]
 
@@ -140,6 +141,22 @@ def test_openclaw_stays_deprecated_optional_and_token_gated() -> None:
     assert_true(manifest_value(manifest, "category") == "optional", "OpenClaw must stay optional")
     assert_true("OPENCLAW_TOKEN" in manifest, "OpenClaw manifest must require a token")
     assert_true(policy["lan_exposure"] == "opt-in-only", "OpenClaw policy must stay opt-in-only")
+    assert_true(
+        '"${BIND_ADDRESS:-127.0.0.1}:${OPENCLAW_PORT:-7860}:18789"' in compose,
+        "OpenClaw host exposure must stay controlled by the published host bind address",
+    )
+    assert_true(
+        "--bind lan" in compose,
+        "OpenClaw must listen on a Docker-publishable container interface",
+    )
+    assert_true(
+        "--bind localhost" not in compose and "BIND_MODE=localhost" not in compose,
+        "OpenClaw image 2026.3.8 rejects localhost as a gateway bind mode",
+    )
+    assert_true(
+        "--bind loopback" not in compose and "BIND_MODE=loopback" not in compose,
+        "OpenClaw loopback bind is container-local and breaks the published host UI",
+    )
     assert_true("DEPRECATED" in docs, "OpenClaw docs must keep the deprecation notice")
 
 

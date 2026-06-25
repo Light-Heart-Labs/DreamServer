@@ -23,13 +23,14 @@ services:
       - OPENCLAW_DANGEROUSLY_DISABLE_DEVICE_AUTH=${OPENCLAW_DANGEROUSLY_DISABLE_DEVICE_AUTH:-}
       - HOME=/home/node
     user: "0:0"
-    # Gateway bind mode tracks BIND_ADDRESS: a loopback bind (127.0.0.1 /
-    # localhost / ::1) binds the gateway to localhost so the process-level
-    # binding matches the localhost intent; any widened bind exposes it on the
-    # LAN interface. The unconfigured-gateway flag is dropped: inject-token.js
-    # always writes the merged config to /tmp/openclaw-config.json
-    # (OPENCLAW_CONFIG_PATH), so the gateway is always configured at start.
-    entrypoint: ["/bin/sh", "-c", "chown -R 1000:1000 /home/node/.openclaw; exec setpriv --reuid=1000 --regid=1000 --clear-groups /bin/sh -c 'node /config/inject-token.js; export OPENCLAW_CONFIG_PATH=/tmp/openclaw-config.json; case \"$${BIND_ADDRESS:-127.0.0.1}\" in 127.0.0.1|localhost|::1) BIND_MODE=localhost ;; *) BIND_MODE=lan ;; esac; exec docker-entrypoint.sh node openclaw.mjs gateway --bind \"$$BIND_MODE\"'"]
+    # OpenClaw's bind flag is process-level inside the container. Even when
+    # Dream binds the published host port to 127.0.0.1, the gateway must listen
+    # on a container-reachable interface or Docker's port publishing cannot
+    # reach it. Host exposure is still controlled by the ports mapping below.
+    # The unconfigured-gateway flag is dropped: inject-token.js always writes
+    # the merged config to /tmp/openclaw-config.json (OPENCLAW_CONFIG_PATH), so
+    # the gateway is always configured at start.
+    entrypoint: ["/bin/sh", "-c", "chown -R 1000:1000 /home/node/.openclaw; exec setpriv --reuid=1000 --regid=1000 --clear-groups /bin/sh -c 'node /config/inject-token.js; export OPENCLAW_CONFIG_PATH=/tmp/openclaw-config.json; exec docker-entrypoint.sh node openclaw.mjs gateway --bind lan'"]
     volumes:
       - ./config/openclaw:/config:ro,z
       - ./data/openclaw:/data:z
