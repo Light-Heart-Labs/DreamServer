@@ -479,6 +479,30 @@ class TestDashboardFeatureContracts:
         assert result["status"] == "services_needed"
         assert result["requirements"]["servicesAnySelected"] == ["litellm"]
 
+    def test_external_lemonade_litellm_route_wins_over_ollama_url(self):
+        services = [
+            self._service("open-webui"),
+            self._service("qdrant"),
+            self._service("litellm"),
+        ]
+        env = {
+            "OLLAMA_URL": "http://host.docker.internal:13305",
+            "LLM_URL": "http://litellm:4000",
+        }
+
+        with patch.dict(os.environ, env, clear=True):
+            chat = calculate_feature_status(
+                self._feature("llama-server", "chat"), services, self._gpu()
+            )
+            documents = calculate_feature_status(
+                self._feature("llama-server", "documents"), services, self._gpu()
+            )
+
+        assert chat["status"] == "enabled"
+        assert chat["requirements"]["servicesAnySelected"] == ["litellm"]
+        assert documents["status"] == "enabled"
+        assert documents["requirements"]["servicesAnySelected"] == ["litellm"]
+
     def test_documents_require_web_ui_vector_store_and_one_provider(self):
         services = [
             self._service("open-webui"),

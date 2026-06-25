@@ -24,7 +24,12 @@ def _select_configured_services(candidates: list[str]) -> list[str]:
     if set(candidates) != LLM_PROVIDER_SERVICES:
         return candidates
 
-    endpoint = os.environ.get("OLLAMA_URL") or os.environ.get("LLM_URL") or ""
+    endpoint = (
+        os.environ.get("LLM_URL")
+        or os.environ.get("LLM_API_URL")
+        or os.environ.get("OLLAMA_URL")
+        or ""
+    )
     hostname = (urlparse(endpoint).hostname or "").lower()
     if hostname == "litellm":
         return ["litellm"]
