@@ -56,6 +56,9 @@ test: ## Run unit and contract tests
 	@echo "=== dream config show secret-mask matrix ==="
 	@bash tests/test-dream-config-secret-mask.sh
 	@echo ""
+	@echo "=== Manifest schema validator ==="
+	@bash tests/test-validate-manifest-schema.sh
+	@echo ""
 	@echo "=== bootstrap OpenClaw compose-guard regression ==="
 	@bash tests/test-bootstrap-openclaw-compose-guard.sh
 	@echo ""
