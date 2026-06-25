@@ -49,8 +49,12 @@ def _date_range(start_day: date, end_day: date) -> list[str]:
 
 
 def _empty_report(start: str, end: str, status: str = "unavailable", detail: str | None = None) -> dict[str, Any]:
-    start_day = _parse_date(start)
-    end_day = _parse_date(end)
+    # The query regex (^\d{4}-\d{2}-\d{2}$) accepts calendar-invalid dates like
+    # 2026-02-30, so the daily breakdown is only built when both bounds parse.
+    try:
+        days = _date_range(_parse_date(start), _parse_date(end))
+    except ValueError:
+        days = []
     return {
         "period": {"start": start, "end": end},
         "source": {
@@ -83,7 +87,7 @@ def _empty_report(start: str, end: str, status: str = "unavailable", detail: str
                 "cache_read_tokens": 0,
                 "cache_write_tokens": 0,
             }
-            for day in _date_range(start_day, end_day)
+            for day in days
         ],
         "models": [],
         "services": [],
