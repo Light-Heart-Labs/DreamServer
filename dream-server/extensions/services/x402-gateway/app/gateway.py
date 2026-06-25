@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from urllib.parse import urljoin
-
 import httpx
 from fastapi import Request, Response
 
