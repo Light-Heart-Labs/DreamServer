@@ -588,10 +588,11 @@ raise SystemExit(1)' 2>/dev/null && return 0
     fi
     DREAM_DEVICE_NAME=$(_env_get DREAM_DEVICE_NAME "$_device_default")
 
-    # Whisper STT model — NVIDIA picks the larger turbo model, everyone else
-    # uses base. Phase 12 reads this to pre-download the right file, and
-    # Open WebUI reads it to request the same model for transcription.
-    if [[ "$GPU_BACKEND" == "nvidia" ]]; then
+    # Whisper STT model — CUDA-capable NVIDIA and Jetson backends pick the
+    # larger turbo model, everyone else uses base. Phase 12 reads this to
+    # pre-download the right file, and Open WebUI reads it to request the
+    # same model for transcription.
+    if [[ "$GPU_BACKEND" == "nvidia" || "$GPU_BACKEND" == "jetson" ]]; then
         _default_stt_model="deepdml/faster-whisper-large-v3-turbo-ct2"
     else
         _default_stt_model="Systran/faster-whisper-base"
