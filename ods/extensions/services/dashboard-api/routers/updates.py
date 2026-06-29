@@ -145,7 +145,18 @@ def _get_cached_release_payload(allow_stale: bool = False) -> Optional[dict]:
     return None
 
 
+def _normalize_version(value: Optional[str]) -> str:
+    """Normalize a version string for comparison and display.
+
+    GitHub release tags are ``vX.Y.Z`` while ``.env``/``.version`` may store
+    either form, so strip a leading ``v`` (and surrounding whitespace) to keep
+    ``current`` and ``latest`` on the same footing.
+    """
+    return (value or "").strip().lstrip("v")
+
+
 def _build_version_result(current: str, payload: Optional[dict]) -> dict:
+    current = _normalize_version(current)
     result = {
         "current": current,
         "latest": None,
@@ -156,7 +167,7 @@ def _build_version_result(current: str, payload: Optional[dict]) -> dict:
     if not payload:
         return result
 
-    latest = (payload.get("latest") or "").lstrip("v")
+    latest = _normalize_version(payload.get("latest"))
     if not latest:
         return result
 
@@ -285,6 +296,7 @@ async def get_update_dry_run():
             current = (parsed or {}).get("version", raw) or raw or "0.0.0"
         except (json.JSONDecodeError, OSError):
             pass
+    current = _normalize_version(current)
 
     # ── latest version from GitHub ────────────────────────────────────────────
     latest: Optional[str] = None
@@ -299,7 +311,7 @@ async def get_update_dry_run():
                 headers=_GITHUB_HEADERS,
             )
         data = resp.json()
-        latest = data.get("tag_name", "").lstrip("v") or None
+        latest = _normalize_version(data.get("tag_name")) or None
         changelog_url = data.get("html_url") or None
         if latest:
             def _parts(v: str) -> list[int]:
