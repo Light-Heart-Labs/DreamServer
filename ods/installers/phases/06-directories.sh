@@ -1,5 +1,4 @@
 #!/bin/bash
-export LC_NUMERIC=C
 # ============================================================================
 # ODS Installer — Phase 06: Directories & Configuration
 # ============================================================================
@@ -490,7 +489,7 @@ raise SystemExit(1)' 2>/dev/null && return 0
 
     _cap_cpu_value() {
         local desired="$1" ceiling="$2"
-        awk -v desired="$desired" -v ceiling="$ceiling" '
+        LC_ALL=C awk -v desired="$desired" -v ceiling="$ceiling" '
             BEGIN {
                 if (ceiling <= 0) ceiling = 1
                 value = desired
