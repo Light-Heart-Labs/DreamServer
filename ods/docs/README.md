@@ -20,6 +20,7 @@ matches the work in front of them.
 |--------------|-----------------|----------|
 | Install the default path | [../QUICKSTART.md](../QUICKSTART.md) | [INSTALLER_TRUST.md](INSTALLER_TRUST.md), [SUPPORT-MATRIX.md](SUPPORT-MATRIX.md), [POST-INSTALL-CHECKLIST.md](POST-INSTALL-CHECKLIST.md) |
 | Install on Windows | [WINDOWS-QUICKSTART.md](WINDOWS-QUICKSTART.md) | [WINDOWS-INSTALL-WALKTHROUGH.md](WINDOWS-INSTALL-WALKTHROUGH.md), [WINDOWS-WSL2-GPU-GUIDE.md](WINDOWS-WSL2-GPU-GUIDE.md) |
+| Run ODS on a laptop with workstation inference | [REMOTE-LLM-TUNNEL.md](REMOTE-LLM-TUNNEL.md) | [VLLM-SETUP.md](VLLM-SETUP.md), [MODE-SWITCH.md](MODE-SWITCH.md), [ODS-DOCTOR.md](ODS-DOCTOR.md) |
 | Install on Apple Silicon | [MACOS-QUICKSTART.md](MACOS-QUICKSTART.md) | [MODEL-MANAGEMENT.md](MODEL-MANAGEMENT.md), [TROUBLESHOOTING.md](TROUBLESHOOTING.md) |
 | Debug a broken install | [ODS-DOCTOR.md](ODS-DOCTOR.md) | [INSTALL-TROUBLESHOOTING.md](INSTALL-TROUBLESHOOTING.md), [SUPPORT-BUNDLE.md](SUPPORT-BUNDLE.md) |
 | Change installer behavior | [INSTALLER-ARCHITECTURE.md](INSTALLER-ARCHITECTURE.md) | [BACKEND-CONTRACT.md](BACKEND-CONTRACT.md), [PREFLIGHT-ENGINE.md](PREFLIGHT-ENGINE.md) |
@@ -132,6 +133,7 @@ canonical source and treat older recipes as context.
 | [PROFILES.md](PROFILES.md) | Reference | Docker Compose profiles (historical reference) |
 | [MODE-SWITCH.md](MODE-SWITCH.md) | Operators | Cloud/local/hybrid deployment modes (planned) |
 | [VLLM-SETUP.md](VLLM-SETUP.md) | Operators | Optional vLLM setup notes for high-concurrency NVIDIA inference |
+| [REMOTE-LLM-TUNNEL.md](REMOTE-LLM-TUNNEL.md) | Operators | Run ODS locally while forwarding inference to a remote OpenAI-compatible workstation |
 
 ## Troubleshooting
 

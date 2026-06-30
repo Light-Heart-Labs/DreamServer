@@ -149,7 +149,9 @@ adds diagnoses when the evidence contradicts the selected mode:
 - `ODS-RUNTIME-CLOUD-HERMES-LOCAL-ROUTE`: cloud mode still has Hermes pointing
   at local `llama-server`.
 - `ODS-RUNTIME-CLOUD-GATEWAY-BYPASS`: cloud mode points ODS services somewhere
-  other than the LiteLLM gateway.
+  other than the LiteLLM gateway. This is suppressed when
+  `REMOTE_LLM_TUNNEL_ENABLED=true` and both `LLM_API_URL` and
+  `HERMES_LLM_BASE_URL` point at the configured remote tunnel port.
 - `ODS-RUNTIME-EXTERNAL-LEMONADE-CLOUD-OVERLAY-MISSING`: external Lemonade is
   active while cached `.compose-flags` lacks the cloud overlay that profiles
   out managed local inference.

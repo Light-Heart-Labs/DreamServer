@@ -136,7 +136,18 @@ The cost of doubling `--max-model-len` is doubling the per-slot KV allocation, w
 
 ## Existing ODS integration
 
-vLLM is not a first-class extension yet, but Perplexica can already be pointed at an OpenAI-compatible vLLM container on the `ods-network` in place of the default `llama-server` by changing `LLM_API_URL`. Treat that as the current integration seam: ODS has a consumer that can talk to vLLM, while a production-ready vLLM service wrapper still belongs in future work.
+vLLM is not a first-class extension yet, but ODS can route to an OpenAI-compatible
+vLLM endpoint by changing `LLM_API_URL`. For the common laptop-plus-workstation
+shape, use [REMOTE-LLM-TUNNEL.md](REMOTE-LLM-TUNNEL.md): ODS stays local, a
+self-healing SSH tunnel forwards a laptop loopback port to the remote vLLM
+server, and the cloud compose overlay keeps managed local `llama-server` out of
+the active stack.
+
+Perplexica can also be pointed at an OpenAI-compatible vLLM container on the
+`ods-network` in place of the default `llama-server` by changing `LLM_API_URL`.
+Treat that as the current integration seam: ODS has consumers that can talk to
+vLLM, while a production-ready vLLM service wrapper still belongs in future
+work.
 
 ---
 

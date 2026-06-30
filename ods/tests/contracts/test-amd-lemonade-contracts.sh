@@ -528,7 +528,10 @@ if grep -A16 'function Test-ODSDockerImageAvailable' installers/windows/install-
     | grep -q 'SilentlyContinue' \
     && grep -A20 'function Test-ODSDockerImageAvailable' installers/windows/install-windows.ps1 \
         | grep -q 'finally' \
-    && grep -q 'docker manifest inspect' installers/windows/install-windows.ps1; then
+    && grep -A16 'function Test-ODSDockerImageAvailable' installers/windows/install-windows.ps1 \
+        | grep -q 'image inspect' \
+    && grep -A16 'function Test-ODSDockerImageAvailable' installers/windows/install-windows.ps1 \
+        | grep -q 'manifest inspect'; then
     pass "install-windows.ps1: image availability probes restore ErrorActionPreference"
 else
     fail "install-windows.ps1: Docker image probes must not abort on missing local images"

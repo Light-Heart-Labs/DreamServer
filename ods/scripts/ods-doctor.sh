@@ -652,6 +652,16 @@ def _looks_like_litellm_route(value):
     return "litellm" in lowered or ":4000" in lowered
 
 
+def _looks_like_remote_tunnel_route(value, local_port):
+    lowered = (value or "").lower().rstrip("/")
+    port = str(local_port or "").strip() or "18080"
+    return (
+        f"host.docker.internal:{port}" in lowered
+        or f"127.0.0.1:{port}" in lowered
+        or f"localhost:{port}" in lowered
+    )
+
+
 def _looks_like_local_llama_route(value):
     lowered = (value or "").lower()
     if not lowered:
@@ -739,6 +749,8 @@ def _collect_inference_contract():
     llm_backend = env_get("LLM_BACKEND", "")
     llm_api_url = env_get("LLM_API_URL", "")
     hermes_base_url = env_get("HERMES_LLM_BASE_URL", "")
+    remote_llm_tunnel = _truthy(env_get("REMOTE_LLM_TUNNEL_ENABLED"))
+    remote_llm_tunnel_port = env_get("REMOTE_LLM_TUNNEL_LOCAL_PORT", "18080")
     lemonade_external = (
         _truthy(env_get("LEMONADE_EXTERNAL"))
         or env_get("AMD_INFERENCE_RUNTIME_MODE").strip().lower() == "external-lemonade"
@@ -822,7 +834,12 @@ def _collect_inference_contract():
                     f"ODS_MODE=cloud but HERMES_LLM_BASE_URL points at local llama-server ({hermes_base_url}).",
                 )
             )
-        if llm_api_url and not _looks_like_litellm_route(llm_api_url):
+        cloud_bypass_is_remote_tunnel = (
+            remote_llm_tunnel
+            and _looks_like_remote_tunnel_route(llm_api_url, remote_llm_tunnel_port)
+            and _looks_like_remote_tunnel_route(hermes_base_url, remote_llm_tunnel_port)
+        )
+        if llm_api_url and not _looks_like_litellm_route(llm_api_url) and not cloud_bypass_is_remote_tunnel:
             issues.append(
                 _inference_issue(
                     "ODS-RUNTIME-CLOUD-GATEWAY-BYPASS",

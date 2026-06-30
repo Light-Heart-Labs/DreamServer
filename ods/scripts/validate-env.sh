@@ -79,6 +79,12 @@ if ! command -v jq >/dev/null 2>&1; then
     exit 3
 fi
 
+jq_raw() {
+  # Windows jq.exe emits CRLF under Git Bash; strip CR so mapfile/case checks
+  # see the same keys and scalar values as Linux/macOS jq.
+  jq -r "$@" | tr -d '\r'
+}
+
 # -----------------------------
 # .env parsing (robust)
 # -----------------------------
@@ -183,9 +189,9 @@ enum_errors=()
 range_errors=()
 duplicate_errors=()
 
-mapfile -t required_keys < <(jq -r '.required[]?' "$SCHEMA_FILE")
+mapfile -t required_keys < <(jq_raw '.required[]?' "$SCHEMA_FILE")
 
-mapfile -t schema_keys < <(jq -r '.properties | keys[]' "$SCHEMA_FILE")
+mapfile -t schema_keys < <(jq_raw '.properties | keys[]' "$SCHEMA_FILE")
 declare -A SCHEMA_KEY_SET
 for key in "${schema_keys[@]}"; do
     SCHEMA_KEY_SET["$key"]=1
@@ -220,7 +226,7 @@ for key in "${schema_keys[@]}"; do
     val="${ENV_MAP[$key]-}"
     [[ -z "$val" ]] && continue
 
-    expected_type="$(jq -r --arg k "$key" '.properties[$k].type // "string"' "$SCHEMA_FILE")"
+    expected_type="$(jq_raw --arg k "$key" '.properties[$k].type // "string"' "$SCHEMA_FILE")"
 
     # Type validation
     case "$expected_type" in
@@ -250,7 +256,7 @@ for key in "${schema_keys[@]}"; do
         : # enums in our schema are for strings; ignore otherwise
       else
         if ! jq -e --arg k "$key" --arg v "$val" '.properties[$k].enum | index($v) != null' "$SCHEMA_FILE" >/dev/null 2>&1; then
-          allowed="$(jq -r --arg k "$key" '.properties[$k].enum | join(", ")' "$SCHEMA_FILE")"
+          allowed="$(jq_raw --arg k "$key" '.properties[$k].enum | join(", ")' "$SCHEMA_FILE")"
           enum_errors+=("$key: invalid value '$val' (allowed: $allowed) (line ${ENV_LINE[$key]:-?})")
         fi
       fi
@@ -259,13 +265,13 @@ for key in "${schema_keys[@]}"; do
     # Range validation (minimum/maximum) for numbers/integers
     if [[ "$expected_type" == "integer" || "$expected_type" == "number" ]]; then
       if jq -e --arg k "$key" '.properties[$k].minimum? != null' "$SCHEMA_FILE" >/dev/null 2>&1; then
-        minv="$(jq -r --arg k "$key" '.properties[$k].minimum' "$SCHEMA_FILE")"
+        minv="$(jq_raw --arg k "$key" '.properties[$k].minimum' "$SCHEMA_FILE")"
         if awk "BEGIN{exit !($val < $minv)}" 2>/dev/null; then
           range_errors+=("$key: value $val is < minimum $minv (line ${ENV_LINE[$key]:-?})")
         fi
       fi
       if jq -e --arg k "$key" '.properties[$k].maximum? != null' "$SCHEMA_FILE" >/dev/null 2>&1; then
-        maxv="$(jq -r --arg k "$key" '.properties[$k].maximum' "$SCHEMA_FILE")"
+        maxv="$(jq_raw --arg k "$key" '.properties[$k].maximum' "$SCHEMA_FILE")"
         if awk "BEGIN{exit !($val > $maxv)}" 2>/dev/null; then
           range_errors+=("$key: value $val is > maximum $maxv (line ${ENV_LINE[$key]:-?})")
         fi
@@ -348,7 +354,7 @@ log_info "Keys in schema: ${#schema_keys[@]}"
 log_info "Required keys: ${#required_keys[@]}"
 
 # Optional: print helpful summary of secrets (without values)
-secret_count=$(jq -r '.properties | to_entries[] | select(.value.secret==true) | .key' "$SCHEMA_FILE" | wc -l | tr -d ' ')
+secret_count=$(jq_raw '.properties | to_entries[] | select(.value.secret==true) | .key' "$SCHEMA_FILE" | wc -l | tr -d ' ')
 if [[ "$secret_count" =~ ^[0-9]+$ ]] && (( secret_count > 0 )); then
   log_info "Schema marks ${secret_count} key(s) as secrets (values not printed)."
 fi

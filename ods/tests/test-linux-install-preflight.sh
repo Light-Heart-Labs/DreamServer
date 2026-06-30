@@ -54,9 +54,9 @@ if "$LP" --json >"$JSON_OUT" 2>/dev/null || true; then
     :
 fi
 if command -v python3 >/dev/null 2>&1; then
-    if python3 - <<PY
+    if python3 - "$JSON_OUT" <<'PY'
 import json, sys
-path = "$JSON_OUT"
+path = sys.argv[1]
 with open(path, encoding="utf-8") as f:
     r = json.load(f)
 assert r.get("kind") == "linux-install-preflight"
@@ -100,9 +100,9 @@ EOF
     if PATH="$PODMAN_TMP:$PATH" "$LP" --json >"$PODMAN_JSON" 2>/dev/null || true; then
         :
     fi
-    if python3 - <<PY
-import json
-path = "$PODMAN_JSON"
+    if python3 - "$PODMAN_JSON" <<'PY'
+import json, sys
+path = sys.argv[1]
 with open(path, encoding="utf-8") as f:
     report = json.load(f)
 checks = {c["id"]: c for c in report["checks"]}
